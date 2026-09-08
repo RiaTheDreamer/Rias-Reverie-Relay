@@ -1,0 +1,89 @@
+// @ts-nocheck -- Local source-level UX and host-contract regression harness.
+import { readFileSync } from 'node:fs'
+import { NARRATIVE_UTILITY_OVERVIEWS, SETTING_HELP, SURFACE_UTILITY_OVERVIEWS } from '../src/uxCopy'
+import { R45_ACTIVE_SURFACE_IDS } from '../src/r45UtilityContracts'
+
+const assert = (condition: unknown, message = 'assertion failed') => { if (!condition) throw new Error(message) }
+const equal = (actual: unknown, expected: unknown, message = 'values differ') => assert(actual === expected, `${message}: expected ${String(expected)}, got ${String(actual)}`)
+const read = (path: string) => readFileSync(path, 'utf8')
+const frontend = read('src/frontend.ts')
+const backend = read('src/backend.ts')
+const pkg = JSON.parse(read('package.json'))
+const manifest = JSON.parse(read('spindle.json'))
+
+equal(pkg.version, '0.2.0')
+equal(manifest.version, '0.2.0')
+equal(R45_ACTIVE_SURFACE_IDS.length, 46)
+equal(Object.keys(SURFACE_UTILITY_OVERVIEWS).length, 46)
+equal([...R45_ACTIVE_SURFACE_IDS].filter(id => !SURFACE_UTILITY_OVERVIEWS[id]).length, 0)
+equal(Object.keys(NARRATIVE_UTILITY_OVERVIEWS).length, 13)
+assert(Object.keys(SETTING_HELP).length >= 35, 'core setting help inventory is unexpectedly small')
+assert(!Object.values(SETTING_HELP).some(copy => /open this help/i.test(copy)), 'tooltips must explain their setting instead of referring users to nonexistent help')
+for (const label of ['Surface Utility / Model Instructions', 'Canonical Validation Fixture', 'Utility Category']) {
+  assert(Boolean(SETTING_HELP[label]) && SETTING_HELP[label].length > 60, `${label} needs direct explanatory help`)
+}
+
+assert(frontend.includes("function helpTip(labelText: string"))
+assert(frontend.includes("trigger.setAttribute('aria-label', `Help for ${labelText}`)"))
+assert(frontend.includes("popover.setAttribute('role', 'tooltip')"))
+assert(frontend.includes(".dg-help-popover"))
+assert(frontend.includes('dg-help-portal') && frontend.includes('window.innerWidth - width - 12'), 'tooltips must portal and clamp to the viewport')
+assert(frontend.includes(".dg-info-note"))
+assert(frontend.includes("titleRow.append(title, helpTip(labelText, description))"), 'toggle settings must receive help')
+assert(frontend.includes("const label = fieldLabel(labelText)"), 'shared fields must receive help')
+assert(frontend.indexOf("panelSection('Prompt Preview · all enabled Utilities'") < frontend.indexOf("panelSection('Surface Defaults'"), 'combined prompt preview must be above Surface settings')
+assert(frontend.includes("SURFACE_UTILITY_OVERVIEWS[definition.baseSurfaceId]"))
+assert(frontend.includes("NARRATIVE_UTILITY_OVERVIEWS[displayName]"))
+assert(frontend.includes('A saved collection may refer to a preset which was later deleted') && backend.includes('Persisted collections can point at a deleted custom preset'), 'stale active presets must fall back to their built-in Surface instead of disappearing from Creator/Injection')
+assert(backend.includes('Preserve deliberate Utility edits for every active Surface'), 'a saved per-Surface Utility edit must not be overwritten during state normalization')
+assert(frontend.includes('Character Phone Apps') && frontend.includes('Story Model fills the remaining slots'), 'Character Phone defaults must be configurable from Narrative Utilities')
+assert(!frontend.includes('Narrative Presentation'), 'Narrative Utilities must not expose a competing presentation selector')
+assert(backend.includes('reconcileNarrativeRegex(spindle.regex_scripts') && frontend.includes("ctx.display?.invalidate(['*'])"), 'presentation changes must invalidate existing Surfaces and reconcile installed Narrative scripts')
+assert(frontend.includes('removeAppearanceMemoryOptimistically') && frontend.includes('const collectionPresets = { ...customSurfaces.collectionPresets }'), 'delete actions must update their visible state immediately')
+assert(frontend.includes('container: dg-suite / inline-size'), 'Suite must respond to its host panel width, not only the browser viewport')
+assert(frontend.includes('@container dg-suite (max-width: 560px)') && frontend.includes('@container dg-suite (max-width: 330px)'), 'narrow side-panel layouts need explicit container breakpoints')
+assert(frontend.includes('.dg-suite-stage .dg-suite-primary { grid-template-columns: repeat(3'), 'narrow side panels must not squeeze all six primary tabs into one row')
+
+assert(frontend.includes("title: existing ? 'Edit Custom Surface' : 'Create Custom Surface', width: 820, persistent: false"))
+assert(frontend.includes("title: 'Regeneration Direction', width: 680, persistent: false"))
+assert(frontend.includes('What can I change?') && frontend.includes('Avoid in the New Version · optional'))
+assert(frontend.includes("aspectRatio: (aspect.value || undefined)"), 'Regeneration Direction must support aspect-ratio overrides')
+assert(frontend.includes('const snapshot = cachedNativeSettingsSnapshot()'), 'Generate Candidates must dispatch without blocking on a native-settings request')
+assert(frontend.includes("closePopup: () => { modal.dismiss(); acceptedPopup?.(); showToast('info', 'Regeneration accepted."), 'accepted candidate generation must close its modal and show feedback')
+assert(frontend.includes("lastStatus = 'Reparsing this image…'"), 'lightbox Reparse must drive visible Orb feedback')
+assert(frontend.includes('background-color:#21121d') && frontend.includes('color:#fff7fc'), 'tooltip surface must be opaque and high contrast')
+assert(frontend.includes("'e.g. relationship-map'"))
+assert(frontend.includes("Copy Image Request Template"))
+assert(frontend.includes('COPYABLE_IMAGE_REQUEST_TEMPLATE'))
+assert(frontend.includes('COPYABLE_TRACKER_IMAGE_PATTERN') && frontend.includes('COPYABLE_TRACKER_PRESET_GUIDANCE'))
+assert(frontend.includes("Copy Artifact Media Macro") && frontend.includes('{{reverie_artifact_media_protocol}}'), 'tracker/preset guidance must expose the correct artifact-media macro')
+assert(frontend.includes('target="custom.artifact-media"') && frontend.includes('Add Relay Images to an Existing Tracker or Preset'))
+assert(frontend.includes("'Bracket Surface Root'") && frontend.includes('[relationship_map]...[/relationship_map]'), 'Custom Surface UI must teach bracket roots')
+assert(!frontend.includes("'Semantic Wrapper Tag'"), 'retired XML-first root label must not remain visible')
+
+assert(!frontend.includes("button('Beginner Mode'") && !frontend.includes("button('Expert Mode'"), 'beginner/expert UI split must be removed')
+assert(frontend.includes("panelSection('Core Settings'") && frontend.includes("panelDisclosure('Advanced Relay Behavior'"), 'unified settings must keep advanced controls available but folded')
+assert(frontend.includes("if (activeTab === 'slots') root.appendChild(renderAdaptiveNextAction())"), 'quick action should be available to everyone')
+assert(frontend.includes("search.addEventListener('input', () => { allChatsQuery = search.value; drawResults() })"), 'Archive search must redraw immediately')
+assert(frontend.includes("allChatsChatFilter = value; drawResults()") && frontend.includes("allChatsStatusFilter = value; drawResults()"), 'Archive selectors must redraw immediately')
+
+assert(backend.includes("handler: ((ctx: any) => resolvedRelayMacroValue"), 'Relay macros must resolve real content')
+assert(!backend.includes("handler: (() => macro.marker)"), 'Relay macros may not expose internal marker XML')
+assert(backend.includes("/<reverie_surface_utility\\b/i.test(content)"), 'resolved macro content must suppress duplicate automatic Surface injection')
+assert(backend.includes("/<reverie_narrative_utility\\b/i.test(content)"), 'resolved Narrative macros must suppress duplicate automatic injection')
+for (const name of ['reverie_surfaces', 'reverie_illustrator', 'reverie_narrative', 'reverie_all']) {
+  assert(backend.includes(`${name}:`), `${name} is not synchronized`)
+}
+
+assert(manifest.permissions.includes('cors_proxy'), 'SwarmUI LoRA catalog requires Lumiverse CORS proxy permission')
+assert(frontend.includes('/api/v1/image-gen-connections/${encodeURIComponent(connectionId)}/models/loras'), 'LoRA discovery must use Lumiverse authenticated subtype API')
+assert(frontend.includes("credentials: 'same-origin'") && frontend.includes('controller.abort(), 15_000'), 'LoRA discovery must use host credentials and a bounded timeout')
+assert(frontend.includes('response.status === 404 || response.status === 405') && frontend.includes("type: 'discover_lora_catalog'"), 'older Lumiverse builds need a compatibility fallback')
+assert(backend.includes('/API/ListModels'))
+assert(backend.includes("subtype: 'LoRA'"))
+assert(backend.includes('withLoraDiscoveryTimeout'), 'fallback LoRA discovery may not spin forever')
+assert(backend.includes('extractProviderLoraCatalog'))
+assert(frontend.includes('Provider LoRA Catalog'))
+assert(frontend.includes('Advanced: add exact LoRA filename'))
+
+console.log('0.2.0 UX, macro, modal, Surface overview, and LoRA discovery smoke ok')

@@ -1,0 +1,51 @@
+# Dependencies and local build caches
+node_modules/
+.bun/
+.cache/
+.turbo/
+*.tsbuildinfo
+
+# Environment files, credentials, and local provider configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+cookies.json
+tokens.json
+config.local.json
+
+# Editor and operating-system noise
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs, debug exports, and private test material
+*.log
+debug-exports/
+debug-export*.json
+*-debug*.json
+test-output/
+screenshots/
+private-screenshots/
+generated-images/
+candidate-cache/
+candidate-batches/
+relay-candidates/
+
+# Handover/reference archives and downloaded source material
+handover/
+artifacts/
+references/
+*.zip
+*.zip.sha256
+*.tar
+*.tgz
+*.gz

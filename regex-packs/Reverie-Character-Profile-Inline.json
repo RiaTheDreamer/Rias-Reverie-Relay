@@ -1,0 +1,39 @@
+{
+  "version": "1.0",
+  "type": "regex_scripts",
+  "name": "Reverie Relay — Character Profile",
+  "display_mode": "inline",
+  "scripts": [
+    {
+      "name": "Character Profile — Inline",
+      "find_regex": "<character_profile\\b[^>]*>\\s*<portrait>\\s*([\\s\\S]*?)\\s*</portrait>\\s*<name>\\s*([\\s\\S]*?)\\s*</name>\\s*<role>\\s*([\\s\\S]*?)\\s*</role>\\s*<hook>\\s*([\\s\\S]*?)\\s*</hook>\\s*<trait>\\s*([\\s\\S]*?)\\s*</trait>\\s*</character_profile>",
+      "replace_string": "<!-- UI_START --><style data-reverie-surface=\"character-profile\">\n.rr-character-profile{--ink:var(--lumiverse-text,#f8eef4);--muted:var(--lumiverse-text-muted,#c5b3bd);--paper:var(--lumiverse-bg-elevated,#21171e);--deep:var(--lumiverse-bg-deep,#0e090d);--accent:var(--lumiverse-primary,#d96ca8);--accent-soft:rgba(217,108,168,.18);box-sizing:border-box;width:min(96%,520px);margin:16px auto;font-family:var(--lumiverse-font-family,system-ui,-apple-system,\"Segoe UI\",sans-serif);color:var(--ink)}\n.rr-character-profile,.rr-character-profile *{box-sizing:border-box}\n.rr-character-profile .cp-card{position:relative;display:grid;grid-template-columns:minmax(126px,38%) 1fr;overflow:hidden;border:1px solid rgba(255,255,255,.13);border-radius:24px;background:linear-gradient(145deg,var(--paper),var(--deep));box-shadow:0 20px 45px rgba(0,0,0,.38)}\n.rr-character-profile .cp-card:before{content:\"\";position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle at 12% 18%,var(--accent-soft),transparent 26%),repeating-linear-gradient(128deg,transparent 0 14px,rgba(255,255,255,.025) 15px 16px)}\n.rr-character-profile .cp-portrait{position:relative;min-height:250px;overflow:hidden;background:linear-gradient(160deg,rgba(217,108,168,.24),rgba(15,8,13,.96))}\n.rr-character-profile .cp-portrait:after{content:\"\";position:absolute;inset:0;pointer-events:none;box-shadow:inset -18px 0 28px rgba(14,9,13,.55)}\n.rr-character-profile .cp-portrait img,.rr-character-profile .cp-portrait image_request>img{display:block;width:100%;height:100%;min-height:250px;object-fit:cover}\n.rr-character-profile .cp-portrait image_request{position:relative;display:grid;width:100%;height:100%;min-height:250px;place-items:center}\n.rr-character-profile .cp-portrait image_request:not(:has(img)):before{content:\"✦ REVERIE RELAY PORTRAIT\";padding:8px 10px;border:1px solid rgba(255,255,255,.16);border-radius:999px;color:#f5cfe3;font:800 8px/1.2 var(--lumiverse-font-mono,\"Courier New\",monospace);letter-spacing:.09em}\n.rr-character-profile scene_brief{display:none!important}\n.rr-character-profile image_request_error,.rr-character-profile .reverie-relay-status-card{display:block!important;width:100%!important;max-width:100%!important;margin:0!important}\n.rr-character-profile .cp-copy{position:relative;z-index:1;display:flex;min-width:0;flex-direction:column;justify-content:center;padding:20px 18px 18px}\n.rr-character-profile .cp-kicker{display:flex;align-items:center;gap:7px;margin-bottom:8px;color:#f5cfe3;font:900 8px/1 var(--lumiverse-font-mono,\"Courier New\",monospace);letter-spacing:.14em;text-transform:uppercase}\n.rr-character-profile .cp-kicker:before{content:\"\";width:24px;height:2px;border-radius:999px;background:var(--accent)}\n.rr-character-profile .cp-name{overflow-wrap:anywhere;font-family:Georgia,\"Times New Roman\",serif;font-size:clamp(24px,6vw,38px);font-style:italic;font-weight:800;line-height:.96;letter-spacing:-.04em}\n.rr-character-profile .cp-role{align-self:flex-start;margin-top:10px;padding:6px 9px;border:1px solid rgba(217,108,168,.35);border-radius:999px;background:rgba(217,108,168,.11);color:#f5cfe3;font-size:9px;font-weight:800;letter-spacing:.04em}\n.rr-character-profile .cp-hook{position:relative;margin-top:15px;padding:12px 13px;border-radius:16px 16px 16px 4px;background:rgba(255,255,255,.075);font-size:12px;font-weight:700;line-height:1.45}\n.rr-character-profile .cp-hook:before{content:\"“\";position:absolute;left:8px;top:-9px;color:var(--accent);font:900 28px/1 Georgia,serif}\n.rr-character-profile .cp-hook span{display:block;padding-left:12px}\n.rr-character-profile .cp-trait{margin-top:11px;color:var(--muted);font-size:10px;line-height:1.35}\n.rr-character-profile .cp-trait:before{content:\"☆ \";color:var(--accent)}\n@media(max-width:480px){.rr-character-profile .cp-card{grid-template-columns:118px 1fr}.rr-character-profile .cp-copy{padding:16px 14px}.rr-character-profile .cp-name{font-size:25px}.rr-character-profile .cp-portrait,.rr-character-profile .cp-portrait image_request,.rr-character-profile .cp-portrait img,.rr-character-profile .cp-portrait image_request>img{min-height:220px}}\n</style><div class=\"rr-character-profile\"><article class=\"cp-card\"><div class=\"cp-portrait\">$1</div><div class=\"cp-copy\"><div class=\"cp-kicker\">Character Profile</div><div class=\"cp-name\">$2</div><div class=\"cp-role\">$3</div><div class=\"cp-hook\"><span>$4</span></div><div class=\"cp-trait\">$5</div></div></article></div><!-- UI_END -->",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 0,
+      "actions": [],
+      "description": "Inline Character Profile with a Relay-owned 3:4 portrait slot.",
+      "metadata": {
+        "wrapper": "character_profile",
+        "image_target": "custom.artifact-media",
+        "display_mode": "inline",
+        "relay_image_requests": true
+      },
+      "folder": "Reverie Utilities — Character Profiles",
+      "script_id": "reverie_character_profile_inline"
+    }
+  ]
+}

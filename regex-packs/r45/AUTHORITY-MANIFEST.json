@@ -1,0 +1,70 @@
+{
+  "authority": "Reverie Surfaces R4.5 FINAL six-pack bundle",
+  "relayProductVersion": "0.2.0",
+  "behaviorPreserved": [
+    "script_id",
+    "find_regex",
+    "flags",
+    "placement",
+    "scope",
+    "target",
+    "sort_order",
+    "actions"
+  ],
+  "sanctionedSanitation": [
+    "private demo identities",
+    "review-history metadata",
+    "decorative Discord member names",
+    "reader-facing legacy error branding"
+  ],
+  "packs": [
+    {
+      "filename": "Reverie-Surfaces-R4.5-INLINE-REALISTIC.json",
+      "sourceSha256": "AD26CBEF5A1E9EF80DA8C492209549B0E24BA26A42DF0173FDFE4D4698A7EB3D",
+      "outputSha256": "2D7F4800B1B6F7476E061828E7E26425026016D496DB0EFF369AADC7A0EE2CB6",
+      "scripts": 138,
+      "mode": "inline",
+      "color": "realistic"
+    },
+    {
+      "filename": "Reverie-Surfaces-R4.5-COLLAPSIBLE-PLAIN-REALISTIC.json",
+      "sourceSha256": "3F9A9EB1FC427580376CB49A79C2CE45A2CDAE05CC157649A43803245DBF37B4",
+      "outputSha256": "7149F0C0F3B70D84CE08763137AB7A19FE27703428E4CD222BDC70618509903B",
+      "scripts": 138,
+      "mode": "plain",
+      "color": "realistic"
+    },
+    {
+      "filename": "Reverie-Surfaces-R4.5-COLLAPSIBLE-SPARKLING-REALISTIC.json",
+      "sourceSha256": "892C49585B0B27D4582486717BD8A517E8E0C6F03D446356CA922616EF8D68F7",
+      "outputSha256": "5868CAC6E9B6E510E0EC66C1A6931EB84CB7E245FA8C70966F44FEF6D0F544B3",
+      "scripts": 138,
+      "mode": "spark",
+      "color": "realistic"
+    },
+    {
+      "filename": "Reverie-Surfaces-R4.5-INLINE-PRIMARY.json",
+      "sourceSha256": "7197B0277A242DBDB65F936CD58BAA1B29D5A6DA124E2D6DD40E6DD7C6B24381",
+      "outputSha256": "7692616686C26E32E13A878EDF7FF42EBA466E7BB68EDB22B15287C54AA860A9",
+      "scripts": 138,
+      "mode": "inline",
+      "color": "primary"
+    },
+    {
+      "filename": "Reverie-Surfaces-R4.5-COLLAPSIBLE-PLAIN-PRIMARY.json",
+      "sourceSha256": "5F7C25B63A559D51B1927CA71EB71F2CC22E3915AF3EE9E01034977566FE2769",
+      "outputSha256": "9608CE0F4397B5600F1DE995FA7310EE2DE2B6B3AEE3B1B8875CFD52206C4A45",
+      "scripts": 138,
+      "mode": "plain",
+      "color": "primary"
+    },
+    {
+      "filename": "Reverie-Surfaces-R4.5-COLLAPSIBLE-SPARKLING-PRIMARY.json",
+      "sourceSha256": "DE541BA705F502C6582E557B0C190890C909338DEC13831984014568C1B56C1F",
+      "outputSha256": "0FCB4D3A58211DE5E2BFC1F47D45D7475CDAF98E5562CB4F4B7ABFCA18EA362F",
+      "scripts": 138,
+      "mode": "spark",
+      "color": "primary"
+    }
+  ]
+}

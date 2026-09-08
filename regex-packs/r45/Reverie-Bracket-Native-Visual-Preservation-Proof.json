@@ -1,0 +1,20 @@
+{
+  "INLINE": {
+    "scripts": 138,
+    "source_replace_strings_sha256": "b82303d733f12646571526ebc3d19159dd4dd906225bc81c619c086e991fbb86",
+    "bracket_pack_replace_strings_sha256": "b82303d733f12646571526ebc3d19159dd4dd906225bc81c619c086e991fbb86",
+    "replace_strings_byte_identical": true
+  },
+  "PLAIN": {
+    "scripts": 138,
+    "source_replace_strings_sha256": "bedd1d85c3555fdb67333593a809e4de505600069b1b62ed864e4d4056de7377",
+    "bracket_pack_replace_strings_sha256": "bedd1d85c3555fdb67333593a809e4de505600069b1b62ed864e4d4056de7377",
+    "replace_strings_byte_identical": true
+  },
+  "SPARKLING": {
+    "scripts": 138,
+    "source_replace_strings_sha256": "3db443a2d3dacd72d99817cd0d7bd2260003ed69c9fd2f8a5e81506415849ce7",
+    "bracket_pack_replace_strings_sha256": "3db443a2d3dacd72d99817cd0d7bd2260003ed69c9fd2f8a5e81506415849ce7",
+    "replace_strings_byte_identical": true
+  }
+}

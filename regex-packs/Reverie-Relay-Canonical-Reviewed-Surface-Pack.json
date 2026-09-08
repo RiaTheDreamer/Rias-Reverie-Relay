@@ -1,0 +1,1007 @@
+{
+  "version": 1,
+  "type": "reverie_relay_canonical_reviewed_surface_pack",
+  "purpose": "Canonical source for reviewed Surfaces. Relay Rendering and Regex Rendering consume the same semantic XML grammar and presentation assets.",
+  "scripts": [
+    {
+      "name": "↳ Reviewed Surface — Message Bubble Transformer",
+      "find_regex": "<(?:chat_msg|dm_msg)\\b(?=[^>]*\\bside=\"([^\"]*)\")(?=[^>]*\\buser=\"([^\"]*)\")?(?=[^>]*\\bavatar=\"([^\"]*)\")?[^>]*>\\s*([\\s\\S]*?)\\s*</(?:chat_msg|dm_msg)>",
+      "replace_string": "<div class=\"srv-msg srv-msg-$1\"><span class=\"srv-avatar\">$3</span><div class=\"srv-msg-stack\"><span class=\"srv-msg-user\">$2</span><div class=\"srv-bubble\">$4</div></div></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 1,
+      "description": "Transforms chat/DM message XML into durable bubble HTML before the outer Surface runs.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v2_xform_message",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Tinder — Stable User Media Seam",
+      "find_regex": "<user>\\s*<name>\\s*([\\s\\S]*?)\\s*</name>\\s*<avatar>\\s*([\\s\\S]*?)\\s*</avatar>\\s*</user>",
+      "replace_string": "<div class=\"rrt-user\" data-name=\"$1\"><div class=\"rrt-user-media\">$2</div></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 1,
+      "description": "Internal transformer. Preserves the user avatar seam whether Relay content is pending, generating, failed, or resolved.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "renderer": "regex",
+        "internal_transformer": true,
+        "stable_relay_dom_seams": true,
+        "base": "V16"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_tinder_user_seam",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Generated Avatar Message Transformer",
+      "find_regex": "<avatar_msg\\b(?=[^>]*\\bside=\"([^\"]*)\")(?=[^>]*\\buser=\"([^\"]*)\")[^>]*>\\s*<avatar>([\\s\\S]*?)</avatar>\\s*<text>([\\s\\S]*?)</text>\\s*</avatar_msg>",
+      "replace_string": "<div class=\"srv-msg srv-msg-$1\"><span class=\"srv-avatar srv-avatar-generated\">$3</span><div class=\"srv-msg-stack\"><span class=\"srv-msg-user\">$2</span><div class=\"srv-bubble\">$4</div></div></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 1.5,
+      "description": "Generated participant avatar row; repeated identical request IDs/slots reuse the same Relay avatar asset.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v3_xform_avatar_message",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Message Media Transformer",
+      "find_regex": "<(?:chat_media|dm_media)\\b(?=[^>]*\\bside=\"([^\"]*)\")?[^>]*>\\s*([\\s\\S]*?)\\s*</(?:chat_media|dm_media)>",
+      "replace_string": "<div class=\"srv-msg srv-msg-$1 srv-msg-media\"><span class=\"srv-avatar\"></span><div class=\"srv-media-bubble srv-media-plain\">$2</div></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 2,
+      "description": "Transforms chat/DM media XML into one durable media bubble without duplicating image_request.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v2_xform_message_media",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Tinder — Stable Profile Media Seam",
+      "find_regex": "<profile\\b(?=[^>]*\\bslot=\"([123])\")(?=[^>]*\\bprev=\"([123])\")(?=[^>]*\\bnext=\"([123])\")[^>]*>\\s*<name>\\s*([\\s\\S]*?)\\s*</name>\\s*<age>\\s*([\\s\\S]*?)\\s*</age>\\s*<subtitle>\\s*([\\s\\S]*?)\\s*</subtitle>\\s*<role>\\s*([\\s\\S]*?)\\s*</role>\\s*<tags>\\s*([\\s\\S]*?)\\s*</tags>\\s*<bio>\\s*([\\s\\S]*?)\\s*</bio>\\s*<photo>\\s*([\\s\\S]*?)\\s*</photo>\\s*</profile>",
+      "replace_string": "<div class=\"rrt-profile rrt-profile-$1\" data-slot=\"$1\">\n  <div class=\"rrt-card\">\n    <div class=\"rrt-photo\">$10</div>\n    <div class=\"rrt-meta\">\n      <div class=\"rrt-name-row\"><b>$4</b><strong>$5</strong><span>✓</span></div>\n      <div class=\"rrt-sub\">• $6</div>\n      <div class=\"rrt-role\">$7</div>\n      <div class=\"rrt-tags\">$8</div>\n      <div class=\"rrt-bio\">$9</div>\n    </div>\n  </div>\n\n  <div class=\"rrt-nav\">\n    <label class=\"rrt-round rrt-x\" for=\"rrt-card-$3-{{lastMessageId}}\">✕</label>\n    <label class=\"rrt-round\" for=\"rrt-card-$2-{{lastMessageId}}\">←</label>\n    <label class=\"rrt-round\" for=\"rrt-card-$3-{{lastMessageId}}\">→</label>\n    <label class=\"rrt-round rrt-heart\" for=\"rrt-match-$1-{{lastMessageId}}\">♥</label>\n  </div>\n\n  <div class=\"rrt-match-copy\">\n    <h2>It’s a match</h2>\n    <div class=\"rrt-pair-space\"></div>\n    <p>You and $4 liked each other.</p>\n    <label class=\"rrt-primary\" for=\"rrt-msg-$1-{{lastMessageId}}\">Send Message</label>\n    <label class=\"rrt-secondary\" for=\"rrt-card-$3-{{lastMessageId}}\">Continue Swiping</label>\n  </div>\n\n  <div class=\"rrt-message-copy\">\n    <div class=\"rrt-message-box\">\n      <div class=\"rrt-message-heading\">\n        <div class=\"rrt-message-avatar-clone\">$10</div>\n        <div><b>Message $4</b><span>Start the conversation</span></div>\n      </div>\n      <div class=\"rrt-message-input\">Type a message…</div>\n      <label class=\"rrt-secondary rrt-return-swipe\" for=\"rrt-card-$3-{{lastMessageId}}\">Return to Swiping</label>\n    </div>\n  </div>\n</div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 2,
+      "description": "Internal transformer. Profile photo contents are opaque to Regex so Relay can replace image requests without breaking Tinder.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "renderer": "regex",
+        "internal_transformer": true,
+        "stable_relay_dom_seams": true,
+        "base": "V16"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_tinder_profile_seam",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Email Item Transformer",
+      "find_regex": "<email_item\\b(?=[^>]*\\bslot=\"([1-5])\")(?=[^>]*\\bfrom=\"([^\"]*)\")(?=[^>]*\\bsubject=\"([^\"]*)\")(?=[^>]*\\bpreview=\"([^\"]*)\")(?=[^>]*\\btime=\"([^\"]*)\")[^>]*>\\s*<email_body>([\\s\\S]*?)</email_body>\\s*(?:<email_attachment\\b(?=[^>]*\\bfilename=\"([^\"]*)\")[^>]*>([\\s\\S]*?)</email_attachment>)?\\s*</email_item>",
+      "replace_string": "<div class=\"srv-email-item srv-email-slot-$1\"><label class=\"srv-email-nav\" for=\"srv-email-$1-{{lastMessageId}}\"><b>$2</b><strong>$3</strong><span>$4</span><time>$5</time></label><article class=\"srv-email-reader\"><h2>$3</h2><div class=\"srv-email-meta\"><b>$2</b><span>$5 · to me</span></div><div class=\"srv-email-body\">$6</div><div class=\"srv-email-attachment\"><span class=\"srv-email-file\">📎 $7</span>$8</div></article></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 3,
+      "description": "Turns each email into one clickable inbox tab plus its matching reading pane.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v2_xform_email_item",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "🩷 Tinder / Dating App — Dark Match",
+      "find_regex": "<tinder>\\s*(<div class=\"rrt-user\"[\\s\\S]*?</div>\\s*</div>)\\s*<profiles>\\s*([\\s\\S]*?)\\s*</profiles>\\s*</tinder>",
+      "replace_string": "<div class=\"rrt-root\">\n<style>\n.rrt-root{width:100%;display:flex;justify-content:center;margin:14px 0 18px;font-family:\"Segoe UI\",system-ui,sans-serif}\n.rrt-root,.rrt-root *{box-sizing:border-box}\n.rrt-root details{width:min(420px,100%);margin:0 auto}\n.rrt-root details>summary{display:table;list-style:none;margin:0 auto 12px;padding:8px 15px;border:1px solid rgba(255,74,112,.7);border-radius:999px;background:linear-gradient(180deg,#251018,#160a11);color:#ffd9e4;font-size:12px;font-weight:800;cursor:pointer}\n.rrt-root details>summary::-webkit-details-marker{display:none}\n.rrt-state{position:absolute!important;opacity:0!important;pointer-events:none!important;width:1px!important;height:1px!important}\n.rrt-phone{position:relative;width:min(100%,420px);height:712px;margin:0 auto;padding:7px;overflow:hidden;border:1px solid rgba(255,255,255,.18);border-radius:39px;background:linear-gradient(145deg,#27272a,#050506 34%,#161517);box-shadow:0 34px 66px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.17);color:#222}\n.rrt-top{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 17px;color:#cbbdd4}\n.rrt-brand{font-size:20px;font-weight:900;color:#ff536a}\n.rrt-user,.rrt-user-media,.rrt-profile{display:block}\n.rrt-user{display:none;position:absolute;z-index:30}\n.rrt-user-media,.rrt-photo{position:relative;overflow:hidden;background:#e8e8ed;font-size:0!important;line-height:0!important;color:transparent!important}\n.rrt-user-media image_request,.rrt-photo image_request{display:block;width:100%;height:100%;min-height:0}\n.rrt-user-media scene_brief,.rrt-photo scene_brief{display:none!important;visibility:hidden!important;max-height:0!important;overflow:hidden!important}\n.rrt-user-media img,.rrt-photo img,.rrt-user-media .reverie-artifact-media,.rrt-photo .reverie-artifact-media{display:block;width:100%!important;height:100%!important;object-fit:cover!important}\n.rrt-profiles{position:relative;height:622px;padding:0 12px 74px}\n.rrt-profile{display:none;position:absolute;inset:0 12px 74px}\n.rrt-card{overflow:hidden;border:1px solid #e7e7ec;border-radius:20px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.07)}\n.rrt-photo{width:100%;height:326px}\n.rrt-meta{height:208px;padding:18px 18px 18px;overflow:hidden}\n.rrt-name-row{display:flex;align-items:baseline;gap:7px;margin-bottom:7px}\n.rrt-name-row b{font-size:22px}.rrt-name-row strong{font-size:18px;color:#3a3a3f!important;opacity:1!important;font-weight:750}.rrt-name-row span{color:#45a1ff;font-size:17px;font-weight:900}\n.rrt-sub,.rrt-role{font-size:11px;color:#72727a;margin-bottom:7px;line-height:1.35}\n.rrt-tags{margin:10px 0 9px;color:#ff536a;font-size:11px;font-weight:800;line-height:1.35}\n.rrt-bio{max-height:58px;overflow:hidden;color:#45454b;font-size:11px;line-height:1.5}\n.rrt-nav{position:absolute;z-index:50;left:0;right:0;bottom:-55px;height:52px;display:flex;justify-content:center;align-items:center;gap:14px;padding:0}\n.rrt-round{position:relative;z-index:51;width:42px;height:42px;display:grid;place-items:center;border:1px solid #e5e5e9;border-radius:50%;background:#fff;box-shadow:0 7px 16px rgba(0,0,0,.09);color:#75757d;font-size:18px;font-weight:900;cursor:pointer}\n.rrt-x{color:#ff6375}.rrt-heart{color:#31c977}\n.rrt-match-copy,.rrt-message-copy{display:none}\n.rrt-match-copy{position:absolute;z-index:60;inset:-52px -12px -74px;display:none;text-align:center;padding:26px;background:radial-gradient(circle at 50% 30%,rgba(255,105,137,.3),transparent 40%),rgba(20,11,18,.94);color:#fff}\n.rrt-match-copy h2{position:absolute;top:175px;left:0;right:0;margin:0;font-family:Georgia,\"Times New Roman\",serif;font-size:35px;font-style:italic;line-height:1.1;color:#ff8ca6;z-index:70}\n.rrt-pair-space{display:none}\n.rrt-match-copy p{position:absolute;top:230px;left:0;right:0;margin:0;color:#dbcbd2;font-size:11px;z-index:70}\n.rrt-primary,.rrt-secondary{display:block;width:min(240px,86%);margin:0 auto;padding:13px 16px;border-radius:999px;font-size:12px;font-weight:850;cursor:pointer}\n.rrt-primary{position:absolute;top:430px;left:50%;width:min(310px,88%);transform:translateX(-50%);background:linear-gradient(90deg,#ff385c,#ff7650);color:#fff;z-index:70}.rrt-secondary{position:absolute;top:482px;left:50%;width:min(310px,88%);transform:translateX(-50%);border:1px solid rgba(255,255,255,.25);background:transparent;color:#fff;z-index:70}\n.rrt-message-copy{position:absolute;inset:0;display:none}\n.rrt-message-box{position:absolute;left:14px;right:14px;top:188px;padding:18px 16px 16px;border:1px solid #dddde3;border-radius:17px;background:#fff;box-shadow:0 10px 25px rgba(0,0,0,.1)}\n.rrt-message-heading{min-height:52px;display:flex;align-items:center;gap:12px;margin-bottom:14px;text-align:left;padding-left:56px}\n.rrt-message-avatar-space{display:none}\n.rrt-message-heading b{display:block;font-size:14px}.rrt-message-heading span{display:block;margin-top:2px;color:#888;font-size:10px}\n.rrt-message-input{height:40px;display:flex;align-items:center;margin:0 0 14px;padding:0 14px;border-radius:999px;background:#f0f0f3;color:#999;font-size:11px;text-align:left}\n\n/* CARD STATES */\n#rrt-card-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1,\n#rrt-card-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2,\n#rrt-card-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3{display:block}\n\n/* MATCH STATES: keep the selected profile photo DOM, reshape it into the LEFT avatar. */\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3{display:block}\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-meta,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-meta,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-meta,\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-nav,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-nav,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-nav{display:none}\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-card,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-card,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-card{overflow:visible;border:0;background:transparent;box-shadow:none}\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo{\n position:absolute;z-index:66;left:calc(50% - 98px);top:205px;width:96px;height:96px;overflow:hidden;border:5px solid #24141e;border-radius:50%;background:#444;box-shadow:0 14px 30px rgba(0,0,0,.4)\n}\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-match-copy,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-match-copy,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-match-copy{display:block}\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user{\n display:block;z-index:67;left:calc(50% + 2px);top:281px;width:96px;height:96px;overflow:hidden;border:5px solid #24141e;border-radius:50%;background:#444;box-shadow:0 14px 30px rgba(0,0,0,.4)\n}\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user-media,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user-media,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user-media{width:100%;height:100%}\n\n\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo img,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo img,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo img,\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo .reverie-artifact-media,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo .reverie-artifact-media,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo .reverie-artifact-media,\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user img,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user img,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user img,\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user .reverie-artifact-media,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user .reverie-artifact-media,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user .reverie-artifact-media{\n object-fit:cover!important;object-position:center center!important;\n}\n\n/* MESSAGE STATES: same selected profile photo DOM becomes the message avatar. */\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3{display:block}\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-meta,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-meta,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-meta,\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-nav,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-nav,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-nav{display:none}\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-card,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-card,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-card{overflow:visible;border:0;background:transparent;box-shadow:none}\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo{\n position:absolute;z-index:31;left:30px;top:204px;width:52px;height:52px;border:3px solid #fff;border-radius:50%;box-shadow:0 7px 18px rgba(0,0,0,.14);background:#fff\n}\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-message-copy,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-message-copy,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-message-copy{display:flex}\n\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo img,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo img,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo img,\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo .reverie-artifact-media,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo .reverie-artifact-media,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo .reverie-artifact-media{\n object-fit:cover!important;object-position:center center!important;\n}\n\n\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo img,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo img,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo img,\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo .reverie-artifact-media,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo .reverie-artifact-media,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo .reverie-artifact-media{\n object-fit:cover!important;\n object-position:center top!important;\n}\n\n\n.rrt-screen-shell{position:absolute;inset:7px;overflow:hidden;border-radius:32px;background:radial-gradient(circle at 50% -10%,rgba(255,96,137,.2),transparent 36%),#f7f7f8}\n.rrt-phone-island{position:absolute;z-index:80;top:8px;left:50%;width:93px;height:24px;transform:translateX(-50%);border-radius:999px;background:#000}\n.rrt-phone-status{position:absolute;z-index:79;top:10px;left:16px;right:16px;display:flex;justify-content:space-between;color:#111;font-size:9px;pointer-events:none}\n.rrt-top{position:relative;z-index:10;height:76px;display:flex;align-items:center;justify-content:space-between;padding:30px 17px 9px;color:#ff4f6d}\n.rrt-brand{font-size:22px;font-weight:950;letter-spacing:-.07em;background:linear-gradient(90deg,#ff385c,#ff774e);-webkit-background-clip:text;color:transparent}\n\n\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo img,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo img,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo img,\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo .reverie-artifact-media,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo .reverie-artifact-media,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo .reverie-artifact-media,\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user img,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user img,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user img,\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user .reverie-artifact-media,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user .reverie-artifact-media,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user .reverie-artifact-media{\n  object-fit:cover!important;\n  object-position:center 30%!important;\n}\n\n\n/* V16 MESSAGE AVATAR — isolate the generated image from Relay's card controls. */\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo{\n  overflow:hidden!important;\n  background:#17171a!important;\n}\n\n/* Hide Relay action/status chrome only while the profile photo is acting as a message avatar. */\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo button,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo button,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo button,\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo details,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo details,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo details,\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo [class*=\"status\"],\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo [class*=\"status\"],\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo [class*=\"status\"],\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo [class*=\"action\"],\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo [class*=\"action\"],\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo [class*=\"action\"]{\n  display:none!important;\n}\n\n/* The final generated image becomes the only visible avatar content. */\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo img,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo img,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo img,\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo .reverie-artifact-media,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo .reverie-artifact-media,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo .reverie-artifact-media{\n  position:absolute!important;\n  inset:0!important;\n  width:100%!important;\n  height:100%!important;\n  max-width:none!important;\n  max-height:none!important;\n  object-fit:contain!important;\n  object-position:center center!important;\n  margin:0!important;\n  padding:0!important;\n  border:0!important;\n}\n\n/* Message card's return action must override the match-sheet absolute secondary button. */\n.rrt-message-copy .rrt-return-swipe{\n  position:static!important;\n  left:auto!important;\n  top:auto!important;\n  transform:none!important;\n  display:block!important;\n  width:100%!important;\n  max-width:none!important;\n  margin:0!important;\n  border:0!important;\n  background:#dedee3!important;\n  color:#38383d!important;\n  text-align:center!important;\n}\n\n\n/* V17 MATCH AVATAR CROP — preserve the entire generated portrait. */\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo img,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo img,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo img,\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1 .rrt-photo .reverie-artifact-media,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2 .rrt-photo .reverie-artifact-media,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3 .rrt-photo .reverie-artifact-media,\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user img,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user img,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user img,\n#rrt-match-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user .reverie-artifact-media,\n#rrt-match-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user .reverie-artifact-media,\n#rrt-match-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-user .reverie-artifact-media{\n  object-fit:contain!important;\n  object-position:center center!important;\n  background:#24141e!important;\n}\n\n/* V17 MESSAGE AVATAR — independent display seam, same existing profile media. */\n#rrt-msg-1-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-1>.rrt-photo,\n#rrt-msg-2-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-2>.rrt-photo,\n#rrt-msg-3-{{lastMessageId}}:checked~.rrt-phone .rrt-screen-shell .rrt-profile-3>.rrt-photo{\n  display:none!important;\n}\n\n.rrt-message-heading{\n  padding-left:0!important;\n  gap:12px!important;\n}\n\n.rrt-message-avatar-clone{\n  position:relative;\n  width:52px;\n  height:52px;\n  flex:0 0 52px;\n  overflow:hidden;\n  border:3px solid #fff;\n  border-radius:50%;\n  background:#17171a;\n  box-shadow:0 7px 18px rgba(0,0,0,.14);\n  font-size:0!important;\n  line-height:0!important;\n}\n\n/* Hide Relay lifecycle chrome in the tiny avatar seam. */\n.rrt-message-avatar-clone button,\n.rrt-message-avatar-clone details,\n.rrt-message-avatar-clone [class*=\"status\"],\n.rrt-message-avatar-clone [class*=\"action\"]{\n  display:none!important;\n}\n\n.rrt-message-avatar-clone img,\n.rrt-message-avatar-clone .reverie-artifact-media{\n  position:absolute!important;\n  inset:0!important;\n  z-index:20!important;\n  display:block!important;\n  width:100%!important;\n  height:100%!important;\n  max-width:none!important;\n  max-height:none!important;\n  object-fit:contain!important;\n  object-position:center center!important;\n  margin:0!important;\n  padding:0!important;\n  border:0!important;\n  background:#17171a!important;\n}\n\n</style>\n\n<details open>\n  <summary>🩷 Tinder / Dating App</summary>\n\n  <input class=\"rrt-state\" type=\"radio\" name=\"rrt-state-{{lastMessageId}}\" id=\"rrt-card-1-{{lastMessageId}}\" checked>\n  <input class=\"rrt-state\" type=\"radio\" name=\"rrt-state-{{lastMessageId}}\" id=\"rrt-card-2-{{lastMessageId}}\">\n  <input class=\"rrt-state\" type=\"radio\" name=\"rrt-state-{{lastMessageId}}\" id=\"rrt-card-3-{{lastMessageId}}\">\n  <input class=\"rrt-state\" type=\"radio\" name=\"rrt-state-{{lastMessageId}}\" id=\"rrt-match-1-{{lastMessageId}}\">\n  <input class=\"rrt-state\" type=\"radio\" name=\"rrt-state-{{lastMessageId}}\" id=\"rrt-match-2-{{lastMessageId}}\">\n  <input class=\"rrt-state\" type=\"radio\" name=\"rrt-state-{{lastMessageId}}\" id=\"rrt-match-3-{{lastMessageId}}\">\n  <input class=\"rrt-state\" type=\"radio\" name=\"rrt-state-{{lastMessageId}}\" id=\"rrt-msg-1-{{lastMessageId}}\">\n  <input class=\"rrt-state\" type=\"radio\" name=\"rrt-state-{{lastMessageId}}\" id=\"rrt-msg-2-{{lastMessageId}}\">\n  <input class=\"rrt-state\" type=\"radio\" name=\"rrt-state-{{lastMessageId}}\" id=\"rrt-msg-3-{{lastMessageId}}\">\n\n  <div class=\"rrt-phone\">\n    <div class=\"rrt-screen-shell\">\n      <div class=\"rrt-phone-island\"></div>\n      <div class=\"rrt-phone-status\"><span>12:41</span><span>5G&nbsp;&nbsp;63%</span></div>\n      <div class=\"rrt-top\"><span>◉</span><b class=\"rrt-brand\">tinder</b><span>◌</span></div>\n      $1\n      <div class=\"rrt-profiles\">$2</div>\n    </div>\n  </div>\n</details>\n</div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 3,
+      "description": "V16 Tinder with layout/crop-only corrections: match avatars share one baseline and use uncropped media; message avatar uses an independent display seam without new generation.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "renderer": "regex",
+        "internal_transformer": false,
+        "stable_relay_dom_seams": true,
+        "base": "V16",
+        "changes": [
+          "phone chrome",
+          "match popup only"
+        ]
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_tinder",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Tinder Card Transformer (Match Avatar Fix)",
+      "find_regex": "<dt_card\\b(?=[^>]*\\bslot=\"([1-3])\")(?=[^>]*\\bname=\"([^\"]*)\")(?=[^>]*\\bage=\"([^\"]*)\")(?=[^>]*\\blocation=\"([^\"]*)\")(?=[^>]*\\boccupation=\"([^\"]*)\")(?=[^>]*\\bverified=\"([^\"]*)\")(?=[^>]*\\bhobbies=\"([^\"]*)\")[^>]*>\\s*<dt_media>([\\s\\S]*?)</dt_media>\\s*<dt_match_avatar>([\\s\\S]*?)</dt_match_avatar>\\s*<dt_bio>([\\s\\S]*?)</dt_bio>\\s*</dt_card>",
+      "replace_string": "<article class=\"srv-dt-card srv-dt-card-$1\"><div class=\"srv-dt-photo\">$8</div><div class=\"srv-dt-match-avatar\">$9</div><div class=\"srv-dt-info\"><div class=\"srv-dt-name\">$2, $3 <span>$6</span></div><div class=\"srv-dt-location\">⌖ $4</div><div class=\"srv-dt-job\">$5</div><div class=\"srv-dt-hobbies\">$7</div><p>$10</p></div></article>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 4,
+      "description": "Transforms each Tinder profile into a visible card plus a dedicated reusable circular match-avatar instance.",
+      "metadata": {
+        "review_pack": "Reviewed Surface Tinder hotfix",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v2_xform_tinder_card",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Tinder User Avatar Transformer (Match Avatar Fix)",
+      "find_regex": "<dt_user_avatar>\\s*([\\s\\S]*?)\\s*</dt_user_avatar>",
+      "replace_string": "<div class=\"srv-dt-user-avatar\">$1</div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 4.5,
+      "description": "One generated user avatar reused in Tinder match state.",
+      "metadata": {
+        "review_pack": "Reviewed Surface Tinder hotfix",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v3_xform_tinder_user_avatar",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Twitch Chat Message Transformer",
+      "find_regex": "<live_msg\\b(?=[^>]*\\buser=\"([^\"]*)\")(?=[^>]*\\bavatar=\"([^\"]*)\")?[^>]*>\\s*([\\s\\S]*?)\\s*</live_msg>",
+      "replace_string": "<div class=\"srv-live-msg\"><span class=\"srv-live-avatar\">$2</span><div><b>$1</b><span>$3</span></div></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 5,
+      "description": "Transforms each Twitch chat message into separate username/avatar/message row.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v2_xform_live_msg",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Twitch Donation Transformer",
+      "find_regex": "<live_donation\\b(?=[^>]*\\buser=\"([^\"]*)\")(?=[^>]*\\bamount=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</live_donation>",
+      "replace_string": "<div class=\"srv-live-donation\"><b>$2 · $1</b><span>$3</span></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 6,
+      "description": "Transforms donation XML into a styled live-chat donation card.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v2_xform_live_donation",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Twitch Poll Transformer",
+      "find_regex": "<live_poll\\b(?=[^>]*\\bquestion=\"([^\"]*)\")[^>]*>\\s*<poll_option>([\\s\\S]*?)</poll_option>\\s*<poll_option>([\\s\\S]*?)</poll_option>\\s*</live_poll>",
+      "replace_string": "<div class=\"srv-live-poll\"><b>$1</b><span>$2</span><span>$3</span></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 7,
+      "description": "Transforms Twitch poll XML into two visible poll options.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v2_xform_live_poll",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Twitch Mod Transformer",
+      "find_regex": "<live_mod\\b(?=[^>]*\\buser=\"([^\"]*)\")(?=[^>]*\\brole=\"([^\"]*)\")(?=[^>]*\\bavatar=\"([^\"]*)\")?[^>]*/?>",
+      "replace_string": "<div class=\"srv-live-mod\"><span class=\"srv-live-avatar\">$3</span><b>$1</b><span>$2</span></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 8,
+      "description": "Transforms believable moderator entries into the Mods tab.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v2_xform_live_mod",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Discord Message Transformer",
+      "find_regex": "<(?:discord_msg|server_msg)\\b(?=[^>]*\\buser=\"([^\"]*)\")(?=[^>]*\\bavatar=\"([^\"]*)\")(?=[^>]*\\btime=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</(?:discord_msg|server_msg)>",
+      "replace_string": "<div class=\"srv-discord-row\"><span class=\"srv-discord-avatar\">$2</span><div><b>$1</b><time>$3</time><p>$4</p></div></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 9,
+      "description": "Transforms Discord messages into avatar/timestamp/message rows.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v2_xform_discord_msg",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Discord DM Generated Avatar Message",
+      "find_regex": "<discord_avatar_msg\\b(?=[^>]*\\buser=\"([^\"]*)\")(?=[^>]*\\btime=\"([^\"]*)\")[^>]*>\\s*<avatar>([\\s\\S]*?)</avatar>\\s*<text>([\\s\\S]*?)</text>\\s*</discord_avatar_msg>",
+      "replace_string": "<div class=\"srv-discord-row\"><span class=\"srv-discord-avatar srv-avatar-generated\">$3</span><div><b>$1</b><time>$2</time><p>$4</p></div></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 9.25,
+      "description": "Discord DM row with generated/reused participant avatar.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v3_xform_discord_avatar_message",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Discord Server Generated Avatar Message",
+      "find_regex": "<server_avatar_msg\\b(?=[^>]*\\buser=\"([^\"]*)\")(?=[^>]*\\btime=\"([^\"]*)\")[^>]*>\\s*<avatar>([\\s\\S]*?)</avatar>\\s*<text>([\\s\\S]*?)</text>\\s*</server_avatar_msg>",
+      "replace_string": "<div class=\"srv-discord-row\"><span class=\"srv-discord-avatar\">$3</span><div><b>$1</b><time>$2</time><p>$4</p></div></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 9.5,
+      "description": "Discord server message row with a generated/reused avatar asset.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v3_xform_server_avatar_message",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Discord Media Transformer",
+      "find_regex": "<server_media[^>]*>\\s*([\\s\\S]*?)\\s*</server_media>",
+      "replace_string": "<div class=\"srv-discord-media\">$1</div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 10,
+      "description": "Transforms a server media attachment without duplicating the image request.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v2_xform_discord_media",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Discord Channel Transformer",
+      "find_regex": "<server_channel\\b(?=[^>]*\\bslot=\"([1-4])\")(?=[^>]*\\bname=\"([^\"]*)\")(?=[^>]*\\bdescription=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</server_channel>",
+      "replace_string": "<div class=\"srv-channel-block srv-channel-$1\"><label class=\"srv-channel-nav\" for=\"srv-channel-$1-{{lastMessageId}}\"># $2</label><section class=\"srv-channel-feed\"><header><b># $2</b><span>$3</span></header><div class=\"srv-channel-messages\">$4</div></section></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 11,
+      "description": "Creates clickable Discord channel labels and channel-specific feeds without duplicating media.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v2_xform_discord_channel",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Google Result Transformer",
+      "find_regex": "<gis_result\\b(?=[^>]*\\bslot=\"([1-6])\")(?=[^>]*\\btitle=\"([^\"]*)\")(?=[^>]*\\bsource=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</gis_result>",
+      "replace_string": "<div class=\"srv-g-result srv-g-result-$1\"><input class=\"srv-g-zoom\" id=\"srv-g-zoom-$1-{{lastMessageId}}\" type=\"checkbox\"><label class=\"srv-g-backdrop\" for=\"srv-g-zoom-$1-{{lastMessageId}}\"></label><div class=\"srv-g-image\">$4<label class=\"srv-g-mag\" for=\"srv-g-zoom-$1-{{lastMessageId}}\">⌕</label><label class=\"srv-g-close\" for=\"srv-g-zoom-$1-{{lastMessageId}}\">✕</label></div><b>$2</b><span>$3</span></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 12,
+      "description": "Turns each Google result into one thumbnail+caption card that enlarges in place.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v2_xform_google_result",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "↳ Reviewed Surface — Gallery Item Transformer",
+      "find_regex": "<gallery_item\\b(?=[^>]*\\bslot=\"([1-6])\")(?=[^>]*\\btitle=\"([^\"]*)\")(?=[^>]*\\btime=\"([^\"]*)\")(?=[^>]*\\blocation=\"([^\"]*)\")(?=[^>]*\\bsize=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</gallery_item>",
+      "replace_string": "<div class=\"srv-gallery-item srv-gallery-$1\"><input class=\"srv-gallery-zoom\" id=\"srv-gallery-zoom-$1-{{lastMessageId}}\" type=\"checkbox\"><input class=\"srv-gallery-meta-toggle\" id=\"srv-gallery-meta-$1-{{lastMessageId}}\" type=\"checkbox\"><label class=\"srv-gallery-backdrop\" for=\"srv-gallery-zoom-$1-{{lastMessageId}}\"></label><div class=\"srv-gallery-photo\">$6<label class=\"srv-gallery-mag\" for=\"srv-gallery-zoom-$1-{{lastMessageId}}\">⌕</label><label class=\"srv-gallery-close\" for=\"srv-gallery-zoom-$1-{{lastMessageId}}\">✕</label></div><span class=\"srv-gallery-title\">$2</span><div class=\"srv-gallery-toolbar\"><label for=\"srv-gallery-meta-$1-{{lastMessageId}}\">ⓘ Metadata</label><span>♡</span><span>↗</span></div><div class=\"srv-gallery-meta\"><div><b>$2</b><p>$3<br>$4<br>$5</p><label for=\"srv-gallery-meta-$1-{{lastMessageId}}\">✕ Close</label></div></div></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 13,
+      "description": "Creates a grid photo that enlarges using the same generated image and has a metadata popup.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": true,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_v2_xform_gallery_item",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "✉️ Reviewed Surface.1 — Email",
+      "find_regex": "<email_thread\\b(?=[^>]*\\baccount=\"([^\"]*)\")(?=[^>]*\\btime=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</email_thread>",
+      "replace_string": "\n<style>\n.srv2{--a:var(--lumiverse-primary,#d45b9f);--deep:var(--lumiverse-bg-deep,#09070b);--panel:var(--lumiverse-bg-elevated,#171319);--border:var(--lumiverse-border,rgba(255,255,255,.13));--text:var(--lumiverse-text,#f7f2f5);--muted:var(--lumiverse-text-muted,#aa9fa7);box-sizing:border-box;width:100%;max-width:940px;margin:14px auto;color:var(--text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,\"Segoe UI\",sans-serif);container-type:inline-size}.srv2,.srv2 *{box-sizing:border-box}.srv2 img,.srv2 .reverie-artifact-media{display:block;max-width:100%}.srv2 scene_brief{display:none!important}.srv2 details.srv2-collapse{width:100%;border:0;background:transparent}.srv2 details.srv2-collapse>summary{width:max-content;max-width:94%;margin:0 auto 10px;display:flex;align-items:center;gap:7px;list-style:none;cursor:pointer;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 45%,var(--border));border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02)),#100c11;color:#f9ddec;font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 7px 20px rgba(0,0,0,.28)}.srv2 details.srv2-collapse>summary::-webkit-details-marker{display:none}.srv2 .srv2-surface{margin:0 auto;border:1px solid var(--border);box-shadow:0 22px 50px rgba(0,0,0,.42);overflow:hidden}.srv2 input.srv2-state{position:absolute;opacity:0;pointer-events:none}\n</style>\n\n<style>\n.srv2-mail{max-width:860px;border-radius:17px;background:#fff;color:#202124}.srv2-mail .top{display:grid;grid-template-columns:auto auto minmax(110px,1fr) auto;gap:10px;align-items:center;padding:10px 13px;background:#f7f9fc;border-bottom:1px solid #dfe3e8}.srv2-mail .logo{font-size:18px;font-weight:950;color:#d93025}.srv2-mail .search{padding:9px 12px;border-radius:999px;background:#e8f0fe;color:#5f6368;font-size:9px}.srv2-mail .layout{display:grid;grid-template-columns:140px 285px minmax(0,1fr);grid-template-rows:repeat(5,72px);min-height:360px}.srv2-mail .folders{grid-column:1;grid-row:1/6;padding:11px 8px;background:#f7f9fc;border-right:1px solid #e1e5eb}.srv2-mail .compose{padding:10px 12px;border-radius:14px;background:#c2e7ff;font-size:9px;font-weight:850;margin-bottom:9px}.srv2-mail .folder{padding:7px 9px;border-radius:999px;font-size:8px}.srv2-mail .folder.active{background:#d3e3fd;font-weight:850}.srv2-mail .items{display:contents}.srv-email-item{display:contents}.srv-email-nav{grid-column:2;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto 1fr;gap:2px 8px;align-content:start;height:72px;min-height:72px;max-height:72px;padding:9px 11px;border-bottom:1px solid #e5e7eb;background:#fff;cursor:pointer;min-width:0;overflow:hidden}.srv-email-nav:hover{background:#f4f7fb}.srv-email-nav b,.srv-email-nav strong,.srv-email-nav span{grid-column:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.srv-email-nav span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;line-height:1.2;max-height:2.4em}.srv-email-nav b{font-size:9px}.srv-email-nav strong{font-size:8px}.srv-email-nav span{font-size:7.5px;color:#737980}.srv-email-nav time{grid-column:2;grid-row:1;color:#7a8087;font-size:7px}.srv-email-reader{grid-column:3;grid-row:1/6;display:none;padding:17px 18px;background:#fff;border-left:1px solid #e5e7eb;overflow:auto}.srv-email-reader h2{margin:0 0 11px;font-size:17px}.srv-email-meta{display:flex;flex-direction:column;padding-bottom:11px;border-bottom:1px solid #eceff3}.srv-email-meta b{font-size:9px}.srv-email-meta span{font-size:7.5px;color:#777d84}.srv-email-body{padding-top:12px;font-size:9.5px;line-height:1.65}.srv-email-attachment{margin-top:13px;border:1px solid #dde1e6;border-radius:10px;overflow:hidden}.srv-email-file{display:block;padding:7px 9px;background:#f8f9fa;font-size:8px;font-weight:800}.srv-email-attachment image_request{min-height:120px}.srv-email-attachment img,.srv-email-attachment .reverie-artifact-media{width:100%;max-height:230px;object-fit:cover}\n.srv-email-slot-1 .srv-email-nav{grid-row:1}.srv-email-slot-2 .srv-email-nav{grid-row:2}.srv-email-slot-3 .srv-email-nav{grid-row:3}.srv-email-slot-4 .srv-email-nav{grid-row:4}.srv-email-slot-5 .srv-email-nav{grid-row:5}#srv-email-1-{{lastMessageId}}:checked~.srv2-mail .srv-email-slot-1 .srv-email-reader,#srv-email-2-{{lastMessageId}}:checked~.srv2-mail .srv-email-slot-2 .srv-email-reader,#srv-email-3-{{lastMessageId}}:checked~.srv2-mail .srv-email-slot-3 .srv-email-reader,#srv-email-4-{{lastMessageId}}:checked~.srv2-mail .srv-email-slot-4 .srv-email-reader,#srv-email-5-{{lastMessageId}}:checked~.srv2-mail .srv-email-slot-5 .srv-email-reader{display:block}\n#srv-email-1-{{lastMessageId}}:checked~.srv2-mail .srv-email-slot-1 .srv-email-nav,#srv-email-2-{{lastMessageId}}:checked~.srv2-mail .srv-email-slot-2 .srv-email-nav,#srv-email-3-{{lastMessageId}}:checked~.srv2-mail .srv-email-slot-3 .srv-email-nav,#srv-email-4-{{lastMessageId}}:checked~.srv2-mail .srv-email-slot-4 .srv-email-nav,#srv-email-5-{{lastMessageId}}:checked~.srv2-mail .srv-email-slot-5 .srv-email-nav{background:#eaf2fd;box-shadow:inset 3px 0 #1a73e8}\n@container(max-width:640px){.srv2-mail .layout{grid-template-columns:1fr;grid-template-rows:none}.srv-email-nav,.srv-email-reader{grid-column:1!important;grid-row:auto!important}.srv2-mail .folders{display:none}.srv-email-nav{grid-column:1}.srv-email-reader{grid-column:1;grid-row:auto;border-left:0;border-top:1px solid #e5e7eb}.srv-email-item:not(:has(.srv-email-reader[style*=\"display\"])){}}\n</style>\n<div class=\"srv2\"><details class=\"srv2-collapse\"><summary>✉️ Email Inbox + Reading Pane</summary><input checked class=\"srv2-state\" id=\"srv-email-1-{{lastMessageId}}\" name=\"srv-email-{{lastMessageId}}\" type=\"radio\"><input class=\"srv2-state\" id=\"srv-email-2-{{lastMessageId}}\" name=\"srv-email-{{lastMessageId}}\" type=\"radio\"><input class=\"srv2-state\" id=\"srv-email-3-{{lastMessageId}}\" name=\"srv-email-{{lastMessageId}}\" type=\"radio\"><input class=\"srv2-state\" id=\"srv-email-4-{{lastMessageId}}\" name=\"srv-email-{{lastMessageId}}\" type=\"radio\"><input class=\"srv2-state\" id=\"srv-email-5-{{lastMessageId}}\" name=\"srv-email-{{lastMessageId}}\" type=\"radio\"><div class=\"srv2-surface srv2-mail\"><header class=\"top\"><span>☰</span><span class=\"logo\">Mail</span><div class=\"search\">Search $1</div><span>⚙　◉</span></header><div class=\"layout\"><aside class=\"folders\"><div class=\"compose\">＋ Compose</div><div class=\"folder active\">Inbox</div><div class=\"folder\">Starred</div><div class=\"folder\">Snoozed</div><div class=\"folder\">Sent</div><div class=\"folder\">Drafts</div></aside><div class=\"items\">$3</div></div></div></details></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 101,
+      "description": "Replacement Email surface: all inbox tabs are fixed to equal 72px rows; reading pane no longer stretches the first message row.",
+      "metadata": {
+        "review_pack": "Reviewed Surface.1 replacement",
+        "internal_transformer": false,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_email",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "🗞️ Reviewed Surface — Newspaper",
+      "find_regex": "<newspaper\\b(?=[^>]*\\bname=\"([^\"]*)\")(?=[^>]*\\bdate=\"([^\"]*)\")(?=[^>]*\\bheadline=\"([^\"]*)\")(?=[^>]*\\bsubhead=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</newspaper>",
+      "replace_string": "\n<style>\n.srv2{--a:var(--lumiverse-primary,#d45b9f);--deep:var(--lumiverse-bg-deep,#09070b);--panel:var(--lumiverse-bg-elevated,#171319);--border:var(--lumiverse-border,rgba(255,255,255,.13));--text:var(--lumiverse-text,#f7f2f5);--muted:var(--lumiverse-text-muted,#aa9fa7);box-sizing:border-box;width:100%;max-width:940px;margin:14px auto;color:var(--text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,\"Segoe UI\",sans-serif);container-type:inline-size}.srv2,.srv2 *{box-sizing:border-box}.srv2 img,.srv2 .reverie-artifact-media{display:block;max-width:100%}.srv2 scene_brief{display:none!important}.srv2 details.srv2-collapse{width:100%;border:0;background:transparent}.srv2 details.srv2-collapse>summary{width:max-content;max-width:94%;margin:0 auto 10px;display:flex;align-items:center;gap:7px;list-style:none;cursor:pointer;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 45%,var(--border));border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02)),#100c11;color:#f9ddec;font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 7px 20px rgba(0,0,0,.28)}.srv2 details.srv2-collapse>summary::-webkit-details-marker{display:none}.srv2 .srv2-surface{margin:0 auto;border:1px solid var(--border);box-shadow:0 22px 50px rgba(0,0,0,.42);overflow:hidden}.srv2 input.srv2-state{position:absolute;opacity:0;pointer-events:none}\n</style>\n\n<style>.srv2-paper{max-width:820px;padding:18px 22px;border-radius:3px;background:#eee8dc;color:#171512;font-family:Georgia,\"Times New Roman\",serif}.srv2-paper .mast{text-align:center;border-bottom:4px double #222}.srv2-paper .mast b{display:block;font-size:clamp(32px,7cqi,62px);line-height:.94}.srv2-paper .meta{display:flex;justify-content:space-between;padding:7px 1px;font:8px \"Courier New\",monospace}.srv2-paper h1{text-align:center;font-size:clamp(22px,4.2cqi,38px);line-height:1.04;margin:15px auto 7px;color:#2a2722;font-weight:800;letter-spacing:-.018em}.srv2-paper .sub{text-align:center;font-size:14px;font-style:italic}.srv2-paper .body{padding-top:10px;font-size:11px;line-height:1.62;text-align:justify;columns:2}.srv2-paper paper_photo{display:block;float:left;width:58%;margin:12px 17px 7px 0}.srv2-paper paper_photo img,.srv2-paper paper_photo .reverie-artifact-media{width:100%;aspect-ratio:4/3;object-fit:cover}.srv2-paper paper_caption{display:block;font-size:8px;color:#514d47;margin-top:4px}@container(max-width:600px){.srv2-paper .body{columns:1}.srv2-paper paper_photo{float:none;width:100%;margin:12px 0 7px}}</style><div class=\"srv2\"><details class=\"srv2-collapse\"><summary>🗞️ Newspaper</summary><article class=\"srv2-surface srv2-paper\"><header class=\"mast\"><b>$1</b><div class=\"meta\"><span>$2</span><span>Late Edition</span></div></header><h1>$3</h1><div class=\"sub\">$4</div><div class=\"body\">$5</div></article></details></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 102,
+      "description": "Approved newspaper design retained with container-responsive typography.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": false,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_newspaper",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "💬 Reviewed Surface — Inline Chat",
+      "find_regex": "<inline_chat\\b(?=[^>]*\\bheader=\"([^\"]*)\")(?=[^>]*\\btime=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</inline_chat>",
+      "replace_string": "\n<style>\n.srv2{--a:var(--lumiverse-primary,#d45b9f);--deep:var(--lumiverse-bg-deep,#09070b);--panel:var(--lumiverse-bg-elevated,#171319);--border:var(--lumiverse-border,rgba(255,255,255,.13));--text:var(--lumiverse-text,#f7f2f5);--muted:var(--lumiverse-text-muted,#aa9fa7);box-sizing:border-box;width:100%;max-width:940px;margin:14px auto;color:var(--text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,\"Segoe UI\",sans-serif);container-type:inline-size}.srv2,.srv2 *{box-sizing:border-box}.srv2 img,.srv2 .reverie-artifact-media{display:block;max-width:100%}.srv2 scene_brief{display:none!important}.srv2 details.srv2-collapse{width:100%;border:0;background:transparent}.srv2 details.srv2-collapse>summary{width:max-content;max-width:94%;margin:0 auto 10px;display:flex;align-items:center;gap:7px;list-style:none;cursor:pointer;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 45%,var(--border));border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02)),#100c11;color:#f9ddec;font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 7px 20px rgba(0,0,0,.28)}.srv2 details.srv2-collapse>summary::-webkit-details-marker{display:none}.srv2 .srv2-surface{margin:0 auto;border:1px solid var(--border);box-shadow:0 22px 50px rgba(0,0,0,.42);overflow:hidden}.srv2 input.srv2-state{position:absolute;opacity:0;pointer-events:none}\n</style>\n\n<style>\n.srv2-phone{max-width:390px;padding:7px;border-radius:35px;background:linear-gradient(145deg,#28272b,#050506 26%,#151416 80%,#050506)}.srv2-phone .screen{border-radius:29px;overflow:hidden;background:#070709}.srv2-phone .status{display:flex;justify-content:space-between;padding:10px 14px 6px;font-size:8px}.srv2-phone .head{display:flex;align-items:center;gap:8px;padding:9px 11px 10px;border-bottom:1px solid rgba(255,255,255,.09);background:#151517}.srv2-phone .head .topav{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,var(--a),#775cf8);font-weight:900}.srv2-phone .head b{display:block;font-size:10px}.srv2-phone .head small{font-size:7px;color:#94949b}.srv2-chat{display:flex;flex-direction:column;gap:8px;padding:13px 10px;min-height:390px}.srv-msg{display:flex;align-items:flex-end;gap:6px;max-width:90%}.srv-msg-right{align-self:flex-end;flex-direction:row-reverse}.srv-msg-left{align-self:flex-start}.srv-avatar{width:25px;height:25px;flex:0 0 25px;border-radius:50%;display:grid;place-items:center;background:#4b4b52;color:#fff;font-size:7px;font-weight:900}.srv-msg-right .srv-avatar{background:#6d5dfc}.srv-msg-stack{min-width:0}.srv-msg-user{display:block;margin:0 3px 3px;color:#9da0a8;font-size:7px}.srv-msg-right .srv-msg-user{text-align:right}.srv-bubble{padding:9px 11px;border-radius:16px 16px 16px 5px;background:#29292e;font-size:9px;line-height:1.48;overflow-wrap:anywhere}.srv-msg-right .srv-bubble{border-radius:16px 16px 5px 16px;background:#0a84ff}.srv-msg-media .srv-avatar:empty{visibility:hidden}.srv-media-bubble{overflow:hidden;border-radius:15px;background:#27272c;padding:4px}.srv-media-bubble.srv-media-plain{padding:0;background:transparent!important;border-radius:12px}.srv-msg-right .srv-media-bubble{background:#0a84ff}.srv-media-bubble img,.srv-media-bubble .reverie-artifact-media{width:min(100%,285px);max-height:290px;object-fit:cover;border-radius:11px}.srv2-phone .composer{display:flex;gap:7px;align-items:center;padding:9px 10px;border-top:1px solid rgba(255,255,255,.09)}.srv2-phone .field{flex:1;padding:8px 10px;border:1px solid rgba(255,255,255,.13);border-radius:999px;color:#888991;font-size:8px}\n.srv-avatar-generated{overflow:hidden;padding:0!important}.srv-avatar-generated image_request{display:block;width:100%;height:100%;min-height:0}.srv-avatar-generated img,.srv-avatar-generated .reverie-artifact-media{width:100%;height:100%;object-fit:cover;border-radius:50%}</style>\n<div class=\"srv2\"><details class=\"srv2-collapse\"><summary>💬 Inline Chat</summary><div class=\"srv2-surface srv2-phone imsg\"><div class=\"screen\"><div class=\"status\"><span>$2</span><span>5G　87%</span></div><header class=\"head\"><span>‹</span><span class=\"topav\">💬</span><div><b>$1</b><small>iMessage</small></div><span style=\"margin-left:auto\">◉</span></header><div class=\"srv2-chat\">$3</div><footer class=\"composer\"><span>＋</span><div class=\"field\">Message…</div><span>↑</span></footer></div></div></details></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 103,
+      "description": "Inline Chat with real bubbles, per-message avatars, and support for long conversations.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": false,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_inline_chat",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "🟣 Reviewed Surface — Twitch",
+      "find_regex": "<livestream\\b(?=[^>]*\\btitle=\"([^\"]*)\")(?=[^>]*\\bchannel=\"([^\"]*)\")(?=[^>]*\\bviewers=\"([^\"]*)\")(?=[^>]*\\bcategory=\"([^\"]*)\")(?=[^>]*\\bstatus=\"([^\"]*)\")[^>]*>\\s*<live_media>([\\s\\S]*?)</live_media>\\s*<live_chat>([\\s\\S]*?)</live_chat>\\s*<live_mods>([\\s\\S]*?)</live_mods>\\s*</livestream>",
+      "replace_string": "\n<style>\n.srv2{--a:var(--lumiverse-primary,#d45b9f);--deep:var(--lumiverse-bg-deep,#09070b);--panel:var(--lumiverse-bg-elevated,#171319);--border:var(--lumiverse-border,rgba(255,255,255,.13));--text:var(--lumiverse-text,#f7f2f5);--muted:var(--lumiverse-text-muted,#aa9fa7);box-sizing:border-box;width:100%;max-width:940px;margin:14px auto;color:var(--text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,\"Segoe UI\",sans-serif);container-type:inline-size}.srv2,.srv2 *{box-sizing:border-box}.srv2 img,.srv2 .reverie-artifact-media{display:block;max-width:100%}.srv2 scene_brief{display:none!important}.srv2 details.srv2-collapse{width:100%;border:0;background:transparent}.srv2 details.srv2-collapse>summary{width:max-content;max-width:94%;margin:0 auto 10px;display:flex;align-items:center;gap:7px;list-style:none;cursor:pointer;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 45%,var(--border));border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02)),#100c11;color:#f9ddec;font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 7px 20px rgba(0,0,0,.28)}.srv2 details.srv2-collapse>summary::-webkit-details-marker{display:none}.srv2 .srv2-surface{margin:0 auto;border:1px solid var(--border);box-shadow:0 22px 50px rgba(0,0,0,.42);overflow:hidden}.srv2 input.srv2-state{position:absolute;opacity:0;pointer-events:none}\n</style>\n\n<style>\n.srv2-twitch{max-width:900px;border-radius:13px;background:#0e0e10;color:#efeff1}.srv2-twitch .top{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;gap:12px;align-items:center;padding:10px 12px;background:#18181b;border-bottom:1px solid #2d2d32}.srv2-twitch .brand{font-size:19px;font-weight:950;color:#a970ff}.srv2-twitch .search{padding:8px 11px;border-radius:6px;background:#2f2f35;color:#adadb8;font-size:8px}.srv2-twitch .layout{display:grid;grid-template-columns:minmax(0,1fr) 285px}.srv2-twitch .video{aspect-ratio:16/9;background:#000;position:relative;overflow:hidden;border-radius:0!important}.srv2-twitch .video img,.srv2-twitch .video .reverie-artifact-media{width:100%;height:100%;object-fit:cover;border-radius:0!important}.srv2-twitch .badge{position:absolute;top:9px;left:9px;padding:4px 6px;background:#e91916;border-radius:4px;font-size:7px;font-weight:900}.srv2-twitch .info{display:flex;gap:8px;padding:10px 11px}.srv2-twitch .chav{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#9147ff;font-weight:900}.srv2-twitch .copy{flex:1}.srv2-twitch .copy b{display:block;font-size:10px}.srv2-twitch .copy span{display:block;font-size:7.5px;color:#bf94ff}.srv2-twitch .actions{display:flex;gap:4px}.srv2-twitch .actions span{display:grid;place-items:center;min-width:30px;height:28px;padding:0 7px;border-radius:5px;background:#2f2f35;font-size:7px;font-weight:800}.srv2-twitch .side{border-left:1px solid #2d2d32;background:#18181b}.srv2-twitch .tabs{display:grid;grid-template-columns:1fr 1fr}.srv2-twitch .tabs label{padding:9px;text-align:center;font-size:7px;font-weight:900;color:#aaa;cursor:pointer;border-bottom:1px solid #2d2d32}.srv2-twitch .page{display:none;min-height:350px;max-height:430px;overflow:auto;padding:10px}.srv-live-msg{display:grid;grid-template-columns:24px 1fr;gap:6px;margin-bottom:9px}.srv-live-avatar{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:#5b467a;color:#fff;font-size:7px;font-weight:900}.srv-live-msg b{display:block;color:#bf94ff;font-size:7.5px}.srv-live-msg span{display:block;font-size:8px;line-height:1.4;color:#ddd}.srv-live-donation{padding:8px;border-radius:7px;background:#1f8ab5;margin:8px 0}.srv-live-donation b,.srv-live-donation span{display:block;font-size:8px}.srv-live-poll{padding:8px;border:1px solid #39333f;border-radius:7px}.srv-live-poll b{display:block;font-size:8px}.srv-live-poll span{display:block;padding:6px;margin-top:5px;border:1px solid #4a4350;border-radius:5px;font-size:7px}.srv-live-mod{display:grid;grid-template-columns:25px 1fr auto;gap:7px;align-items:center;padding:8px 0;border-bottom:1px solid #2d2d32}.srv-live-mod b{font-size:8px;color:#70ddb1}.srv-live-mod span:last-child{font-size:7px;color:#888}.srv2-twitch .chatinput{display:flex;gap:5px;padding:8px;border-top:1px solid #2d2d32}.srv2-twitch .chatinput div{flex:1;padding:7px;border:1px solid #444;border-radius:5px;color:#888;font-size:7px}.srv2-twitch .chatinput span{padding:7px 8px;border-radius:5px;background:#9147ff;font-size:7px}\n#srv-tw-chat-{{lastMessageId}}:checked~.srv2-twitch .chatpage,#srv-tw-mods-{{lastMessageId}}:checked~.srv2-twitch .modpage{display:block}#srv-tw-chat-{{lastMessageId}}:checked~.srv2-twitch label[for=\"srv-tw-chat-{{lastMessageId}}\"],#srv-tw-mods-{{lastMessageId}}:checked~.srv2-twitch label[for=\"srv-tw-mods-{{lastMessageId}}\"]{color:#fff;border-bottom:2px solid #9147ff}\n@container(max-width:720px){.srv2-twitch .layout{grid-template-columns:1fr}.srv2-twitch .side{border-left:0;border-top:1px solid #2d2d32}.srv2-twitch .actions span{min-width:27px;padding:0 5px}}\n</style>\n<div class=\"srv2\"><details class=\"srv2-collapse\"><summary>🟣 Twitch Livestream + Live Chat</summary><input checked class=\"srv2-state\" id=\"srv-tw-chat-{{lastMessageId}}\" name=\"srv-tw-tab-{{lastMessageId}}\" type=\"radio\"><input class=\"srv2-state\" id=\"srv-tw-mods-{{lastMessageId}}\" name=\"srv-tw-tab-{{lastMessageId}}\" type=\"radio\"><article class=\"srv2-surface srv2-twitch\"><header class=\"top\"><span class=\"brand\">twitch</span><div class=\"search\">Search live channels and categories</div><span>♡　◉</span></header><div class=\"layout\"><main><div class=\"video\">$6<span class=\"badge\">$5</span></div><div class=\"info\"><div class=\"chav\">Y</div><div class=\"copy\"><b>$1</b><span>$2 · $4 · $3 viewers</span></div><div class=\"actions\"><span>＋</span><span>♡</span><span>↗</span></div></div></main><aside class=\"side\"><div class=\"tabs\"><label for=\"srv-tw-chat-{{lastMessageId}}\">LIVE CHAT</label><label for=\"srv-tw-mods-{{lastMessageId}}\">MODS</label></div><div class=\"page chatpage\">$7</div><div class=\"page modpage\">$8</div><div class=\"chatinput\"><div>Send a message</div><span>Chat</span></div></aside></div></article></details></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 105,
+      "description": "Square-corner Twitch broadcast, nonduplicated media, compact icon controls, separate working Chat/Mods tabs.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": false,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_twitch",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "📷 Reviewed Surface — Instagram Direct Messages",
+      "find_regex": "<instagram_dm\\b(?=[^>]*\\bname=\"([^\"]*)\")(?=[^>]*\\bhandle=\"([^\"]*)\")(?=[^>]*\\btime=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</instagram_dm>",
+      "replace_string": "\n<style>\n.srv2{--a:var(--lumiverse-primary,#d45b9f);--deep:var(--lumiverse-bg-deep,#09070b);--panel:var(--lumiverse-bg-elevated,#171319);--border:var(--lumiverse-border,rgba(255,255,255,.13));--text:var(--lumiverse-text,#f7f2f5);--muted:var(--lumiverse-text-muted,#aa9fa7);box-sizing:border-box;width:100%;max-width:940px;margin:14px auto;color:var(--text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,\"Segoe UI\",sans-serif);container-type:inline-size}.srv2,.srv2 *{box-sizing:border-box}.srv2 img,.srv2 .reverie-artifact-media{display:block;max-width:100%}.srv2 scene_brief{display:none!important}.srv2 details.srv2-collapse{width:100%;border:0;background:transparent}.srv2 details.srv2-collapse>summary{width:max-content;max-width:94%;margin:0 auto 10px;display:flex;align-items:center;gap:7px;list-style:none;cursor:pointer;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 45%,var(--border));border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02)),#100c11;color:#f9ddec;font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 7px 20px rgba(0,0,0,.28)}.srv2 details.srv2-collapse>summary::-webkit-details-marker{display:none}.srv2 .srv2-surface{margin:0 auto;border:1px solid var(--border);box-shadow:0 22px 50px rgba(0,0,0,.42);overflow:hidden}.srv2 input.srv2-state{position:absolute;opacity:0;pointer-events:none}\n</style>\n\n<style>\n.srv2-phone{max-width:390px;padding:7px;border-radius:35px;background:linear-gradient(145deg,#28272b,#050506 26%,#151416 80%,#050506)}.srv2-phone .screen{border-radius:29px;overflow:hidden;background:#070709}.srv2-phone .status{display:flex;justify-content:space-between;padding:10px 14px 6px;font-size:8px}.srv2-phone .head{display:flex;align-items:center;gap:8px;padding:9px 11px 10px;border-bottom:1px solid rgba(255,255,255,.09);background:#151517}.srv2-phone .head .topav{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,var(--a),#775cf8);font-weight:900}.srv2-phone .head b{display:block;font-size:10px}.srv2-phone .head small{font-size:7px;color:#94949b}.srv2-chat{display:flex;flex-direction:column;gap:8px;padding:13px 10px;min-height:390px}.srv-msg{display:flex;align-items:flex-end;gap:6px;max-width:90%}.srv-msg-right{align-self:flex-end;flex-direction:row-reverse}.srv-msg-left{align-self:flex-start}.srv-avatar{width:25px;height:25px;flex:0 0 25px;border-radius:50%;display:grid;place-items:center;background:#4b4b52;color:#fff;font-size:7px;font-weight:900}.srv-msg-right .srv-avatar{background:#6d5dfc}.srv-msg-stack{min-width:0}.srv-msg-user{display:block;margin:0 3px 3px;color:#9da0a8;font-size:7px}.srv-msg-right .srv-msg-user{text-align:right}.srv-bubble{padding:9px 11px;border-radius:16px 16px 16px 5px;background:#29292e;font-size:9px;line-height:1.48;overflow-wrap:anywhere}.srv-msg-right .srv-bubble{border-radius:16px 16px 5px 16px;background:#0a84ff}.srv-msg-media .srv-avatar:empty{visibility:hidden}.srv-media-bubble{overflow:hidden;border-radius:15px;background:#27272c;padding:4px}.srv-media-bubble.srv-media-plain{padding:0;background:transparent!important;border-radius:12px}.srv-msg-right .srv-media-bubble{background:#0a84ff}.srv-media-bubble img,.srv-media-bubble .reverie-artifact-media{width:min(100%,285px);max-height:290px;object-fit:cover;border-radius:11px}.srv2-phone .composer{display:flex;gap:7px;align-items:center;padding:9px 10px;border-top:1px solid rgba(255,255,255,.09)}.srv2-phone .field{flex:1;padding:8px 10px;border:1px solid rgba(255,255,255,.13);border-radius:999px;color:#888991;font-size:8px}\n.srv-avatar-generated{overflow:hidden;padding:0!important}.srv-avatar-generated image_request{display:block;width:100%;height:100%;min-height:0}.srv-avatar-generated img,.srv-avatar-generated .reverie-artifact-media{width:100%;height:100%;object-fit:cover;border-radius:50%}</style>\n<div class=\"srv2\"><details class=\"srv2-collapse\"><summary>📷 Instagram Direct Messages</summary><div class=\"srv2-surface srv2-phone igdm\"><div class=\"screen\"><div class=\"status\"><span>$3</span><span>5G　87%</span></div><header class=\"head\"><span>‹</span><span class=\"topav\">📷</span><div><b>$1</b><small>$2</small></div><span style=\"margin-left:auto\">◉</span></header><div class=\"srv2-chat\">$4</div><footer class=\"composer\"><span>＋</span><div class=\"field\">Message…</div><span>↑</span></footer></div></div></details></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 106,
+      "description": "Instagram Direct Messages with real bubbles, per-message avatars, and support for long conversations.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": false,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_instagram_dm",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "𝕏 Reviewed Surface — Twitter / X Direct Messages",
+      "find_regex": "<(?:x_dm|twitter_dm)\\b(?=[^>]*\\bname=\"([^\"]*)\")(?=[^>]*\\bhandle=\"([^\"]*)\")(?=[^>]*\\btime=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</(?:x_dm|twitter_dm)>",
+      "replace_string": "\n<style>\n.srv2{--a:var(--lumiverse-primary,#d45b9f);--deep:var(--lumiverse-bg-deep,#09070b);--panel:var(--lumiverse-bg-elevated,#171319);--border:var(--lumiverse-border,rgba(255,255,255,.13));--text:var(--lumiverse-text,#f7f2f5);--muted:var(--lumiverse-text-muted,#aa9fa7);box-sizing:border-box;width:100%;max-width:940px;margin:14px auto;color:var(--text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,\"Segoe UI\",sans-serif);container-type:inline-size}.srv2,.srv2 *{box-sizing:border-box}.srv2 img,.srv2 .reverie-artifact-media{display:block;max-width:100%}.srv2 scene_brief{display:none!important}.srv2 details.srv2-collapse{width:100%;border:0;background:transparent}.srv2 details.srv2-collapse>summary{width:max-content;max-width:94%;margin:0 auto 10px;display:flex;align-items:center;gap:7px;list-style:none;cursor:pointer;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 45%,var(--border));border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02)),#100c11;color:#f9ddec;font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 7px 20px rgba(0,0,0,.28)}.srv2 details.srv2-collapse>summary::-webkit-details-marker{display:none}.srv2 .srv2-surface{margin:0 auto;border:1px solid var(--border);box-shadow:0 22px 50px rgba(0,0,0,.42);overflow:hidden}.srv2 input.srv2-state{position:absolute;opacity:0;pointer-events:none}\n</style>\n\n<style>\n.srv2-phone{max-width:390px;padding:7px;border-radius:35px;background:linear-gradient(145deg,#28272b,#050506 26%,#151416 80%,#050506)}.srv2-phone .screen{border-radius:29px;overflow:hidden;background:#070709}.srv2-phone .status{display:flex;justify-content:space-between;padding:10px 14px 6px;font-size:8px}.srv2-phone .head{display:flex;align-items:center;gap:8px;padding:9px 11px 10px;border-bottom:1px solid rgba(255,255,255,.09);background:#151517}.srv2-phone .head .topav{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(135deg,var(--a),#775cf8);font-weight:900}.srv2-phone .head b{display:block;font-size:10px}.srv2-phone .head small{font-size:7px;color:#94949b}.srv2-chat{display:flex;flex-direction:column;gap:8px;padding:13px 10px;min-height:390px}.srv-msg{display:flex;align-items:flex-end;gap:6px;max-width:90%}.srv-msg-right{align-self:flex-end;flex-direction:row-reverse}.srv-msg-left{align-self:flex-start}.srv-avatar{width:25px;height:25px;flex:0 0 25px;border-radius:50%;display:grid;place-items:center;background:#4b4b52;color:#fff;font-size:7px;font-weight:900}.srv-msg-right .srv-avatar{background:#6d5dfc}.srv-msg-stack{min-width:0}.srv-msg-user{display:block;margin:0 3px 3px;color:#9da0a8;font-size:7px}.srv-msg-right .srv-msg-user{text-align:right}.srv-bubble{padding:9px 11px;border-radius:16px 16px 16px 5px;background:#29292e;font-size:9px;line-height:1.48;overflow-wrap:anywhere}.srv-msg-right .srv-bubble{border-radius:16px 16px 5px 16px;background:#0a84ff}.srv-msg-media .srv-avatar:empty{visibility:hidden}.srv-media-bubble{overflow:hidden;border-radius:15px;background:#27272c;padding:4px}.srv-media-bubble.srv-media-plain{padding:0;background:transparent!important;border-radius:12px}.srv-msg-right .srv-media-bubble{background:#0a84ff}.srv-media-bubble img,.srv-media-bubble .reverie-artifact-media{width:min(100%,285px);max-height:290px;object-fit:cover;border-radius:11px}.srv2-phone .composer{display:flex;gap:7px;align-items:center;padding:9px 10px;border-top:1px solid rgba(255,255,255,.09)}.srv2-phone .field{flex:1;padding:8px 10px;border:1px solid rgba(255,255,255,.13);border-radius:999px;color:#888991;font-size:8px}\n.srv-avatar-generated{overflow:hidden;padding:0!important}.srv-avatar-generated image_request{display:block;width:100%;height:100%;min-height:0}.srv-avatar-generated img,.srv-avatar-generated .reverie-artifact-media{width:100%;height:100%;object-fit:cover;border-radius:50%}</style>\n<div class=\"srv2\"><details class=\"srv2-collapse\"><summary>𝕏 Twitter / X Direct Messages</summary><div class=\"srv2-surface srv2-phone xdm\"><div class=\"screen\"><div class=\"status\"><span>$3</span><span>5G　87%</span></div><header class=\"head\"><span>‹</span><span class=\"topav\">𝕏</span><div><b>$1</b><small>$2</small></div><span style=\"margin-left:auto\">◉</span></header><div class=\"srv2-chat\">$4</div><footer class=\"composer\"><span>＋</span><div class=\"field\">Message…</div><span>↑</span></footer></div></div></details></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 107,
+      "description": "Twitter / X Direct Messages with real bubbles, per-message avatars, and support for long conversations.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": false,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_x_dm",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "💜 Reviewed Surface — Discord Direct Messages",
+      "find_regex": "<discord_dm\\b(?=[^>]*\\bname=\"([^\"]*)\")(?=[^>]*\\bstatus=\"([^\"]*)\")(?=[^>]*\\btime=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</discord_dm>",
+      "replace_string": "\n<style>\n.srv2{--a:var(--lumiverse-primary,#d45b9f);--deep:var(--lumiverse-bg-deep,#09070b);--panel:var(--lumiverse-bg-elevated,#171319);--border:var(--lumiverse-border,rgba(255,255,255,.13));--text:var(--lumiverse-text,#f7f2f5);--muted:var(--lumiverse-text-muted,#aa9fa7);box-sizing:border-box;width:100%;max-width:940px;margin:14px auto;color:var(--text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,\"Segoe UI\",sans-serif);container-type:inline-size}.srv2,.srv2 *{box-sizing:border-box}.srv2 img,.srv2 .reverie-artifact-media{display:block;max-width:100%}.srv2 scene_brief{display:none!important}.srv2 details.srv2-collapse{width:100%;border:0;background:transparent}.srv2 details.srv2-collapse>summary{width:max-content;max-width:94%;margin:0 auto 10px;display:flex;align-items:center;gap:7px;list-style:none;cursor:pointer;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 45%,var(--border));border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02)),#100c11;color:#f9ddec;font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 7px 20px rgba(0,0,0,.28)}.srv2 details.srv2-collapse>summary::-webkit-details-marker{display:none}.srv2 .srv2-surface{margin:0 auto;border:1px solid var(--border);box-shadow:0 22px 50px rgba(0,0,0,.42);overflow:hidden}.srv2 input.srv2-state{position:absolute;opacity:0;pointer-events:none}\n</style>\n\n<style>.srv2-ddm{max-width:390px;padding:7px;border-radius:35px;background:#121214}.srv2-ddm .screen{border-radius:29px;overflow:hidden;background:#313338}.srv2-ddm .head{display:flex;align-items:center;gap:8px;padding:12px;background:#2b2d31;border-bottom:1px solid #222327}.srv2-ddm .head .av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#5865f2}.srv2-ddm .head b{font-size:10px}.srv2-ddm .msgs{padding:13px 11px;min-height:390px}.srv-discord-row{display:grid;grid-template-columns:34px minmax(0,1fr);gap:8px;margin-bottom:13px}.srv-discord-avatar{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#5865f2;font-size:7px;font-weight:900}.srv-discord-row b{font-size:9px}.srv-discord-row time{margin-left:5px;color:#949ba4;font-size:7px}.srv-discord-row p{margin:3px 0 0;font-size:9px;line-height:1.45}.srv2-ddm .srv-media-bubble{margin:0 0 13px 42px;max-width:270px}.srv2-ddm .composer{display:flex;gap:7px;padding:9px 11px;background:#2b2d31}.srv2-ddm .composer div{flex:1;padding:8px;border-radius:8px;background:#383a40;color:#949ba4;font-size:8px}.srv-avatar-generated{overflow:hidden;padding:0!important}.srv-avatar-generated image_request{display:block;width:100%;height:100%;min-height:0}.srv-avatar-generated img,.srv-avatar-generated .reverie-artifact-media{width:100%;height:100%;object-fit:cover;border-radius:50%}.srv2-ddm .srv-avatar-generated{overflow:hidden;padding:0}.srv2-ddm .srv-avatar-generated image_request{display:block;width:100%;height:100%;min-height:0}.srv2-ddm .srv-avatar-generated img,.srv2-ddm .srv-avatar-generated .reverie-artifact-media{width:100%;height:100%;object-fit:cover;border-radius:50%}</style><div class=\"srv2\"><details class=\"srv2-collapse\"><summary>💜 Discord Direct Messages</summary><div class=\"srv2-surface srv2-ddm\"><div class=\"screen\"><header class=\"head\"><span>‹</span><span class=\"av\">R</span><div><b>$1</b><div style=\"font-size:7px;color:#949ba4\">$2 · $3</div></div></header><div class=\"msgs\">$4</div><div class=\"composer\"><span>＋</span><div>Message @$1</div><span>➤</span></div></div></div></details></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 108,
+      "description": "Discord DM with avatars, separate message rows, long-message support, and media attachment.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": false,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_discord_dm",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "🛰️ Reviewed Surface — Discord Server",
+      "find_regex": "<discord_server\\b(?=[^>]*\\bserver=\"([^\"]*)\")(?=[^>]*\\btopic=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</discord_server>",
+      "replace_string": "\n<style>\n.srv2{--a:var(--lumiverse-primary,#d45b9f);--deep:var(--lumiverse-bg-deep,#09070b);--panel:var(--lumiverse-bg-elevated,#171319);--border:var(--lumiverse-border,rgba(255,255,255,.13));--text:var(--lumiverse-text,#f7f2f5);--muted:var(--lumiverse-text-muted,#aa9fa7);box-sizing:border-box;width:100%;max-width:940px;margin:14px auto;color:var(--text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,\"Segoe UI\",sans-serif);container-type:inline-size}.srv2,.srv2 *{box-sizing:border-box}.srv2 img,.srv2 .reverie-artifact-media{display:block;max-width:100%}.srv2 scene_brief{display:none!important}.srv2 details.srv2-collapse{width:100%;border:0;background:transparent}.srv2 details.srv2-collapse>summary{width:max-content;max-width:94%;margin:0 auto 10px;display:flex;align-items:center;gap:7px;list-style:none;cursor:pointer;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 45%,var(--border));border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02)),#100c11;color:#f9ddec;font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 7px 20px rgba(0,0,0,.28)}.srv2 details.srv2-collapse>summary::-webkit-details-marker{display:none}.srv2 .srv2-surface{margin:0 auto;border:1px solid var(--border);box-shadow:0 22px 50px rgba(0,0,0,.42);overflow:hidden}.srv2 input.srv2-state{position:absolute;opacity:0;pointer-events:none}\n</style>\n\n<style>\n.srv2-server{max-width:850px;display:grid;grid-template-columns:58px 165px minmax(0,1fr);height:500px;min-height:500px;border-radius:14px;background:#313338;color:#dbdee1;overflow:hidden}.srv2-server .servers{grid-column:1;grid-row:1/span 10;background:#1e1f22;padding:10px 7px;height:100%;align-self:stretch}.srv2-server .sicon{width:40px;height:40px;margin:0 auto 8px;border-radius:14px;display:grid;place-items:center;background:#313338;font-size:8px;font-weight:900}.srv2-server .sicon.active{background:#5865f2}.srv2-server .server-title{grid-column:2;padding:11px 10px;background:#2b2d31;border-bottom:1px solid #202225;font-size:10px;font-weight:900}.srv2-server .server-info{grid-column:2;padding:9px 10px;background:#2b2d31;border-bottom:1px solid #202225;color:#aeb1b8;font-size:7px;line-height:1.55}.srv2-server .server-info b{display:block;color:#fff;font-size:8px;margin-bottom:3px}.srv2-server .server-info span{display:inline-block;margin-right:7px}.srv2-server .server-info .edit{display:block;margin-top:6px;padding:6px 7px;border:1px solid #44474e;border-radius:5px;text-align:center;color:#ddd}.srv2-server .channel-area{display:contents}.srv-channel-block{display:contents}.srv-channel-nav{grid-column:2;display:block;height:34px;min-height:34px;max-height:34px;margin:3px 8px;padding:8px 9px;border:1px solid #3d4047;border-radius:6px;background:#303238;color:#aeb1b8;font-size:8px;cursor:pointer;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.srv-channel-nav:hover{background:#3a3d43;color:#fff}.srv-channel-feed{grid-column:3;grid-row:1/span 10;display:none;min-width:0;height:500px;overflow:hidden}.srv-channel-feed header{padding:13px 14px;border-bottom:1px solid #222327}.srv-channel-feed header b{display:block;font-size:12px}.srv-channel-feed header span{font-size:7px;color:#949ba4}.srv-channel-messages{padding:13px;height:440px;overflow:auto}.srv2-server .srv-discord-row{padding:7px;border:1px solid #41444b;border-radius:8px;background:#2d2f34}.srv2-server .srv-discord-avatar{overflow:hidden;padding:0}.srv2-server .srv-discord-avatar image_request{display:block;width:100%;height:100%;min-height:0}.srv2-server .srv-discord-avatar img,.srv2-server .srv-discord-avatar .reverie-artifact-media{width:100%;height:100%;object-fit:cover;border-radius:50%}.srv-discord-media{margin:6px 0 12px 42px;max-width:420px;overflow:hidden;border-radius:9px}.srv-discord-media img,.srv-discord-media .reverie-artifact-media{width:100%;max-height:290px;object-fit:cover}\n#srv-channel-1-{{lastMessageId}}:checked~.srv2-server .srv-channel-1 .srv-channel-feed,#srv-channel-2-{{lastMessageId}}:checked~.srv2-server .srv-channel-2 .srv-channel-feed,#srv-channel-3-{{lastMessageId}}:checked~.srv2-server .srv-channel-3 .srv-channel-feed,#srv-channel-4-{{lastMessageId}}:checked~.srv2-server .srv-channel-4 .srv-channel-feed{display:block}\n#srv-channel-1-{{lastMessageId}}:checked~.srv2-server .srv-channel-1 .srv-channel-nav,#srv-channel-2-{{lastMessageId}}:checked~.srv2-server .srv-channel-2 .srv-channel-nav,#srv-channel-3-{{lastMessageId}}:checked~.srv2-server .srv-channel-3 .srv-channel-nav,#srv-channel-4-{{lastMessageId}}:checked~.srv2-server .srv-channel-4 .srv-channel-nav{background:#404249;color:#fff;border-color:#5865f2}\n@container(max-width:620px){.srv2-server{grid-template-columns:52px 145px minmax(0,1fr)}.srv2-server .srv-discord-row{grid-template-columns:28px 1fr}.srv2-server .srv-discord-avatar{width:28px;height:28px}}@container(max-width:470px){.srv2-server{grid-template-columns:1fr}.srv2-server .servers{display:none}.srv2-server .server-title{grid-column:1}.srv-channel-nav{grid-column:1}.srv-channel-feed{grid-column:1;grid-row:auto}.srv-channel-block:not(:has(.srv-channel-feed[style])){}}\n</style>\n<div class=\"srv2\"><details class=\"srv2-collapse\"><summary>🛰️ Discord Server Chat</summary><input checked class=\"srv2-state\" id=\"srv-channel-1-{{lastMessageId}}\" name=\"srv-channel-{{lastMessageId}}\" type=\"radio\"><input class=\"srv2-state\" id=\"srv-channel-2-{{lastMessageId}}\" name=\"srv-channel-{{lastMessageId}}\" type=\"radio\"><input class=\"srv2-state\" id=\"srv-channel-3-{{lastMessageId}}\" name=\"srv-channel-{{lastMessageId}}\" type=\"radio\"><input class=\"srv2-state\" id=\"srv-channel-4-{{lastMessageId}}\" name=\"srv-channel-{{lastMessageId}}\" type=\"radio\"><div class=\"srv2-surface srv2-server\"><aside class=\"servers\"><div class=\"sicon\">⌂</div><div class=\"sicon active\">MG</div><div class=\"sicon\">🎮</div><div class=\"sicon\">＋</div></aside><div class=\"server-title\">$1</div><div class=\"server-info\"><b>Server Overview</b><span>👥 1,284 members</span><span>🟢 318 online</span><span>🔊 24 voice</span><div class=\"edit\">✎ Edit Server Profile</div></div><div class=\"channel-area\">$3</div></div></details></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 109,
+      "description": "Stable-size Discord server with full-height server rail, compact bordered channel tabs, server member/profile info, fixed channel layout, message outlines, and generated avatar support.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": false,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_discord_server",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "🔎 Reviewed Surface — Google Images",
+      "find_regex": "<google_image_search\\b(?=[^>]*\\bquery=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</google_image_search>",
+      "replace_string": "\n<style>\n.srv2{--a:var(--lumiverse-primary,#d45b9f);--deep:var(--lumiverse-bg-deep,#09070b);--panel:var(--lumiverse-bg-elevated,#171319);--border:var(--lumiverse-border,rgba(255,255,255,.13));--text:var(--lumiverse-text,#f7f2f5);--muted:var(--lumiverse-text-muted,#aa9fa7);box-sizing:border-box;width:100%;max-width:940px;margin:14px auto;color:var(--text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,\"Segoe UI\",sans-serif);container-type:inline-size}.srv2,.srv2 *{box-sizing:border-box}.srv2 img,.srv2 .reverie-artifact-media{display:block;max-width:100%}.srv2 scene_brief{display:none!important}.srv2 details.srv2-collapse{width:100%;border:0;background:transparent}.srv2 details.srv2-collapse>summary{width:max-content;max-width:94%;margin:0 auto 10px;display:flex;align-items:center;gap:7px;list-style:none;cursor:pointer;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 45%,var(--border));border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02)),#100c11;color:#f9ddec;font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 7px 20px rgba(0,0,0,.28)}.srv2 details.srv2-collapse>summary::-webkit-details-marker{display:none}.srv2 .srv2-surface{margin:0 auto;border:1px solid var(--border);box-shadow:0 22px 50px rgba(0,0,0,.42);overflow:hidden}.srv2 input.srv2-state{position:absolute;opacity:0;pointer-events:none}\n</style>\n\n<style>\n.srv2-google{max-width:850px;border-radius:15px;background:#202124;color:#e8eaed}.srv2-google .browser{padding:10px 12px;background:#292a2d;border-bottom:1px solid #3c4043}.srv2-google .dots{display:flex;gap:5px;margin-bottom:8px}.srv2-google .dots i{width:8px;height:8px;border-radius:50%;background:#777}.srv2-google .dots i:nth-child(1){background:#ff5f57}.srv2-google .dots i:nth-child(2){background:#febc2e}.srv2-google .dots i:nth-child(3){background:#28c840}.srv2-google .search{display:flex;align-items:center;gap:7px;padding:8px 12px;border:1px solid #5f6368;border-radius:999px;background:#303134;font-size:9px}.srv2-google .query{flex:1}.srv2-google .search .icons{margin-left:auto;color:#aaa}.srv2-google .tabs{display:flex;gap:14px;padding:10px 13px 0;color:#9aa0a6;font-size:8px}.srv2-google .tabs .active{color:#8ab4f8;border-bottom:3px solid #8ab4f8;padding-bottom:7px}.srv2-google .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px}.srv-g-result{min-width:0;position:relative}.srv-g-result>b{display:block;margin-top:6px;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.srv-g-result>span{display:block;margin-top:2px;color:#9aa0a6;font-size:7px}.srv-g-image{aspect-ratio:4/3;border-radius:9px;overflow:hidden;background:#111;position:relative}.srv-g-image>image_request,.srv-g-image>img,.srv-g-image>.reverie-artifact-media{width:100%;height:100%;object-fit:cover}.srv-g-mag{position:absolute;z-index:4;right:6px;top:6px;width:27px;height:27px;border-radius:50%;display:grid;place-items:center;background:#000b;border:1px solid #ffffff44;color:#fff;font-size:13px;cursor:pointer}.srv-g-close,.srv-g-backdrop{display:none}.srv-g-zoom{position:absolute;opacity:0;pointer-events:none}.srv-g-zoom:checked~.srv-g-backdrop{display:block;position:fixed;z-index:9997;inset:0;background:#000b}.srv-g-zoom:checked~.srv-g-image{position:fixed;z-index:9998;left:50%;top:50%;transform:translate(-50%,-50%);width:min(88vw,920px);height:min(82vh,680px);aspect-ratio:auto;border-radius:12px;background:#111;box-shadow:0 28px 90px #000d;padding:10px}.srv-g-zoom:checked~.srv-g-image>image_request,.srv-g-zoom:checked~.srv-g-image>img,.srv-g-zoom:checked~.srv-g-image>.reverie-artifact-media{width:100%;height:100%;object-fit:contain}.srv-g-zoom:checked~.srv-g-image .srv-g-mag{display:none}.srv-g-zoom:checked~.srv-g-image .srv-g-close{display:grid;position:absolute;z-index:5;right:12px;top:12px;width:31px;height:31px;border-radius:50%;place-items:center;background:#000d;border:1px solid #ffffff55;color:#fff;cursor:pointer}\n@container(max-width:620px){.srv2-google .grid{grid-template-columns:repeat(2,minmax(0,1fr))}.srv-g-zoom:checked~.srv-g-image{width:94vw;height:76vh}}@container(max-width:380px){.srv2-google .grid{gap:7px;padding:8px}}\n</style>\n<div class=\"srv2\"><details class=\"srv2-collapse\"><summary>🔎 Google Image Search Results</summary><div class=\"srv2-surface srv2-google\"><div class=\"browser\"><div class=\"dots\"><i></i><i></i><i></i></div><div class=\"search\"><span>⌕</span><span class=\"query\">$1</span><span class=\"icons\">✕　🎙　◉</span></div></div><div class=\"tabs\"><span>All</span><span class=\"active\">Images</span><span>Shopping</span><span>Maps</span><span>News</span></div><div class=\"grid\">$2</div></div></details></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 110,
+      "description": "Google Images with untouched direct thumbnail/lightbox, separate top-right magnifier, bounded Surface zoom, backdrop/X close, and one caption per image.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": false,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_google_images",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "🖼️ Reviewed Surface — Phone Gallery",
+      "find_regex": "<phone_gallery\\b(?=[^>]*\\balbum=\"([^\"]*)\")(?=[^>]*\\btime=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</phone_gallery>",
+      "replace_string": "\n<style>\n.srv2{--a:var(--lumiverse-primary,#d45b9f);--deep:var(--lumiverse-bg-deep,#09070b);--panel:var(--lumiverse-bg-elevated,#171319);--border:var(--lumiverse-border,rgba(255,255,255,.13));--text:var(--lumiverse-text,#f7f2f5);--muted:var(--lumiverse-text-muted,#aa9fa7);box-sizing:border-box;width:100%;max-width:940px;margin:14px auto;color:var(--text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,\"Segoe UI\",sans-serif);container-type:inline-size}.srv2,.srv2 *{box-sizing:border-box}.srv2 img,.srv2 .reverie-artifact-media{display:block;max-width:100%}.srv2 scene_brief{display:none!important}.srv2 details.srv2-collapse{width:100%;border:0;background:transparent}.srv2 details.srv2-collapse>summary{width:max-content;max-width:94%;margin:0 auto 10px;display:flex;align-items:center;gap:7px;list-style:none;cursor:pointer;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 45%,var(--border));border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02)),#100c11;color:#f9ddec;font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 7px 20px rgba(0,0,0,.28)}.srv2 details.srv2-collapse>summary::-webkit-details-marker{display:none}.srv2 .srv2-surface{margin:0 auto;border:1px solid var(--border);box-shadow:0 22px 50px rgba(0,0,0,.42);overflow:hidden}.srv2 input.srv2-state{position:absolute;opacity:0;pointer-events:none}\n</style>\n\n<style>\n.srv2-gallery{max-width:410px;padding:7px;border-radius:38px;background:linear-gradient(145deg,#252427,#050506 28%,#141316 78%,#050506)}.srv2-gallery .screen{border-radius:31px;overflow:hidden;background:#050505;min-height:560px}.srv2-gallery .head{display:flex;justify-content:space-between;align-items:center;padding:18px 13px 11px}.srv2-gallery .head b{font-size:16px}.srv2-gallery .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px;padding:2px}.srv-gallery-item{min-width:0;position:relative}.srv-gallery-photo{aspect-ratio:1/1;background:#111;overflow:hidden;position:relative}.srv-gallery-photo>image_request,.srv-gallery-photo>img,.srv-gallery-photo>.reverie-artifact-media{width:100%;height:100%;object-fit:cover}.srv-gallery-title{display:none}.srv-gallery-mag{position:absolute;z-index:4;right:5px;top:5px;width:25px;height:25px;border-radius:50%;display:grid;place-items:center;background:#000a;border:1px solid #ffffff44;color:#fff;font-size:12px;cursor:pointer}.srv-gallery-close,.srv-gallery-backdrop,.srv-gallery-toolbar,.srv-gallery-meta{display:none}.srv-gallery-zoom,.srv-gallery-meta-toggle{position:absolute;opacity:0;pointer-events:none}.srv-gallery-zoom:checked~.srv-gallery-backdrop{display:block;position:fixed;z-index:9997;inset:0;background:#000c}.srv-gallery-zoom:checked~.srv-gallery-photo{position:fixed;z-index:9998;left:50%;top:48%;transform:translate(-50%,-50%);width:min(92vw,760px);height:min(78vh,760px);aspect-ratio:auto;border-radius:12px;background:#050505;padding:10px;box-shadow:0 28px 90px #000d}.srv-gallery-zoom:checked~.srv-gallery-photo>image_request,.srv-gallery-zoom:checked~.srv-gallery-photo>img,.srv-gallery-zoom:checked~.srv-gallery-photo>.reverie-artifact-media{width:100%;height:100%;object-fit:contain}.srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-mag{display:none}.srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-close{display:grid;position:absolute;z-index:5;right:12px;top:12px;width:31px;height:31px;border-radius:50%;place-items:center;background:#000d;border:1px solid #ffffff55;color:#fff;cursor:pointer}.srv-gallery-zoom:checked~.srv-gallery-title{display:block;position:fixed;z-index:9999;left:50%;bottom:7vh;transform:translateX(-50%);padding:5px 8px;border-radius:7px;background:#000a;font-size:8px}.srv-gallery-zoom:checked~.srv-gallery-toolbar{display:flex;position:fixed;z-index:9999;left:50%;bottom:2.5vh;transform:translateX(-50%);gap:16px;padding:7px 12px;border-radius:999px;background:#151515;border:1px solid #333}.srv-gallery-toolbar label,.srv-gallery-toolbar span{font-size:8px;color:#ddd;cursor:pointer}.srv-gallery-meta-toggle:checked~.srv-gallery-meta{display:grid;position:fixed;z-index:10001;inset:0;place-items:center;background:#000b}.srv-gallery-meta>div{width:min(90%,340px);padding:18px;border-radius:14px;background:#19191c;border:1px solid #444;color:#fff}.srv-gallery-meta b{font-size:14px}.srv-gallery-meta p{font-size:9px;line-height:1.6;color:#bbb}.srv-gallery-meta label{display:inline-block;padding:7px 10px;border-radius:999px;background:#333;font-size:8px;cursor:pointer}\n@container(max-width:300px){.srv2-gallery .grid{grid-template-columns:repeat(2,minmax(0,1fr))}}\n</style>\n<div class=\"srv2\"><details class=\"srv2-collapse\"><summary>🖼️ Phone Photo Gallery</summary><div class=\"srv2-surface srv2-gallery\"><div class=\"screen\"><header class=\"head\"><span>‹ Albums</span><b>$1</b><span>Select</span></header><div class=\"grid\">$3</div></div></div></details></div>",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 111,
+      "description": "Phone gallery grid with untouched thumbnail/lightbox, separate magnifier Surface zoom, bounded popup/X close, and metadata modal.",
+      "metadata": {
+        "review_pack": "Reviewed Surface",
+        "internal_transformer": false,
+        "renderer": "regex",
+        "responsive_contract": "container-width"
+      },
+      "folder": "Reviewed Surface",
+      "script_id": "surface_review_phone_gallery",
+      "actions": [],
+      "owner_extension_identifier": null
+    },
+    {
+      "name": "🟩 15 [Interactive] Naver-Style News Article — Compact Inline",
+      "find_regex": "<naver_news\\b(?=[^>]*\\bcategory=\"([^\"]*)\")(?=[^>]*\\bheadline=\"([^\"]*)\")(?=[^>]*\\bsource=\"([^\"]*)\")(?=[^>]*\\bbyline=\"([^\"]*)\")(?=[^>]*\\btimestamp=\"([^\"]*)\")(?=[^>]*\\bcomments=\"([^\"]*)\")[^>]*>\\s*([\\s\\S]*?)\\s*</naver_news>",
+      "replace_string": "<!-- UI_START --><style>.rr27c-batch{\n  --rr27c-accent:var(--lumiverse-primary,#c866a0);\n  --rr27c-accent-text:var(--lumiverse-primary-text,#ffe2f2);\n  --rr27c-bg:var(--lumiverse-bg-deep,#0b080c);\n  --rr27c-panel:var(--lumiverse-bg-elevated,#21161e);\n  --rr27c-border:var(--lumiverse-border,rgba(255,255,255,.13));\n  --rr27c-text:var(--lumiverse-text,#f6edf3);\n  --rr27c-muted:var(--lumiverse-text-muted,#b9aab4);\n\n  box-sizing:border-box;\n  width:min(96%,1000px);\n  margin:24px auto;\n  color:var(--rr27c-text);\n  font-family:var(\n    --lumiverse-font-family,\n    system-ui,\n    -apple-system,\n    BlinkMacSystemFont,\n    \"Segoe UI\",\n    sans-serif\n  );\n}.rr27c-batch,\n.rr27c-batch *{\n  box-sizing:border-box;\n}.rr27c-batch img{\n  display:block;\n  width:100%;\n  object-fit:cover;\n}.rr27c-hidden{\n  position:absolute!important;\n  width:1px!important;\n  height:1px!important;\n  opacity:0!important;\n  pointer-events:none!important;\n}.rr27c-naver{\n  overflow:hidden;\n  border:1px solid #dfe3e5;\n  border-radius:18px;\n  background:#fff;\n  color:#202124;\n  box-shadow:0 26px 55px rgba(0,0,0,.38);\n}.rr27c-naver-top{\n  display:flex;\n  align-items:center;\n  gap:14px;\n  min-height:53px;\n  padding:0 15px;\n  border-bottom:1px solid #e4e7e9;\n  background:#fff;\n}.rr27c-naver-logo{\n  color:#03c75a;\n  font-size:23px;\n  font-weight:950;\n  letter-spacing:-.08em;\n}.rr27c-naver-nav{\n  display:flex;\n  gap:15px;\n  color:#555;\n  font-size:10px;\n  font-weight:800;\n}.rr27c-naver-search{\n  margin-left:auto;\n  padding:8px 11px;\n  border:1px solid #d9dddf;\n  border-radius:999px;\n  color:#888;\n  font-size:9px;\n}.rr27c-news-breaking{\n  display:flex;\n  align-items:center;\n  gap:9px;\n  padding:8px 15px;\n  background:#f5f7f8;\n  color:#555;\n  font-size:9px;\n}.rr27c-news-breaking b{\n  color:#e63b47;\n}.rr27c-news-layout{\n  display:grid;\n  grid-template-columns:minmax(0,1fr) 255px;\n}.rr27c-news-article{\n  min-width:0;\n  padding:20px;\n}.rr27c-news-category{\n  color:#03a84f;\n  font-size:9px;\n  font-weight:950;\n  letter-spacing:.11em;\n}.rr27c-news-title{\n  margin:8px 0;\n  font-family:Georgia,\"Times New Roman\",serif;\n  font-size:clamp(22px,4vw,34px);\n  line-height:1.22;\n}.rr27c-news-meta{\n  color:#777;\n  font-size:9px;\n}.rr27c-news-tools{\n  display:flex;\n  gap:7px;\n  margin:13px 0;\n}.rr27c-news-tool{\n  display:grid;\n  place-items:center;\n  width:33px;\n  height:33px;\n  cursor:pointer;\n  border:1px solid #dfe2e4;\n  border-radius:50%;\n  background:#fff;\n  color:#555;\n  font-size:12px;\n}.rr27c-news-hero{\n  overflow:hidden;\n  margin:14px 0;\n  border-radius:4px;\n}.rr27c-news-hero img{\n  aspect-ratio:16/9;\n}.rr27c-news-copy{\n  color:#32373a;\n  font-family:Georgia,\"Times New Roman\",serif;\n  font-size:13px;\n  line-height:1.8;\n}#rr27c-news-large-{{lastMessageId}}:checked\n~ .rr27c-naver\n.rr27c-news-copy{\n  font-size:17px;\n}.rr27c-news-reactions{\n  display:grid;\n  grid-template-columns:repeat(4,minmax(0,1fr));\n  gap:7px;\n  margin-top:18px;\n}.rr27c-news-reaction{\n  padding:9px 5px;\n  cursor:pointer;\n  border:1px solid #e0e3e5;\n  border-radius:10px;\n  background:#fafbfb;\n  color:#555;\n  font-size:9px;\n  text-align:center;\n}#rr27c-news-like-{{lastMessageId}}:checked\n~ .rr27c-naver\nlabel[for=\"rr27c-news-like\"]{\n  border-color:#03c75a;\n  background:#eafff2;\n  color:#039747;\n}.rr27c-news-side{\n  padding:17px 14px;\n  border-left:1px solid #e4e7e9;\n  background:#fafbfb;\n}.rr27c-news-side h4{\n  margin:0 0 11px;\n  font-size:12px;\n}.rr27c-news-related{\n  padding:10px 0;\n  border-top:1px solid #e3e6e8;\n  color:#333;\n  font-size:10px;\n  line-height:1.4;\n}.rr27c-news-comments{\n  margin-top:17px;\n  border-top:2px solid #222;\n}.rr27c-news-comments summary{\n  padding:13px 0;\n  cursor:pointer;\n  list-style:none;\n  font-size:11px;\n  font-weight:900;\n}.rr27c-news-comments summary::-webkit-details-marker{\n  display:none;\n}@media(max-width:780px){.rr27c-news-layout{\n    grid-template-columns:1fr;\n  }.rr27c-news-side{\n    border-top:1px solid #e4e7e9;\n    border-left:0;\n  }}@media(max-width:520px){.rr27c-naver-nav{\n    display:none;\n  }.rr27c-news-reactions{\n    grid-template-columns:repeat(2,minmax(0,1fr));\n  }}\n\n/* Compact verification layer */\n.rr-export-root{width:min(90%,760px)!important;max-width:760px!important;margin:16px auto!important;min-width:0!important}\n.rr-export-root,.rr-export-root *{box-sizing:border-box}\n.rr-export-root img{max-width:100%;height:auto}\n.rr-export-root .rr-payload{display:block;min-width:0;max-width:100%;overflow-wrap:anywhere}\n.rr-export-root .rr-payload>*+*{margin-top:8px}\n.rr-export-root .rr-payload image_request,.rr-export-root .rr-payload scene_brief{display:none!important}\n.rr-export-root :where(dm_msg,wa_msg,discord_msg,server_msg,chat_msg,im_msg,ws_msg,k_msg){display:block;max-width:80%;margin:7px 0;padding:8px 10px;border-radius:14px;background:rgba(255,255,255,.09);font-size:10px;line-height:1.45;overflow-wrap:anywhere}\n.rr-export-root :where(dm_msg,wa_msg,im_msg,chat_msg,k_msg)[side=\"right\"]{margin-left:auto;background:color-mix(in srgb,var(--lumiverse-primary,#cf4b8c) 30%,rgba(255,255,255,.09))}\n.rr-export-root :where(dm_msg,wa_msg,im_msg,chat_msg,k_msg)[side=\"left\"]{margin-right:auto}\n.rr-export-root :where(dm_msg,wa_msg,discord_msg,server_msg,chat_msg,im_msg,ws_msg,k_msg)::before{content:attr(user) attr(sender) attr(name) \"  \" attr(time);display:block;margin-bottom:3px;color:var(--lumiverse-text-muted,#aa9da5);font-size:7.5px;font-weight:750}\n.rr-export-root :where(discord_msg,server_msg,ws_msg){max-width:100%;border-radius:10px;background:rgba(255,255,255,.045)}\n.rr-export-root :where(server_channel,k_participant,im_member){display:block;padding:6px 8px;border-radius:9px;background:rgba(255,255,255,.055);font-size:9px;line-height:1.3}\n.rr-export-root :where(dm_media,k_img,k_file,server_media,tt_media,yt_media,wv_media,fm_media,em_attachment,im_media,ws_media,live_media,dt_media,mu_cover,fs_media,lc_map,vm_avatar,nt_media,mk_media,nv_media,pb_media,cf_media,ld_media,med_avatar,ct_exhibit,tr_media,codex_media,id_photo,dy_media,rb_media,sc_media,dv_media,sp_media,cv_feed,gallery_item,frame_media,artifact_media_frame){display:block;overflow:hidden;border-radius:12px;min-width:0}\n.rr-export-root :where(dm_media,k_img,k_file,server_media,tt_media,yt_media,wv_media,fm_media,em_attachment,im_media,ws_media,live_media,dt_media,mu_cover,fs_media,lc_map,vm_avatar,nt_media,mk_media,nv_media,pb_media,cf_media,ld_media,med_avatar,ct_exhibit,tr_media,codex_media,id_photo,dy_media,rb_media,sc_media,dv_media,sp_media,cv_feed,gallery_item,frame_media,artifact_media_frame) img{display:block;width:100%;max-width:100%;max-height:360px;object-fit:cover}\n.rr-export-root :where(tt_media,dt_media) img{max-height:500px;object-fit:cover}\n.rr-export-root :where(yt_media,live_media,lc_map,rb_media,sc_media,cv_feed) img{aspect-ratio:16/9;max-height:340px;object-fit:cover}\n.rr-export-root :where(mu_cover) img{aspect-ratio:1;max-height:280px;object-fit:cover}\n.rr-export-root :where(gallery_item) img{max-height:430px;object-fit:contain;background:#080808}\n.rr-export-root :where(comments,tw_comments,tt_comments,yt_comments,wv_comments,fm_comments,nv_comments,cv_events){display:block}\n.rr-export-root :where(i_comment,i_reply,tw_comment,tt_comment,yt_comment,wv_comment,fm_comment,nv_comment,wt_comment,cv_event){display:block;padding:8px 0;border-top:1px solid rgba(127,127,127,.18);font-size:9.5px;line-height:1.45;overflow-wrap:anywhere}\n.rr-export-root :where(i_comment,i_reply,tw_comment,tt_comment,yt_comment,wv_comment,fm_comment,nv_comment,wt_comment,cv_event)::before{content:attr(user) attr(author) \" · \" attr(time);display:block;margin-bottom:3px;font-size:7.5px;font-weight:800;opacity:.68}\n.rr-export-root :where(wv_post,fm_body,yt_description,tt_caption,fs_caption,lc_note,nt_body,mk_desc,nv_body,pb_body,ld_body,med_patient,tr_entry,codex_body,dy_entry,rb_transcript,dv_reading,sp_warning,cv_note){display:block;font-size:10px;line-height:1.55;overflow-wrap:anywhere}\n.rr-export-root :where(wv_artist_reply,nt_attachment,ld_signature,ld_stamp,ct_objection,sc_alert,pb_instructions,sp_stats,sc_stats,codex_facts,id_facts,fs_tags,lc_steps,vm_calls,mk_bids){display:block;margin-top:8px;padding:8px 10px;border-radius:10px;background:rgba(127,127,127,.09);font-size:9px;line-height:1.45;overflow-wrap:anywhere}\n.rr-export-root :where(prop_gallery,cv_feeds){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}\n.rr-export-root :where(wt_panels){display:block}\n.rr-export-root details{max-width:100%}\n.rr-export-root details>summary{cursor:pointer;list-style:none}\n.rr-export-root details>summary::-webkit-details-marker{display:none}\n.rr-export-root .rr-only-media>:not(:where(ig_media,tw_media,tt_media,yt_media,wv_media,fm_media,em_attachment,im_media,ws_media,live_media,dt_media,mu_cover,fs_media,lc_map,vm_avatar,nt_media,mk_media,prop_gallery,prop_media,nv_media,pb_media,cf_media,ld_media,med_avatar,ct_exhibit,tr_media,codex_media,id_photo,dy_media,rb_media,sc_media,dv_media,sp_media,wt_panels,wt_panel,cv_feeds,cv_feed,gallery_item,frame_media,artifact_media_frame,image_request,img)){display:none!important}\n@media(max-width:640px){.rr-export-root{width:94%!important;margin:12px auto!important}.rr-export-root :where(prop_gallery,cv_feeds){grid-template-columns:1fr}}\n\n\n.rr-export-root{width:min(92%,760px)!important;max-width:760px!important;margin:14px auto!important;min-width:0!important}\n.rr-export-root,.rr-export-root *{box-sizing:border-box}.rr-export-root img{max-width:100%;height:auto}.rr-export-root input.rr27c-hidden,.rr-export-root input.rr27d-hidden,.rr-export-root input.rr27e-hidden,.rr-export-root input.rr27f-hidden,.rr-export-root input.rr27g-hidden,.rr-export-root input.rr27h-hidden,.rr-export-root input.rrx-hidden{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}\n.rr-export-root label,.rr-export-root summary{touch-action:manipulation;-webkit-tap-highlight-color:transparent}.rr-export-root label{cursor:pointer}.rr-export-root details>summary{cursor:pointer;list-style:none}.rr-export-root details>summary::-webkit-details-marker{display:none}\n.rr-export-root .rr-v3-view{display:block;min-width:0;max-width:100%;overflow-wrap:anywhere}.rr-export-root .rr-v3-view>*+*{margin-top:8px}.rr-export-root .rr-v3-view image_request,.rr-export-root .rr-v3-view scene_brief{display:none!important}\n.rr-export-root :where(dt_cards,dt_card,dt_media,dt_bio,dt_tags,dt_tag,dt_match_avatar){display:block}\n.rr-export-root :where(em_message,ws_msg,live_msg,live_donation,vm_call,mk_bid,ct_line,rb_event,cv_event)::before{content:attr(from) attr(user) attr(name) \" · \" attr(time);display:block;margin-bottom:3px;font-size:7.5px;font-weight:800;opacity:.68}\n@media(max-width:640px){.rr-export-root{width:94%!important;margin:10px auto!important}}\n\n.rr-v3-nv-media>:not(:where(nv_media)){display:none!important}\n.rr-v3-nv-copy>:not(:where(nv_body)){display:none!important}\n.rr-v3-nv-comments>:not(:where(details,nv_comments,nv_comment)){display:none!important}\n\n.rr-export-root{max-width:760px!important}.rr27c-news-hero{max-height:320px!important}.rr27c-news-layout{grid-template-columns:minmax(0,1fr) 190px!important}</style><div class=\"rr27c-batch rr-export-root\"><input class=\"rr27c-hidden\" id=\"rr27c-news-large-{{lastMessageId}}\" type=\"checkbox\"/><input class=\"rr27c-hidden\" id=\"rr27c-news-like-{{lastMessageId}}\" type=\"checkbox\"/><article class=\"rr27c-naver\">\n<header class=\"rr27c-naver-top\">\n<span class=\"rr27c-naver-logo\">NAVER</span>\n<nav class=\"rr27c-naver-nav\">\n<span>News</span>\n<span>Entertainment</span>\n<span>Sports</span>\n<span>Weather</span>\n</nav>\n<span class=\"rr27c-naver-search\">\n            Search news　⌕\n          </span>\n</header>\n<div class=\"rr27c-news-breaking\">\n<b>BREAKING</b>\n<span>\n            Historic theater reopens following twenty-year restoration.\n          </span>\n</div>\n<div class=\"rr27c-news-layout\">\n<main class=\"rr27c-news-article\">\n<div class=\"rr27c-news-category\">$1</div>\n<h1 class=\"rr27c-news-title\">$2</h1>\n<div class=\"rr27c-news-meta\">$3 · $4 · $5 · $6 comments</div>\n<div class=\"rr27c-news-tools\">\n<label class=\"rr27c-news-tool\" for=\"rr27c-news-large-{{lastMessageId}}\" title=\"Change text size\">\n                Aa\n              </label>\n<span class=\"rr27c-news-tool\">↗</span>\n<span class=\"rr27c-news-tool\">🔖</span>\n<span class=\"rr27c-news-tool\">🖨</span>\n</div>\n<figure class=\"rr27c-news-hero\"><div class=\"rr-v3-view rr-v3-nv-media\">$7</div></figure>\n<div class=\"rr27c-news-copy\"><div class=\"rr-v3-view rr-v3-nv-copy\">$7</div></div>\n<div class=\"rr27c-news-reactions\">\n<label class=\"rr27c-news-reaction\" for=\"rr27c-news-like-{{lastMessageId}}\">\n                🙂 Useful<br/>1,892\n              </label>\n<span class=\"rr27c-news-reaction\">\n                😮 Surprising<br/>608\n              </span>\n<span class=\"rr27c-news-reaction\">\n                ❤️ Moving<br/>417\n              </span>\n<span class=\"rr27c-news-reaction\">\n                😠 Concerned<br/>92\n              </span>\n</div>\n<details class=\"rr27c-news-comments\"><div class=\"rr-v3-view rr-v3-nv-comments\">$7</div></details>\n</main>\n<aside class=\"rr27c-news-side\">\n<h4>Most viewed in Culture</h4>\n<div class=\"rr27c-news-related\">\n              1. Restoration reveals hidden mural beneath auditorium wall\n            </div>\n<div class=\"rr27c-news-related\">\n              2. City announces new late-night museum program\n            </div>\n<div class=\"rr27c-news-related\">\n              3. Archive publishes photographs from the theater’s opening year\n            </div>\n<div class=\"rr27c-news-related\">\n              4. Local performers return for sold-out reopening gala\n            </div>\n</aside>\n</div>\n</article></div><!-- UI_END -->",
+      "flags": "gi",
+      "placement": [
+        "ai_output"
+      ],
+      "scope": "global",
+      "scope_id": null,
+      "target": [
+        "display"
+      ],
+      "min_depth": null,
+      "max_depth": null,
+      "trim_strings": [],
+      "run_on_edit": true,
+      "substitute_macros": "raw",
+      "disabled": false,
+      "sort_order": 15,
+      "description": "Self-contained export design with compact sizing, message-scoped CSS controls, and page-specific payload mapping so tabs, drawers, toggles, cards, and modal states visibly change content.",
+      "metadata": {
+        "source": "Relay Regex Design_export(1).json",
+        "build": "interactive_v3_all_43",
+        "display_mode": "inline",
+        "message_scoped_controls": true,
+        "page_specific_payload_mapping": true,
+        "interaction_repair": true
+      },
+      "folder": "🌊 Reverie Surfaces — Interactive Compact v3 — Inline",
+      "script_id": "interactive_v3_15_naver",
+      "actions": []
+    }
+  ]
+}

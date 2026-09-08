@@ -1,0 +1,31 @@
+{
+  "name": "reverie-relay",
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "build": "bun scripts/generate-brand-icon-data.mjs && bun build src/backend.ts --outfile dist/backend.js --target bun && bun build src/frontend.ts --outfile dist/frontend.js --target browser",
+    "typecheck": "bun x tsc --noEmit",
+    "smoke": "bun scripts/smoke.ts",
+    "smoke:dist": "bun scripts/dist-smoke.mjs",
+    "smoke:frontend-boot": "bun scripts/frontend-boot-smoke.ts",
+    "smoke:vault": "bun scripts/vault-smoke.ts",
+    "smoke:native": "bun scripts/native-surfaces-smoke.ts",
+    "smoke:serialized": "bun scripts/serialized-generation-smoke.mjs",
+    "smoke:slot-actions": "bun scripts/slot-action-feedback-smoke.ts",
+    "smoke:contracts": "bun scripts/action-contract-smoke.mjs",
+    "smoke:narrative": "bun scripts/r46-narrative-dlc-runtime-smoke.ts",
+    "smoke:lorebook": "bun scripts/narrative-lorebook-smoke.ts",
+    "smoke:ux": "bun scripts/ux-0.2.0-smoke.ts",
+    "smoke:streaming": "bun scripts/streaming-layout-stability-smoke.ts && bun scripts/scene-framing-regression.ts",
+    "smoke:persona-pov": "bun scripts/persona-pov-plumbing-smoke.ts",
+    "smoke:character-phone": "bun scripts/character-phone-modular-smoke.ts",
+    "smoke:appearance": "bun scripts/appearance-canonicalization-smoke.ts",
+    "smoke:hygiene": "bun scripts/source-hygiene-smoke.mjs",
+    "test": "bun run typecheck && bun run build && bun run smoke:dist && bun run smoke:frontend-boot && bun run smoke && bun run smoke:vault && bun run smoke:native && bun run smoke:serialized && bun run smoke:slot-actions && bun run smoke:contracts && bun run smoke:narrative && bun run smoke:lorebook && bun run smoke:ux && bun run smoke:streaming && bun run smoke:persona-pov && bun run smoke:character-phone && bun run smoke:appearance && bun run smoke:hygiene",
+    "test:public": "bun run test"
+  },
+  "devDependencies": {
+    "lumiverse-spindle-types": "0.6.27",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,135 @@
+import type { CustomSurfaceDefinition, ImageTarget, PromptProfileId, SurfacePromptCategory } from './contracts'
+import { bracketSurfacePromptModule } from './bracketSurfaceAuthoring'
+
+type CatalogRow = {
+  id: string
+  label: string
+  icon: string
+  root: string
+  target?: ImageTarget
+  aspect?: string
+  profile?: PromptProfileId
+  category: SurfacePromptCategory
+  sample: string
+  promptModule?: string
+}
+
+const request = (id: string, target = 'custom.artifact-media', aspect = '4:3', brief = 'A context-specific visual composed for this exact Surface region, without interface chrome or generated text.') =>
+  `<image_request id="${id}" target="${target}" slot="${id}" aspect="${aspect}" alt="Surface media"><scene_brief>${brief}</scene_brief></image_request>`
+
+function runtimeUtilityPrompt(row: CatalogRow): string {
+  const module = bracketSurfacePromptModule({
+    label: row.label,
+    root: row.root,
+    sampleXml: row.sample,
+    target: row.target || 'custom.artifact-media',
+    aspect: row.aspect || '4:3',
+  })
+  if (row.id === 'album-cover') return `${module}
+
+Album Cover contract note: a real album/release title is required in [title] before [artist], [release], and [artwork]. Do not use placeholders as the release title.`
+  return module
+}
+
+const CHARACTER_PROFILE_PROMPT = `<character_profile_utility>
+[CAST SHEET — REVERIE RELAY UTILITY]
+
+A Cast Sheet is a compact visual introduction card for a named character. <character_profile> remains the stable canonical root. Its first child is the mandatory <portrait> region. The Relay <image_request> lives inside that portrait; never substitute <media> for it.
+
+Use exactly one request with target="custom.artifact-media", aspect="3:4", and a unique lowercase slug-safe id and matching slot beginning with character-profile-. Describe visible appearance, current clothing, expression, posture, meaningful props, environment, lighting, and portrait composition. Keep readable text, labels, logos, captions, watermarks, and speech bubbles out of the generated portrait.
+
+The image must remain inside the same portrait region through pending, live preview, completed, retry, reparse, and reload states. After </portrait>, output <name>, <role>, <hook>, and <trait> in that order. Use only visible or already established information safe to the current viewpoint.
+
+OUTPUT FORMAT — EXACT
+<character_profile>
+<portrait>
+<image_request
+  id="character-profile-UNIQUE-ID"
+  target="custom.artifact-media"
+  slot="character-profile-UNIQUE-ID"
+  aspect="3:4"
+  alt="Portrait of Character"
+>
+<scene_brief>Polished story-appropriate illustrated portrait with established visible identity, current clothing, expression, posture, meaningful setting, and no readable text.</scene_brief>
+</image_request>
+</portrait>
+<name>Character Name</name>
+<role>Scene-relevant role</role>
+<hook>One-line orientation hook</hook>
+<trait>Concrete visible or established trait</trait>
+</character_profile>
+</character_profile_utility>`
+
+const rows: CatalogRow[] = [
+  { id: 'smartphone', label: 'Smartphone', icon: '▣', root: 'smart_phone', target: 'smartphone.message-image', category: 'social-messaging', aspect: '4:3', sample: `<smart_phone sender="Contact A" initial="A" time="21:14" day="Friday" battery="72"><notifications><s_note app="Messages" sender="Contact A" time="21:12">New message</s_note></notifications><contact>Contact A · mobile</contact><messages><s_recv time="21:12">Look at this.</s_recv><s_img side="recv" time="21:12">${request('phone-message-1', 'smartphone.message-image', '4:3', 'Context-specific photo sent by Contact A in this conversation, no phone interface or readable text.')}</s_img><s_sent time="21:14">I see it.</s_sent></messages><info>Conversation details</info></smart_phone>` },
+  { id: 'instagram', label: 'Instagram Post', icon: '◎', root: 'ig_app', target: 'instagram.single', category: 'social-messaging', aspect: '1:1', sample: `<ig_app user="@archive_a" loc="North Pier" likes="1,284" verified="true">${request('instagram-post-1', 'instagram.single', '1:1', 'Square social photograph of North Pier after rain, complete scene visible, no interface or readable text.')}<caption>Blue hour after the rain.</caption><comments><i_comment user="@reader_a" time="12m" likes="4" verified="">Beautiful light.<i_reply user="@archive_a" time="8m">Thank you.</i_reply></i_comment></comments></ig_app>` },
+  { id: 'twitter', label: 'Twitter / X Post', icon: '𝕏', root: 'twitter_app', target: 'twitter.media', category: 'social-messaging', aspect: '16:9', sample: `<twitter_app><for_you><tw_post author="Archive A" handle="@archive_a" time="19m" verified="true" replies="2" reposts="8" likes="34" views="1.2K" pinned="">The station lights are back.${request('twitter-media-1', 'twitter.media', '16:9', 'Wide photograph of a lit station platform at night, full platform visible, no social interface or readable text.')}<tw_comments><tw_comment author="Reader A" handle="@reader_a" time="8m" verified="" likes="3">Finally.</tw_comment></tw_comments></tw_post></for_you><following></following><thread></thread><trends></trends></twitter_app>` },
+  { id: 'kakao', label: 'KakaoTalk', icon: '●', root: 'kakao_chat', target: 'kakao.image', category: 'social-messaging', aspect: '4:3', sample: `<kakao_chat title="Field Group" date="Friday" time="21:14" unread="0"><participants><k_part name="Contact A" avatar="A" color="#6b82a8"/><k_part name="You" avatar="Y" color="#9c6b8f"/></participants><messages><k_date>Friday</k_date><k_msg sender="Contact A" avatar="A" color="#6b82a8" time="21:12" side="left" read="read">Look at this.</k_msg><k_img side="left" time="21:12">${request('kakao-image-1', 'kakao.image', '4:3', 'Context-specific chat attachment at this exact conversation point, no chat interface or readable text.')}</k_img><k_msg sender="You" avatar="Y" color="#9c6b8f" time="21:14" side="right" read="read">I see it.</k_msg></messages></kakao_chat>` },
+  { id: 'album-cover', label: 'Album Cover', icon: '◈', root: 'album_cover', category: 'covers-promotion', aspect: '1:1', sample: `<album_cover><title>Midnight Signal</title><artist>Fictional Artist</artist><release>Single</release><artwork>${request('album-art-1', 'custom.artifact-media', '1:1', 'Complete square album artwork for Midnight Signal, abstract nocturnal radio concept, strong centered composition, no interface chrome or readable text.')}</artwork></album_cover>` },
+  { id: 'magazine-cover', label: 'Magazine Cover', icon: '▤', root: 'magazine_cover', category: 'covers-promotion', aspect: '4:5', sample: `<magazine_cover><masthead>FIELD</masthead><issue>Autumn Issue</issue><kicker>Special Report</kicker><headline>The Last Platform</headline><subhead>Inside the city after midnight</subhead>${request('magazine-art-1', 'custom.artifact-media', '4:5', 'Vertical editorial photograph of an illuminated station platform with headline-safe space, no masthead or readable text.')}</magazine_cover>` },
+  { id: 'photo-booth-strip', label: 'Photo Booth Strip', icon: '▥', root: 'photo_booth_strip', category: 'narrative-visuals', aspect: '2:5', sample: `<photo_booth_strip title="After Midnight" date="Tonight"><booth_frame>${request('booth-frame-1', 'custom.artifact-media', '2:5', 'First pose in one coherent vertical photo-booth session, stable identities, wardrobe, booth, and lighting, no text.')}</booth_frame><booth_frame>${request('booth-frame-2', 'custom.artifact-media', '2:5', 'Second pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.')}</booth_frame><booth_frame>${request('booth-frame-3', 'custom.artifact-media', '2:5', 'Third pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.')}</booth_frame><booth_frame>${request('booth-frame-4', 'custom.artifact-media', '2:5', 'Fourth pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.')}</booth_frame><caption>Four frames after midnight.</caption></photo_booth_strip>` },
+  { id: 'polaroid', label: 'Polaroid', icon: '□', root: 'polaroid_frame', category: 'narrative-visuals', aspect: '1:1', sample: `<polaroid_frame date="Tonight" location="North Pier"><photo>${request('polaroid-photo-1', 'custom.artifact-media', '1:1', 'Complete square candid instant photograph at North Pier after rain, no paper border or readable text.')}</photo><caption>After the rain.</caption></polaroid_frame>` },
+  { id: 'youtube-thumbnail', label: 'YouTube Watch Page', icon: '▶', root: 'yt_thumbnail', category: 'covers-promotion', aspect: '16:9', sample: `<yt_thumbnail channel="Field Archive" title="The Last Train at North Pier" views="18K views" age="2 hours ago" subscribers="84K subscribers"><yt_media>${request('youtube-frame-1', 'custom.artifact-media', '16:9', 'Wide frame of the last train arriving at North Pier, key action center-safe, no YouTube chrome, logo, play icon, or readable text.')}</yt_media><yt_comments><yt_comment user="viewer_one" time="12m" likes="28">The platform light changed.</yt_comment><yt_comment user="viewer_two" time="4m" likes="9">Look near the far gate.</yt_comment></yt_comments></yt_thumbnail>` },
+  { id: 'character-profile', label: 'Cast Sheet', icon: '♙', root: 'character_profile', category: 'narrative-visuals', aspect: '3:4', profile: 'character-portrait', promptModule: CHARACTER_PROFILE_PROMPT, sample: `<character_profile><portrait>${request('character-profile-guide', 'custom.artifact-media', '3:4', 'Polished story-appropriate illustrated portrait of the named character, current appearance and clothing, expressive posture, meaningful setting, no readable text.')}</portrait><name>Character A</name><role>Field Guide</role><hook>Knows the city after dark.</hook><trait>Observant · patient · guarded</trait></character_profile>` },
+  { id: 'music-player', label: 'Music Player', icon: '♫', root: 'music_player', category: 'covers-promotion', aspect: '1:1', sample: `<music_player track="Night Signal" artist="Fictional Artist" album="Afterglow" current="1:12" duration="3:48"><mu_cover>${request('music-cover', 'custom.artifact-media', '1:1', 'Square fictional album artwork with an abstract night-city composition and no readable text.')}</mu_cover><mu_lyrics>Instrumental passage.</mu_lyrics><mu_queue>Next track · Quiet Avenue</mu_queue></music_player>` },
+  { id: 'location-share', label: 'Live Location', icon: '⌖', root: 'location_share', category: 'social-messaging', aspect: '4:3', sample: `<location_share sender="[contextual sender]" destination="[contextual destination]" eta="[contextual ETA]" remaining="[contextual distance]" updated="[contextual update]"><lc_map>${request('location-map', 'custom.artifact-media', '4:3', 'Top-down modern navigation map for the current contextual route toward the authored destination, route geometry and destination-pin area visible, no people, no portrait photography, no generated text labels.')}</lc_map><lc_note>Contextual route note.</lc_note><lc_steps><lc_step>Contextual start</lc_step><lc_step>Contextual destination</lc_step></lc_steps></location_share>` },
+  { id: 'voice-memo', label: 'Voice Memo', icon: '◉', root: 'voice_memo', category: 'social-messaging', aspect: '1:1', sample: `<voice_memo sender="Character A" time="18:05" duration="0:42" status="played"><vm_avatar>${request('voice-avatar', 'custom.artifact-media', '1:1', 'Centered reusable head-and-shoulders avatar of Character A, neutral background, no text.')}</vm_avatar><vm_transcript>I reached the platform. Call when you arrive.</vm_transcript><vm_calls>One outgoing call.</vm_calls></voice_memo>` },
+  { id: 'notes-app', label: 'Notes App', icon: '▤', root: 'notes_app', category: 'narrative-visuals', sample: '<notes_app folder="Field Notes" owner="Character A"><nt_list><nt_note slot="1" title="Arrival" updated="Today">Check the north entrance.</nt_note><nt_note slot="2" title="Witness" updated="Yesterday">Follow up after noon.</nt_note><nt_note slot="3" title="Map" updated="Monday">Mark the service corridor.</nt_note><nt_note slot="4" title="Archive" updated="Sunday">Review the sealed file.</nt_note></nt_list></notes_app>' },
+  { id: 'market-listing', label: 'Marketplace Listing', icon: '◇', root: 'market_listing', category: 'evidence-editorial', aspect: '1:1', sample: `<market_listing title="Vintage camera" price="$120" condition="Used · good" seller="Seller A" time_left="2 days"><mk_media>${request('market-photo', 'custom.artifact-media', '1:1', 'Square product photograph of a vintage camera on a plain table, centered and fully visible, no text.')}</mk_media><mk_desc>Working condition with light cosmetic wear.</mk_desc><mk_bids>Three saved offers.</mk_bids><mk_actions>Message seller · Save listing</mk_actions></market_listing>` },
+  { id: 'property-listing', label: 'Property Listing', icon: '⌂', root: 'property_listing', category: 'evidence-editorial', aspect: '16:9', sample: `<property_listing title="Riverside Loft" price="$1,800 / month" location="River District" beds="2" baths="1" size="82 m²"><prop_gallery><prop_media>${request('property-1', 'custom.artifact-media', '16:9')}</prop_media><prop_media>${request('property-2', 'custom.artifact-media', '16:9')}</prop_media><prop_media>${request('property-3', 'custom.artifact-media', '16:9')}</prop_media></prop_gallery><prop_desc>Bright corner loft near transit.</prop_desc><details><summary>Amenities</summary><prop_amenities>Elevator · balcony · secure entry</prop_amenities></details><details><summary>History</summary><prop_history>Renovated recently.</prop_history></details></property_listing>` },
+  { id: 'letter-dispatch', label: 'Letter', icon: '✉', root: 'letter_dispatch', category: 'narrative-visuals', sample: '<letter_dispatch from="Character A" to="Character B" date="Friday" subject="The key"><ld_body>I left the key where we agreed. Keep this letter safe.</ld_body><ld_signature>— A</ld_signature><ld_media></ld_media></letter_dispatch>' },
+  { id: 'medical-record', label: 'Medical Record', icon: '✚', root: 'medical_record', category: 'evidence-editorial', aspect: '4:3', profile: 'evidence-surveillance', sample: `<medical_record case="MR-104" patient="Patient A" age="34" status="Stable" doctor="Clinician A" admitted="Today"><med_summary>Observation after a minor injury.</med_summary><med_media>${request('medical-scan', 'custom.artifact-media', '4:3', 'Clinical documentary image of a bandaged forearm under neutral examination lighting, no text, no interface.')}</med_media><med_vitals><med_vital label="Pulse" value="72 bpm"></med_vital></med_vitals><med_notes>Continue routine monitoring.</med_notes></medical_record>` },
+  { id: 'court-transcript', label: 'Court Transcript', icon: '⚖', root: 'court_transcript', category: 'evidence-editorial', sample: '<court_transcript case="CV-104" court="District Court" status="In session" time="10:20" judge="Judge A"><ct_lines><ct_line speaker="CLERK">All rise.</ct_line><ct_line speaker="COUNSEL">Ready to proceed.</ct_line></ct_lines><ct_objection>Objection noted.</ct_objection><ct_exhibit>Exhibit A entered.</ct_exhibit></court_transcript>' },
+  { id: 'codex-entry', label: 'Reference Article', icon: '▥', root: 'codex_entry', category: 'evidence-editorial', aspect: '4:3', sample: `<codex_entry title="North Pier Station" type="Transit landmark" region="River District" status="Active" era="Modern"><codex_media>${request('codex-media')}</codex_media><codex_body>A compact reference entry about the station and its history.</codex_body><codex_facts>Opened recently · two platforms</codex_facts><codex_related>Riverside Line</codex_related></codex_entry>` },
+  { id: 'diary-app', label: 'Diary', icon: '▧', root: 'diary_app', category: 'narrative-visuals', sample: '<diary_app owner="Character A" title="Private Notes"><diary_entry slot="1" date="Monday" heading="Rain">The city went quiet after midnight.</diary_entry><diary_entry slot="2" date="Tuesday" heading="Signal">A message arrived without a sender.</diary_entry><diary_entry slot="3" date="Wednesday" heading="Decision">I chose to answer.</diary_entry></diary_app>' },
+  { id: 'mission-board', label: 'Mission Board', icon: '✓', root: 'mission_board', category: 'narrative-visuals', sample: '<mission_board type="Investigation" title="North Pier" status="Active" owner="Team A" due="Tonight"><mission_items><mission_item status="done">Review station footage</mission_item><mission_item status="active">Locate the missing case</mission_item></mission_items><mission_note>Keep the public entrance clear.</mission_note></mission_board>' },
+  { id: 'cctv-evidence', label: 'CCTV Evidence', icon: '◫', root: 'cctv_evidence', category: 'evidence-editorial', aspect: '16:9', profile: 'evidence-surveillance', sample: `<cctv_evidence case="EV-104" location="North Pier" date="Tonight" integrity="verified"><cv_feeds><cv_feed slot="1" label="North gate" time="22:14">${request('cctv-1', 'custom.artifact-media', '16:9', 'Wide fixed security camera view of an empty north gate at night, timestamp-free, no text.')}</cv_feed><cv_feed slot="2" label="Platform" time="22:16">${request('cctv-2', 'custom.artifact-media', '16:9', 'Wide fixed security camera view of a quiet platform at night, timestamp-free, no text.')}</cv_feed><cv_feed slot="3" label="Service hall" time="22:18">${request('cctv-3', 'custom.artifact-media', '16:9', 'Wide fixed security camera view of a dim service hallway, timestamp-free, no text.')}</cv_feed></cv_feeds><cv_note>No movement after 22:18.</cv_note></cctv_evidence>` },
+  { id: 'instagram-profile', label: 'Instagram Profile', icon: '◎', root: 'instagram_profile', category: 'social-messaging', aspect: '1:1', sample: `<instagram_profile handle="@archive_a" name="Archive A" verified="true" bio="Photographs and field notes" followers="12.8K" following="312" posts="84"><igp_avatar>${request('igp-avatar', 'custom.artifact-media', '1:1', 'Centered reusable profile avatar of Archive A, consistent identity, simple background, no text.')}</igp_avatar><igp_posts><igp_post id="igp1" owner="@archive_a" likes="128" time="2h"><igp_post_avatar>${request('igp-avatar', 'custom.artifact-media', '1:1')}</igp_post_avatar><igp_media>${request('igp-post-1', 'custom.artifact-media', '1:1')}</igp_media><igp_caption>Late walk before the rain.</igp_caption><igp_comments><igp_comment user="@reader_a" time="12m" likes="4">Beautiful light.</igp_comment></igp_comments></igp_post><igp_post id="igp2" owner="@archive_a" likes="96" time="1d"><igp_post_avatar>${request('igp-avatar', 'custom.artifact-media', '1:1')}</igp_post_avatar><igp_media>${request('igp-post-2', 'custom.artifact-media', '1:1')}</igp_media><igp_caption>Morning at the empty station.</igp_caption><igp_comments></igp_comments></igp_post><igp_post id="igp3" owner="@archive_a" likes="211" time="3d"><igp_post_avatar>${request('igp-avatar', 'custom.artifact-media', '1:1')}</igp_post_avatar><igp_media>${request('igp-post-3', 'custom.artifact-media', '1:1')}</igp_media><igp_caption>Blue hour over the river.</igp_caption><igp_comments></igp_comments></igp_post></igp_posts><igp_tagged><igp_tagged_item>${request('igp-tagged-1', 'custom.artifact-media', '1:1')}</igp_tagged_item></igp_tagged></instagram_profile>` },
+  { id: 'twitter-profile', label: 'Twitter / X Profile', icon: '𝕏', root: 'twitter_profile', category: 'social-messaging', aspect: '1:1', sample: `<twitter_profile handle="@archive_a" name="Archive A" verified="true" bio="Public notes" location="River District" joined="2024" followers="8.2K" following="402" posts="918"><twip_avatar>${request('twip-avatar', 'custom.artifact-media', '1:1', 'Centered reusable profile avatar of Archive A, consistent identity, simple background, no text.')}</twip_avatar><twip_cover>${request('twip-cover', 'custom.artifact-media', '3:1', 'Wide abstract profile banner in cool evening colors, no text.')}</twip_cover><twip_posts><twip_post id="tw1" name="Archive A" handle="@archive_a" time="19m" replies="2" reposts="8" likes="34" views="1.2K"><twip_post_avatar>${request('twip-avatar', 'custom.artifact-media', '1:1')}</twip_post_avatar><twip_text>The station lights are back.</twip_text><twip_media>${request('twip-post-1', 'custom.artifact-media', '16:9')}</twip_media><twip_comments></twip_comments><twip_thread></twip_thread></twip_post><twip_post id="tw2" name="Archive A" handle="@archive_a" time="4h" replies="4" reposts="12" likes="81" views="2.4K"><twip_post_avatar>${request('twip-avatar', 'custom.artifact-media', '1:1')}</twip_post_avatar><twip_text>New field notes are up.</twip_text><twip_media>${request('twip-post-2', 'custom.artifact-media', '16:9')}</twip_media><twip_comments></twip_comments><twip_thread></twip_thread></twip_post><twip_post id="tw3" name="Archive A" handle="@archive_a" time="1d" replies="1" reposts="5" likes="29" views="980"><twip_post_avatar>${request('twip-avatar', 'custom.artifact-media', '1:1')}</twip_post_avatar><twip_text>Blue hour over the river.</twip_text><twip_media>${request('twip-post-3', 'custom.artifact-media', '16:9')}</twip_media><twip_comments></twip_comments><twip_thread></twip_thread></twip_post></twip_posts><twip_media_grid></twip_media_grid></twitter_profile>` },
+  { id: 'instagram-stories', label: 'Instagram Stories', icon: '◉', root: 'instagram_stories', category: 'social-messaging', aspect: '9:16', sample: `<instagram_stories><story owner="@archive_a" name="Archive A" time="2h"><avatar>${request('story-avatar-a', 'custom.artifact-media', '1:1')}</avatar><story_media>${request('story-media-a', 'custom.artifact-media', '9:16')}</story_media><story_caption>After the rain.</story_caption></story><story owner="@archive_b" name="Archive B" time="1h"><avatar>${request('story-avatar-b', 'custom.artifact-media', '1:1')}</avatar><story_media>${request('story-media-b', 'custom.artifact-media', '9:16')}</story_media><story_caption>Platform lights.</story_caption></story><story owner="@archive_c" name="Archive C" time="20m"><avatar>${request('story-avatar-c', 'custom.artifact-media', '1:1')}</avatar><story_media>${request('story-media-c', 'custom.artifact-media', '9:16')}</story_media><story_caption>Last train.</story_caption></story></instagram_stories>` },
+]
+
+export const R45_SUPPLEMENTAL_ROOTS = rows.map(row => [row.root, row.id] as const)
+
+export function r45SupplementalSurfaceDefinitions(now = Date.now()): CustomSurfaceDefinition[] {
+  return rows.map(row => ({
+    surfaceId: row.id,
+    baseSurfaceId: row.id,
+    presetName: 'R4.5 FINAL',
+    shellMode: 'plain',
+    defaultOpen: false,
+    launcherLabel: row.label,
+    density: 'comfortable',
+    maxWidth: ['location-share', 'cctv-evidence', 'property-listing'].includes(row.id) ? '920px' : '760px',
+    mediaFit: ['instagram-profile', 'twitter-profile', 'instagram-stories', 'voice-memo'].includes(row.id) ? 'cover' : 'contain',
+    accentMode: 'theme',
+    customAccent: '#c24b78',
+    typography: ['letter-dispatch', 'court-transcript', 'codex-entry', 'diary-app'].includes(row.id) ? 'editorial' : 'mixed',
+    advancedCss: '',
+    displayName: row.label,
+    icon: row.icon,
+    targetId: row.target || 'custom.artifact-media',
+    canonicalOuterWrapper: row.root,
+    imageSlotSelector: 'image_request',
+    resolvedImageChildFormat: '<img src="{{imageUrl}}" alt="{{alt}}" data-dgir-key="{{slotKey}}" data-dgir-request-id="{{requestId}}" data-dgir-slot="{{slot}}" data-dgir-custom-target="{{target}}" data-dgir-image-id="{{imageId}}">',
+    supportedAspectRatios: row.aspect ? [row.aspect] : [],
+    defaultPromptProfileId: row.profile || 'auto',
+    peoplePolicy: 'allow',
+    captionSupport: true,
+    altTextSupport: true,
+    defaultCandidateCount: 1,
+    compatibleRegenerationIntents: ['new-angle', 'better-expression', 'preserve-composition-improve-quality', 'full-reimagining'],
+    declarativeLayoutFields: { presentation: 'inline|plain|sparkling', color: 'realistic|primary', authority: 'R4.5 FINAL' },
+    validationRules: ['balanced-wrapper', 'safe-static-markup', 'stable-request-ownership'],
+    sampleXml: row.sample,
+    deterministicPreviewFixture: { title: row.label, targetId: row.target || 'custom.artifact-media', wrapper: row.root },
+    builtIn: true,
+    enabled: true,
+    promptEnabled: true,
+    promptCategory: row.category,
+    promptModule: runtimeUtilityPrompt(row),
+    hybridOwner: 'relay',
+    hybridOwnerConfigured: false,
+    updatedAt: now,
+  }))
+}

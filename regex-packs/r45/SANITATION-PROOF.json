@@ -1,0 +1,193 @@
+{
+  "authority": "Reverie Surfaces R4.5 FINAL six-pack bundle",
+  "source": "locally supplied authority directory",
+  "packages": [
+    {
+      "filename": "Reverie-Surfaces-R4.5-INLINE-REALISTIC.json",
+      "sourceSha256": "FD7A62D28975ED1405EE30440A64261E860FF38938C6E2C78AB80A2B62EBBD3C",
+      "sanitizedSha256": "FC21FDA979B625BEB7CFBFA262E3E07A7ED6E13BBFBBA65F561066340D6AA372",
+      "scripts": 138,
+      "protectedStructuralFields": [
+        "script_id",
+        "find_regex",
+        "flags",
+        "placement",
+        "scope",
+        "scope_id",
+        "target",
+        "min_depth",
+        "max_depth",
+        "trim_strings",
+        "run_on_edit",
+        "substitute_macros",
+        "disabled",
+        "sort_order",
+        "actions"
+      ],
+      "permittedChanges": {
+        "description": 12,
+        "metadata": 138,
+        "name": 27,
+        "owner_extension_identifier": 138,
+        "replace_string": 2
+      },
+      "approvedCompatibilityFix": "Two narrow reader/content changes per pack are permitted: Discord Server roster demo text and Kakao error branding (Dreamglass Router → Reverie Relay). CSS, HTML structure, captures, interaction selectors, helper ordering, and renderer routing remain unchanged."
+    },
+    {
+      "filename": "Reverie-Surfaces-R4.5-COLLAPSIBLE-PLAIN-REALISTIC.json",
+      "sourceSha256": "B7EF4632823E65517BFB4C24F3A0314C5A9449E5BBE8A928BAF170A06E8187FC",
+      "sanitizedSha256": "830940BCCB505C918777CB611A237CAE391CD19726048742567A03E3268AEBCD",
+      "scripts": 138,
+      "protectedStructuralFields": [
+        "script_id",
+        "find_regex",
+        "flags",
+        "placement",
+        "scope",
+        "scope_id",
+        "target",
+        "min_depth",
+        "max_depth",
+        "trim_strings",
+        "run_on_edit",
+        "substitute_macros",
+        "disabled",
+        "sort_order",
+        "actions"
+      ],
+      "permittedChanges": {
+        "description": 12,
+        "metadata": 138,
+        "name": 27,
+        "owner_extension_identifier": 138,
+        "replace_string": 2
+      },
+      "approvedCompatibilityFix": "Two narrow reader/content changes per pack are permitted: Discord Server roster demo text and Kakao error branding (Dreamglass Router → Reverie Relay). CSS, HTML structure, captures, interaction selectors, helper ordering, and renderer routing remain unchanged."
+    },
+    {
+      "filename": "Reverie-Surfaces-R4.5-COLLAPSIBLE-SPARKLING-REALISTIC.json",
+      "sourceSha256": "2AEFFF4E54648870FFE4A52E1EBBAF428348AFE19373C9C26FAA1120B6E42B64",
+      "sanitizedSha256": "CB2E0401661F7534BE8428320A7D2863721768639594DDDB0959B6FC75DA1888",
+      "scripts": 138,
+      "protectedStructuralFields": [
+        "script_id",
+        "find_regex",
+        "flags",
+        "placement",
+        "scope",
+        "scope_id",
+        "target",
+        "min_depth",
+        "max_depth",
+        "trim_strings",
+        "run_on_edit",
+        "substitute_macros",
+        "disabled",
+        "sort_order",
+        "actions"
+      ],
+      "permittedChanges": {
+        "description": 12,
+        "metadata": 138,
+        "name": 27,
+        "owner_extension_identifier": 138,
+        "replace_string": 2
+      },
+      "approvedCompatibilityFix": "Two narrow reader/content changes per pack are permitted: Discord Server roster demo text and Kakao error branding (Dreamglass Router → Reverie Relay). CSS, HTML structure, captures, interaction selectors, helper ordering, and renderer routing remain unchanged."
+    },
+    {
+      "filename": "Reverie-Surfaces-R4.5-INLINE-PRIMARY.json",
+      "sourceSha256": "E89B30AD2C01536E2FF64B8F3BA269A6404EED8D969770B6F983EC7C5A872725",
+      "sanitizedSha256": "984747D8715F94A760D3425CA93C0442B554F995908B37FC5E17A1EF9E45F2C6",
+      "scripts": 138,
+      "protectedStructuralFields": [
+        "script_id",
+        "find_regex",
+        "flags",
+        "placement",
+        "scope",
+        "scope_id",
+        "target",
+        "min_depth",
+        "max_depth",
+        "trim_strings",
+        "run_on_edit",
+        "substitute_macros",
+        "disabled",
+        "sort_order",
+        "actions"
+      ],
+      "permittedChanges": {
+        "description": 12,
+        "metadata": 138,
+        "name": 27,
+        "owner_extension_identifier": 138,
+        "replace_string": 2
+      },
+      "approvedCompatibilityFix": "Two narrow reader/content changes per pack are permitted: Discord Server roster demo text and Kakao error branding (Dreamglass Router → Reverie Relay). CSS, HTML structure, captures, interaction selectors, helper ordering, and renderer routing remain unchanged."
+    },
+    {
+      "filename": "Reverie-Surfaces-R4.5-COLLAPSIBLE-PLAIN-PRIMARY.json",
+      "sourceSha256": "E3EEB74E9AB53A0EF175D31BBB4FF37AEC3D3C155B747439A7C8D079758C88C0",
+      "sanitizedSha256": "BFC79D123977CC20327B1373BECB1D3C5DA4BDE9D4779BE1AA43433FCFDBA497",
+      "scripts": 138,
+      "protectedStructuralFields": [
+        "script_id",
+        "find_regex",
+        "flags",
+        "placement",
+        "scope",
+        "scope_id",
+        "target",
+        "min_depth",
+        "max_depth",
+        "trim_strings",
+        "run_on_edit",
+        "substitute_macros",
+        "disabled",
+        "sort_order",
+        "actions"
+      ],
+      "permittedChanges": {
+        "description": 12,
+        "metadata": 138,
+        "name": 27,
+        "owner_extension_identifier": 138,
+        "replace_string": 2
+      },
+      "approvedCompatibilityFix": "Two narrow reader/content changes per pack are permitted: Discord Server roster demo text and Kakao error branding (Dreamglass Router → Reverie Relay). CSS, HTML structure, captures, interaction selectors, helper ordering, and renderer routing remain unchanged."
+    },
+    {
+      "filename": "Reverie-Surfaces-R4.5-COLLAPSIBLE-SPARKLING-PRIMARY.json",
+      "sourceSha256": "E44D4705175FE6C177CB08178EAEE7B66AC4969479C3C5BD388A0F12FE85FFA1",
+      "sanitizedSha256": "C191174510E0C61B4365412332A255751083AD20E59250FAF57E43FC390B66D2",
+      "scripts": 138,
+      "protectedStructuralFields": [
+        "script_id",
+        "find_regex",
+        "flags",
+        "placement",
+        "scope",
+        "scope_id",
+        "target",
+        "min_depth",
+        "max_depth",
+        "trim_strings",
+        "run_on_edit",
+        "substitute_macros",
+        "disabled",
+        "sort_order",
+        "actions"
+      ],
+      "permittedChanges": {
+        "description": 12,
+        "metadata": 138,
+        "name": 27,
+        "owner_extension_identifier": 138,
+        "replace_string": 2
+      },
+      "approvedCompatibilityFix": "Two narrow reader/content changes per pack are permitted: Discord Server roster demo text and Kakao error branding (Dreamglass Router → Reverie Relay). CSS, HTML structure, captures, interaction selectors, helper ordering, and renderer routing remain unchanged."
+    }
+  ],
+  "conclusion": "All six packs preserve protected script identity, CSS/HTML structure, find/replace captures, interaction fields, helper ordering, and renderer behavior. Only approved private/demo metadata, Discord roster demo text, and reader-facing legacy error branding differ."
+}
