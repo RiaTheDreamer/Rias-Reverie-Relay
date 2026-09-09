@@ -134087,7 +134087,13 @@ var SETTING_HELP = {
   "Auto Generate": "When off, Relay may prepare requests but cannot spend an image-generation job automatically. This is enforced by the backend.",
   "Concurrent Image Jobs": "Maximum Relay image jobs allowed at once. Lower values use less GPU memory and reduce provider contention.",
   "Appearance Memory Strength": "Controls how strongly Relay carries established visual identity into new image prompts.",
-  "Appearance Sidecar Source": "Choose the shared global Appearance Sidecar or an Illustrator-specific override.",
+  "Appearance Sidecar Source": "Chooses whether Illustrator uses the shared global Appearance Sidecar routing or its own connection, model, and parameter overrides.",
+  "Global Appearance Sidecar Connection": "Selects the Lumiverse text connection used by the shared Appearance Sidecar. Use Relay Parser Connection to inherit the parser connection instead.",
+  "Global Appearance Sidecar Model": "Selects the model used by the shared Appearance Sidecar. Leave inherited to follow the Relay Parser model or the explicitly selected Sidecar connection default.",
+  "Global Appearance Sidecar Parameters": "Optional JSON parameters sent only with shared Appearance Sidecar requests. An empty object inherits the Relay Parser parameters.",
+  "Appearance Sidecar Connection": "Selects Illustrator’s Sidecar connection when Appearance Sidecar Source is set to Illustrator Override. Leave inherited to use the global Sidecar connection.",
+  "Appearance Sidecar Model": "Selects Illustrator’s Sidecar model when using an override. Leave inherited to use the global Sidecar model or the selected override connection default.",
+  "Appearance Sidecar Parameters": "Optional JSON parameters for Illustrator’s Sidecar override. An empty object inherits the shared global Sidecar parameters.",
   "Illustration Count": "Choose an exact number or an inclusive range for model-placed illustrations.",
   "Aspect Policy": "Reserves and generates each illustration at the selected ratio. Adaptive lets Relay choose from scene composition.",
   "Prompt Profile": "Selects a curated image-prompt style and framing profile before provider submission.",
@@ -137876,9 +137882,16 @@ ${record.imageId || record.error || "No image yet"}`;
     essentials.append(selectField("Appearance Sidecar Source", settings.useGlobalAppearanceSidecar !== false ? "global" : "override", [["global", "Use Global Sidecar"], ["override", "Use Illustrator Override"]], (value) => patchProseSettings({ useGlobalAppearanceSidecar: value === "global" })));
     if (settings.useGlobalAppearanceSidecar === false) {
       essentials.append(selectField("Appearance Sidecar Connection", settings.appearanceSidecarConnectionId || "", [["", "Use Global Connection"], ...parserConnections.map((connection) => [connection.id, `${connection.name} / ${connection.model}`])], (value) => {
-        const connection = parserConnections.find((item) => item.id === value);
-        patchProseSettings({ appearanceSidecarConnectionId: value || null, appearanceSidecarModel: connection?.model || "" });
+        const globalConnectionId2 = config?.appearanceSidecarConnectionId || config?.parserConnectionId || "";
+        patchProseSettings({
+          appearanceSidecarConnectionId: value || null,
+          appearanceSidecarModel: compatibleSidecarModel(settings.appearanceSidecarModel, value || globalConnectionId2)
+        });
       }));
+      const globalConnectionId = config?.appearanceSidecarConnectionId || config?.parserConnectionId || null;
+      const globalConnection = parserConnections.find((connection) => connection.id === globalConnectionId);
+      const globalModel = config?.appearanceSidecarModel || (config?.appearanceSidecarConnectionId ? globalConnection?.model || "" : config?.parserModel || globalConnection?.model || "");
+      essentials.append(appearanceSidecarModelField("Appearance Sidecar Model", settings.appearanceSidecarConnectionId, settings.appearanceSidecarModel, globalConnectionId, globalModel, (value) => patchProseSettings({ appearanceSidecarModel: value })));
     }
     const promptControls = document.createElement("div");
     promptControls.className = "dg-illustrator-prompt-controls";
@@ -138245,6 +138258,48 @@ Model enumeration unavailable; Relay can only show models exposed by configured 
     const provider = selected?.provider || "";
     const sameProvider = parserConnections.filter((connection) => connection.provider === provider || connection.id === connectionId);
     return [...new Set(sameProvider.map((connection) => connection.model).filter(Boolean))];
+  }
+  function compatibleSidecarModel(model, connectionId) {
+    if (!model)
+      return "";
+    const connection = parserConnections.find((item) => item.id === connectionId);
+    const models = availablePlannerModels(connectionId);
+    return connection?.model && model !== connection.model && !models.includes(model) ? "" : model;
+  }
+  function appearanceSidecarModelField(labelText, connectionId, model, inheritedConnectionId, inheritedModel, onChange) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "dg-field";
+    const label = fieldLabel(labelText);
+    const row = document.createElement("div");
+    row.className = "dg-actions";
+    const select = document.createElement("select");
+    select.className = "dg-select";
+    const effectiveConnectionId = connectionId || inheritedConnectionId || "";
+    const effectiveConnection = parserConnections.find((item) => item.id === effectiveConnectionId);
+    const inherited = connectionId ? effectiveConnection?.model || "" : inheritedModel || effectiveConnection?.model || "";
+    const models = [...new Set([model, inherited, ...availablePlannerModels(effectiveConnectionId)].filter(Boolean))];
+    const inherit = document.createElement("option");
+    inherit.value = "";
+    inherit.textContent = inherited ? `Inherit (${inherited})` : "Inherit connection default";
+    inherit.selected = !model;
+    select.appendChild(inherit);
+    for (const availableModel of models) {
+      const option = document.createElement("option");
+      option.value = availableModel;
+      option.textContent = availableModel;
+      option.selected = availableModel === model;
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => onChange(select.value));
+    row.append(select, button("Refresh Models", () => {
+      ctx.sendToBackend({ type: "list_state", chatId: activeChatId });
+      showToast("info", "Refreshing parser connections and exposed models.");
+    }, false, "subtle"));
+    const summary = document.createElement("div");
+    summary.className = "dg-slot-meta";
+    summary.textContent = `${model ? "Override" : "Inherited"} / ${model || inherited || "connection default"}${models.length ? ` / ${models.length} exposed model${models.length === 1 ? "" : "s"}` : " / model enumeration unavailable"}`;
+    wrapper.append(label, row, summary);
+    return wrapper;
   }
   function parserModelField(current) {
     const wrapper = document.createElement("div");
@@ -140745,9 +140800,11 @@ Generated image assets and message content will remain, but Relay history and me
     const appearanceSidecar = document.createElement("div");
     appearanceSidecar.className = "dg-settings-grid";
     appearanceSidecar.append(selectField("Global Appearance Sidecar Connection", current.appearanceSidecarConnectionId || "", [["", "Use Relay Parser Connection"], ...parserConnections.map((connection) => [connection.id, `${connection.name} / ${connection.model}`])], (value) => {
-      const connection = parserConnections.find((item) => item.id === value);
-      patchConfig({ appearanceSidecarConnectionId: value || null, appearanceSidecarModel: connection?.model || "" });
-    }), textareaInput("Global Appearance Sidecar Parameters", JSON.stringify(current.appearanceSidecarParameters || {}, null, 2), (value) => {
+      patchConfig({
+        appearanceSidecarConnectionId: value || null,
+        appearanceSidecarModel: compatibleSidecarModel(current.appearanceSidecarModel, value || current.parserConnectionId || "")
+      });
+    }), appearanceSidecarModelField("Global Appearance Sidecar Model", current.appearanceSidecarConnectionId, current.appearanceSidecarModel, current.parserConnectionId, current.parserModel || parserConnections.find((connection) => connection.id === current.parserConnectionId)?.model || "", (value) => patchConfig({ appearanceSidecarModel: value })), textareaInput("Global Appearance Sidecar Parameters", JSON.stringify(current.appearanceSidecarParameters || {}, null, 2), (value) => {
       try {
         patchConfig({ appearanceSidecarParameters: JSON.parse(value || "{}") });
       } catch {
