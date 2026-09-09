@@ -3963,9 +3963,24 @@ memory: [['genetics', 'Appearance Memory']],
     )
     if (settings.useGlobalAppearanceSidecar === false) {
       essentials.append(selectField('Appearance Sidecar Connection', settings.appearanceSidecarConnectionId || '', [['', 'Use Global Connection'], ...parserConnections.map(connection => [connection.id, `${connection.name} / ${connection.model}`] as [string, string])], value => {
-        const connection = parserConnections.find(item => item.id === value)
-        patchProseSettings({ appearanceSidecarConnectionId: value || null, appearanceSidecarModel: connection?.model || '' })
+        const globalConnectionId = config?.appearanceSidecarConnectionId || config?.parserConnectionId || ''
+        patchProseSettings({
+          appearanceSidecarConnectionId: value || null,
+          appearanceSidecarModel: compatibleSidecarModel(settings.appearanceSidecarModel, value || globalConnectionId),
+        })
       }))
+      const globalConnectionId = config?.appearanceSidecarConnectionId || config?.parserConnectionId || null
+      const globalConnection = parserConnections.find(connection => connection.id === globalConnectionId)
+      const globalModel = config?.appearanceSidecarModel
+        || (config?.appearanceSidecarConnectionId ? globalConnection?.model || '' : config?.parserModel || globalConnection?.model || '')
+      essentials.append(appearanceSidecarModelField(
+        'Appearance Sidecar Model',
+        settings.appearanceSidecarConnectionId,
+        settings.appearanceSidecarModel,
+        globalConnectionId,
+        globalModel,
+        value => patchProseSettings({ appearanceSidecarModel: value }),
+      ))
     }
 
     const promptControls = document.createElement('div')
@@ -4280,6 +4295,59 @@ memory: [['genetics', 'Appearance Memory']],
     const provider = selected?.provider || ''
     const sameProvider = parserConnections.filter(connection => connection.provider === provider || connection.id === connectionId)
     return [...new Set(sameProvider.map(connection => connection.model).filter(Boolean))]
+  }
+
+  function compatibleSidecarModel(model: string, connectionId: string): string {
+    if (!model) return ''
+    const connection = parserConnections.find(item => item.id === connectionId)
+    const models = availablePlannerModels(connectionId)
+    return connection?.model && model !== connection.model && !models.includes(model) ? '' : model
+  }
+
+  function appearanceSidecarModelField(
+    labelText: 'Global Appearance Sidecar Model' | 'Appearance Sidecar Model',
+    connectionId: string | null,
+    model: string,
+    inheritedConnectionId: string | null,
+    inheritedModel: string,
+    onChange: (value: string) => void,
+  ): HTMLElement {
+    const wrapper = document.createElement('div')
+    wrapper.className = 'dg-field'
+    const label = fieldLabel(labelText)
+    const row = document.createElement('div')
+    row.className = 'dg-actions'
+    const select = document.createElement('select')
+    select.className = 'dg-select'
+    const effectiveConnectionId = connectionId || inheritedConnectionId || ''
+    const effectiveConnection = parserConnections.find(item => item.id === effectiveConnectionId)
+    const inherited = connectionId ? effectiveConnection?.model || '' : inheritedModel || effectiveConnection?.model || ''
+    const models = [...new Set([model, inherited, ...availablePlannerModels(effectiveConnectionId)].filter(Boolean))]
+    const inherit = document.createElement('option')
+    inherit.value = ''
+    inherit.textContent = inherited ? `Inherit (${inherited})` : 'Inherit connection default'
+    inherit.selected = !model
+    select.appendChild(inherit)
+    for (const availableModel of models) {
+      const option = document.createElement('option')
+      option.value = availableModel
+      option.textContent = availableModel
+      option.selected = availableModel === model
+      select.appendChild(option)
+    }
+    select.addEventListener('change', () => onChange(select.value))
+    row.append(
+      select,
+      button('Refresh Models', () => {
+        ctx.sendToBackend({ type: 'list_state', chatId: activeChatId })
+        showToast('info', 'Refreshing parser connections and exposed models.')
+      }, false, 'subtle'),
+    )
+    const summary = document.createElement('div')
+    summary.className = 'dg-slot-meta'
+    summary.textContent = `${model ? 'Override' : 'Inherited'} / ${model || inherited || 'connection default'}${models.length ? ` / ${models.length} exposed model${models.length === 1 ? '' : 's'}` : ' / model enumeration unavailable'}`
+    wrapper.append(label, row, summary)
+    return wrapper
   }
 
   function parserModelField(current: RouterConfig): HTMLElement {
@@ -6734,9 +6802,19 @@ ${bracketFixture}`)
     appearanceSidecar.className = 'dg-settings-grid'
     appearanceSidecar.append(
       selectField('Global Appearance Sidecar Connection', current.appearanceSidecarConnectionId || '', [['', 'Use Relay Parser Connection'], ...parserConnections.map(connection => [connection.id, `${connection.name} / ${connection.model}`] as [string, string])], value => {
-        const connection = parserConnections.find(item => item.id === value)
-        patchConfig({ appearanceSidecarConnectionId: value || null, appearanceSidecarModel: connection?.model || '' })
+        patchConfig({
+          appearanceSidecarConnectionId: value || null,
+          appearanceSidecarModel: compatibleSidecarModel(current.appearanceSidecarModel, value || current.parserConnectionId || ''),
+        })
       }),
+      appearanceSidecarModelField(
+        'Global Appearance Sidecar Model',
+        current.appearanceSidecarConnectionId,
+        current.appearanceSidecarModel,
+        current.parserConnectionId,
+        current.parserModel || parserConnections.find(connection => connection.id === current.parserConnectionId)?.model || '',
+        value => patchConfig({ appearanceSidecarModel: value }),
+      ),
       textareaInput('Global Appearance Sidecar Parameters', JSON.stringify(current.appearanceSidecarParameters || {}, null, 2), value => {
         try { patchConfig({ appearanceSidecarParameters: JSON.parse(value || '{}') }) }
         catch { showToast('warning', 'Appearance Sidecar parameters must be valid JSON.') }

@@ -20,8 +20,9 @@
     "smoke:persona-pov": "bun scripts/persona-pov-plumbing-smoke.ts",
     "smoke:character-phone": "bun scripts/character-phone-modular-smoke.ts",
     "smoke:appearance": "bun scripts/appearance-canonicalization-smoke.ts",
+    "smoke:appearance-sidecar-routing": "bun scripts/appearance-sidecar-routing-smoke.ts",
     "smoke:hygiene": "bun scripts/source-hygiene-smoke.mjs",
-    "test": "bun run typecheck && bun run build && bun run smoke:dist && bun run smoke:frontend-boot && bun run smoke && bun run smoke:vault && bun run smoke:native && bun run smoke:serialized && bun run smoke:slot-actions && bun run smoke:contracts && bun run smoke:narrative && bun run smoke:lorebook && bun run smoke:ux && bun run smoke:streaming && bun run smoke:persona-pov && bun run smoke:character-phone && bun run smoke:appearance && bun run smoke:hygiene",
+    "test": "bun run typecheck && bun run build && bun run smoke:dist && bun run smoke:frontend-boot && bun run smoke && bun run smoke:vault && bun run smoke:native && bun run smoke:serialized && bun run smoke:slot-actions && bun run smoke:contracts && bun run smoke:narrative && bun run smoke:lorebook && bun run smoke:ux && bun run smoke:streaming && bun run smoke:persona-pov && bun run smoke:character-phone && bun run smoke:appearance && bun run smoke:appearance-sidecar-routing && bun run smoke:hygiene",
     "test:public": "bun run test"
   },
   "devDependencies": {

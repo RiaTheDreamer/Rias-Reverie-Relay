@@ -144782,7 +144782,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 </style><div class="rrcp-wrap rrcp-presentation-$1">
 <label class="rrcp-launch">
   <input class="rrcp-launch-toggle" type="checkbox">
-
+  
   <span class="rrcp-label"><span>\u25A3</span><span>Character Phone</span></span>
 </label>
 <div class="rrcp-shell">
@@ -155206,13 +155206,7 @@ async function runAppearanceSidecar(input) {
       });
     }
   });
-  const useGlobalSidecar = settings.useGlobalAppearanceSidecar !== false;
-  const globalConnectionId = config.appearanceSidecarConnectionId || config.parserConnectionId;
-  const globalModel = config.appearanceSidecarModel || config.parserModel;
-  const globalParameters = Object.keys(config.appearanceSidecarParameters || {}).length ? config.appearanceSidecarParameters : config.parserParameters;
-  const sidecarConnectionId = useGlobalSidecar ? globalConnectionId : settings.appearanceSidecarConnectionId || globalConnectionId;
-  const sidecarModel = useGlobalSidecar ? globalModel : settings.appearanceSidecarModel || globalModel;
-  const sidecarParameters = useGlobalSidecar ? globalParameters : Object.keys(settings.appearanceSidecarParameters || {}).length ? settings.appearanceSidecarParameters : globalParameters;
+  const { sidecarConnectionId, sidecarModel, sidecarParameters } = resolveAppearanceSidecarRouting(config, settings);
   if (!sidecarConnectionId) {
     await mutateState(input.chatId, input.userId, (next) => {
       next.continuityVault.appearanceSidecar.lastError = "Appearance Sidecar is waiting for a configured Sidecar or Relay parser connection.";
@@ -155279,6 +155273,16 @@ async function runAppearanceSidecar(input) {
       vault.appearanceSidecar.revision += 1;
     appendStateLog(next, { severity: "info", stage: "appearance-sidecar", eventType: mode === "normal" ? "appearance_sidecar_completed" : "appearance_sidecar_reconciled", chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, message: changed ? "Appearance Sidecar updated subject continuity." : "Appearance Sidecar found no continuity changes.", details: { mode, reason: input.reason || mode, focusCharacter: input.focusCharacter || null, observationCount: observations.length, acceptedFacts: ingestion.acceptedFacts, revision: vault.appearanceSidecar.revision, bindings } });
   });
+}
+function resolveAppearanceSidecarRouting(config, settings) {
+  const useGlobalSidecar = settings.useGlobalAppearanceSidecar !== false;
+  const globalConnectionId = config.appearanceSidecarConnectionId || config.parserConnectionId;
+  const globalModel = config.appearanceSidecarModel || (config.appearanceSidecarConnectionId ? "" : config.parserModel);
+  const globalParameters = Object.keys(config.appearanceSidecarParameters || {}).length ? config.appearanceSidecarParameters : config.parserParameters;
+  const sidecarConnectionId = useGlobalSidecar ? globalConnectionId : settings.appearanceSidecarConnectionId || globalConnectionId;
+  const sidecarModel = useGlobalSidecar ? globalModel : settings.appearanceSidecarModel || (settings.appearanceSidecarConnectionId ? "" : globalModel);
+  const sidecarParameters = useGlobalSidecar ? globalParameters : Object.keys(settings.appearanceSidecarParameters || {}).length ? settings.appearanceSidecarParameters : globalParameters;
+  return { sidecarConnectionId, sidecarModel, sidecarParameters };
 }
 async function enrichManualCharacterAppearance(chatId, focusCharacter, userId) {
   try {
@@ -166076,6 +166080,7 @@ export {
   resolveNamedVisualSubjects,
   resolveIllustratorStoryPrompt,
   resolveAutomaticSurfaceInjectionEnabled,
+  resolveAppearanceSidecarRouting,
   requiresWorkflow,
   requestsVisibleDeviceHardware,
   requestHasVisibleFace,

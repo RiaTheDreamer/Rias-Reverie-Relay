@@ -3775,15 +3775,7 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
   // Appearance Sidecar routing is a provider/model/parameter decision.  It is
   // intentionally independent from continuity strength, which only controls
   // how much accepted Appearance Memory reaches a prompt.
-  const useGlobalSidecar = settings.useGlobalAppearanceSidecar !== false
-  const globalConnectionId = config.appearanceSidecarConnectionId || config.parserConnectionId
-  const globalModel = config.appearanceSidecarModel || config.parserModel
-  const globalParameters = Object.keys(config.appearanceSidecarParameters || {}).length ? config.appearanceSidecarParameters : config.parserParameters
-  const sidecarConnectionId = useGlobalSidecar ? globalConnectionId : (settings.appearanceSidecarConnectionId || globalConnectionId)
-  const sidecarModel = useGlobalSidecar ? globalModel : (settings.appearanceSidecarModel || globalModel)
-  const sidecarParameters = useGlobalSidecar
-    ? globalParameters
-    : (Object.keys(settings.appearanceSidecarParameters || {}).length ? settings.appearanceSidecarParameters : globalParameters)
+  const { sidecarConnectionId, sidecarModel, sidecarParameters } = resolveAppearanceSidecarRouting(config, settings)
   if (!sidecarConnectionId) {
     await mutateState(input.chatId, input.userId, next => {
       next.continuityVault.appearanceSidecar.lastError = 'Appearance Sidecar is waiting for a configured Sidecar or Relay parser connection.'
@@ -3845,6 +3837,25 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
     if (changed) vault.appearanceSidecar.revision += 1
     appendStateLog(next, { severity: 'info', stage: 'appearance-sidecar', eventType: mode === 'normal' ? 'appearance_sidecar_completed' : 'appearance_sidecar_reconciled', chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, message: changed ? 'Appearance Sidecar updated subject continuity.' : 'Appearance Sidecar found no continuity changes.', details: { mode, reason: input.reason || mode, focusCharacter: input.focusCharacter || null, observationCount: observations.length, acceptedFacts: ingestion.acceptedFacts, revision: vault.appearanceSidecar.revision, bindings } })
   })
+}
+
+export function resolveAppearanceSidecarRouting(
+  config: Pick<RouterConfig, 'parserConnectionId' | 'parserModel' | 'parserParameters' | 'appearanceSidecarConnectionId' | 'appearanceSidecarModel' | 'appearanceSidecarParameters'>,
+  settings: Pick<ProseIllustratorSettings, 'useGlobalAppearanceSidecar' | 'appearanceSidecarConnectionId' | 'appearanceSidecarModel' | 'appearanceSidecarParameters'>,
+): { sidecarConnectionId: string | null; sidecarModel: string; sidecarParameters: Record<string, unknown> } {
+  const useGlobalSidecar = settings.useGlobalAppearanceSidecar !== false
+  const globalConnectionId = config.appearanceSidecarConnectionId || config.parserConnectionId
+  const globalModel = config.appearanceSidecarModel
+    || (config.appearanceSidecarConnectionId ? '' : config.parserModel)
+  const globalParameters = Object.keys(config.appearanceSidecarParameters || {}).length ? config.appearanceSidecarParameters : config.parserParameters
+  const sidecarConnectionId = useGlobalSidecar ? globalConnectionId : (settings.appearanceSidecarConnectionId || globalConnectionId)
+  const sidecarModel = useGlobalSidecar
+    ? globalModel
+    : settings.appearanceSidecarModel || (settings.appearanceSidecarConnectionId ? '' : globalModel)
+  const sidecarParameters = useGlobalSidecar
+    ? globalParameters
+    : (Object.keys(settings.appearanceSidecarParameters || {}).length ? settings.appearanceSidecarParameters : globalParameters)
+  return { sidecarConnectionId, sidecarModel, sidecarParameters }
 }
 
 async function enrichManualCharacterAppearance(chatId: string, focusCharacter: { id: string; name: string }, userId?: string): Promise<void> {
