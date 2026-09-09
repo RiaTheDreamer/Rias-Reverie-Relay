@@ -134466,6 +134466,8 @@ function setup(ctx) {
     .dg-router-panel .dg-help:focus-within .dg-help-popover,.dg-router-panel .dg-help.is-open .dg-help-popover { opacity:1; visibility:visible; transform:translateX(-50%) translateY(0); pointer-events:auto; }
     @media(hover:hover){.dg-router-panel .dg-help:hover .dg-help-popover{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0);pointer-events:auto}}
     .dg-help-portal { position:fixed; inset:0; z-index:2147483000; pointer-events:none; }
+    .dg-router-panel.dg-help-portal { padding:0; overflow:visible; isolation:auto; border:0; border-radius:0; background:none!important; box-shadow:none; }
+    .dg-router-panel.dg-help-portal::before { content:none!important; display:none!important; }
     .dg-help-portal .dg-help-popover { position:fixed; right:auto; bottom:auto; max-height:min(320px,calc(100vh - 24px)); overflow:auto; transform:none; pointer-events:none; }
     .dg-help-portal .dg-help-popover.is-open { opacity:1; visibility:visible; transform:none; pointer-events:auto; }
     .dg-router-panel .dg-info-note { margin:7px 0; padding:10px 11px; border:1px solid color-mix(in srgb,var(--dgir-accent) 32%,var(--dgir-border)); border-left:3px solid var(--dgir-accent); border-radius:var(--dgir-radius-md); background:radial-gradient(circle at 0 0,var(--dgir-accent-soft),transparent 54%),color-mix(in srgb,var(--dgir-surface-soft) 92%,transparent); color:var(--dgir-text-muted); font-size:11px; line-height:1.5; box-shadow:inset 0 1px rgba(255,255,255,.035); }
@@ -136391,19 +136393,22 @@ ${message.prompt}`;
     const actions = document.createElement("div");
     actions.className = "dg-actions";
     actions.append(button("Finish Overview", () => {
-      patchConfig({ tutorialModeEnabled: false, tutorialStep: 0 });
       onFinish?.();
     }, false, "primary"));
     wrap.append(intro, grid, actions);
     return wrap;
   }
+  function openQuickStartOverview() {
+    const modal = ctx.ui.showModal({ title: "Quick Start Overview", width: 780, persistent: false });
+    modal.root.classList.add("dg-router-panel", "dg-modal-host");
+    modal.root.appendChild(renderQuickStartOverview(() => modal.dismiss()));
+  }
   function maybeOpenQuickStartOverview() {
     if (quickStartAutoOpened || !config?.tutorialModeEnabled)
       return;
     quickStartAutoOpened = true;
-    const modal = ctx.ui.showModal({ title: "Quick Start Overview", width: 780, persistent: false });
-    modal.root.classList.add("dg-router-panel", "dg-modal-host");
-    modal.root.appendChild(renderQuickStartOverview(() => modal.dismiss()));
+    patchConfig({ tutorialModeEnabled: false, tutorialStep: 0 });
+    openQuickStartOverview();
   }
   function renderPanel() {
     lifecycle2.activateView(activeTab);
@@ -136433,8 +136438,6 @@ ${message.prompt}`;
     root.appendChild(renderTabs());
     if (activeTab === "slots")
       root.appendChild(renderAdaptiveNextAction());
-    if (activeTab === "settings" && config?.tutorialModeEnabled)
-      root.appendChild(renderQuickStartOverview());
     if (activeTab === "slots" && (lastRescanSummary || rescanInProgress))
       root.appendChild(renderRescanResult());
     const content = activeTab === "settings" ? renderSettings() : activeTab === "illustrator" ? renderProseIllustrator() : activeTab === "recipes" ? renderGenerationRecipes() : activeTab === "genetics" ? renderGeneticVault() : activeTab === "surfaces" ? renderCustomSurfaceStudio() : activeTab === "surface-library" ? renderSurfaceLibrary() : activeTab === "surface-presets" ? renderSurfacePresets() : activeTab === "utility-studio" ? renderUtilityStudio() : activeTab === "history" ? renderHistoryList() : activeTab === "logs" ? renderLogs() : activeTab === "manual" ? renderManual() : renderSlotsView();
@@ -139088,7 +139091,7 @@ Next action: ${blocker.action}` : ""}`;
     sub.textContent = "Relay turns semantic image requests into generated images, preserves their exact slot, and keeps generation history, metadata, and appearance continuity available after reloads.";
     const quick = document.createElement("div");
     quick.className = "dg-actions";
-    quick.append(button("Open Quick Start Overview", () => patchConfig({ tutorialModeEnabled: true, tutorialStep: 0 }), false, "primary"), button("Open Surface Library", () => {
+    quick.append(button("Open Quick Start Overview", openQuickStartOverview, false, "primary"), button("Open Surface Library", () => {
       activeTab = "surface-library";
       renderPanel();
     }, false, "primary"), button("Create Custom Surface", () => {
@@ -140834,12 +140837,14 @@ Generated image assets and message content will remain, but Relay history and me
     sidecar.append(toggleCard("Follow Native Parser", "", current.followNativeParser, (checked) => patchConfig({ followNativeParser: checked })), parserSelect(current), parserModelField(current));
     box.appendChild(panelSection("Relay Sidecar · Surface Parsing", sidecar));
     const tutorial = document.createElement("div");
-    tutorial.className = "dg-toggle-grid";
-    tutorial.append(toggleCard("Quick Start Overview", "Shows the current Relay feature overview.", current.tutorialModeEnabled, (checked) => patchConfig({ tutorialModeEnabled: checked, tutorialStep: checked ? 0 : current.tutorialStep })));
+    tutorial.className = "dg-settings-grid";
+    const tutorialNote = document.createElement("div");
+    tutorialNote.className = "dg-recovery-note";
+    tutorialNote.textContent = "The overview opens automatically once after first installation. You can reopen it manually whenever you need it.";
     const tutorialActions = document.createElement("div");
     tutorialActions.className = "dg-actions";
-    tutorialActions.append(button("Open Quick Start Overview", () => patchConfig({ tutorialModeEnabled: true, tutorialStep: 0 }), false, "subtle"));
-    tutorial.appendChild(tutorialActions);
+    tutorialActions.append(button("Open Quick Start Overview", openQuickStartOverview, false, "subtle"));
+    tutorial.append(tutorialNote, tutorialActions);
     box.appendChild(panelSection("Quick Start Overview", tutorial));
     box.appendChild(panelDisclosure("Generation · Prompt Profiles", renderPromptProfileSettings(current)));
     if (current.followNativeParser) {
