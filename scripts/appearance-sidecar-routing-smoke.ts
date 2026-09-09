@@ -47,8 +47,8 @@ assert.equal(illustratorOverride.sidecarConnectionId, 'A')
 assert.equal(illustratorOverride.sidecarModel, 'B')
 assert.deepEqual(illustratorOverride.sidecarParameters, { top_p: 0.8 })
 
-assert(frontend.includes("appearanceSidecarModelField(\n        'Global Appearance Sidecar Model'"), 'global Sidecar model selector is missing')
-assert(frontend.includes("appearanceSidecarModelField(\n        'Appearance Sidecar Model'"), 'Illustrator Sidecar model selector is missing')
+assert(/appearanceSidecarModelField\(\s*'Global Appearance Sidecar Model'/.test(frontend), 'global Sidecar model selector is missing')
+assert(/appearanceSidecarModelField\(\s*'Appearance Sidecar Model'/.test(frontend), 'Illustrator Sidecar model selector is missing')
 assert(frontend.includes("value => patchConfig({ appearanceSidecarModel: value })"), 'global model choice must send appearanceSidecarModel')
 assert(frontend.includes("value => patchProseSettings({ appearanceSidecarModel: value })"), 'Illustrator model choice must send appearanceSidecarModel')
 for (const label of ['Appearance Sidecar Source', 'Global Appearance Sidecar Connection', 'Global Appearance Sidecar Model', 'Global Appearance Sidecar Parameters', 'Appearance Sidecar Connection', 'Appearance Sidecar Model']) {

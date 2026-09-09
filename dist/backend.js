@@ -55,6 +55,43 @@ var TARGETS = new Set([
 ]);
 var MAX_COUNT = 4;
 var MAX_PROMPT_CHARS = 6000;
+var NARRATIVE_MEDIA_CONTEXTS = [
+  { open: /<dramatic_parallel\b[^>]*>/gi, close: /<\/dramatic_parallel\s*>/gi },
+  { open: /<chaos_payload\b[^>]*>/gi, close: /<\/chaos_payload\s*>/gi },
+  { open: /<dossier_ui\b[^>]*>/gi, close: /<\/dossier_ui\s*>/gi },
+  { open: /\[SCENE(?:\||\])/gi, close: /\[\/SCENE\]/gi },
+  { open: /\[PARALLEL\|/gi, close: /\[\/PARALLEL\]/gi },
+  { open: /\[NPC:/gi, close: /\[\/NPC\]/gi },
+  { open: /\[SECRET\|/gi, close: /\[\/SECRET\]/gi },
+  { open: /\[WORLD\|/gi, close: /\[\/WORLD\]/gi },
+  { open: /\[WHATIF\|/gi, close: /\[\/WHATIF\]/gi },
+  { open: /\[(?:character_phone|private_phone)\b[^\]]*\]/gi, close: /\[\/(?:character_phone|private_phone)\]/gi },
+  { open: /\[\[(?:else|npc|place)\b[^\]]*\]\]/gi, close: /\[\[\/(?:else|npc|place)\]\]/gi }
+];
+function lastMatchIndex(input, pattern, before) {
+  pattern.lastIndex = 0;
+  let last = -1;
+  let match;
+  while ((match = pattern.exec(input)) !== null && match.index < before) {
+    last = match.index;
+    if (!match[0].length)
+      pattern.lastIndex += 1;
+  }
+  return last;
+}
+function isNarrativeOwnedImageRequest(content, requestIndex) {
+  for (const context of NARRATIVE_MEDIA_CONTEXTS) {
+    const openIndex = lastMatchIndex(content, new RegExp(context.open.source, context.open.flags), requestIndex);
+    if (openIndex < 0)
+      continue;
+    const close = new RegExp(context.close.source, context.close.flags);
+    close.lastIndex = requestIndex;
+    const closeMatch = close.exec(content);
+    if (closeMatch && closeMatch.index >= requestIndex)
+      return true;
+  }
+  return false;
+}
 function isImageTarget(value) {
   return TARGETS.has(value) || /^custom\.[a-z0-9][a-z0-9._-]{1,62}$/i.test(value);
 }
@@ -135,10 +172,12 @@ function parseImageRequests(content) {
     const attrs = parseAttrs(match[2]);
     const body = match[3].trim();
     const isIllustrationProtocol = tagName === "reverie-illustration";
+    const narrativeOwned = isNarrativeOwnedImageRequest(content, match.index);
     if (isIllustrationProtocol && String(attrs.request || "").toLocaleLowerCase() !== "generate")
       continue;
     const id = (attrs.id || attrs.request_id || (isIllustrationProtocol ? attrs.slot : ""))?.trim();
-    const target = isIllustrationProtocol ? "prose.illustration" : attrs.target?.trim();
+    const authoredTarget = isIllustrationProtocol ? "prose.illustration" : attrs.target?.trim();
+    const target = narrativeOwned && authoredTarget === "prose.illustration" ? "custom.artifact-media" : authoredTarget;
     if (!id || !target || !isImageTarget(target))
       continue;
     const visualPrompt = isIllustrationProtocol ? firstTagText(body, "visual_prompt")?.trim() : "";
@@ -175,7 +214,7 @@ function parseImageRequests(content) {
       time: requestTime,
       prompt: prompt.trim().slice(0, MAX_PROMPT_CHARS),
       cast,
-      promptSource: isIllustrationProtocol ? visualPrompt ? "visual_prompt" : "legacy-body" : "structured",
+      promptSource: isIllustrationProtocol && narrativeOwned ? "structured" : isIllustrationProtocol ? visualPrompt ? "visual_prompt" : "legacy-body" : "structured",
       negative: firstTagText(body, "negative")?.trim(),
       slot: attrs.slot?.trim() || (isIllustrationProtocol ? "illustration" : undefined),
       fullMatch: match[0],
@@ -1014,7 +1053,7 @@ ${REVERIE_ILLUSTRATION_PROTOCOL}
 ${REVERIE_ARTIFACT_MEDIA_PROTOCOL}`;
 var DEFAULT_SURFACE_PROMPT_MODULES = {
   smartphone: `SURFACE: SMARTPHONE \u2014 REGEX PACK CONTRACT
-Output raw XML only. Use this structure and child order:
+Legacy XML compatibility shape (parser input only; current model authoring is bracket-native). Preserve this structure and child order when repairing imported XML:
 <smart_phone sender="[contact name]" initial="[one letter]" time="[24-hour HH:MM]" day="[day/date]" battery="[0-100]">
 <notifications>
 <s_note app="[app]" sender="[sender]" time="[HH:MM]">Notification text.</s_note>
@@ -1033,7 +1072,7 @@ Rules: <messages> is required. <notifications>, <contact>, and <info> are option
   "inline-chat": `SURFACE: INLINE CHAT
 Use <inline_chat header="[conversation title]"> for a compact complete private exchange with multiple coherent left and right messages.`,
   instagram: `SURFACE: INSTAGRAM \u2014 REGEX PACK CONTRACT
-Output raw XML only. Root attributes may be parsed flexibly, but use this canonical order:
+Legacy XML compatibility shape (parser input only; current model authoring is bracket-native). Root attributes may be parsed flexibly, but preserve this canonical order during repair:
 <ig_app user="[username]" loc="[location]" likes="[count]" verified="[true or empty]">
 [media]
 <caption>Caption text.</caption>
@@ -1044,7 +1083,7 @@ Output raw XML only. Root attributes may be parsed flexibly, but use this canoni
 Single media: place exactly one <image_request id="instagram-UNIQUE-ID" target="instagram.single" slot="post-media" aspect="1:1" alt="Accessible post description"><scene_brief>Complete visible post image.</scene_brief></image_request> before <caption>.
 Carousel media: place exactly one <image_request id="instagram-UNIQUE-ID" target="instagram.carousel" slot="carousel" count="2" aspect="1:1" alt="Accessible carousel description"><scene_brief>Describe each slide consecutively as Slide 1, Slide 2, and so on.</scene_brief></image_request> before <caption>. Use count 2-4. Never emit target="instagram.slide". Include <caption> and <comments> even when their text is brief. Put every <i_reply> inside its owning <i_comment>.`,
   twitter: `SURFACE: TWITTER / X \u2014 REGEX PACK CONTRACT
-Output raw XML only. Attribute order is strict. Use this outer order exactly:
+Legacy XML compatibility shape (parser input only; current model authoring is bracket-native). Preserve this outer order exactly during repair:
 <twitter_app>
 <for_you>...</for_you>
 <following>...</following>
@@ -1068,7 +1107,7 @@ Optional elements and their strict attribute order:
 <tw_trend rank="[rank]" posts="[count]" category="[category]" location="[location]">Trend name.</tw_trend>
 Never author resolved <tw_media src="..."> markup; Relay writes that after generation.`,
   kakao: `SURFACE: KAKAOTALK \u2014 REGEX PACK CONTRACT
-Output raw XML only. Attribute and child order are strict:
+Legacy XML compatibility shape (parser input only; current model authoring is bracket-native). Attribute and child order remain strict during repair:
 <kakao_chat title="[group title]" date="[date]" time="[time]" unread="[count]">
 <participants>
 <k_part name="[name]" avatar="[initial or emoji]" color="[#hex]"/>
@@ -1086,7 +1125,7 @@ Output raw XML only. Attribute and child order are strict:
 </kakao_chat>
 Place <participants> before <messages>. Use exact k_part, k_msg, k_reply, k_react, k_file, k_system, and k_typing attribute order. Put each 4:3 image request inside its authored <k_img> at the exact message position; never use stale 4:5 media.`,
   "album-cover": `SURFACE: ALBUM COVER \u2014 ART-FIRST REGEX PACK CONTRACT
-Output raw XML only. A real album/release title is required for newly authored output: use the established title, or deliberately name the fictional release when the scene creates it. Never substitute a generic label or player state. Artist and release context are optional.
+Legacy XML compatibility shape (parser input only; current model authoring is bracket-native). A real album/release title is required for newly authored output: use the established title, or deliberately name the fictional release when the scene creates it. Never substitute a generic label or player state. Artist and release context are optional.
 <album_cover>
 <title>Actual album or release title</title>
 <artist>Actual artist name when known</artist>
@@ -1313,34 +1352,6 @@ function runtimeUtilityPrompt(row) {
 Album Cover contract note: a real album/release title is required in [title] before [artist], [release], and [artwork]. Do not use placeholders as the release title.`;
   return module;
 }
-var CHARACTER_PROFILE_PROMPT = `<character_profile_utility>
-[CAST SHEET \u2014 REVERIE RELAY UTILITY]
-
-A Cast Sheet is a compact visual introduction card for a named character. <character_profile> remains the stable canonical root. Its first child is the mandatory <portrait> region. The Relay <image_request> lives inside that portrait; never substitute <media> for it.
-
-Use exactly one request with target="custom.artifact-media", aspect="3:4", and a unique lowercase slug-safe id and matching slot beginning with character-profile-. Describe visible appearance, current clothing, expression, posture, meaningful props, environment, lighting, and portrait composition. Keep readable text, labels, logos, captions, watermarks, and speech bubbles out of the generated portrait.
-
-The image must remain inside the same portrait region through pending, live preview, completed, retry, reparse, and reload states. After </portrait>, output <name>, <role>, <hook>, and <trait> in that order. Use only visible or already established information safe to the current viewpoint.
-
-OUTPUT FORMAT \u2014 EXACT
-<character_profile>
-<portrait>
-<image_request
-  id="character-profile-UNIQUE-ID"
-  target="custom.artifact-media"
-  slot="character-profile-UNIQUE-ID"
-  aspect="3:4"
-  alt="Portrait of Character"
->
-<scene_brief>Polished story-appropriate illustrated portrait with established visible identity, current clothing, expression, posture, meaningful setting, and no readable text.</scene_brief>
-</image_request>
-</portrait>
-<name>Character Name</name>
-<role>Scene-relevant role</role>
-<hook>One-line orientation hook</hook>
-<trait>Concrete visible or established trait</trait>
-</character_profile>
-</character_profile_utility>`;
 var rows = [
   { id: "smartphone", label: "Smartphone", icon: "\u25A3", root: "smart_phone", target: "smartphone.message-image", category: "social-messaging", aspect: "4:3", sample: `<smart_phone sender="Contact A" initial="A" time="21:14" day="Friday" battery="72"><notifications><s_note app="Messages" sender="Contact A" time="21:12">New message</s_note></notifications><contact>Contact A \xB7 mobile</contact><messages><s_recv time="21:12">Look at this.</s_recv><s_img side="recv" time="21:12">${request("phone-message-1", "smartphone.message-image", "4:3", "Context-specific photo sent by Contact A in this conversation, no phone interface or readable text.")}</s_img><s_sent time="21:14">I see it.</s_sent></messages><info>Conversation details</info></smart_phone>` },
   { id: "instagram", label: "Instagram Post", icon: "\u25CE", root: "ig_app", target: "instagram.single", category: "social-messaging", aspect: "1:1", sample: `<ig_app user="@archive_a" loc="North Pier" likes="1,284" verified="true">${request("instagram-post-1", "instagram.single", "1:1", "Square social photograph of North Pier after rain, complete scene visible, no interface or readable text.")}<caption>Blue hour after the rain.</caption><comments><i_comment user="@reader_a" time="12m" likes="4" verified="">Beautiful light.<i_reply user="@archive_a" time="8m">Thank you.</i_reply></i_comment></comments></ig_app>` },
@@ -1351,7 +1362,7 @@ var rows = [
   { id: "photo-booth-strip", label: "Photo Booth Strip", icon: "\u25A5", root: "photo_booth_strip", category: "narrative-visuals", aspect: "2:5", sample: `<photo_booth_strip title="After Midnight" date="Tonight"><booth_frame>${request("booth-frame-1", "custom.artifact-media", "2:5", "First pose in one coherent vertical photo-booth session, stable identities, wardrobe, booth, and lighting, no text.")}</booth_frame><booth_frame>${request("booth-frame-2", "custom.artifact-media", "2:5", "Second pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.")}</booth_frame><booth_frame>${request("booth-frame-3", "custom.artifact-media", "2:5", "Third pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.")}</booth_frame><booth_frame>${request("booth-frame-4", "custom.artifact-media", "2:5", "Fourth pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.")}</booth_frame><caption>Four frames after midnight.</caption></photo_booth_strip>` },
   { id: "polaroid", label: "Polaroid", icon: "\u25A1", root: "polaroid_frame", category: "narrative-visuals", aspect: "1:1", sample: `<polaroid_frame date="Tonight" location="North Pier"><photo>${request("polaroid-photo-1", "custom.artifact-media", "1:1", "Complete square candid instant photograph at North Pier after rain, no paper border or readable text.")}</photo><caption>After the rain.</caption></polaroid_frame>` },
   { id: "youtube-thumbnail", label: "YouTube Watch Page", icon: "\u25B6", root: "yt_thumbnail", category: "covers-promotion", aspect: "16:9", sample: `<yt_thumbnail channel="Field Archive" title="The Last Train at North Pier" views="18K views" age="2 hours ago" subscribers="84K subscribers"><yt_media>${request("youtube-frame-1", "custom.artifact-media", "16:9", "Wide frame of the last train arriving at North Pier, key action center-safe, no YouTube chrome, logo, play icon, or readable text.")}</yt_media><yt_comments><yt_comment user="viewer_one" time="12m" likes="28">The platform light changed.</yt_comment><yt_comment user="viewer_two" time="4m" likes="9">Look near the far gate.</yt_comment></yt_comments></yt_thumbnail>` },
-  { id: "character-profile", label: "Cast Sheet", icon: "\u2659", root: "character_profile", category: "narrative-visuals", aspect: "3:4", profile: "character-portrait", promptModule: CHARACTER_PROFILE_PROMPT, sample: `<character_profile><portrait>${request("character-profile-guide", "custom.artifact-media", "3:4", "Polished story-appropriate illustrated portrait of the named character, current appearance and clothing, expressive posture, meaningful setting, no readable text.")}</portrait><name>Character A</name><role>Field Guide</role><hook>Knows the city after dark.</hook><trait>Observant \xB7 patient \xB7 guarded</trait></character_profile>` },
+  { id: "character-profile", label: "Cast Sheet", icon: "\u2659", root: "character_profile", category: "narrative-visuals", aspect: "3:4", profile: "character-portrait", sample: `<character_profile><portrait>${request("character-profile-guide", "custom.artifact-media", "3:4", "Polished story-appropriate illustrated portrait of the named character, current appearance and clothing, expressive posture, meaningful setting, no readable text.")}</portrait><name>Character A</name><role>Field Guide</role><hook>Knows the city after dark.</hook><trait>Observant \xB7 patient \xB7 guarded</trait></character_profile>` },
   { id: "music-player", label: "Music Player", icon: "\u266B", root: "music_player", category: "covers-promotion", aspect: "1:1", sample: `<music_player track="Night Signal" artist="Fictional Artist" album="Afterglow" current="1:12" duration="3:48"><mu_cover>${request("music-cover", "custom.artifact-media", "1:1", "Square fictional album artwork with an abstract night-city composition and no readable text.")}</mu_cover><mu_lyrics>Instrumental passage.</mu_lyrics><mu_queue>Next track \xB7 Quiet Avenue</mu_queue></music_player>` },
   { id: "location-share", label: "Live Location", icon: "\u2316", root: "location_share", category: "social-messaging", aspect: "4:3", sample: `<location_share sender="[contextual sender]" destination="[contextual destination]" eta="[contextual ETA]" remaining="[contextual distance]" updated="[contextual update]"><lc_map>${request("location-map", "custom.artifact-media", "4:3", "Top-down modern navigation map for the current contextual route toward the authored destination, route geometry and destination-pin area visible, no people, no portrait photography, no generated text labels.")}</lc_map><lc_note>Contextual route note.</lc_note><lc_steps><lc_step>Contextual start</lc_step><lc_step>Contextual destination</lc_step></lc_steps></location_share>` },
   { id: "voice-memo", label: "Voice Memo", icon: "\u25C9", root: "voice_memo", category: "social-messaging", aspect: "1:1", sample: `<voice_memo sender="Character A" time="18:05" duration="0:42" status="played"><vm_avatar>${request("voice-avatar", "custom.artifact-media", "1:1", "Centered reusable head-and-shoulders avatar of Character A, neutral background, no text.")}</vm_avatar><vm_transcript>I reached the platform. Call when you arrive.</vm_transcript><vm_calls>One outgoing call.</vm_calls></voice_memo>` },
@@ -5209,8 +5220,8 @@ function ingestAppearanceSidecarObservations(vault, observations, input) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.0";
-var BUILD_ID = "20260908-0.2.0";
+var EXTENSION_VERSION = "0.2.1";
+var BUILD_ID = "20260909-0.2.1";
 
 // src/canonicalReviewedSurfaceContracts.ts
 var image = (id, target, slot, aspect, alt) => `<image_request id="${id}" target="${target}" slot="${slot}" aspect="${aspect}" alt="${alt}"><scene_brief>Scene-specific visual content.</scene_brief></image_request>`;
@@ -6253,13 +6264,32 @@ function assertProviderRequestSafe(prompt, negativePrompt = "", parameters = {})
   if (issues.length)
     throw new ProviderPromptSafetyError(issues);
 }
+
+// src/imageStreaming.ts
+var clean4 = (value) => String(value || "").trim();
+function imageProviderSupportsStreaming(providerId, provider, generateStreamAvailable) {
+  if (!generateStreamAvailable)
+    return false;
+  const identity = [providerId, provider?.id, provider?.name].map((value) => clean4(value).toLocaleLowerCase()).join(" ");
+  if (/\b(?:novel[-_ ]?ai|nai)\b/.test(identity))
+    return false;
+  const capabilities = provider?.capabilities || {};
+  for (const key of ["streaming", "stream", "previewStreaming", "preview_streaming", "websocket", "webSocket"]) {
+    if (capabilities[key] === false)
+      return false;
+  }
+  const transport = clean4(capabilities.transport || capabilities.protocol).toLocaleLowerCase();
+  if (["http", "request-response", "request_response", "rest"].includes(transport))
+    return false;
+  return true;
+}
 // regex-packs/r45/Reverie-Surfaces-R4.5-INLINE-REALISTIC.json
 var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
   version: "2.2.1",
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Realistic \u2014 Inline",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.0",
+  relay_product_version: "0.2.1",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "inline",
   surface_review_revision: "R4.5-FINAL",
@@ -6293,12 +6323,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_001_8522e5",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable User Media Seam \u2014 Inline",
@@ -6330,12 +6360,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_002_e8e1a7",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Generated Avatar Message Transformer \u2014 Inline",
@@ -6366,12 +6396,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_003_74cce1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Message Media Transformer \u2014 Inline",
@@ -6402,12 +6432,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_004_f281f8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable Profile Media Seam \u2014 Inline",
@@ -6476,12 +6506,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_005_b8c022",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Email Item Transformer \u2014 Inline",
@@ -6536,12 +6566,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_006_c51fa1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE77 Tinder \u2014 Sleek Full-Screen Match Overlay \u2014 Inline",
@@ -6999,12 +7029,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_007_69c357",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder Card Transformer (Match Avatar Fix) \u2014 Inline",
@@ -7035,12 +7065,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_008_59a7f9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder User Avatar Transformer (Match Avatar Fix) \u2014 Inline",
@@ -7071,12 +7101,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_009_c9bb76",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Chat Message Transformer \u2014 Inline",
@@ -7115,12 +7145,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_010_cdbe6e",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Donation Transformer \u2014 Inline",
@@ -7159,12 +7189,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_011_c814d0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Mod Transformer \u2014 Inline",
@@ -7203,12 +7233,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_012_645737",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Message Transformer \u2014 Inline",
@@ -7246,12 +7276,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_013_4134ee",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord DM Generated Avatar Message \u2014 Inline",
@@ -7289,12 +7319,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_014_366e74",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Server Generated Avatar Message \u2014 Inline",
@@ -7332,12 +7362,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_015_f33f4c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Media Transformer \u2014 Inline",
@@ -7368,12 +7398,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_016_b64ca7",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Google Result Transformer \u2014 Inline",
@@ -7404,12 +7434,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_017_d5d9e1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Gallery Item Transformer \u2014 Inline",
@@ -7440,12 +7470,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_018_8ec170",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Fact Transformer \u2014 Inline",
@@ -7477,12 +7507,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_019_59a3d0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Timeline Event Transformer \u2014 Inline",
@@ -7514,12 +7544,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_020_f5c785",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 News Instruction Transformer \u2014 Inline",
@@ -7551,12 +7581,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_021_35aa40",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Media Transformer \u2014 Inline",
@@ -7588,12 +7618,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_022_4a9c43",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Voice Transformer \u2014 Inline",
@@ -7625,12 +7655,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_023_614b8c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Bubble Transformer \u2014 Inline",
@@ -7662,12 +7692,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_024_768354",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Reaction Transformer \u2014 Inline",
@@ -7699,12 +7729,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_025_0326c4",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Media Transformer \u2014 Inline",
@@ -7736,12 +7766,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_026_d850a5",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage System Transformer \u2014 Inline",
@@ -7773,12 +7803,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_027_9bf2c2",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Bubble Transformer \u2014 Inline",
@@ -7810,12 +7840,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_028_ba4be6",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Reply Transformer \u2014 Inline",
@@ -7855,12 +7885,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_029_19c734",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Comment Transformer \u2014 Inline",
@@ -7900,12 +7930,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_030_f36d5d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comment Transformer \u2014 Inline",
@@ -7938,12 +7968,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_031_3b921c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comments Drawer Transformer \u2014 Inline",
@@ -7976,12 +8006,12 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_032_2f87a7",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCBF Album / Single Cover \u2014 Contextual Release \u2014 Inline",
@@ -8089,7 +8119,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 90,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -8099,7 +8129,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_033_a783e5"
@@ -8192,7 +8222,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 91,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -8202,7 +8232,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_034_b1264c"
@@ -8313,12 +8343,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_035_23d2bc",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Reverie Surface \u2014 Inline Chat \u2014 Inline",
@@ -8425,12 +8455,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_036_50a081",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF7 Reverie Surface \u2014 R4.5 \u2014 Inline",
@@ -8543,12 +8573,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_037_37a16a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD835\uDD4F Twitter / X Direct Messages \u2014 Bubble Chat \u2014 Inline",
@@ -8655,12 +8685,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_038_e91245",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Reverie Surface \u2014 Discord Direct Messages \u2014 Inline",
@@ -8771,12 +8801,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_039_ec5215",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDD0E Reverie Surface \u2014 Google Images \u2014 Inline",
@@ -8972,12 +9002,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_040_2ec570",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Surface Review v4 \u2014 Phone Gallery (Restored Grid) \u2014 Inline",
@@ -9140,12 +9170,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_041_aa2349",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDC2\uFE0F Surface Review v4 \u2014 Classified Case Dossier \u2014 Inline",
@@ -9247,12 +9277,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_042_11b5dc",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF0 Surface Review v5 \u2014 News Article / Public Bulletin \u2014 Inline",
@@ -9353,12 +9383,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_043_93d2dd",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE0 Reddit Thread \u2014 Compact Community Post \u2014 Inline",
@@ -9468,12 +9498,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_044_07fd68",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25C7 Surface Review v4 \u2014 Character Profile \u2014 Inline",
@@ -9713,12 +9743,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_045_307e22",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25A4 Surface Review v4 \u2014 Magazine Cover \u2014 Inline",
@@ -9819,12 +9849,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_046_a27c2d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u266A TikTok Post + Comments + Stable Drawer \u2014 Inline",
@@ -10003,12 +10033,12 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_047_e5fe11",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 [Reverie \u2022 Instagram] Invalid Carousel Target Guard \u2014 Inline",
@@ -10069,7 +10099,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 201,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -10078,7 +10108,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_048_09762f"
@@ -10142,7 +10172,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 202,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -10151,7 +10181,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_049_09c7a4"
@@ -10201,7 +10231,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 203,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -10210,7 +10240,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_050_01700b"
@@ -10235,7 +10265,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 204,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -10244,7 +10274,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_051_9d370e"
@@ -10308,7 +10338,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 205,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -10317,7 +10347,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_052_357441"
@@ -10381,7 +10411,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 206,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -10390,7 +10420,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_053_a5e63d"
@@ -10454,7 +10484,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 207,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -10463,7 +10493,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_054_cec400"
@@ -11377,7 +11407,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 208,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -11386,7 +11416,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_055_10f07c"
@@ -11463,7 +11493,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 209,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -11472,7 +11502,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_056_63a576"
@@ -11563,7 +11593,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 210,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -11572,7 +11602,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_057_e9609d"
@@ -11663,7 +11693,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 211,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -11672,7 +11702,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_058_1d3222"
@@ -11763,7 +11793,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 212,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -11772,7 +11802,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_059_3a261c"
@@ -11863,7 +11893,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 213,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -11872,7 +11902,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_060_0ad5a3"
@@ -11949,7 +11979,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 214,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -11958,7 +11988,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_061_f972c0"
@@ -12049,7 +12079,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 215,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -12058,7 +12088,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_062_dad523"
@@ -12088,12 +12118,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_063_b060eb",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] System Event \u2014 Inline",
@@ -12181,7 +12211,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 216,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -12190,7 +12220,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_064_d7befb"
@@ -12220,12 +12250,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_065_4f5b41",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Typing Indicator \u2014 Inline",
@@ -12313,7 +12343,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 217,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -12322,7 +12352,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_066_519356"
@@ -12413,7 +12443,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 218,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -12422,7 +12452,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_067_9149fa"
@@ -12499,7 +12529,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 219,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -12508,7 +12538,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_068_91bebd"
@@ -12688,7 +12718,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 220,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -12697,7 +12727,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_069_20e6cd"
@@ -12747,7 +12777,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 221,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -12756,7 +12786,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_070_25053d"
@@ -12820,7 +12850,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 222,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -12829,7 +12859,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_071_1b88d2"
@@ -12893,7 +12923,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 223,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -12902,7 +12932,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_072_d1f807"
@@ -12966,7 +12996,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 224,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -12975,7 +13005,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_073_04383c"
@@ -13039,7 +13069,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 225,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -13048,7 +13078,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_074_0e2d77"
@@ -13112,7 +13142,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 226,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -13121,7 +13151,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_075_21788c"
@@ -13200,7 +13230,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 227,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -13209,7 +13239,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_076_12d871"
@@ -13288,7 +13318,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 228,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -13297,7 +13327,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_077_e0e28f"
@@ -13376,7 +13406,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 229,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -13385,7 +13415,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_078_6c3166"
@@ -13477,7 +13507,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 230,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -13486,7 +13516,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_079_4cdfdb"
@@ -13578,7 +13608,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 231,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -13587,7 +13617,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_080_1f792f"
@@ -13651,7 +13681,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 232,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -13660,7 +13690,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_081_829dd4"
@@ -13796,7 +13826,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -13806,7 +13836,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_082_cd85ff"
@@ -13883,7 +13913,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -13892,7 +13922,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_083_d8d5ab"
@@ -13969,7 +13999,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 234,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -13978,7 +14008,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_084_cab30f"
@@ -14055,7 +14085,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 235,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -14064,7 +14094,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_085_0d2755"
@@ -14141,7 +14171,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 236,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -14150,7 +14180,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_086_381d02"
@@ -14241,7 +14271,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 238,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -14250,7 +14280,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_087_77b5f5"
@@ -14341,7 +14371,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 239,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -14350,7 +14380,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_088_b61f51"
@@ -14443,7 +14473,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -14452,7 +14482,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_089_0071c0"
@@ -14519,13 +14549,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.98,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr37_inline_simg_sent"
@@ -14592,13 +14622,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.99,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr37_inline_simg_recv"
@@ -14691,7 +14721,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 241,
       description: 'Legacy compatibility only. Canonical Utility MUST author side="sent" or side="recv"; no-side images fall back left/received.',
       metadata: {
@@ -14700,7 +14730,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_090_64cbd5"
@@ -14793,7 +14823,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 242,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -14802,7 +14832,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_091_09b1a2"
@@ -14948,7 +14978,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 243,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -14957,7 +14987,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_092_3c09fc"
@@ -15048,7 +15078,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 249,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -15057,7 +15087,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_093_8710db"
@@ -15277,7 +15307,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 280,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -15287,7 +15317,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_094_4f12bb"
@@ -15391,12 +15421,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_095_f26e5d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF9E\uFE0F Photo Booth Strip \u2014 Four Frame Print \u2014 Inline",
@@ -15424,12 +15454,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_096_26c55f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Polaroid \u2014 Instant Film Print \u2014 Inline",
@@ -15457,12 +15487,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_097_2c8cd7",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Workspace Chat \u2014 Bubble Channels \u2014 Inline",
@@ -15598,12 +15628,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_098_33c93c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2709\uFE0F Email \u2014 Dark Mode Inbox \u2014 Inline",
@@ -15630,12 +15660,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_099_241569",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC iMessage \u2014 Correct Sender Alignment \u2014 Inline",
@@ -15757,12 +15787,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_100_787b63",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE3 Twitch \u2014 Stream + Chat + Mods + Interactive Poll \u2014 Inline",
@@ -15885,12 +15915,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_101_570400",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFA7 Music Player \u2014 Spotify-Style \u2014 Inline",
@@ -15918,12 +15948,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_102_ce910d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDFA\uFE0F Live Location \u2014 Chat + Tracker Popup \u2014 Inline",
@@ -15951,12 +15981,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_103_2d3ac2",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF99\uFE0F Voice Memo \u2014 Dark Recorder + Transcript Popup \u2014 Inline",
@@ -16084,12 +16114,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_104_d04e4a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDD Notes App \u2014 R4.5 \u2014 Inline",
@@ -16215,12 +16245,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_105_3b70d9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDED2 Marketplace \u2014 R4.5 \u2014 Inline",
@@ -16342,12 +16372,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_106_64a18b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFE0 Property Listing \u2014 R4.5 \u2014 Inline",
@@ -16500,12 +16530,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_107_c184c0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE9 Naver News \u2014 R4.5 \u2014 Inline",
@@ -16630,12 +16660,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_108_a23542",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Letter Literal Newline Pair Normalizer \u2014 Inline",
@@ -16661,12 +16691,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr37_inline_letter_newlines",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC8C Letter \u2014 Real Paper Correspondence \u2014 Inline",
@@ -16694,12 +16724,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_109_d11ed0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE7A Medical Chart \u2014 EHR Clinical Dashboard \u2014 Inline",
@@ -16808,12 +16838,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_110_4235bc",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2696\uFE0F Court Transcript \u2014 Real Transcript Record \u2014 Inline",
@@ -16943,12 +16973,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_111_30f790",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDA Wikipedia Page \u2014 Article + Infobox \u2014 Inline",
@@ -17057,12 +17087,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_112_8b63fa",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCD6 Diary \u2014 Clickable Multi-Day Journal \u2014 Inline",
@@ -17167,12 +17197,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_114_42ca3d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDD2\uFE0F Mission / List Board \u2014 Interactive Planner \u2014 Inline",
@@ -17273,12 +17303,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_115_b8ad5c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF9 CCTV \u2014 Multi-Camera Security Monitor \u2014 Inline",
@@ -17383,12 +17413,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_116_ec8108",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Discord Server \u2014 Realistic Clickable Channels \u2014 Inline",
@@ -17416,12 +17446,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_117_d0bd18",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Medical Vital Transformer \u2014 Inline",
@@ -17447,12 +17477,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_118_df8c1f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Court Transcript Line Transformer \u2014 Inline",
@@ -17478,12 +17508,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_119_73634b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Wiki Fact Transformer \u2014 Inline",
@@ -17509,12 +17539,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_120_3b9c2c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 YouTube Comment Transformer \u2014 Inline",
@@ -17550,12 +17580,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_121_24b971",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Message Bubble \u2014 Inline",
@@ -17581,12 +17611,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_igdm_msg",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Media Bubble \u2014 Inline",
@@ -17612,12 +17642,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_igdm_media",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Bid Row \u2014 Inline",
@@ -17643,12 +17673,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_ebay_bid",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Action Button \u2014 Inline",
@@ -17674,12 +17704,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_ebay_action",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Naver Comment Row \u2014 Inline",
@@ -17705,12 +17735,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_naver_comment",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Comment \u2014 Inline",
@@ -17737,12 +17767,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igc_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Post Grid + Modal Unit \u2014 Inline",
@@ -17787,12 +17817,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igp_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Tagged Grid Item \u2014 Inline",
@@ -17819,12 +17849,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igm_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Profile \u2014 Contained Post Viewer \u2014 Inline",
@@ -17915,12 +17945,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igprofile_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Comment \u2014 Inline",
@@ -17947,12 +17977,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twc_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Tweet \u2014 Inline",
@@ -17991,12 +18021,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twp_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Media Item \u2014 Inline",
@@ -18023,12 +18053,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twm_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC26 Twitter / X Profile \u2014 Posts / Media \u2014 Inline",
@@ -18181,12 +18211,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twprofile_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Stories \u2014 Three-Story Viewer \u2014 Inline",
@@ -18244,12 +18274,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_stories_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Thread Item \u2014 Inline",
@@ -18276,12 +18306,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r43_twthread_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     }
   ]
 };
@@ -18291,7 +18321,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Realistic \u2014 Plain",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.0",
+  relay_product_version: "0.2.1",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "plain",
   surface_review_revision: "R4.5-FINAL",
@@ -18325,12 +18355,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_001_958563",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable User Media Seam \u2014 Collapsible Plain",
@@ -18362,12 +18392,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_002_01a164",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Generated Avatar Message Transformer \u2014 Collapsible Plain",
@@ -18398,12 +18428,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_003_98aec6",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Message Media Transformer \u2014 Collapsible Plain",
@@ -18434,12 +18464,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_004_be8177",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable Profile Media Seam \u2014 Collapsible Plain",
@@ -18508,12 +18538,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_005_2b24d1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Email Item Transformer \u2014 Collapsible Plain",
@@ -18568,12 +18598,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_006_03f7b6",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE77 Tinder \u2014 Sleek Full-Screen Match Overlay \u2014 Collapsible Plain",
@@ -19093,12 +19123,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_007_912c10",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder Card Transformer (Match Avatar Fix) \u2014 Collapsible Plain",
@@ -19129,12 +19159,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_008_3d506a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder User Avatar Transformer (Match Avatar Fix) \u2014 Collapsible Plain",
@@ -19165,12 +19195,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_009_87d540",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Chat Message Transformer \u2014 Collapsible Plain",
@@ -19209,12 +19239,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_010_ab14de",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Donation Transformer \u2014 Collapsible Plain",
@@ -19253,12 +19283,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_011_564772",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Mod Transformer \u2014 Collapsible Plain",
@@ -19297,12 +19327,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_012_128e9a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Message Transformer \u2014 Collapsible Plain",
@@ -19340,12 +19370,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_013_dee63a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord DM Generated Avatar Message \u2014 Collapsible Plain",
@@ -19383,12 +19413,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_014_7f19c0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Server Generated Avatar Message \u2014 Collapsible Plain",
@@ -19426,12 +19456,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_015_9fc065",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Media Transformer \u2014 Collapsible Plain",
@@ -19462,12 +19492,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_016_5979a3",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Google Result Transformer \u2014 Collapsible Plain",
@@ -19498,12 +19528,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_017_982c41",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Gallery Item Transformer \u2014 Collapsible Plain",
@@ -19534,12 +19564,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_018_f855fa",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Fact Transformer \u2014 Collapsible Plain",
@@ -19571,12 +19601,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_019_34416d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Timeline Event Transformer \u2014 Collapsible Plain",
@@ -19608,12 +19638,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_020_af0460",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 News Instruction Transformer \u2014 Collapsible Plain",
@@ -19645,12 +19675,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_021_f83b0d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Media Transformer \u2014 Collapsible Plain",
@@ -19682,12 +19712,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_022_cdb3fd",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Voice Transformer \u2014 Collapsible Plain",
@@ -19719,12 +19749,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_023_dcc599",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Bubble Transformer \u2014 Collapsible Plain",
@@ -19756,12 +19786,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_024_5fc225",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Reaction Transformer \u2014 Collapsible Plain",
@@ -19793,12 +19823,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_025_991c00",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Media Transformer \u2014 Collapsible Plain",
@@ -19830,12 +19860,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_026_020cdf",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage System Transformer \u2014 Collapsible Plain",
@@ -19867,12 +19897,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_027_f68ccd",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Bubble Transformer \u2014 Collapsible Plain",
@@ -19904,12 +19934,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_028_4f1587",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Reply Transformer \u2014 Collapsible Plain",
@@ -19949,12 +19979,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_029_00347b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Comment Transformer \u2014 Collapsible Plain",
@@ -19994,12 +20024,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_030_33174d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comment Transformer \u2014 Collapsible Plain",
@@ -20032,12 +20062,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_031_a859dc",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comments Drawer Transformer \u2014 Collapsible Plain",
@@ -20070,12 +20100,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_032_982465",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCBF Album / Single Cover \u2014 Contextual Release \u2014 Collapsible Plain",
@@ -20232,7 +20262,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 90,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -20242,7 +20272,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_033_971b42"
@@ -20384,7 +20414,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 91,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -20394,7 +20424,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_034_c8e0e4"
@@ -20554,12 +20584,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_035_f5c6ea",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Reverie Surface \u2014 Inline Chat \u2014 Collapsible Plain",
@@ -20715,12 +20745,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_036_d82e79",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF7 Reverie Surface \u2014 R4.5 \u2014 Collapsible Plain",
@@ -20878,12 +20908,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_037_42d20f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD835\uDD4F Twitter / X Direct Messages \u2014 Bubble Chat \u2014 Collapsible Plain",
@@ -21039,12 +21069,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_038_c04488",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Reverie Surface \u2014 Discord Direct Messages \u2014 Collapsible Plain",
@@ -21204,12 +21234,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_039_fd6bce",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDD0E Reverie Surface \u2014 Google Images \u2014 Collapsible Plain",
@@ -21454,12 +21484,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_040_c151c4",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Surface Review v4 \u2014 Phone Gallery (Restored Grid) \u2014 Collapsible Plain",
@@ -21671,12 +21701,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_041_5c489f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDC2\uFE0F Surface Review v4 \u2014 Classified Case Dossier \u2014 Collapsible Plain",
@@ -21827,12 +21857,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_042_53ae30",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF0 Surface Review v5 \u2014 News Article / Public Bulletin \u2014 Collapsible Plain",
@@ -21982,12 +22012,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_043_44ec8b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE0 Reddit Thread \u2014 Compact Community Post \u2014 Collapsible Plain",
@@ -22146,12 +22176,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_044_084064",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25C7 Surface Review v4 \u2014 Character Profile \u2014 Collapsible Plain",
@@ -22440,12 +22470,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_045_70238f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25A4 Surface Review v4 \u2014 Magazine Cover \u2014 Collapsible Plain",
@@ -22595,12 +22625,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_046_dd3bf8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u266A TikTok Post + Comments + Stable Drawer \u2014 Collapsible Plain",
@@ -22828,12 +22858,12 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_047_328aaa",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 [Reverie \u2022 Instagram] Invalid Carousel Target Guard \u2014 Collapsible Plain",
@@ -22894,7 +22924,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 201,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -22903,7 +22933,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_048_270ee3"
@@ -22967,7 +22997,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 202,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -22976,7 +23006,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_049_64ecc2"
@@ -23026,7 +23056,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 203,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -23035,7 +23065,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_050_3998f8"
@@ -23060,7 +23090,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 204,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -23069,7 +23099,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_051_5ed8b7"
@@ -23133,7 +23163,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 205,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -23142,7 +23172,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_052_e4da42"
@@ -23206,7 +23236,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 206,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -23215,7 +23245,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_053_28fcb5"
@@ -23287,7 +23317,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 207,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -23296,7 +23326,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_054_ab79db"
@@ -24228,7 +24258,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 208,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -24237,7 +24267,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_055_f35f13"
@@ -24314,7 +24344,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 209,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -24323,7 +24353,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_056_28ed18"
@@ -24414,7 +24444,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 210,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -24423,7 +24453,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_057_05e8c5"
@@ -24514,7 +24544,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 211,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -24523,7 +24553,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_058_a0d7a4"
@@ -24614,7 +24644,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 212,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -24623,7 +24653,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_059_e9b1ae"
@@ -24714,7 +24744,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 213,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -24723,7 +24753,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_060_64d06a"
@@ -24800,7 +24830,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 214,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -24809,7 +24839,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_061_25e049"
@@ -24900,7 +24930,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 215,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -24909,7 +24939,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_062_118dce"
@@ -24939,12 +24969,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_063_15f5da",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] System Event \u2014 Collapsible Plain",
@@ -25032,7 +25062,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 216,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -25041,7 +25071,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_064_1dce8a"
@@ -25071,12 +25101,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_065_41a66b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Typing Indicator \u2014 Collapsible Plain",
@@ -25164,7 +25194,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 217,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -25173,7 +25203,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_066_c60d6f"
@@ -25264,7 +25294,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 218,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -25273,7 +25303,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_067_65432d"
@@ -25350,7 +25380,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 219,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -25359,7 +25389,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_068_4ebec4"
@@ -25588,7 +25618,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 220,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -25597,7 +25627,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_069_29d7ae"
@@ -25647,7 +25677,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 221,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -25656,7 +25686,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_070_518756"
@@ -25720,7 +25750,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 222,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -25729,7 +25759,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_071_a3f4ac"
@@ -25793,7 +25823,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 223,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -25802,7 +25832,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_072_93b282"
@@ -25866,7 +25896,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 224,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -25875,7 +25905,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_073_d808aa"
@@ -25939,7 +25969,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 225,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -25948,7 +25978,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_074_d58467"
@@ -26012,7 +26042,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 226,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -26021,7 +26051,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_075_c61598"
@@ -26100,7 +26130,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 227,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -26109,7 +26139,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_076_921f37"
@@ -26196,7 +26226,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 228,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -26205,7 +26235,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_077_e654b7"
@@ -26292,7 +26322,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 229,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -26301,7 +26331,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_078_13fd0d"
@@ -26401,7 +26431,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 230,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -26410,7 +26440,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_079_03870c"
@@ -26510,7 +26540,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 231,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -26519,7 +26549,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_080_944b0c"
@@ -26583,7 +26613,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 232,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -26592,7 +26622,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_081_502565"
@@ -26746,7 +26776,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -26756,7 +26786,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_082_4a0641"
@@ -26833,7 +26863,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -26842,7 +26872,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_083_8c0979"
@@ -26919,7 +26949,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 234,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -26928,7 +26958,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_084_522b86"
@@ -27005,7 +27035,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 235,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -27014,7 +27044,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_085_e6f6bb"
@@ -27091,7 +27121,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 236,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -27100,7 +27130,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_086_1fe622"
@@ -27191,7 +27221,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 238,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -27200,7 +27230,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_087_0a52c0"
@@ -27291,7 +27321,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 239,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -27300,7 +27330,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_088_f4b45f"
@@ -27393,7 +27423,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -27402,7 +27432,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_089_f312a6"
@@ -27469,13 +27499,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.98,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr37_plain_simg_sent"
@@ -27542,13 +27572,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.99,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr37_plain_simg_recv"
@@ -27641,7 +27671,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 241,
       description: 'Legacy compatibility only. Canonical Utility MUST author side="sent" or side="recv"; no-side images fall back left/received.',
       metadata: {
@@ -27650,7 +27680,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_090_1d5cd4"
@@ -27743,7 +27773,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 242,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -27752,7 +27782,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_091_17e0b6"
@@ -27947,7 +27977,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 243,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -27956,7 +27986,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_092_7dadb2"
@@ -28065,7 +28095,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 249,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -28074,7 +28104,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_093_2e7480"
@@ -28343,7 +28373,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 280,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -28353,7 +28383,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_094_43e882"
@@ -28506,12 +28536,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_095_7266ba",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF9E\uFE0F Photo Booth Strip \u2014 Four Frame Print \u2014 Collapsible Plain",
@@ -28654,12 +28684,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_096_0ef47f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Polaroid \u2014 Instant Film Print \u2014 Collapsible Plain",
@@ -28802,12 +28832,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_097_ed9e83",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Workspace Chat \u2014 Bubble Channels \u2014 Collapsible Plain",
@@ -28992,12 +29022,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_098_0821b9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2709\uFE0F Email \u2014 Dark Mode Inbox \u2014 Collapsible Plain",
@@ -29163,12 +29193,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_099_465030",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC iMessage \u2014 Correct Sender Alignment \u2014 Collapsible Plain",
@@ -29339,12 +29369,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_100_9dc259",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE3 Twitch \u2014 Stream + Chat + Mods + Interactive Poll \u2014 Collapsible Plain",
@@ -29516,12 +29546,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_101_2028bb",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFA7 Music Player \u2014 Spotify-Style \u2014 Collapsible Plain",
@@ -29683,12 +29713,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_102_9da300",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDFA\uFE0F Live Location \u2014 Chat + Tracker Popup \u2014 Collapsible Plain",
@@ -29810,12 +29840,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_103_735ecc",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF99\uFE0F Voice Memo \u2014 Dark Recorder + Transcript Popup \u2014 Collapsible Plain",
@@ -29992,12 +30022,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_104_7ac3b8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDD Notes App \u2014 R4.5 \u2014 Collapsible Plain",
@@ -30168,12 +30198,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_105_ade6e5",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDED2 Marketplace \u2014 R4.5 \u2014 Collapsible Plain",
@@ -30340,12 +30370,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_106_6ef651",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFE0 Property Listing \u2014 R4.5 \u2014 Collapsible Plain",
@@ -30543,12 +30573,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_107_51cf00",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE9 Naver News \u2014 R4.5 \u2014 Collapsible Plain",
@@ -30718,12 +30748,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_108_19573c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Letter Literal Newline Pair Normalizer \u2014 Collapsible Plain",
@@ -30749,12 +30779,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr37_plain_letter_newlines",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC8C Letter \u2014 Real Paper Correspondence \u2014 Collapsible Plain",
@@ -30943,12 +30973,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_109_a08811",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE7A Medical Chart \u2014 EHR Clinical Dashboard \u2014 Collapsible Plain",
@@ -31106,12 +31136,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_110_dcc78b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2696\uFE0F Court Transcript \u2014 Real Transcript Record \u2014 Collapsible Plain",
@@ -31290,12 +31320,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_111_69d05e",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDA Wikipedia Page \u2014 Article + Infobox \u2014 Collapsible Plain",
@@ -31453,12 +31483,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_112_36785d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCD6 Diary \u2014 Clickable Multi-Day Journal \u2014 Collapsible Plain",
@@ -31612,12 +31642,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_114_1ca1c8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDD2\uFE0F Mission / List Board \u2014 Interactive Planner \u2014 Collapsible Plain",
@@ -31767,12 +31797,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_115_efb533",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF9 CCTV \u2014 Multi-Camera Security Monitor \u2014 Collapsible Plain",
@@ -31926,12 +31956,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_116_55ea32",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Discord Server \u2014 Realistic Clickable Channels \u2014 Collapsible Plain",
@@ -32076,12 +32106,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_117_d86361",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Medical Vital Transformer \u2014 Collapsible Plain",
@@ -32107,12 +32137,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_118_ff366e",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Court Transcript Line Transformer \u2014 Collapsible Plain",
@@ -32138,12 +32168,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_119_9fbcd8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Wiki Fact Transformer \u2014 Collapsible Plain",
@@ -32169,12 +32199,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_120_a671ea",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 YouTube Comment Transformer \u2014 Collapsible Plain",
@@ -32210,12 +32240,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_121_cab2c2",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Message Bubble \u2014 Collapsible Plain",
@@ -32241,12 +32271,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_igdm_msg",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Media Bubble \u2014 Collapsible Plain",
@@ -32272,12 +32302,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_igdm_media",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Bid Row \u2014 Collapsible Plain",
@@ -32303,12 +32333,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_ebay_bid",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Action Button \u2014 Collapsible Plain",
@@ -32334,12 +32364,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_ebay_action",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Naver Comment Row \u2014 Collapsible Plain",
@@ -32365,12 +32395,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_naver_comment",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Comment \u2014 Collapsible Plain",
@@ -32397,12 +32427,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igc_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Post Grid + Modal Unit \u2014 Collapsible Plain",
@@ -32447,12 +32477,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igp_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Tagged Grid Item \u2014 Collapsible Plain",
@@ -32479,12 +32509,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igm_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Profile \u2014 Contained Post Viewer \u2014 Collapsible Plain",
@@ -32628,12 +32658,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igprofile_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Comment \u2014 Collapsible Plain",
@@ -32660,12 +32690,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twc_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Tweet \u2014 Collapsible Plain",
@@ -32704,12 +32734,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twp_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Media Item \u2014 Collapsible Plain",
@@ -32736,12 +32766,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twm_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC26 Twitter / X Profile \u2014 Posts / Media \u2014 Collapsible Plain",
@@ -32947,12 +32977,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twprofile_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Stories \u2014 Three-Story Viewer \u2014 Collapsible Plain",
@@ -33063,12 +33093,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_stories_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Thread Item \u2014 Collapsible Plain",
@@ -33095,12 +33125,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r43_twthread_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     }
   ]
 };
@@ -33110,7 +33140,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Realistic \u2014 Spark",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.0",
+  relay_product_version: "0.2.1",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "spark",
   surface_review_revision: "R4.5-FINAL",
@@ -33144,12 +33174,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_001_79437d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable User Media Seam \u2014 Collapsible Sparkling",
@@ -33181,12 +33211,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_002_adfed4",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Generated Avatar Message Transformer \u2014 Collapsible Sparkling",
@@ -33217,12 +33247,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_003_841fca",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Message Media Transformer \u2014 Collapsible Sparkling",
@@ -33253,12 +33283,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_004_a2b1b8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable Profile Media Seam \u2014 Collapsible Sparkling",
@@ -33327,12 +33357,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_005_d2adf0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Email Item Transformer \u2014 Collapsible Sparkling",
@@ -33387,12 +33417,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_006_b5a1df",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE77 Tinder \u2014 Sleek Full-Screen Match Overlay \u2014 Collapsible Sparkling",
@@ -33926,12 +33956,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_007_6d238f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder Card Transformer (Match Avatar Fix) \u2014 Collapsible Sparkling",
@@ -33962,12 +33992,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_008_c7741a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder User Avatar Transformer (Match Avatar Fix) \u2014 Collapsible Sparkling",
@@ -33998,12 +34028,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_009_fe1f7c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Chat Message Transformer \u2014 Collapsible Sparkling",
@@ -34042,12 +34072,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_010_68f63a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Donation Transformer \u2014 Collapsible Sparkling",
@@ -34086,12 +34116,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_011_36e620",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Mod Transformer \u2014 Collapsible Sparkling",
@@ -34130,12 +34160,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_012_ada37b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Message Transformer \u2014 Collapsible Sparkling",
@@ -34173,12 +34203,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_013_e25008",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord DM Generated Avatar Message \u2014 Collapsible Sparkling",
@@ -34216,12 +34246,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_014_0da462",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Server Generated Avatar Message \u2014 Collapsible Sparkling",
@@ -34259,12 +34289,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_015_0bb8fa",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Media Transformer \u2014 Collapsible Sparkling",
@@ -34295,12 +34325,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_016_237a96",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Google Result Transformer \u2014 Collapsible Sparkling",
@@ -34331,12 +34361,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_017_852244",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Gallery Item Transformer \u2014 Collapsible Sparkling",
@@ -34367,12 +34397,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_018_e28561",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Fact Transformer \u2014 Collapsible Sparkling",
@@ -34404,12 +34434,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_019_b346b5",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Timeline Event Transformer \u2014 Collapsible Sparkling",
@@ -34441,12 +34471,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_020_5224ea",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 News Instruction Transformer \u2014 Collapsible Sparkling",
@@ -34478,12 +34508,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_021_c03155",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Media Transformer \u2014 Collapsible Sparkling",
@@ -34515,12 +34545,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_022_ddceb8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Voice Transformer \u2014 Collapsible Sparkling",
@@ -34552,12 +34582,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_023_591347",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Bubble Transformer \u2014 Collapsible Sparkling",
@@ -34589,12 +34619,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_024_e5ccdf",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Reaction Transformer \u2014 Collapsible Sparkling",
@@ -34626,12 +34656,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_025_aaaa05",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Media Transformer \u2014 Collapsible Sparkling",
@@ -34663,12 +34693,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_026_4c6c16",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage System Transformer \u2014 Collapsible Sparkling",
@@ -34700,12 +34730,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_027_0efe95",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Bubble Transformer \u2014 Collapsible Sparkling",
@@ -34737,12 +34767,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_028_887f90",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Reply Transformer \u2014 Collapsible Sparkling",
@@ -34782,12 +34812,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_029_b8f53b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Comment Transformer \u2014 Collapsible Sparkling",
@@ -34827,12 +34857,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_030_75b09c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comment Transformer \u2014 Collapsible Sparkling",
@@ -34865,12 +34895,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_031_691604",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comments Drawer Transformer \u2014 Collapsible Sparkling",
@@ -34903,12 +34933,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_032_aa5046",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCBF Album / Single Cover \u2014 Contextual Release \u2014 Collapsible Sparkling",
@@ -35079,7 +35109,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 90,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -35089,7 +35119,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_033_1c5665"
@@ -35245,7 +35275,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 91,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -35255,7 +35285,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_034_ba998e"
@@ -35429,12 +35459,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_035_b1cd9f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Reverie Surface \u2014 Inline Chat \u2014 Collapsible Sparkling",
@@ -35604,12 +35634,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_036_812632",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF7 Reverie Surface \u2014 R4.5 \u2014 Collapsible Sparkling",
@@ -35781,12 +35811,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_037_4c291d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD835\uDD4F Twitter / X Direct Messages \u2014 Bubble Chat \u2014 Collapsible Sparkling",
@@ -35956,12 +35986,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_038_d0a4b5",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Reverie Surface \u2014 Discord Direct Messages \u2014 Collapsible Sparkling",
@@ -36135,12 +36165,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_039_900980",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDD0E Reverie Surface \u2014 Google Images \u2014 Collapsible Sparkling",
@@ -36399,12 +36429,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_040_affcb9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Surface Review v4 \u2014 Phone Gallery (Restored Grid) \u2014 Collapsible Sparkling",
@@ -36630,12 +36660,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_041_6ba6af",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDC2\uFE0F Surface Review v4 \u2014 Classified Case Dossier \u2014 Collapsible Sparkling",
@@ -36800,12 +36830,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_042_bf4cfb",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF0 Surface Review v5 \u2014 News Article / Public Bulletin \u2014 Collapsible Sparkling",
@@ -36969,12 +36999,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_043_f10400",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE0 Reddit Thread \u2014 Compact Community Post \u2014 Collapsible Sparkling",
@@ -37147,12 +37177,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_044_78f604",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25C7 Surface Review v4 \u2014 Character Profile \u2014 Collapsible Sparkling",
@@ -37455,12 +37485,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_045_06dcb0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25A4 Surface Review v4 \u2014 Magazine Cover \u2014 Collapsible Sparkling",
@@ -37624,12 +37654,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_046_8ddcb6",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u266A TikTok Post + Comments + Stable Drawer \u2014 Collapsible Sparkling",
@@ -37871,12 +37901,12 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_047_98c223",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 [Reverie \u2022 Instagram] Invalid Carousel Target Guard \u2014 Collapsible Sparkling",
@@ -37937,7 +37967,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 201,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -37946,7 +37976,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_048_bfd492"
@@ -38010,7 +38040,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 202,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -38019,7 +38049,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_049_c2b693"
@@ -38069,7 +38099,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 203,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -38078,7 +38108,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_050_5e5ace"
@@ -38103,7 +38133,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 204,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -38112,7 +38142,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_051_86cbe5"
@@ -38176,7 +38206,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 205,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -38185,7 +38215,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_052_8acef9"
@@ -38249,7 +38279,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 206,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -38258,7 +38288,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_053_73b284"
@@ -38343,7 +38373,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 207,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -38352,7 +38382,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_054_a71e35"
@@ -39298,7 +39328,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 208,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -39307,7 +39337,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_055_d307cc"
@@ -39384,7 +39414,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 209,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -39393,7 +39423,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_056_87f08b"
@@ -39484,7 +39514,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 210,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -39493,7 +39523,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_057_d47fb5"
@@ -39584,7 +39614,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 211,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -39593,7 +39623,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_058_572553"
@@ -39684,7 +39714,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 212,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -39693,7 +39723,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_059_23e7b6"
@@ -39784,7 +39814,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 213,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -39793,7 +39823,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_060_e2c00b"
@@ -39870,7 +39900,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 214,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -39879,7 +39909,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_061_f217db"
@@ -39970,7 +40000,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 215,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -39979,7 +40009,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_062_ca3507"
@@ -40009,12 +40039,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_063_109b6b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] System Event \u2014 Collapsible Sparkling",
@@ -40102,7 +40132,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 216,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -40111,7 +40141,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_064_55436c"
@@ -40141,12 +40171,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_065_b051b9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Typing Indicator \u2014 Collapsible Sparkling",
@@ -40234,7 +40264,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 217,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -40243,7 +40273,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_066_4c0764"
@@ -40334,7 +40364,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 218,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -40343,7 +40373,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_067_ca2bc5"
@@ -40420,7 +40450,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 219,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -40429,7 +40459,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_068_182012"
@@ -40672,7 +40702,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 220,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -40681,7 +40711,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_069_a91d13"
@@ -40731,7 +40761,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 221,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -40740,7 +40770,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_070_32baae"
@@ -40804,7 +40834,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 222,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -40813,7 +40843,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_071_57b192"
@@ -40877,7 +40907,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 223,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -40886,7 +40916,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_072_3716d0"
@@ -40950,7 +40980,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 224,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -40959,7 +40989,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_073_c9c3c1"
@@ -41023,7 +41053,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 225,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -41032,7 +41062,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_074_744661"
@@ -41096,7 +41126,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 226,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -41105,7 +41135,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_075_1f7d2b"
@@ -41184,7 +41214,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 227,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -41193,7 +41223,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_076_23f35e"
@@ -41293,7 +41323,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 228,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -41302,7 +41332,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_077_5109da"
@@ -41402,7 +41432,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 229,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -41411,7 +41441,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_078_a74d3a"
@@ -41524,7 +41554,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 230,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -41533,7 +41563,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_079_012836"
@@ -41646,7 +41676,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 231,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -41655,7 +41685,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_080_3dc7fb"
@@ -41719,7 +41749,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 232,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -41728,7 +41758,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_081_8dd34c"
@@ -41896,7 +41926,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -41906,7 +41936,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_082_1e6889"
@@ -41983,7 +42013,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -41992,7 +42022,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_083_a90135"
@@ -42069,7 +42099,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 234,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -42078,7 +42108,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_084_7f904e"
@@ -42155,7 +42185,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 235,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -42164,7 +42194,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_085_4ee547"
@@ -42241,7 +42271,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 236,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -42250,7 +42280,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_086_b34fc8"
@@ -42341,7 +42371,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 238,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -42350,7 +42380,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_087_4678e3"
@@ -42441,7 +42471,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 239,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -42450,7 +42480,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_088_a564f2"
@@ -42543,7 +42573,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -42552,7 +42582,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_089_89696d"
@@ -42619,13 +42649,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.98,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr37_spark_simg_sent"
@@ -42692,13 +42722,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.99,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr37_spark_simg_recv"
@@ -42791,7 +42821,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 241,
       description: 'Legacy compatibility only. Canonical Utility MUST author side="sent" or side="recv"; no-side images fall back left/received.',
       metadata: {
@@ -42800,7 +42830,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_090_86d091"
@@ -42893,7 +42923,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 242,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -42902,7 +42932,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_091_6e869d"
@@ -43111,7 +43141,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 243,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -43120,7 +43150,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_092_47d780"
@@ -43243,7 +43273,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 249,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -43252,7 +43282,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_093_2cb884"
@@ -43535,7 +43565,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 280,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -43545,7 +43575,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_094_ba2829"
@@ -43712,12 +43742,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_095_abac4e",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF9E\uFE0F Photo Booth Strip \u2014 Four Frame Print \u2014 Collapsible Sparkling",
@@ -43874,12 +43904,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_096_4a6466",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Polaroid \u2014 Instant Film Print \u2014 Collapsible Sparkling",
@@ -44036,12 +44066,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_097_85e108",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Workspace Chat \u2014 Bubble Channels \u2014 Collapsible Sparkling",
@@ -44240,12 +44270,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_098_fd15e2",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2709\uFE0F Email \u2014 Dark Mode Inbox \u2014 Collapsible Sparkling",
@@ -44425,12 +44455,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_099_53f974",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC iMessage \u2014 Correct Sender Alignment \u2014 Collapsible Sparkling",
@@ -44615,12 +44645,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_100_450906",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE3 Twitch \u2014 Stream + Chat + Mods + Interactive Poll \u2014 Collapsible Sparkling",
@@ -44806,12 +44836,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_101_0a3245",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFA7 Music Player \u2014 Spotify-Style \u2014 Collapsible Sparkling",
@@ -44987,12 +45017,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_102_f590e6",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDFA\uFE0F Live Location \u2014 Chat + Tracker Popup \u2014 Collapsible Sparkling",
@@ -45128,12 +45158,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_103_18cff3",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF99\uFE0F Voice Memo \u2014 Dark Recorder + Transcript Popup \u2014 Collapsible Sparkling",
@@ -45324,12 +45354,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_104_7c77c2",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDD Notes App \u2014 R4.5 \u2014 Collapsible Sparkling",
@@ -45514,12 +45544,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_105_7f498e",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDED2 Marketplace \u2014 R4.5 \u2014 Collapsible Sparkling",
@@ -45700,12 +45730,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_106_a510df",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFE0 Property Listing \u2014 R4.5 \u2014 Collapsible Sparkling",
@@ -45917,12 +45947,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_107_80e6ed",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE9 Naver News \u2014 R4.5 \u2014 Collapsible Sparkling",
@@ -46106,12 +46136,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_108_5eb0e9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Letter Literal Newline Pair Normalizer \u2014 Collapsible Sparkling",
@@ -46137,12 +46167,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr37_spark_letter_newlines",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC8C Letter \u2014 Real Paper Correspondence \u2014 Collapsible Sparkling",
@@ -46345,12 +46375,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_109_4a5e54",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE7A Medical Chart \u2014 EHR Clinical Dashboard \u2014 Collapsible Sparkling",
@@ -46522,12 +46552,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_110_2bf4e9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2696\uFE0F Court Transcript \u2014 Real Transcript Record \u2014 Collapsible Sparkling",
@@ -46720,12 +46750,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_111_e334f1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDA Wikipedia Page \u2014 Article + Infobox \u2014 Collapsible Sparkling",
@@ -46897,12 +46927,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_112_f3669e",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCD6 Diary \u2014 Clickable Multi-Day Journal \u2014 Collapsible Sparkling",
@@ -47070,12 +47100,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_114_1c020f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDD2\uFE0F Mission / List Board \u2014 Interactive Planner \u2014 Collapsible Sparkling",
@@ -47239,12 +47269,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_115_259f72",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF9 CCTV \u2014 Multi-Camera Security Monitor \u2014 Collapsible Sparkling",
@@ -47412,12 +47442,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_116_c98d00",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Discord Server \u2014 Realistic Clickable Channels \u2014 Collapsible Sparkling",
@@ -47576,12 +47606,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_117_062be9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Medical Vital Transformer \u2014 Collapsible Sparkling",
@@ -47607,12 +47637,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_118_4ca169",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Court Transcript Line Transformer \u2014 Collapsible Sparkling",
@@ -47638,12 +47668,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_119_09d5f9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Wiki Fact Transformer \u2014 Collapsible Sparkling",
@@ -47669,12 +47699,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_120_45897f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 YouTube Comment Transformer \u2014 Collapsible Sparkling",
@@ -47710,12 +47740,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_121_207dbe",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Message Bubble \u2014 Collapsible Sparkling",
@@ -47741,12 +47771,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_igdm_msg",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Media Bubble \u2014 Collapsible Sparkling",
@@ -47772,12 +47802,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_igdm_media",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Bid Row \u2014 Collapsible Sparkling",
@@ -47803,12 +47833,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_ebay_bid",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Action Button \u2014 Collapsible Sparkling",
@@ -47834,12 +47864,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_ebay_action",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Naver Comment Row \u2014 Collapsible Sparkling",
@@ -47865,12 +47895,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_naver_comment",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Comment \u2014 Collapsible Sparkling",
@@ -47897,12 +47927,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igc_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Post Grid + Modal Unit \u2014 Collapsible Sparkling",
@@ -47947,12 +47977,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igp_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Tagged Grid Item \u2014 Collapsible Sparkling",
@@ -47979,12 +48009,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igm_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Profile \u2014 Contained Post Viewer \u2014 Collapsible Sparkling",
@@ -48128,12 +48158,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igprofile_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Comment \u2014 Collapsible Sparkling",
@@ -48160,12 +48190,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twc_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Tweet \u2014 Collapsible Sparkling",
@@ -48204,12 +48234,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twp_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Media Item \u2014 Collapsible Sparkling",
@@ -48236,12 +48266,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twm_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC26 Twitter / X Profile \u2014 Posts / Media \u2014 Collapsible Sparkling",
@@ -48447,12 +48477,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twprofile_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Stories \u2014 Three-Story Viewer \u2014 Collapsible Sparkling",
@@ -48563,12 +48593,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_stories_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Thread Item \u2014 Collapsible Sparkling",
@@ -48595,12 +48625,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r43_twthread_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     }
   ]
 };
@@ -48610,7 +48640,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Primary \u2014 Inline",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.0",
+  relay_product_version: "0.2.1",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "inline",
   surface_review_revision: "R4.5-FINAL",
@@ -48644,12 +48674,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_001_8522e5",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable User Media Seam \u2014 Inline",
@@ -48681,12 +48711,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_002_e8e1a7",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Generated Avatar Message Transformer \u2014 Inline",
@@ -48717,12 +48747,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_003_74cce1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Message Media Transformer \u2014 Inline",
@@ -48753,12 +48783,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_004_f281f8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable Profile Media Seam \u2014 Inline",
@@ -48827,12 +48857,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_005_b8c022",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Email Item Transformer \u2014 Inline",
@@ -48887,12 +48917,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_006_c51fa1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE77 Tinder \u2014 Sleek Full-Screen Match Overlay \u2014 Inline",
@@ -49350,12 +49380,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_007_69c357",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder Card Transformer (Match Avatar Fix) \u2014 Inline",
@@ -49386,12 +49416,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_008_59a7f9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder User Avatar Transformer (Match Avatar Fix) \u2014 Inline",
@@ -49422,12 +49452,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_009_c9bb76",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Chat Message Transformer \u2014 Inline",
@@ -49466,12 +49496,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_010_cdbe6e",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Donation Transformer \u2014 Inline",
@@ -49510,12 +49540,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_011_c814d0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Mod Transformer \u2014 Inline",
@@ -49554,12 +49584,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_012_645737",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Message Transformer \u2014 Inline",
@@ -49597,12 +49627,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_013_4134ee",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord DM Generated Avatar Message \u2014 Inline",
@@ -49640,12 +49670,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_014_366e74",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Server Generated Avatar Message \u2014 Inline",
@@ -49683,12 +49713,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_015_f33f4c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Media Transformer \u2014 Inline",
@@ -49719,12 +49749,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_016_b64ca7",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Google Result Transformer \u2014 Inline",
@@ -49755,12 +49785,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_017_d5d9e1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Gallery Item Transformer \u2014 Inline",
@@ -49791,12 +49821,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_018_8ec170",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Fact Transformer \u2014 Inline",
@@ -49828,12 +49858,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_019_59a3d0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Timeline Event Transformer \u2014 Inline",
@@ -49865,12 +49895,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_020_f5c785",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 News Instruction Transformer \u2014 Inline",
@@ -49902,12 +49932,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_021_35aa40",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Media Transformer \u2014 Inline",
@@ -49939,12 +49969,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_022_4a9c43",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Voice Transformer \u2014 Inline",
@@ -49976,12 +50006,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_023_614b8c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Bubble Transformer \u2014 Inline",
@@ -50013,12 +50043,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_024_768354",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Reaction Transformer \u2014 Inline",
@@ -50050,12 +50080,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_025_0326c4",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Media Transformer \u2014 Inline",
@@ -50087,12 +50117,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_026_d850a5",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage System Transformer \u2014 Inline",
@@ -50124,12 +50154,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_027_9bf2c2",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Bubble Transformer \u2014 Inline",
@@ -50161,12 +50191,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_028_ba4be6",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Reply Transformer \u2014 Inline",
@@ -50206,12 +50236,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_029_19c734",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Comment Transformer \u2014 Inline",
@@ -50251,12 +50281,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_030_f36d5d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comment Transformer \u2014 Inline",
@@ -50289,12 +50319,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_031_3b921c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comments Drawer Transformer \u2014 Inline",
@@ -50327,12 +50357,12 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_032_2f87a7",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCBF Album / Single Cover \u2014 Contextual Release \u2014 Inline",
@@ -50440,7 +50470,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 90,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -50450,7 +50480,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_033_a783e5"
@@ -50543,7 +50573,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 91,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -50553,7 +50583,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_034_b1264c"
@@ -50664,12 +50694,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_035_23d2bc",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Reverie Surface \u2014 Inline Chat \u2014 Inline",
@@ -50776,12 +50806,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_036_50a081",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF7 Reverie Surface \u2014 R4.5 \u2014 Inline",
@@ -50894,12 +50924,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_037_37a16a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD835\uDD4F Twitter / X Direct Messages \u2014 Bubble Chat \u2014 Inline",
@@ -51006,12 +51036,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_038_e91245",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Reverie Surface \u2014 Discord Direct Messages \u2014 Inline",
@@ -51122,12 +51152,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_039_ec5215",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDD0E Reverie Surface \u2014 Google Images \u2014 Inline",
@@ -51323,12 +51353,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_040_2ec570",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Surface Review v4 \u2014 Phone Gallery (Restored Grid) \u2014 Inline",
@@ -51491,12 +51521,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_041_aa2349",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDC2\uFE0F Surface Review v4 \u2014 Classified Case Dossier \u2014 Inline",
@@ -51598,12 +51628,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_042_11b5dc",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF0 Surface Review v5 \u2014 News Article / Public Bulletin \u2014 Inline",
@@ -51704,12 +51734,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_043_93d2dd",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE0 Reddit Thread \u2014 Compact Community Post \u2014 Inline",
@@ -51819,12 +51849,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_044_07fd68",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25C7 Surface Review v4 \u2014 Character Profile \u2014 Inline",
@@ -52064,12 +52094,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_045_307e22",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25A4 Surface Review v4 \u2014 Magazine Cover \u2014 Inline",
@@ -52170,12 +52200,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_046_a27c2d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u266A TikTok Post + Comments + Stable Drawer \u2014 Inline",
@@ -52354,12 +52384,12 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_047_e5fe11",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 [Reverie \u2022 Instagram] Invalid Carousel Target Guard \u2014 Inline",
@@ -52420,7 +52450,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 201,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -52429,7 +52459,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_048_09762f"
@@ -52493,7 +52523,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 202,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -52502,7 +52532,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_049_09c7a4"
@@ -52552,7 +52582,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 203,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -52561,7 +52591,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_050_01700b"
@@ -52586,7 +52616,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 204,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -52595,7 +52625,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_051_9d370e"
@@ -52659,7 +52689,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 205,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -52668,7 +52698,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_052_357441"
@@ -52732,7 +52762,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 206,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -52741,7 +52771,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_053_a5e63d"
@@ -52805,7 +52835,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 207,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -52814,7 +52844,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_054_cec400"
@@ -53718,7 +53748,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 208,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -53727,7 +53757,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_055_10f07c"
@@ -53804,7 +53834,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 209,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -53813,7 +53843,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_056_63a576"
@@ -53904,7 +53934,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 210,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -53913,7 +53943,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_057_e9609d"
@@ -54004,7 +54034,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 211,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -54013,7 +54043,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_058_1d3222"
@@ -54104,7 +54134,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 212,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -54113,7 +54143,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_059_3a261c"
@@ -54204,7 +54234,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 213,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -54213,7 +54243,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_060_0ad5a3"
@@ -54290,7 +54320,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 214,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -54299,7 +54329,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_061_f972c0"
@@ -54390,7 +54420,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 215,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -54399,7 +54429,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_062_dad523"
@@ -54429,12 +54459,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_063_b060eb",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] System Event \u2014 Inline",
@@ -54522,7 +54552,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 216,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -54531,7 +54561,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_064_d7befb"
@@ -54561,12 +54591,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_065_4f5b41",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Typing Indicator \u2014 Inline",
@@ -54654,7 +54684,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 217,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -54663,7 +54693,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_066_519356"
@@ -54754,7 +54784,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 218,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -54763,7 +54793,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_067_9149fa"
@@ -54840,7 +54870,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 219,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -54849,7 +54879,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_068_91bebd"
@@ -55029,7 +55059,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 220,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -55038,7 +55068,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_069_20e6cd"
@@ -55088,7 +55118,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 221,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -55097,7 +55127,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_070_25053d"
@@ -55161,7 +55191,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 222,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -55170,7 +55200,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_071_1b88d2"
@@ -55234,7 +55264,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 223,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -55243,7 +55273,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_072_d1f807"
@@ -55307,7 +55337,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 224,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -55316,7 +55346,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_073_04383c"
@@ -55380,7 +55410,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 225,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -55389,7 +55419,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_074_0e2d77"
@@ -55453,7 +55483,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 226,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -55462,7 +55492,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_075_21788c"
@@ -55541,7 +55571,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 227,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -55550,7 +55580,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_076_12d871"
@@ -55629,7 +55659,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 228,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -55638,7 +55668,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_077_e0e28f"
@@ -55717,7 +55747,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 229,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -55726,7 +55756,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_078_6c3166"
@@ -55818,7 +55848,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 230,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -55827,7 +55857,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_079_4cdfdb"
@@ -55919,7 +55949,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 231,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -55928,7 +55958,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_080_1f792f"
@@ -55992,7 +56022,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 232,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -56001,7 +56031,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_081_829dd4"
@@ -56136,7 +56166,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -56146,7 +56176,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_082_cd85ff"
@@ -56223,7 +56253,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -56232,7 +56262,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_083_d8d5ab"
@@ -56309,7 +56339,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 234,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -56318,7 +56348,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_084_cab30f"
@@ -56395,7 +56425,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 235,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -56404,7 +56434,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_085_0d2755"
@@ -56481,7 +56511,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 236,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -56490,7 +56520,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_086_381d02"
@@ -56581,7 +56611,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 238,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -56590,7 +56620,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_087_77b5f5"
@@ -56681,7 +56711,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 239,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -56690,7 +56720,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_088_b61f51"
@@ -56783,7 +56813,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -56792,7 +56822,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_089_0071c0"
@@ -56859,13 +56889,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.98,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr37_inline_simg_sent"
@@ -56932,13 +56962,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.99,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr37_inline_simg_recv"
@@ -57031,7 +57061,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 241,
       description: 'Legacy compatibility only. Canonical Utility MUST author side="sent" or side="recv"; no-side images fall back left/received.',
       metadata: {
@@ -57040,7 +57070,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_090_64cbd5"
@@ -57133,7 +57163,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 242,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -57142,7 +57172,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_091_09b1a2"
@@ -57288,7 +57318,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 243,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -57297,7 +57327,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_092_3c09fc"
@@ -57388,7 +57418,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 249,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -57397,7 +57427,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_093_8710db"
@@ -57617,7 +57647,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 280,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -57627,7 +57657,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_094_4f12bb"
@@ -57731,12 +57761,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_095_f26e5d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF9E\uFE0F Photo Booth Strip \u2014 Four Frame Print \u2014 Inline",
@@ -57764,12 +57794,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_096_26c55f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Polaroid \u2014 Instant Film Print \u2014 Inline",
@@ -57797,12 +57827,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_097_2c8cd7",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Workspace Chat \u2014 Bubble Channels \u2014 Inline",
@@ -57938,12 +57968,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_098_33c93c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2709\uFE0F Email \u2014 Dark Mode Inbox \u2014 Inline",
@@ -57970,12 +58000,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_099_241569",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC iMessage \u2014 Correct Sender Alignment \u2014 Inline",
@@ -58097,12 +58127,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_100_787b63",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE3 Twitch \u2014 Stream + Chat + Mods + Interactive Poll \u2014 Inline",
@@ -58225,12 +58255,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_101_570400",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFA7 Music Player \u2014 Spotify-Style \u2014 Inline",
@@ -58258,12 +58288,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_102_ce910d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDFA\uFE0F Live Location \u2014 Chat + Tracker Popup \u2014 Inline",
@@ -58291,12 +58321,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_103_2d3ac2",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF99\uFE0F Voice Memo \u2014 Dark Recorder + Transcript Popup \u2014 Inline",
@@ -58424,12 +58454,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_104_d04e4a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDD Notes App \u2014 R4.5 \u2014 Inline",
@@ -58555,12 +58585,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_105_3b70d9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDED2 Marketplace \u2014 R4.5 \u2014 Inline",
@@ -58682,12 +58712,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_106_64a18b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFE0 Property Listing \u2014 R4.5 \u2014 Inline",
@@ -58840,12 +58870,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_107_c184c0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE9 Naver News \u2014 R4.5 \u2014 Inline",
@@ -58970,12 +59000,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_108_a23542",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Letter Literal Newline Pair Normalizer \u2014 Inline",
@@ -59001,12 +59031,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr37_inline_letter_newlines",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC8C Letter \u2014 Real Paper Correspondence \u2014 Inline",
@@ -59034,12 +59064,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_109_d11ed0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE7A Medical Chart \u2014 EHR Clinical Dashboard \u2014 Inline",
@@ -59148,12 +59178,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_110_4235bc",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2696\uFE0F Court Transcript \u2014 Real Transcript Record \u2014 Inline",
@@ -59283,12 +59313,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_111_30f790",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDA Wikipedia Page \u2014 Article + Infobox \u2014 Inline",
@@ -59397,12 +59427,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_112_8b63fa",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCD6 Diary \u2014 Clickable Multi-Day Journal \u2014 Inline",
@@ -59507,12 +59537,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_114_42ca3d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDD2\uFE0F Mission / List Board \u2014 Interactive Planner \u2014 Inline",
@@ -59613,12 +59643,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_115_b8ad5c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF9 CCTV \u2014 Multi-Camera Security Monitor \u2014 Inline",
@@ -59723,12 +59753,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_116_ec8108",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Discord Server \u2014 Realistic Clickable Channels \u2014 Inline",
@@ -59756,12 +59786,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_117_d0bd18",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Medical Vital Transformer \u2014 Inline",
@@ -59787,12 +59817,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_118_df8c1f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Court Transcript Line Transformer \u2014 Inline",
@@ -59818,12 +59848,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_119_73634b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Wiki Fact Transformer \u2014 Inline",
@@ -59849,12 +59879,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_120_3b9c2c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 YouTube Comment Transformer \u2014 Inline",
@@ -59890,12 +59920,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_121_24b971",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Message Bubble \u2014 Inline",
@@ -59921,12 +59951,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_igdm_msg",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Media Bubble \u2014 Inline",
@@ -59952,12 +59982,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_igdm_media",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Bid Row \u2014 Inline",
@@ -59983,12 +60013,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_ebay_bid",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Action Button \u2014 Inline",
@@ -60014,12 +60044,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_ebay_action",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Naver Comment Row \u2014 Inline",
@@ -60045,12 +60075,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_naver_comment",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Comment \u2014 Inline",
@@ -60077,12 +60107,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igc_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Post Grid + Modal Unit \u2014 Inline",
@@ -60127,12 +60157,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igp_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Tagged Grid Item \u2014 Inline",
@@ -60159,12 +60189,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igm_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Profile \u2014 Contained Post Viewer \u2014 Inline",
@@ -60255,12 +60285,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igprofile_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Comment \u2014 Inline",
@@ -60287,12 +60317,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twc_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Tweet \u2014 Inline",
@@ -60331,12 +60361,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twp_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Media Item \u2014 Inline",
@@ -60363,12 +60393,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twm_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC26 Twitter / X Profile \u2014 Posts / Media \u2014 Inline",
@@ -60521,12 +60551,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twprofile_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Stories \u2014 Three-Story Viewer \u2014 Inline",
@@ -60584,12 +60614,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_stories_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Thread Item \u2014 Inline",
@@ -60616,12 +60646,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r43_twthread_in",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     }
   ]
 };
@@ -60631,7 +60661,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Primary \u2014 Plain",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.0",
+  relay_product_version: "0.2.1",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "plain",
   surface_review_revision: "R4.5-FINAL",
@@ -60665,12 +60695,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_001_958563",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable User Media Seam \u2014 Collapsible Plain",
@@ -60702,12 +60732,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_002_01a164",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Generated Avatar Message Transformer \u2014 Collapsible Plain",
@@ -60738,12 +60768,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_003_98aec6",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Message Media Transformer \u2014 Collapsible Plain",
@@ -60774,12 +60804,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_004_be8177",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable Profile Media Seam \u2014 Collapsible Plain",
@@ -60848,12 +60878,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_005_2b24d1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Email Item Transformer \u2014 Collapsible Plain",
@@ -60908,12 +60938,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_006_03f7b6",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE77 Tinder \u2014 Sleek Full-Screen Match Overlay \u2014 Collapsible Plain",
@@ -61433,12 +61463,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_007_912c10",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder Card Transformer (Match Avatar Fix) \u2014 Collapsible Plain",
@@ -61469,12 +61499,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_008_3d506a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder User Avatar Transformer (Match Avatar Fix) \u2014 Collapsible Plain",
@@ -61505,12 +61535,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_009_87d540",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Chat Message Transformer \u2014 Collapsible Plain",
@@ -61549,12 +61579,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_010_ab14de",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Donation Transformer \u2014 Collapsible Plain",
@@ -61593,12 +61623,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_011_564772",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Mod Transformer \u2014 Collapsible Plain",
@@ -61637,12 +61667,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_012_128e9a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Message Transformer \u2014 Collapsible Plain",
@@ -61680,12 +61710,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_013_dee63a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord DM Generated Avatar Message \u2014 Collapsible Plain",
@@ -61723,12 +61753,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_014_7f19c0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Server Generated Avatar Message \u2014 Collapsible Plain",
@@ -61766,12 +61796,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_015_9fc065",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Media Transformer \u2014 Collapsible Plain",
@@ -61802,12 +61832,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_016_5979a3",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Google Result Transformer \u2014 Collapsible Plain",
@@ -61838,12 +61868,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_017_982c41",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Gallery Item Transformer \u2014 Collapsible Plain",
@@ -61874,12 +61904,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_018_f855fa",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Fact Transformer \u2014 Collapsible Plain",
@@ -61911,12 +61941,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_019_34416d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Timeline Event Transformer \u2014 Collapsible Plain",
@@ -61948,12 +61978,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_020_af0460",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 News Instruction Transformer \u2014 Collapsible Plain",
@@ -61985,12 +62015,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_021_f83b0d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Media Transformer \u2014 Collapsible Plain",
@@ -62022,12 +62052,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_022_cdb3fd",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Voice Transformer \u2014 Collapsible Plain",
@@ -62059,12 +62089,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_023_dcc599",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Bubble Transformer \u2014 Collapsible Plain",
@@ -62096,12 +62126,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_024_5fc225",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Reaction Transformer \u2014 Collapsible Plain",
@@ -62133,12 +62163,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_025_991c00",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Media Transformer \u2014 Collapsible Plain",
@@ -62170,12 +62200,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_026_020cdf",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage System Transformer \u2014 Collapsible Plain",
@@ -62207,12 +62237,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_027_f68ccd",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Bubble Transformer \u2014 Collapsible Plain",
@@ -62244,12 +62274,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_028_4f1587",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Reply Transformer \u2014 Collapsible Plain",
@@ -62289,12 +62319,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_029_00347b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Comment Transformer \u2014 Collapsible Plain",
@@ -62334,12 +62364,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_030_33174d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comment Transformer \u2014 Collapsible Plain",
@@ -62372,12 +62402,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_031_a859dc",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comments Drawer Transformer \u2014 Collapsible Plain",
@@ -62410,12 +62440,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_032_982465",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCBF Album / Single Cover \u2014 Contextual Release \u2014 Collapsible Plain",
@@ -62572,7 +62602,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 90,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -62582,7 +62612,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_033_971b42"
@@ -62724,7 +62754,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 91,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -62734,7 +62764,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_034_c8e0e4"
@@ -62894,12 +62924,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_035_f5c6ea",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Reverie Surface \u2014 Inline Chat \u2014 Collapsible Plain",
@@ -63055,12 +63085,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_036_d82e79",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF7 Reverie Surface \u2014 R4.5 \u2014 Collapsible Plain",
@@ -63218,12 +63248,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_037_42d20f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD835\uDD4F Twitter / X Direct Messages \u2014 Bubble Chat \u2014 Collapsible Plain",
@@ -63379,12 +63409,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_038_c04488",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Reverie Surface \u2014 Discord Direct Messages \u2014 Collapsible Plain",
@@ -63544,12 +63574,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_039_fd6bce",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDD0E Reverie Surface \u2014 Google Images \u2014 Collapsible Plain",
@@ -63794,12 +63824,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_040_c151c4",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Surface Review v4 \u2014 Phone Gallery (Restored Grid) \u2014 Collapsible Plain",
@@ -64011,12 +64041,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_041_5c489f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDC2\uFE0F Surface Review v4 \u2014 Classified Case Dossier \u2014 Collapsible Plain",
@@ -64167,12 +64197,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_042_53ae30",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF0 Surface Review v5 \u2014 News Article / Public Bulletin \u2014 Collapsible Plain",
@@ -64322,12 +64352,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_043_44ec8b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE0 Reddit Thread \u2014 Compact Community Post \u2014 Collapsible Plain",
@@ -64486,12 +64516,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_044_084064",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25C7 Surface Review v4 \u2014 Character Profile \u2014 Collapsible Plain",
@@ -64780,12 +64810,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_045_70238f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25A4 Surface Review v4 \u2014 Magazine Cover \u2014 Collapsible Plain",
@@ -64935,12 +64965,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_046_dd3bf8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u266A TikTok Post + Comments + Stable Drawer \u2014 Collapsible Plain",
@@ -65168,12 +65198,12 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_047_328aaa",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 [Reverie \u2022 Instagram] Invalid Carousel Target Guard \u2014 Collapsible Plain",
@@ -65234,7 +65264,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 201,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -65243,7 +65273,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_048_270ee3"
@@ -65307,7 +65337,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 202,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -65316,7 +65346,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_049_64ecc2"
@@ -65366,7 +65396,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 203,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -65375,7 +65405,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_050_3998f8"
@@ -65400,7 +65430,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 204,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -65409,7 +65439,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_051_5ed8b7"
@@ -65473,7 +65503,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 205,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -65482,7 +65512,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_052_e4da42"
@@ -65546,7 +65576,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 206,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -65555,7 +65585,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_053_28fcb5"
@@ -65627,7 +65657,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 207,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -65636,7 +65666,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_054_ab79db"
@@ -66558,7 +66588,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 208,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -66567,7 +66597,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_055_f35f13"
@@ -66644,7 +66674,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 209,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -66653,7 +66683,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_056_28ed18"
@@ -66744,7 +66774,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 210,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -66753,7 +66783,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_057_05e8c5"
@@ -66844,7 +66874,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 211,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -66853,7 +66883,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_058_a0d7a4"
@@ -66944,7 +66974,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 212,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -66953,7 +66983,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_059_e9b1ae"
@@ -67044,7 +67074,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 213,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -67053,7 +67083,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_060_64d06a"
@@ -67130,7 +67160,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 214,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -67139,7 +67169,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_061_25e049"
@@ -67230,7 +67260,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 215,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -67239,7 +67269,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_062_118dce"
@@ -67269,12 +67299,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_063_15f5da",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] System Event \u2014 Collapsible Plain",
@@ -67362,7 +67392,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 216,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -67371,7 +67401,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_064_1dce8a"
@@ -67401,12 +67431,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_065_41a66b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Typing Indicator \u2014 Collapsible Plain",
@@ -67494,7 +67524,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 217,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -67503,7 +67533,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_066_c60d6f"
@@ -67594,7 +67624,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 218,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -67603,7 +67633,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_067_65432d"
@@ -67680,7 +67710,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 219,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -67689,7 +67719,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_068_4ebec4"
@@ -67918,7 +67948,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 220,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -67927,7 +67957,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_069_29d7ae"
@@ -67977,7 +68007,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 221,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -67986,7 +68016,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_070_518756"
@@ -68050,7 +68080,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 222,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -68059,7 +68089,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_071_a3f4ac"
@@ -68123,7 +68153,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 223,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -68132,7 +68162,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_072_93b282"
@@ -68196,7 +68226,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 224,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -68205,7 +68235,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_073_d808aa"
@@ -68269,7 +68299,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 225,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -68278,7 +68308,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_074_d58467"
@@ -68342,7 +68372,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 226,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -68351,7 +68381,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_075_c61598"
@@ -68430,7 +68460,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 227,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -68439,7 +68469,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_076_921f37"
@@ -68526,7 +68556,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 228,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -68535,7 +68565,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_077_e654b7"
@@ -68622,7 +68652,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 229,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -68631,7 +68661,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_078_13fd0d"
@@ -68731,7 +68761,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 230,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -68740,7 +68770,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_079_03870c"
@@ -68840,7 +68870,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 231,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -68849,7 +68879,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_080_944b0c"
@@ -68913,7 +68943,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 232,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -68922,7 +68952,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_081_502565"
@@ -69075,7 +69105,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -69085,7 +69115,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_082_4a0641"
@@ -69162,7 +69192,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -69171,7 +69201,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_083_8c0979"
@@ -69248,7 +69278,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 234,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -69257,7 +69287,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_084_522b86"
@@ -69334,7 +69364,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 235,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -69343,7 +69373,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_085_e6f6bb"
@@ -69420,7 +69450,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 236,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -69429,7 +69459,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_086_1fe622"
@@ -69520,7 +69550,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 238,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -69529,7 +69559,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_087_0a52c0"
@@ -69620,7 +69650,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 239,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -69629,7 +69659,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_088_f4b45f"
@@ -69722,7 +69752,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -69731,7 +69761,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_089_f312a6"
@@ -69798,13 +69828,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.98,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr37_plain_simg_sent"
@@ -69871,13 +69901,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.99,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr37_plain_simg_recv"
@@ -69970,7 +70000,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 241,
       description: 'Legacy compatibility only. Canonical Utility MUST author side="sent" or side="recv"; no-side images fall back left/received.',
       metadata: {
@@ -69979,7 +70009,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_090_1d5cd4"
@@ -70072,7 +70102,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 242,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -70081,7 +70111,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_091_17e0b6"
@@ -70276,7 +70306,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 243,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -70285,7 +70315,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_092_7dadb2"
@@ -70394,7 +70424,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 249,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -70403,7 +70433,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_093_2e7480"
@@ -70672,7 +70702,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 280,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -70682,7 +70712,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_094_43e882"
@@ -70835,12 +70865,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_095_7266ba",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF9E\uFE0F Photo Booth Strip \u2014 Four Frame Print \u2014 Collapsible Plain",
@@ -70983,12 +71013,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_096_0ef47f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Polaroid \u2014 Instant Film Print \u2014 Collapsible Plain",
@@ -71131,12 +71161,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_097_ed9e83",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Workspace Chat \u2014 Bubble Channels \u2014 Collapsible Plain",
@@ -71321,12 +71351,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_098_0821b9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2709\uFE0F Email \u2014 Dark Mode Inbox \u2014 Collapsible Plain",
@@ -71492,12 +71522,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_099_465030",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC iMessage \u2014 Correct Sender Alignment \u2014 Collapsible Plain",
@@ -71668,12 +71698,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_100_9dc259",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE3 Twitch \u2014 Stream + Chat + Mods + Interactive Poll \u2014 Collapsible Plain",
@@ -71845,12 +71875,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_101_2028bb",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFA7 Music Player \u2014 Spotify-Style \u2014 Collapsible Plain",
@@ -72012,12 +72042,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_102_9da300",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDFA\uFE0F Live Location \u2014 Chat + Tracker Popup \u2014 Collapsible Plain",
@@ -72139,12 +72169,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_103_735ecc",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF99\uFE0F Voice Memo \u2014 Dark Recorder + Transcript Popup \u2014 Collapsible Plain",
@@ -72321,12 +72351,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_104_7ac3b8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDD Notes App \u2014 R4.5 \u2014 Collapsible Plain",
@@ -72497,12 +72527,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_105_ade6e5",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDED2 Marketplace \u2014 R4.5 \u2014 Collapsible Plain",
@@ -72669,12 +72699,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_106_6ef651",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFE0 Property Listing \u2014 R4.5 \u2014 Collapsible Plain",
@@ -72872,12 +72902,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_107_51cf00",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE9 Naver News \u2014 R4.5 \u2014 Collapsible Plain",
@@ -73047,12 +73077,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_108_19573c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Letter Literal Newline Pair Normalizer \u2014 Collapsible Plain",
@@ -73078,12 +73108,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr37_plain_letter_newlines",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC8C Letter \u2014 Real Paper Correspondence \u2014 Collapsible Plain",
@@ -73272,12 +73302,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_109_a08811",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE7A Medical Chart \u2014 EHR Clinical Dashboard \u2014 Collapsible Plain",
@@ -73435,12 +73465,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_110_dcc78b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2696\uFE0F Court Transcript \u2014 Real Transcript Record \u2014 Collapsible Plain",
@@ -73619,12 +73649,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_111_69d05e",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDA Wikipedia Page \u2014 Article + Infobox \u2014 Collapsible Plain",
@@ -73782,12 +73812,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_112_36785d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCD6 Diary \u2014 Clickable Multi-Day Journal \u2014 Collapsible Plain",
@@ -73941,12 +73971,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_114_1ca1c8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDD2\uFE0F Mission / List Board \u2014 Interactive Planner \u2014 Collapsible Plain",
@@ -74096,12 +74126,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_115_efb533",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF9 CCTV \u2014 Multi-Camera Security Monitor \u2014 Collapsible Plain",
@@ -74255,12 +74285,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_116_55ea32",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Discord Server \u2014 Realistic Clickable Channels \u2014 Collapsible Plain",
@@ -74405,12 +74435,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_117_d86361",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Medical Vital Transformer \u2014 Collapsible Plain",
@@ -74436,12 +74466,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_118_ff366e",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Court Transcript Line Transformer \u2014 Collapsible Plain",
@@ -74467,12 +74497,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_119_9fbcd8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Wiki Fact Transformer \u2014 Collapsible Plain",
@@ -74498,12 +74528,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_120_a671ea",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 YouTube Comment Transformer \u2014 Collapsible Plain",
@@ -74539,12 +74569,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_121_cab2c2",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Message Bubble \u2014 Collapsible Plain",
@@ -74570,12 +74600,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_igdm_msg",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Media Bubble \u2014 Collapsible Plain",
@@ -74601,12 +74631,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_igdm_media",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Bid Row \u2014 Collapsible Plain",
@@ -74632,12 +74662,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_ebay_bid",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Action Button \u2014 Collapsible Plain",
@@ -74663,12 +74693,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_ebay_action",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Naver Comment Row \u2014 Collapsible Plain",
@@ -74694,12 +74724,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_naver_comment",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Comment \u2014 Collapsible Plain",
@@ -74726,12 +74756,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igc_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Post Grid + Modal Unit \u2014 Collapsible Plain",
@@ -74776,12 +74806,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igp_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Tagged Grid Item \u2014 Collapsible Plain",
@@ -74808,12 +74838,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igm_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Profile \u2014 Contained Post Viewer \u2014 Collapsible Plain",
@@ -74957,12 +74987,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igprofile_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Comment \u2014 Collapsible Plain",
@@ -74989,12 +75019,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twc_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Tweet \u2014 Collapsible Plain",
@@ -75033,12 +75063,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twp_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Media Item \u2014 Collapsible Plain",
@@ -75065,12 +75095,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twm_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC26 Twitter / X Profile \u2014 Posts / Media \u2014 Collapsible Plain",
@@ -75276,12 +75306,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twprofile_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Stories \u2014 Three-Story Viewer \u2014 Collapsible Plain",
@@ -75392,12 +75422,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_stories_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Thread Item \u2014 Collapsible Plain",
@@ -75424,12 +75454,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r43_twthread_pl",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     }
   ]
 };
@@ -75439,7 +75469,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Primary \u2014 Spark",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.0",
+  relay_product_version: "0.2.1",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "spark",
   surface_review_revision: "R4.5-FINAL",
@@ -75473,12 +75503,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_001_79437d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable User Media Seam \u2014 Collapsible Sparkling",
@@ -75510,12 +75540,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_002_adfed4",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Generated Avatar Message Transformer \u2014 Collapsible Sparkling",
@@ -75546,12 +75576,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_003_841fca",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Message Media Transformer \u2014 Collapsible Sparkling",
@@ -75582,12 +75612,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_004_a2b1b8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable Profile Media Seam \u2014 Collapsible Sparkling",
@@ -75656,12 +75686,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_005_d2adf0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Email Item Transformer \u2014 Collapsible Sparkling",
@@ -75716,12 +75746,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_006_b5a1df",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE77 Tinder \u2014 Sleek Full-Screen Match Overlay \u2014 Collapsible Sparkling",
@@ -76255,12 +76285,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_007_6d238f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder Card Transformer (Match Avatar Fix) \u2014 Collapsible Sparkling",
@@ -76291,12 +76321,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_008_c7741a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder User Avatar Transformer (Match Avatar Fix) \u2014 Collapsible Sparkling",
@@ -76327,12 +76357,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_009_fe1f7c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Chat Message Transformer \u2014 Collapsible Sparkling",
@@ -76371,12 +76401,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_010_68f63a",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Donation Transformer \u2014 Collapsible Sparkling",
@@ -76415,12 +76445,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_011_36e620",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Mod Transformer \u2014 Collapsible Sparkling",
@@ -76459,12 +76489,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_012_ada37b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Message Transformer \u2014 Collapsible Sparkling",
@@ -76502,12 +76532,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_013_e25008",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord DM Generated Avatar Message \u2014 Collapsible Sparkling",
@@ -76545,12 +76575,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_014_0da462",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Server Generated Avatar Message \u2014 Collapsible Sparkling",
@@ -76588,12 +76618,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_015_0bb8fa",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Media Transformer \u2014 Collapsible Sparkling",
@@ -76624,12 +76654,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_016_237a96",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Google Result Transformer \u2014 Collapsible Sparkling",
@@ -76660,12 +76690,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_017_852244",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Gallery Item Transformer \u2014 Collapsible Sparkling",
@@ -76696,12 +76726,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_018_e28561",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Fact Transformer \u2014 Collapsible Sparkling",
@@ -76733,12 +76763,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_019_b346b5",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Timeline Event Transformer \u2014 Collapsible Sparkling",
@@ -76770,12 +76800,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_020_5224ea",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 News Instruction Transformer \u2014 Collapsible Sparkling",
@@ -76807,12 +76837,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_021_c03155",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Media Transformer \u2014 Collapsible Sparkling",
@@ -76844,12 +76874,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_022_ddceb8",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Voice Transformer \u2014 Collapsible Sparkling",
@@ -76881,12 +76911,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_023_591347",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Bubble Transformer \u2014 Collapsible Sparkling",
@@ -76918,12 +76948,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_024_e5ccdf",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Reaction Transformer \u2014 Collapsible Sparkling",
@@ -76955,12 +76985,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_025_aaaa05",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Media Transformer \u2014 Collapsible Sparkling",
@@ -76992,12 +77022,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_026_4c6c16",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage System Transformer \u2014 Collapsible Sparkling",
@@ -77029,12 +77059,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_027_0efe95",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Bubble Transformer \u2014 Collapsible Sparkling",
@@ -77066,12 +77096,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_028_887f90",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Reply Transformer \u2014 Collapsible Sparkling",
@@ -77111,12 +77141,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_029_b8f53b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Comment Transformer \u2014 Collapsible Sparkling",
@@ -77156,12 +77186,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_030_75b09c",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comment Transformer \u2014 Collapsible Sparkling",
@@ -77194,12 +77224,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_031_691604",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comments Drawer Transformer \u2014 Collapsible Sparkling",
@@ -77232,12 +77262,12 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_032_aa5046",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCBF Album / Single Cover \u2014 Contextual Release \u2014 Collapsible Sparkling",
@@ -77408,7 +77438,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 90,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -77418,7 +77448,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_033_1c5665"
@@ -77574,7 +77604,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 91,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -77584,7 +77614,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_034_ba998e"
@@ -77758,12 +77788,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_035_b1cd9f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Reverie Surface \u2014 Inline Chat \u2014 Collapsible Sparkling",
@@ -77933,12 +77963,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_036_812632",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF7 Reverie Surface \u2014 R4.5 \u2014 Collapsible Sparkling",
@@ -78110,12 +78140,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_037_4c291d",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD835\uDD4F Twitter / X Direct Messages \u2014 Bubble Chat \u2014 Collapsible Sparkling",
@@ -78285,12 +78315,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_038_d0a4b5",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Reverie Surface \u2014 Discord Direct Messages \u2014 Collapsible Sparkling",
@@ -78464,12 +78494,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_039_900980",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDD0E Reverie Surface \u2014 Google Images \u2014 Collapsible Sparkling",
@@ -78728,12 +78758,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_040_affcb9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Surface Review v4 \u2014 Phone Gallery (Restored Grid) \u2014 Collapsible Sparkling",
@@ -78959,12 +78989,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_041_6ba6af",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDC2\uFE0F Surface Review v4 \u2014 Classified Case Dossier \u2014 Collapsible Sparkling",
@@ -79129,12 +79159,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_042_bf4cfb",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF0 Surface Review v5 \u2014 News Article / Public Bulletin \u2014 Collapsible Sparkling",
@@ -79298,12 +79328,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_043_f10400",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE0 Reddit Thread \u2014 Compact Community Post \u2014 Collapsible Sparkling",
@@ -79476,12 +79506,12 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_044_78f604",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25C7 Surface Review v4 \u2014 Character Profile \u2014 Collapsible Sparkling",
@@ -79784,12 +79814,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_045_06dcb0",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25A4 Surface Review v4 \u2014 Magazine Cover \u2014 Collapsible Sparkling",
@@ -79953,12 +79983,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_046_8ddcb6",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u266A TikTok Post + Comments + Stable Drawer \u2014 Collapsible Sparkling",
@@ -80200,12 +80230,12 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_047_98c223",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 [Reverie \u2022 Instagram] Invalid Carousel Target Guard \u2014 Collapsible Sparkling",
@@ -80266,7 +80296,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 201,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -80275,7 +80305,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_048_bfd492"
@@ -80339,7 +80369,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 202,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -80348,7 +80378,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_049_c2b693"
@@ -80398,7 +80428,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 203,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -80407,7 +80437,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_050_5e5ace"
@@ -80432,7 +80462,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 204,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -80441,7 +80471,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_051_86cbe5"
@@ -80505,7 +80535,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 205,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -80514,7 +80544,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_052_8acef9"
@@ -80578,7 +80608,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 206,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -80587,7 +80617,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_053_73b284"
@@ -80672,7 +80702,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 207,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -80681,7 +80711,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_054_a71e35"
@@ -81617,7 +81647,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 208,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -81626,7 +81656,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_055_d307cc"
@@ -81703,7 +81733,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 209,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -81712,7 +81742,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_056_87f08b"
@@ -81803,7 +81833,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 210,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -81812,7 +81842,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_057_d47fb5"
@@ -81903,7 +81933,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 211,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -81912,7 +81942,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_058_572553"
@@ -82003,7 +82033,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 212,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -82012,7 +82042,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_059_23e7b6"
@@ -82103,7 +82133,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 213,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -82112,7 +82142,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_060_e2c00b"
@@ -82189,7 +82219,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 214,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -82198,7 +82228,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_061_f217db"
@@ -82289,7 +82319,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 215,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -82298,7 +82328,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_062_ca3507"
@@ -82328,12 +82358,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_063_109b6b",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] System Event \u2014 Collapsible Sparkling",
@@ -82421,7 +82451,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 216,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -82430,7 +82460,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_064_55436c"
@@ -82460,12 +82490,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_065_b051b9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Typing Indicator \u2014 Collapsible Sparkling",
@@ -82553,7 +82583,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 217,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -82562,7 +82592,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_066_4c0764"
@@ -82653,7 +82683,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 218,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -82662,7 +82692,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_067_ca2bc5"
@@ -82739,7 +82769,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 219,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -82748,7 +82778,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_068_182012"
@@ -82991,7 +83021,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 220,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -83000,7 +83030,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_069_a91d13"
@@ -83050,7 +83080,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 221,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -83059,7 +83089,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_070_32baae"
@@ -83123,7 +83153,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 222,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -83132,7 +83162,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_071_57b192"
@@ -83196,7 +83226,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 223,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -83205,7 +83235,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_072_3716d0"
@@ -83269,7 +83299,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 224,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -83278,7 +83308,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_073_c9c3c1"
@@ -83342,7 +83372,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 225,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -83351,7 +83381,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_074_744661"
@@ -83415,7 +83445,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 226,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -83424,7 +83454,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_075_1f7d2b"
@@ -83503,7 +83533,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 227,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -83512,7 +83542,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_076_23f35e"
@@ -83612,7 +83642,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 228,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -83621,7 +83651,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_077_5109da"
@@ -83721,7 +83751,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 229,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -83730,7 +83760,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_078_a74d3a"
@@ -83843,7 +83873,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 230,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -83852,7 +83882,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_079_012836"
@@ -83965,7 +83995,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 231,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -83974,7 +84004,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_080_3dc7fb"
@@ -84038,7 +84068,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 232,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -84047,7 +84077,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_081_8dd34c"
@@ -84214,7 +84244,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -84224,7 +84254,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_082_1e6889"
@@ -84301,7 +84331,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -84310,7 +84340,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_083_a90135"
@@ -84387,7 +84417,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 234,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -84396,7 +84426,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_084_7f904e"
@@ -84473,7 +84503,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 235,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -84482,7 +84512,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_085_4ee547"
@@ -84559,7 +84589,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 236,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -84568,7 +84598,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_086_b34fc8"
@@ -84659,7 +84689,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 238,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -84668,7 +84698,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_087_4678e3"
@@ -84759,7 +84789,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 239,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -84768,7 +84798,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_088_a564f2"
@@ -84861,7 +84891,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -84870,7 +84900,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_089_89696d"
@@ -84937,13 +84967,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.98,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr37_spark_simg_sent"
@@ -85010,13 +85040,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.99,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr37_spark_simg_recv"
@@ -85109,7 +85139,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 241,
       description: 'Legacy compatibility only. Canonical Utility MUST author side="sent" or side="recv"; no-side images fall back left/received.',
       metadata: {
@@ -85118,7 +85148,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_090_86d091"
@@ -85211,7 +85241,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 242,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -85220,7 +85250,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_091_6e869d"
@@ -85429,7 +85459,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 243,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -85438,7 +85468,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_092_47d780"
@@ -85561,7 +85591,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 249,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -85570,7 +85600,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_093_2cb884"
@@ -85853,7 +85883,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 280,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -85863,7 +85893,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_094_ba2829"
@@ -86030,12 +86060,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_095_abac4e",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF9E\uFE0F Photo Booth Strip \u2014 Four Frame Print \u2014 Collapsible Sparkling",
@@ -86192,12 +86222,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_096_4a6466",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Polaroid \u2014 Instant Film Print \u2014 Collapsible Sparkling",
@@ -86354,12 +86384,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_097_85e108",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Workspace Chat \u2014 Bubble Channels \u2014 Collapsible Sparkling",
@@ -86558,12 +86588,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_098_fd15e2",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2709\uFE0F Email \u2014 Dark Mode Inbox \u2014 Collapsible Sparkling",
@@ -86743,12 +86773,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_099_53f974",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC iMessage \u2014 Correct Sender Alignment \u2014 Collapsible Sparkling",
@@ -86933,12 +86963,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_100_450906",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE3 Twitch \u2014 Stream + Chat + Mods + Interactive Poll \u2014 Collapsible Sparkling",
@@ -87124,12 +87154,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_101_0a3245",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFA7 Music Player \u2014 Spotify-Style \u2014 Collapsible Sparkling",
@@ -87305,12 +87335,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_102_f590e6",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDFA\uFE0F Live Location \u2014 Chat + Tracker Popup \u2014 Collapsible Sparkling",
@@ -87446,12 +87476,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_103_18cff3",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF99\uFE0F Voice Memo \u2014 Dark Recorder + Transcript Popup \u2014 Collapsible Sparkling",
@@ -87642,12 +87672,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_104_7c77c2",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDD Notes App \u2014 R4.5 \u2014 Collapsible Sparkling",
@@ -87832,12 +87862,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_105_7f498e",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDED2 Marketplace \u2014 R4.5 \u2014 Collapsible Sparkling",
@@ -88018,12 +88048,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_106_a510df",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFE0 Property Listing \u2014 R4.5 \u2014 Collapsible Sparkling",
@@ -88235,12 +88265,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_107_80e6ed",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE9 Naver News \u2014 R4.5 \u2014 Collapsible Sparkling",
@@ -88424,12 +88454,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_108_5eb0e9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Letter Literal Newline Pair Normalizer \u2014 Collapsible Sparkling",
@@ -88455,12 +88485,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr37_spark_letter_newlines",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC8C Letter \u2014 Real Paper Correspondence \u2014 Collapsible Sparkling",
@@ -88663,12 +88693,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_109_4a5e54",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE7A Medical Chart \u2014 EHR Clinical Dashboard \u2014 Collapsible Sparkling",
@@ -88840,12 +88870,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_110_2bf4e9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2696\uFE0F Court Transcript \u2014 Real Transcript Record \u2014 Collapsible Sparkling",
@@ -89038,12 +89068,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_111_e334f1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDA Wikipedia Page \u2014 Article + Infobox \u2014 Collapsible Sparkling",
@@ -89215,12 +89245,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_112_f3669e",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCD6 Diary \u2014 Clickable Multi-Day Journal \u2014 Collapsible Sparkling",
@@ -89388,12 +89418,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_114_1c020f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDD2\uFE0F Mission / List Board \u2014 Interactive Planner \u2014 Collapsible Sparkling",
@@ -89557,12 +89587,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_115_259f72",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF9 CCTV \u2014 Multi-Camera Security Monitor \u2014 Collapsible Sparkling",
@@ -89730,12 +89760,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_116_c98d00",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Discord Server \u2014 Realistic Clickable Channels \u2014 Collapsible Sparkling",
@@ -89894,12 +89924,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_117_062be9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Medical Vital Transformer \u2014 Collapsible Sparkling",
@@ -89925,12 +89955,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_118_4ca169",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Court Transcript Line Transformer \u2014 Collapsible Sparkling",
@@ -89956,12 +89986,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_119_09d5f9",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Wiki Fact Transformer \u2014 Collapsible Sparkling",
@@ -89987,12 +90017,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_120_45897f",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 YouTube Comment Transformer \u2014 Collapsible Sparkling",
@@ -90028,12 +90058,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_121_207dbe",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Message Bubble \u2014 Collapsible Sparkling",
@@ -90059,12 +90089,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_igdm_msg",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Media Bubble \u2014 Collapsible Sparkling",
@@ -90090,12 +90120,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_igdm_media",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Bid Row \u2014 Collapsible Sparkling",
@@ -90121,12 +90151,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_ebay_bid",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Action Button \u2014 Collapsible Sparkling",
@@ -90152,12 +90182,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_ebay_action",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Naver Comment Row \u2014 Collapsible Sparkling",
@@ -90183,12 +90213,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_naver_comment",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Comment \u2014 Collapsible Sparkling",
@@ -90215,12 +90245,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igc_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Post Grid + Modal Unit \u2014 Collapsible Sparkling",
@@ -90265,12 +90295,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igp_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Tagged Grid Item \u2014 Collapsible Sparkling",
@@ -90297,12 +90327,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igm_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Profile \u2014 Contained Post Viewer \u2014 Collapsible Sparkling",
@@ -90446,12 +90476,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igprofile_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Comment \u2014 Collapsible Sparkling",
@@ -90478,12 +90508,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twc_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Tweet \u2014 Collapsible Sparkling",
@@ -90522,12 +90552,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twp_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Media Item \u2014 Collapsible Sparkling",
@@ -90554,12 +90584,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twm_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC26 Twitter / X Profile \u2014 Posts / Media \u2014 Collapsible Sparkling",
@@ -90765,12 +90795,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twprofile_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Stories \u2014 Three-Story Viewer \u2014 Collapsible Sparkling",
@@ -90881,12 +90911,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_stories_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Thread Item \u2014 Collapsible Sparkling",
@@ -90913,12 +90943,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0"
+        relay_product_version: "0.2.1"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r43_twthread_sp",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     }
   ]
 };
@@ -90928,7 +90958,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Realistic \u2014 Inline",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.0",
+  relay_product_version: "0.2.1",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "inline",
   surface_review_revision: "R4.5-FINAL",
@@ -90962,7 +90992,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -90972,7 +91002,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_001_8522e5__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable User Media Seam \u2014 Inline \u2014 Bracket Native",
@@ -91004,7 +91034,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91014,7 +91044,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_002_e8e1a7__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Generated Avatar Message Transformer \u2014 Inline \u2014 Bracket Native",
@@ -91045,7 +91075,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91055,7 +91085,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_003_74cce1__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Message Media Transformer \u2014 Inline \u2014 Bracket Native",
@@ -91086,7 +91116,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91096,7 +91126,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_004_f281f8__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable Profile Media Seam \u2014 Inline \u2014 Bracket Native",
@@ -91165,7 +91195,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91175,7 +91205,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_005_b8c022__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Email Item Transformer \u2014 Inline \u2014 Bracket Native",
@@ -91230,7 +91260,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91240,7 +91270,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_006_c51fa1__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE77 Tinder \u2014 Sleek Full-Screen Match Overlay \u2014 Inline \u2014 Bracket Native",
@@ -91698,7 +91728,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91708,7 +91738,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_007_69c357__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder Card Transformer (Match Avatar Fix) \u2014 Inline \u2014 Bracket Native",
@@ -91739,7 +91769,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91749,7 +91779,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_008_59a7f9__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder User Avatar Transformer (Match Avatar Fix) \u2014 Inline \u2014 Bracket Native",
@@ -91780,7 +91810,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91790,7 +91820,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_009_c9bb76__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Chat Message Transformer \u2014 Inline \u2014 Bracket Native",
@@ -91829,7 +91859,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91839,7 +91869,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_010_cdbe6e__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Donation Transformer \u2014 Inline \u2014 Bracket Native",
@@ -91878,7 +91908,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91888,7 +91918,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_011_c814d0__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Mod Transformer \u2014 Inline \u2014 Bracket Native",
@@ -91927,7 +91957,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91937,7 +91967,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_012_645737__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Message Transformer \u2014 Inline \u2014 Bracket Native",
@@ -91975,7 +92005,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91985,7 +92015,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_013_4134ee__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord DM Generated Avatar Message \u2014 Inline \u2014 Bracket Native",
@@ -92023,7 +92053,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92033,7 +92063,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_014_366e74__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Server Generated Avatar Message \u2014 Inline \u2014 Bracket Native",
@@ -92071,7 +92101,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92081,7 +92111,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_015_f33f4c__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Media Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92112,7 +92142,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92122,7 +92152,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_016_b64ca7__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Google Result Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92153,7 +92183,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92163,7 +92193,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_017_d5d9e1__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Gallery Item Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92194,7 +92224,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92204,7 +92234,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_018_8ec170__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Fact Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92236,7 +92266,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92246,7 +92276,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_019_59a3d0__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Timeline Event Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92278,7 +92308,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92288,7 +92318,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_020_f5c785__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 News Instruction Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92320,7 +92350,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92330,7 +92360,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_021_35aa40__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Media Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92362,7 +92392,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92372,7 +92402,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_022_4a9c43__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Voice Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92404,7 +92434,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92414,7 +92444,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_023_614b8c__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Bubble Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92446,7 +92476,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92456,7 +92486,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_024_768354__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Reaction Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92488,7 +92518,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92498,7 +92528,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_025_0326c4__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Media Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92530,7 +92560,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92540,7 +92570,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_026_d850a5__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage System Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92572,7 +92602,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92582,7 +92612,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_027_9bf2c2__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Bubble Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92614,7 +92644,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92624,7 +92654,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_028_ba4be6__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Reply Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92664,7 +92694,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92674,7 +92704,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_029_19c734__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Comment Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92714,7 +92744,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92724,7 +92754,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_030_f36d5d__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comment Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92757,7 +92787,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92767,7 +92797,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_031_3b921c__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comments Drawer Transformer \u2014 Inline \u2014 Bracket Native",
@@ -92800,7 +92830,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92810,7 +92840,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_032_2f87a7__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCBF Album / Single Cover \u2014 Contextual Release \u2014 Inline \u2014 Bracket Native",
@@ -92918,7 +92948,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 90,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -92928,7 +92958,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93026,7 +93056,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 91,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -93036,7 +93066,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93152,7 +93182,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93162,7 +93192,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_035_23d2bc__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Reverie Surface \u2014 Inline Chat \u2014 Inline \u2014 Bracket Native",
@@ -93269,7 +93299,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93279,7 +93309,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_036_50a081__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF7 Reverie Surface \u2014 R4.5 \u2014 Inline \u2014 Bracket Native",
@@ -93392,7 +93422,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93402,7 +93432,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_037_37a16a__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD835\uDD4F Twitter / X Direct Messages \u2014 Bubble Chat \u2014 Inline \u2014 Bracket Native",
@@ -93509,7 +93539,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93519,7 +93549,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_038_e91245__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Reverie Surface \u2014 Discord Direct Messages \u2014 Inline \u2014 Bracket Native",
@@ -93630,7 +93660,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93640,7 +93670,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_039_ec5215__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDD0E Reverie Surface \u2014 Google Images \u2014 Inline \u2014 Bracket Native",
@@ -93836,7 +93866,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93846,7 +93876,7 @@ width:100%!important;height:100%!important}
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_040_2ec570__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Surface Review v4 \u2014 Phone Gallery (Restored Grid) \u2014 Inline \u2014 Bracket Native",
@@ -94009,7 +94039,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94019,7 +94049,7 @@ width:100%!important;height:100%!important}
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_041_aa2349__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDC2\uFE0F Surface Review v4 \u2014 Classified Case Dossier \u2014 Inline \u2014 Bracket Native",
@@ -94121,7 +94151,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94131,7 +94161,7 @@ width:100%!important;height:100%!important}
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_042_11b5dc__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF0 Surface Review v5 \u2014 News Article / Public Bulletin \u2014 Inline \u2014 Bracket Native",
@@ -94232,7 +94262,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94242,7 +94272,7 @@ width:100%!important;height:100%!important}
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_043_93d2dd__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE0 Reddit Thread \u2014 Compact Community Post \u2014 Inline \u2014 Bracket Native",
@@ -94352,7 +94382,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94362,7 +94392,7 @@ width:100%!important;height:100%!important}
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_044_07fd68__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25C7 Surface Review v4 \u2014 Character Profile \u2014 Inline \u2014 Bracket Native",
@@ -94602,7 +94632,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94612,7 +94642,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_045_307e22__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25A4 Surface Review v4 \u2014 Magazine Cover \u2014 Inline \u2014 Bracket Native",
@@ -94713,7 +94743,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94723,7 +94753,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_046_a27c2d__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u266A TikTok Post + Comments + Stable Drawer \u2014 Inline \u2014 Bracket Native",
@@ -94902,7 +94932,7 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94912,7 +94942,7 @@ $7
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_047_e5fe11__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 [Reverie \u2022 Instagram] Invalid Carousel Target Guard \u2014 Inline \u2014 Bracket Native",
@@ -94973,7 +95003,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 201,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -94982,7 +95012,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95051,7 +95081,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 202,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -95060,7 +95090,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95115,7 +95145,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 203,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -95124,7 +95154,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95154,7 +95184,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 204,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -95163,7 +95193,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95232,7 +95262,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 205,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -95241,7 +95271,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95310,7 +95340,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 206,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -95319,7 +95349,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95388,7 +95418,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 207,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -95397,7 +95427,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -96316,7 +96346,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 208,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -96325,7 +96355,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -96407,7 +96437,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 209,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -96416,7 +96446,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -96512,7 +96542,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 210,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -96521,7 +96551,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -96617,7 +96647,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 211,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -96626,7 +96656,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -96722,7 +96752,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 212,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -96731,7 +96761,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -96827,7 +96857,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 213,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -96836,7 +96866,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -96918,7 +96948,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 214,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -96927,7 +96957,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97023,7 +97053,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 215,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -97032,7 +97062,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97067,7 +97097,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97077,7 +97107,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_063_b060eb__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] System Event \u2014 Inline \u2014 Bracket Native",
@@ -97165,7 +97195,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 216,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -97174,7 +97204,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97209,7 +97239,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97219,7 +97249,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_065_4f5b41__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Typing Indicator \u2014 Inline \u2014 Bracket Native",
@@ -97307,7 +97337,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 217,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -97316,7 +97346,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97412,7 +97442,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 218,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -97421,7 +97451,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97503,7 +97533,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 219,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -97512,7 +97542,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97697,7 +97727,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 220,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -97706,7 +97736,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97761,7 +97791,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 221,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -97770,7 +97800,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97839,7 +97869,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 222,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -97848,7 +97878,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97917,7 +97947,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 223,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -97926,7 +97956,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97995,7 +98025,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 224,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -98004,7 +98034,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98073,7 +98103,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 225,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -98082,7 +98112,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98151,7 +98181,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 226,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -98160,7 +98190,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98244,7 +98274,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 227,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -98253,7 +98283,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98337,7 +98367,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 228,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -98346,7 +98376,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98430,7 +98460,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 229,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -98439,7 +98469,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98536,7 +98566,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 230,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -98545,7 +98575,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98642,7 +98672,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 231,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -98651,7 +98681,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98720,7 +98750,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 232,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -98729,7 +98759,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98870,7 +98900,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -98880,7 +98910,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98962,7 +98992,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -98971,7 +99001,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99053,7 +99083,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 234,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -99062,7 +99092,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99144,7 +99174,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 235,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -99153,7 +99183,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99235,7 +99265,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 236,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -99244,7 +99274,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99340,7 +99370,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 238,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -99349,7 +99379,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99445,7 +99475,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 239,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -99454,7 +99484,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99552,7 +99582,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -99561,7 +99591,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99633,13 +99663,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.98,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99711,13 +99741,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.99,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99815,7 +99845,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 241,
       description: 'Legacy compatibility only. Canonical Utility MUST author side="sent" or side="recv"; no-side images fall back left/received.',
       metadata: {
@@ -99824,7 +99854,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99922,7 +99952,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 242,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -99931,7 +99961,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100082,7 +100112,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 243,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -100091,7 +100121,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100187,7 +100217,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 249,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -100196,7 +100226,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100421,7 +100451,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 280,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -100431,7 +100461,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100540,7 +100570,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100550,7 +100580,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_095_f26e5d__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF9E\uFE0F Photo Booth Strip \u2014 Four Frame Print \u2014 Inline \u2014 Bracket Native",
@@ -100578,7 +100608,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100588,7 +100618,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_096_26c55f__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Polaroid \u2014 Instant Film Print \u2014 Inline \u2014 Bracket Native",
@@ -100616,7 +100646,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100626,7 +100656,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_097_2c8cd7__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Workspace Chat \u2014 Bubble Channels \u2014 Inline \u2014 Bracket Native",
@@ -100762,7 +100792,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100772,7 +100802,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_098_33c93c__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2709\uFE0F Email \u2014 Dark Mode Inbox \u2014 Inline \u2014 Bracket Native",
@@ -100799,7 +100829,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100809,7 +100839,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_099_241569__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC iMessage \u2014 Correct Sender Alignment \u2014 Inline \u2014 Bracket Native",
@@ -100931,7 +100961,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100941,7 +100971,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_100_787b63__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE3 Twitch \u2014 Stream + Chat + Mods + Interactive Poll \u2014 Inline \u2014 Bracket Native",
@@ -101064,7 +101094,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101074,7 +101104,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_101_570400__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFA7 Music Player \u2014 Spotify-Style \u2014 Inline \u2014 Bracket Native",
@@ -101102,7 +101132,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101112,7 +101142,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_102_ce910d__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDFA\uFE0F Live Location \u2014 Chat + Tracker Popup \u2014 Inline \u2014 Bracket Native",
@@ -101140,7 +101170,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101150,7 +101180,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_103_2d3ac2__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF99\uFE0F Voice Memo \u2014 Dark Recorder + Transcript Popup \u2014 Inline \u2014 Bracket Native",
@@ -101278,7 +101308,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101288,7 +101318,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_104_d04e4a__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDD Notes App \u2014 R4.5 \u2014 Inline \u2014 Bracket Native",
@@ -101414,7 +101444,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101424,7 +101454,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_105_3b70d9__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDED2 Marketplace \u2014 R4.5 \u2014 Inline \u2014 Bracket Native",
@@ -101546,7 +101576,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101556,7 +101586,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_106_64a18b__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFE0 Property Listing \u2014 R4.5 \u2014 Inline \u2014 Bracket Native",
@@ -101709,7 +101739,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101719,7 +101749,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_107_c184c0__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE9 Naver News \u2014 R4.5 \u2014 Inline \u2014 Bracket Native",
@@ -101844,7 +101874,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101854,7 +101884,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_108_a23542__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Letter Literal Newline Pair Normalizer \u2014 Inline \u2014 Bracket Native",
@@ -101880,7 +101910,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101890,7 +101920,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr37_inline_letter_newlines__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC8C Letter \u2014 Real Paper Correspondence \u2014 Inline \u2014 Bracket Native",
@@ -101918,7 +101948,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101928,7 +101958,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_109_d11ed0__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE7A Medical Chart \u2014 EHR Clinical Dashboard \u2014 Inline \u2014 Bracket Native",
@@ -102037,7 +102067,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102047,7 +102077,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_110_4235bc__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2696\uFE0F Court Transcript \u2014 Real Transcript Record \u2014 Inline \u2014 Bracket Native",
@@ -102177,7 +102207,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102187,7 +102217,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_111_30f790__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDA Wikipedia Page \u2014 Article + Infobox \u2014 Inline \u2014 Bracket Native",
@@ -102296,7 +102326,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102306,7 +102336,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_112_8b63fa__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCD6 Diary \u2014 Clickable Multi-Day Journal \u2014 Inline \u2014 Bracket Native",
@@ -102411,7 +102441,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102421,7 +102451,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_114_42ca3d__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDD2\uFE0F Mission / List Board \u2014 Interactive Planner \u2014 Inline \u2014 Bracket Native",
@@ -102522,7 +102552,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102532,7 +102562,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_115_b8ad5c__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF9 CCTV \u2014 Multi-Camera Security Monitor \u2014 Inline \u2014 Bracket Native",
@@ -102637,7 +102667,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102647,7 +102677,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_116_ec8108__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Discord Server \u2014 Realistic Clickable Channels \u2014 Inline \u2014 Bracket Native",
@@ -102675,7 +102705,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102685,7 +102715,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_117_d0bd18__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Medical Vital Transformer \u2014 Inline \u2014 Bracket Native",
@@ -102711,7 +102741,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102721,7 +102751,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_118_df8c1f__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Court Transcript Line Transformer \u2014 Inline \u2014 Bracket Native",
@@ -102747,7 +102777,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102757,7 +102787,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_119_73634b__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Wiki Fact Transformer \u2014 Inline \u2014 Bracket Native",
@@ -102783,7 +102813,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102793,7 +102823,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_120_3b9c2c__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 YouTube Comment Transformer \u2014 Inline \u2014 Bracket Native",
@@ -102829,7 +102859,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102839,7 +102869,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr22_in_121_24b971__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Message Bubble \u2014 Inline \u2014 Bracket Native",
@@ -102865,7 +102895,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102875,7 +102905,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr23_in_igdm_msg__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Media Bubble \u2014 Inline \u2014 Bracket Native",
@@ -102901,7 +102931,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102911,7 +102941,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr23_in_igdm_media__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Bid Row \u2014 Inline \u2014 Bracket Native",
@@ -102937,7 +102967,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102947,7 +102977,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr23_in_ebay_bid__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Action Button \u2014 Inline \u2014 Bracket Native",
@@ -102973,7 +103003,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102983,7 +103013,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr23_in_ebay_action__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Naver Comment Row \u2014 Inline \u2014 Bracket Native",
@@ -103009,7 +103039,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103019,7 +103049,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "rr23_in_naver_comment__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Comment \u2014 Inline \u2014 Bracket Native",
@@ -103046,7 +103076,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103056,7 +103086,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "r41_igc_in__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Post Grid + Modal Unit \u2014 Inline \u2014 Bracket Native",
@@ -103101,7 +103131,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103111,7 +103141,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "r41_igp_in__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Tagged Grid Item \u2014 Inline \u2014 Bracket Native",
@@ -103138,7 +103168,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103148,7 +103178,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "r41_igm_in__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Profile \u2014 Contained Post Viewer \u2014 Inline \u2014 Bracket Native",
@@ -103239,7 +103269,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103249,7 +103279,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "r41_igprofile_in__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Comment \u2014 Inline \u2014 Bracket Native",
@@ -103276,7 +103306,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103286,7 +103316,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "r41_twc_in__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Tweet \u2014 Inline \u2014 Bracket Native",
@@ -103325,7 +103355,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103335,7 +103365,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "r41_twp_in__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Media Item \u2014 Inline \u2014 Bracket Native",
@@ -103362,7 +103392,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103372,7 +103402,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "r41_twm_in__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC26 Twitter / X Profile \u2014 Posts / Media \u2014 Inline \u2014 Bracket Native",
@@ -103525,7 +103555,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103535,7 +103565,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "r41_twprofile_in__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Stories \u2014 Three-Story Viewer \u2014 Inline \u2014 Bracket Native",
@@ -103593,7 +103623,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103603,7 +103633,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "r41_stories_in__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Thread Item \u2014 Inline \u2014 Bracket Native",
@@ -103630,7 +103660,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103640,7 +103670,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Inline",
       script_id: "r43_twthread_in__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     }
   ]
 };
@@ -103650,7 +103680,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Realistic \u2014 Plain",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.0",
+  relay_product_version: "0.2.1",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "plain",
   surface_review_revision: "R4.5-FINAL",
@@ -103684,7 +103714,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -103694,7 +103724,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_001_958563__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable User Media Seam \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -103726,7 +103756,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -103736,7 +103766,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_002_01a164__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Generated Avatar Message Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -103767,7 +103797,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -103777,7 +103807,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_003_98aec6__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Message Media Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -103808,7 +103838,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -103818,7 +103848,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_004_be8177__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Tinder \u2014 Stable Profile Media Seam \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -103887,7 +103917,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -103897,7 +103927,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_005_2b24d1__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Email Item Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -103952,7 +103982,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -103962,7 +103992,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_006_03f7b6__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE77 Tinder \u2014 Sleek Full-Screen Match Overlay \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -104482,7 +104512,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104492,7 +104522,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_007_912c10__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder Card Transformer (Match Avatar Fix) \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -104523,7 +104553,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104533,7 +104563,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_008_3d506a__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Tinder User Avatar Transformer (Match Avatar Fix) \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -104564,7 +104594,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104574,7 +104604,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_009_87d540__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Chat Message Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -104613,7 +104643,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104623,7 +104653,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_010_ab14de__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Donation Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -104662,7 +104692,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104672,7 +104702,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_011_564772__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Mod Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -104711,7 +104741,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104721,7 +104751,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_012_128e9a__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Message Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -104759,7 +104789,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104769,7 +104799,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_013_dee63a__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord DM Generated Avatar Message \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -104807,7 +104837,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104817,7 +104847,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_014_7f19c0__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Server Generated Avatar Message \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -104855,7 +104885,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104865,7 +104895,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_015_9fc065__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Discord Media Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -104896,7 +104926,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104906,7 +104936,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_016_5979a3__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Google Result Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -104937,7 +104967,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104947,7 +104977,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_017_982c41__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Surface Review \u2014 Gallery Item Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -104978,7 +105008,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104988,7 +105018,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_018_f855fa__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Fact Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105020,7 +105050,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105030,7 +105060,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_019_34416d__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Case Timeline Event Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105062,7 +105092,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105072,7 +105102,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_020_af0460__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 News Instruction Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105104,7 +105134,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105114,7 +105144,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_021_f83b0d__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Media Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105146,7 +105176,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105156,7 +105186,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_022_cdb3fd__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Voice Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105188,7 +105218,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105198,7 +105228,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_023_dcc599__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Workspace Bubble Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105230,7 +105260,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105240,7 +105270,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_024_5fc225__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Reaction Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105272,7 +105302,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105282,7 +105312,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_025_991c00__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Media Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105314,7 +105344,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105324,7 +105354,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_026_020cdf__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage System Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105356,7 +105386,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105366,7 +105396,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_027_f68ccd__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 iMessage Bubble Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105398,7 +105428,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105408,7 +105438,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_028_4f1587__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Reply Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105448,7 +105478,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105458,7 +105488,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_029_00347b__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 V4 \u2014 Reddit Comment Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105498,7 +105528,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105508,7 +105538,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_030_33174d__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comment Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105541,7 +105571,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105551,7 +105581,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_031_a859dc__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 TikTok Comments Drawer Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105584,7 +105614,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105594,7 +105624,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_032_982465__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCBF Album / Single Cover \u2014 Contextual Release \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -105751,7 +105781,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 90,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -105761,7 +105791,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105908,7 +105938,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 91,
       description: "Context-dependent real release artwork surface; no internal implementation labels.",
       metadata: {
@@ -105918,7 +105948,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106083,7 +106113,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106093,7 +106123,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_035_f5c6ea__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Reverie Surface \u2014 Inline Chat \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -106249,7 +106279,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106259,7 +106289,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_036_d82e79__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF7 Reverie Surface \u2014 R4.5 \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -106417,7 +106447,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106427,7 +106457,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_037_42d20f__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD835\uDD4F Twitter / X Direct Messages \u2014 Bubble Chat \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -106583,7 +106613,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106593,7 +106623,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_038_c04488__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Reverie Surface \u2014 Discord Direct Messages \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -106753,7 +106783,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106763,7 +106793,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_039_fd6bce__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDD0E Reverie Surface \u2014 Google Images \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -107008,7 +107038,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -107018,7 +107048,7 @@ width:100%!important;height:100%!important}
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_040_c151c4__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Surface Review v4 \u2014 Phone Gallery (Restored Grid) \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -107230,7 +107260,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -107240,7 +107270,7 @@ width:100%!important;height:100%!important}
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_041_5c489f__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDC2\uFE0F Surface Review v4 \u2014 Classified Case Dossier \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -107391,7 +107421,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -107401,7 +107431,7 @@ width:100%!important;height:100%!important}
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_042_53ae30__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF0 Surface Review v5 \u2014 News Article / Public Bulletin \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -107551,7 +107581,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -107561,7 +107591,7 @@ width:100%!important;height:100%!important}
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_043_44ec8b__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE0 Reddit Thread \u2014 Compact Community Post \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -107720,7 +107750,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -107730,7 +107760,7 @@ width:100%!important;height:100%!important}
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_044_084064__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25C7 Surface Review v4 \u2014 Character Profile \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -108019,7 +108049,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108029,7 +108059,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_045_70238f__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u25A4 Surface Review v4 \u2014 Magazine Cover \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -108179,7 +108209,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108189,7 +108219,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_046_dd3bf8__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u266A TikTok Post + Comments + Stable Drawer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -108417,7 +108447,7 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108427,7 +108457,7 @@ $7
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_047_328aaa__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 [Reverie \u2022 Instagram] Invalid Carousel Target Guard \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -108488,7 +108518,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 201,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -108497,7 +108527,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108566,7 +108596,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 202,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -108575,7 +108605,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108630,7 +108660,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 203,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -108639,7 +108669,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108669,7 +108699,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 204,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -108678,7 +108708,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108747,7 +108777,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 205,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -108756,7 +108786,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108825,7 +108855,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 206,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -108834,7 +108864,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108911,7 +108941,7 @@ $7
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 207,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -108920,7 +108950,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -109857,7 +109887,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 208,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -109866,7 +109896,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -109948,7 +109978,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 209,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -109957,7 +109987,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110053,7 +110083,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 210,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -110062,7 +110092,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110158,7 +110188,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 211,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -110167,7 +110197,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110263,7 +110293,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 212,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -110272,7 +110302,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110368,7 +110398,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 213,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -110377,7 +110407,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110459,7 +110489,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 214,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -110468,7 +110498,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110564,7 +110594,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 215,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -110573,7 +110603,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110608,7 +110638,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110618,7 +110648,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_063_15f5da__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] System Event \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -110706,7 +110736,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 216,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -110715,7 +110745,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110750,7 +110780,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110760,7 +110790,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_065_41a66b__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Typing Indicator \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -110848,7 +110878,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 217,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -110857,7 +110887,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110953,7 +110983,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 218,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -110962,7 +110992,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111044,7 +111074,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 219,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -111053,7 +111083,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111287,7 +111317,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 220,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -111296,7 +111326,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111351,7 +111381,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 221,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -111360,7 +111390,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111429,7 +111459,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 222,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -111438,7 +111468,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111507,7 +111537,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 223,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -111516,7 +111546,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111585,7 +111615,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 224,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -111594,7 +111624,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111663,7 +111693,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 225,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -111672,7 +111702,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111741,7 +111771,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 226,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -111750,7 +111780,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111834,7 +111864,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 227,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -111843,7 +111873,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111935,7 +111965,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 228,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -111944,7 +111974,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112036,7 +112066,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 229,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -112045,7 +112075,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112150,7 +112180,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 230,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -112159,7 +112189,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112264,7 +112294,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 231,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -112273,7 +112303,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112342,7 +112372,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 232,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -112351,7 +112381,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112510,7 +112540,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -112520,7 +112550,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112602,7 +112632,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 233,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -112611,7 +112641,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112693,7 +112723,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 234,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -112702,7 +112732,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112784,7 +112814,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 235,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -112793,7 +112823,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112875,7 +112905,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 236,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -112884,7 +112914,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112980,7 +113010,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 238,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -112989,7 +113019,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113085,7 +113115,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 239,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -113094,7 +113124,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113192,7 +113222,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -113201,7 +113231,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113273,13 +113303,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.98,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113351,13 +113381,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 240.99,
       description: "R4.5 side-aware smartphone image transformer.",
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113455,7 +113485,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 241,
       description: 'Legacy compatibility only. Canonical Utility MUST author side="sent" or side="recv"; no-side images fall back left/received.',
       metadata: {
@@ -113464,7 +113494,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113562,7 +113592,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 242,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -113571,7 +113601,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113771,7 +113801,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 243,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -113780,7 +113810,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113894,7 +113924,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 249,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -113903,7 +113933,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -114177,7 +114207,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       substitute_macros: "raw",
       disabled: false,
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router",
+      owner_extension_identifier: "reverie_relay",
       sort_order: 280,
       description: "Unified Reverie Surface pack (inline) \u2014 preserved accepted renderer.",
       metadata: {
@@ -114187,7 +114217,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -114345,7 +114375,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -114355,7 +114385,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_095_7266ba__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF9E\uFE0F Photo Booth Strip \u2014 Four Frame Print \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -114498,7 +114528,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -114508,7 +114538,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_096_0ef47f__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDBC\uFE0F Polaroid \u2014 Instant Film Print \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -114651,7 +114681,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -114661,7 +114691,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_097_ed9e83__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC Workspace Chat \u2014 Bubble Channels \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -114846,7 +114876,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -114856,7 +114886,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_098_0821b9__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2709\uFE0F Email \u2014 Dark Mode Inbox \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -115022,7 +115052,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -115032,7 +115062,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_099_465030__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCAC iMessage \u2014 Correct Sender Alignment \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -115203,7 +115233,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -115213,7 +115243,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_100_9dc259__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE3 Twitch \u2014 Stream + Chat + Mods + Interactive Poll \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -115385,7 +115415,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -115395,7 +115425,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_101_2028bb__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFA7 Music Player \u2014 Spotify-Style \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -115557,7 +115587,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -115567,7 +115597,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_102_9da300__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDFA\uFE0F Live Location \u2014 Chat + Tracker Popup \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -115689,7 +115719,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -115699,7 +115729,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_103_735ecc__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDF99\uFE0F Voice Memo \u2014 Dark Recorder + Transcript Popup \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -115876,7 +115906,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -115886,7 +115916,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_104_7ac3b8__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDD Notes App \u2014 R4.5 \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -116057,7 +116087,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -116067,7 +116097,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_105_ade6e5__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDED2 Marketplace \u2014 R4.5 \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -116234,7 +116264,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -116244,7 +116274,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_106_6ef651__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83C\uDFE0 Property Listing \u2014 R4.5 \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -116442,7 +116472,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -116452,7 +116482,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_107_51cf00__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDFE9 Naver News \u2014 R4.5 \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -116622,7 +116652,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -116632,7 +116662,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_108_19573c__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Letter Literal Newline Pair Normalizer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -116658,7 +116688,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -116668,7 +116698,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr37_plain_letter_newlines__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC8C Letter \u2014 Real Paper Correspondence \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -116857,7 +116887,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -116867,7 +116897,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_109_a08811__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83E\uDE7A Medical Chart \u2014 EHR Clinical Dashboard \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -117025,7 +117055,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -117035,7 +117065,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_110_dcc78b__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u2696\uFE0F Court Transcript \u2014 Real Transcript Record \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -117214,7 +117244,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -117224,7 +117254,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_111_69d05e__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCDA Wikipedia Page \u2014 Article + Infobox \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -117382,7 +117412,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -117392,7 +117422,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_112_36785d__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCD6 Diary \u2014 Clickable Multi-Day Journal \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -117546,7 +117576,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -117556,7 +117586,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_114_1ca1c8__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDDD2\uFE0F Mission / List Board \u2014 Interactive Planner \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -117706,7 +117736,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -117716,7 +117746,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_115_efb533__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF9 CCTV \u2014 Multi-Camera Security Monitor \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -117870,7 +117900,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -117880,7 +117910,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_116_55ea32__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC9C Discord Server \u2014 Realistic Clickable Channels \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118025,7 +118055,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118035,7 +118065,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_117_d86361__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Medical Vital Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118061,7 +118091,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118071,7 +118101,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_118_ff366e__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Court Transcript Line Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118097,7 +118127,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118107,7 +118137,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_119_9fbcd8__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Wiki Fact Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118133,7 +118163,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118143,7 +118173,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_120_a671ea__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 YouTube Comment Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118179,7 +118209,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118189,7 +118219,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr22_pl_121_cab2c2__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Message Bubble \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118215,7 +118245,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118225,7 +118255,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr23_pl_igdm_msg__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Instagram DM Media Bubble \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118251,7 +118281,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118261,7 +118291,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr23_pl_igdm_media__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Bid Row \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118287,7 +118317,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118297,7 +118327,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr23_pl_ebay_bid__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Action Button \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118323,7 +118353,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118333,7 +118363,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr23_pl_ebay_action__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 R4.5 \u2014 Naver Comment Row \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118359,7 +118389,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118369,7 +118399,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "rr23_pl_naver_comment__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Comment \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118396,7 +118426,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118406,7 +118436,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "r41_igc_pl__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Post Grid + Modal Unit \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118451,7 +118481,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118461,7 +118491,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "r41_igp_pl__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Instagram Profile Tagged Grid Item \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118488,7 +118518,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118498,7 +118528,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "r41_igm_pl__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Profile \u2014 Contained Post Viewer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118642,7 +118672,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118652,7 +118682,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "r41_igprofile_pl__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Comment \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118679,7 +118709,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118689,7 +118719,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "r41_twc_pl__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Tweet \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118728,7 +118758,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118738,7 +118768,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "r41_twp_pl__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Media Item \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118765,7 +118795,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118775,7 +118805,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "r41_twm_pl__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDC26 Twitter / X Profile \u2014 Posts / Media \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -118981,7 +119011,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118991,7 +119021,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "r41_twprofile_pl__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\uD83D\uDCF8 Instagram Stories \u2014 Three-Story Viewer \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -119102,7 +119132,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119112,7 +119142,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "r41_stories_pl__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     },
     {
       name: "\u21B3 Twitter Profile Thread Item \u2014 Collapsible Plain \u2014 Bracket Native",
@@ -119139,7 +119169,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.0",
+        relay_product_version: "0.2.1",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119149,7 +119179,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Bracket Native \u2014 Plain Button",
       script_id: "r43_twthread_pl__bracket_v1",
       actions: [],
-      owner_extension_identifier: "dreamglass_image_router"
+      owner_extension_identifier: "reverie_relay"
     }
   ]
 };
@@ -135506,7 +135536,7 @@ var sortedBracketScripts = new Map;
 function r45SurfaceAuthorityPack(presentation, color) {
   const key = `${presentation}:${color}`;
   const pack = PACKS[key];
-  if (!pack || pack.type !== "lumiverse_regex_scripts" || pack.relay_product_version !== "0.2.0" || pack.scripts.length !== 138) {
+  if (!pack || pack.type !== "lumiverse_regex_scripts" || pack.relay_product_version !== "0.2.1" || pack.scripts.length !== 138) {
     throw new Error(`Invalid R4.5 Surface authority selection: ${key}`);
   }
   return pack;
@@ -136809,14 +136839,14 @@ function renderKakao(attrs, body, preset, context) {
         const ra = parseAttrs2(row.attrs);
         return `<span class="rrn-chip">${escapeHtml(ra.emoji || "")} ${escapeHtml(ra.count || "")}</span>`;
       }).join("");
-      let clean4 = removeMediaMarkup(value);
-      clean4 = stripKnownTags2(clean4, ["k_reply", "k_file", "k_react"]);
+      let clean5 = removeMediaMarkup(value);
+      clean5 = stripKnownTags2(clean5, ["k_reply", "k_file", "k_react"]);
       const replyMarkup = reply ? `<div class="rrn-card rrn-quote"><div class="rrn-meta"><b>${escapeHtml(parseAttrs2(reply.attrs).sender || "")}</b></div>${sanitizeInline(reply.body)}</div>` : "";
       const fileMarkup = file ? (() => {
         const fa = parseAttrs2(file.attrs);
         return `<div class="rrn-file"><span>\u25A7</span><div><b>${escapeHtml(fa.name || "Attachment")}</b><div class="rrn-sub">${escapeHtml(fa.type || "")}${fa.size ? ` \xB7 ${escapeHtml(fa.size)}` : ""}</div>${stripMarkup(file.body) ? `<div>${sanitizeInline(file.body)}</div>` : ""}</div></div>`;
       })() : "";
-      rows2.push(`<div class="rrn-message ${sent ? "is-sent" : ""}">${sent ? "" : `<span class="rrn-avatar">${escapeHtml(a.avatar || initial(a.sender || "K"))}</span>`}<div class="rrn-copy"><div class="rrn-meta">${sent ? "" : `<b>${escapeHtml(a.sender || "")}</b>`}<time>${escapeHtml(a.time || "")}</time>${a.read ? `<span>${escapeHtml(a.read)}</span>` : ""}</div>${replyMarkup}<div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(clean4)}</div>${renderAnyMedia(value, context, "kakao")}${fileMarkup}${reactions ? `<div class="rrn-reactions">${reactions}</div>` : ""}</div></div>`);
+      rows2.push(`<div class="rrn-message ${sent ? "is-sent" : ""}">${sent ? "" : `<span class="rrn-avatar">${escapeHtml(a.avatar || initial(a.sender || "K"))}</span>`}<div class="rrn-copy"><div class="rrn-meta">${sent ? "" : `<b>${escapeHtml(a.sender || "")}</b>`}<time>${escapeHtml(a.time || "")}</time>${a.read ? `<span>${escapeHtml(a.read)}</span>` : ""}</div>${replyMarkup}<div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(clean5)}</div>${renderAnyMedia(value, context, "kakao")}${fileMarkup}${reactions ? `<div class="rrn-reactions">${reactions}</div>` : ""}</div></div>`);
     } else if (tag === "k_date" || tag === "k_unread")
       rows2.push(`<div class="rrn-sub" style="text-align:center;padding:8px">${sanitizeInline(value)}</div>`);
     else if (tag === "k_system")
@@ -137068,8 +137098,8 @@ function safePresetCss(preset) {
   return `<style data-rrn-preset-style="${escapeAttr2(presetId)}">${css}</style>`;
 }
 function sanitizeCssLength(value) {
-  const clean4 = value.trim();
-  return /^(?:\d+(?:\.\d+)?(?:px|rem|em|%|vw)|min\([^;{}]+\)|clamp\([^;{}]+\))$/i.test(clean4) ? clean4 : "760px";
+  const clean5 = value.trim();
+  return /^(?:\d+(?:\.\d+)?(?:px|rem|em|%|vw)|min\([^;{}]+\)|clamp\([^;{}]+\))$/i.test(clean5) ? clean5 : "760px";
 }
 function parseAttrs2(raw) {
   const out = {};
@@ -151745,6 +151775,12 @@ var EXPECTED_PIN = {
   inline: "[cp_presentation]inline[/cp_presentation]"
 };
 var DRAMATIC_CUTAWAY_PACK = Reverie_Dramatic_Cutaway_BULLETPROOF_V8_default;
+var NARRATIVE_MEDIA_OWNER_CLASS = /(?:dg-dramatic-media|r65-media|rv6-media|ru-media|ru-portrait|ru-secret-media|ru-thread-media|rrcp-media|rrcp-photo-media|rrcp-wallpaper)/;
+var NARRATIVE_MEDIA_COMPATIBILITY_STYLE = `<style data-reverie-narrative-media-compat="1">
+.dg-dramatic-media{min-width:0;max-width:100%;overflow:hidden;text-align:center}
+.dg-dramatic-media>img,.dg-dramatic-media>.reverie-artifact-media{display:block!important;width:100%!important;max-width:100%!important;height:auto!important;margin-inline:auto!important;object-fit:contain!important;object-position:center!important}
+.r65-media>.reverie-artifact-media,.rv6-media>.reverie-artifact-media,.ru-media>.reverie-artifact-media,.ru-portrait>.reverie-artifact-media,.ru-secret-media>.reverie-artifact-media,.ru-thread-media>.reverie-artifact-media,.rrcp-media>.reverie-artifact-media,.rrcp-photo-media>.reverie-artifact-media,.rrcp-wallpaper>.reverie-artifact-media{display:block!important;width:100%!important;max-width:100%!important;height:auto!important;margin-inline:auto!important;object-fit:contain!important;object-position:center!important}
+</style>`;
 var safeMessageId2 = (value) => String(value || "narrative").replace(/[^A-Za-z0-9_-]+/g, "-") || "narrative";
 var NARRATIVE_MARKUP = /\[(?:SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i;
 var NARRATIVE_UTILITY_PACK = Reverie_Narrative_Utilities_v6_1_FINAL_with_Character_Phone_default;
@@ -151804,7 +151840,13 @@ function narrativeRegexScripts(variant) {
   const ids = scripts.map((script) => script.script_id);
   if (new Set(ids).size !== ids.length)
     throw new Error(`Duplicate active Narrative Regex script IDs in ${variant}`);
-  return scripts.map((script) => ({ ...script, replace_string: sceneCompassPresentation(script.script_id, script.replace_string) })).sort((left, right) => Number(left.sort_order) - Number(right.sort_order));
+  return scripts.map((script) => {
+    const replacement = sceneCompassPresentation(script.script_id, script.replace_string);
+    return {
+      ...script,
+      replace_string: NARRATIVE_MEDIA_OWNER_CLASS.test(replacement) ? `${NARRATIVE_MEDIA_COMPATIBILITY_STYLE}${replacement}` : replacement
+    };
+  }).sort((left, right) => Number(left.sort_order) - Number(right.sort_order));
 }
 function containsNarrativeRegexMarkup(markup) {
   return NARRATIVE_MARKUP.test(String(markup || ""));
@@ -152147,6 +152189,7 @@ async function listBooks(api, userId) {
 }
 async function exportNarrativeLorebookRecord(input) {
   const { api, chat, record: record3, kind, messageId, swipeId, userId } = input;
+  const occurrence = Math.max(0, Number.isFinite(Number(input.occurrence)) ? Number(input.occurrence) : 0);
   const books = await listBooks(api, userId);
   let book = books.find((candidate) => candidate.metadata?.reverie_relay_export_book === true && candidate.metadata?.reverie_relay_lorebook_chat_id === chat.id);
   let createdBook = false;
@@ -152173,9 +152216,16 @@ async function exportNarrativeLorebookRecord(input) {
         reverie_relay_export_entry: true,
         reverie_relay_lorebook_chat_id: chat.id,
         reverie_relay_surface_kind: kind,
+        reverie_relay_surface_occurrence: occurrence,
         reverie_relay_source_message_id: messageId,
         reverie_relay_source_swipe_id: swipeId,
-        reverie_relay_exported_at: new Date().toISOString()
+        reverie_relay_source_fingerprint: contentFingerprint(`${kind}
+${record3.title}
+${record3.content}`),
+        reverie_relay_exported_title: record3.title,
+        reverie_relay_exported_at: new Date().toISOString(),
+        reverie_relay_version: input.relayVersion || "unknown",
+        reverie_relay_schema_version: Number.isFinite(Number(input.schemaVersion)) ? Number(input.schemaVersion) : 1
       }
     }, userId);
     entryId = entry.id;
@@ -152360,7 +152410,7 @@ var DEFAULT_GENERATION_PROFILE = {
   defaultAspectPreference: "request"
 };
 var CONFIG_PATH = "config.json";
-var EXTENSION_ID = "dreamglass_image_router";
+var EXTENSION_ID = "reverie_relay";
 var STATE_SCHEMA_VERSION = 34;
 var PROSE_OPPORTUNITY_PLANNER_VERSION = "prose-opportunity-sidecar-v1";
 var PROSE_PROMPT_COMPOSER_VERSION = "prose-prompt-composer-v1";
@@ -152745,7 +152795,7 @@ function sidecarRegistryMessages(settings, workflow, runtimePayload) {
   return messages;
 }
 function r45BracketSpecificGuidance(contract) {
-  const body = cleanString(contract).replace(/^R4\.5 FINAL SURFACE UTILITY CONTRACT[\s\S]*?generic substitute cards, HTML layouts, centered prose blobs, or renderer fallback text\.\s*/i, "").replace(/^(?:SURFACE|BRACKET) ROOT:\s*(?:<[^>]+>|\[[^\]]+\])\s*/im, "").split(/\n\s*Canonical structure:/i)[0].replace(/Output raw XML only\.?/gi, "").replace(/<((?!image_request\b|\/image_request\b|scene_brief\b|\/scene_brief\b)[A-Za-z][\w:-]*)>/g, "[$1]").replace(/<\/((?!image_request\b|scene_brief\b)[A-Za-z][\w:-]*)>/g, "[/$1]").trim();
+  const body = cleanString(contract).replace(/^<[A-Za-z][\w:-]*_utility>\s*/i, "").replace(/<\/[A-Za-z][\w:-]*_utility>\s*$/i, "").replace(/^R4\.5 FINAL SURFACE UTILITY CONTRACT[\s\S]*?generic substitute cards, HTML layouts, centered prose blobs, or renderer fallback text\.\s*/i, "").replace(/^(?:SURFACE|BRACKET) ROOT:\s*(?:<[^>]+>|\[[^\]]+\])\s*/im, "").split(/\n\s*(?:Canonical structure:|OUTPUT FORMAT(?:\s+\u2014\s+EXACT)?)/i)[0].replace(/Output raw XML only\.?/gi, "").replace(/<((?!image_request\b|\/image_request\b|scene_brief\b|\/scene_brief\b)[A-Za-z][\w:-]*)>/g, "[$1]").replace(/<\/((?!image_request\b|scene_brief\b)[A-Za-z][\w:-]*)>/g, "[/$1]").trim();
   return body ? `
 
 R4.5 SURFACE-SPECIFIC RULES
@@ -152776,7 +152826,7 @@ ${surfacePromptMediaContract(definition)}`;
 }
 function canonicalSurfacePromptModule(definition) {
   const text2 = cleanString(definition.promptModule);
-  if (text2 && !containsStalePromptTemplate(text2))
+  if (text2 && !definition.builtIn && !containsStalePromptTemplate(text2))
     return ensureSurfacePromptContainsImageRequest(definition, text2);
   const builtInDefault = cleanString(builtInSurfaceDefinitionTemplate?.[definition.surfaceId]?.promptModule);
   if (builtInDefault && /bracket-native syntax/i.test(builtInDefault))
@@ -152789,9 +152839,10 @@ function canonicalSurfacePromptModule(definition) {
     target: definition.targetId,
     aspect: definition.supportedAspectRatios[0]
   });
-  if (r45)
-    return ensureSurfacePromptContainsImageRequest(definition, `${bracket}${r45BracketSpecificGuidance(r45)}`);
-  if (definition.builtIn || !text2 || containsStalePromptTemplate(text2))
+  const builtInGuidance = r45 || text2;
+  if (definition.builtIn)
+    return ensureSurfacePromptContainsImageRequest(definition, `${bracket}${r45BracketSpecificGuidance(builtInGuidance)}`);
+  if (!text2 || containsStalePromptTemplate(text2))
     return ensureSurfacePromptContainsImageRequest(definition, bracket);
   return ensureSurfacePromptContainsImageRequest(definition, `${text2}
 
@@ -153239,21 +153290,16 @@ spindle.registerMacro({
 });
 function resolvedRelayMacroValue(ctx, name) {
   const read = (scope, key) => cleanString(ctx?.env?.variables?.[scope]?.get?.(key));
-  const cached = read("chat", name) || read("global", name);
+  const cached = read("chat", name);
   if (cached)
     return cached;
-  const surfaces = buildEnabledSurfaceUtility(defaultCustomSurfaceStudio(), "macro").content;
-  const illustrator = resolveIllustratorStoryPrompt(defaultProseIllustratorSettings(), []);
-  const narrative = buildResolvedNarrativeUtilityPrompt(DEFAULT_CONFIG).content;
-  if (name === "reverie_surfaces")
-    return surfaces;
-  if (name === "reverie_illustrator")
-    return illustrator;
-  if (name === "reverie_narrative")
-    return narrative;
-  return [surfaces, narrative, illustrator].filter(Boolean).join(`
-
-`);
+  const markers = {
+    reverie_surfaces: "<reverie_surfaces_macro/>",
+    reverie_illustrator: "<reverie_illustrator_macro/>",
+    reverie_narrative: "<reverie_narrative_macro/>",
+    reverie_all: "<reverie_all_macro/>"
+  };
+  return markers[name];
 }
 for (const macro of [
   {
@@ -153885,8 +153931,8 @@ async function buildProseOpportunityMessages(chatId, messageId, swipeId, content
   });
 }
 function parseProseOpportunityJson(raw) {
-  const clean4 = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-  const json = clean4.startsWith("{") ? clean4 : clean4.slice(clean4.indexOf("{"), clean4.lastIndexOf("}") + 1);
+  const clean5 = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const json = clean5.startsWith("{") ? clean5 : clean5.slice(clean5.indexOf("{"), clean5.lastIndexOf("}") + 1);
   const parsed = JSON.parse(json);
   if (!Array.isArray(parsed.opportunities))
     throw new Error("Sidecar opportunity JSON must include an opportunities array.");
@@ -154040,10 +154086,10 @@ function characterOnlyConstraint(settings) {
 `);
 }
 function enforceMaximumCharacters(subjects, maximum) {
-  const clean4 = [...new Set(subjects.map((subject) => subject.trim()).filter(Boolean))];
-  if (maximum <= 0 || clean4.length <= maximum)
-    return { kept: clean4, omitted: [] };
-  return { kept: clean4.slice(0, maximum), omitted: clean4.slice(maximum) };
+  const clean5 = [...new Set(subjects.map((subject) => subject.trim()).filter(Boolean))];
+  if (maximum <= 0 || clean5.length <= maximum)
+    return { kept: clean5, omitted: [] };
+  return { kept: clean5.slice(0, maximum), omitted: clean5.slice(maximum) };
 }
 function selectProseContinuityFacts(state, chatId, settings, namedSubjects = []) {
   if (!settings.appearanceMemoryEnabled || settings.continuityStrength === "off" || state.continuityVault.strength === "off")
@@ -154489,7 +154535,30 @@ async function exportNarrativeSurfaceToLorebook(payload, userId) {
   const record3 = extractNarrativeLorebookRecord(getSwipeContent(message, swipeId), payload.kind, payload.occurrence);
   if (!record3)
     throw new Error("Relay could not safely isolate that exact Narrative Surface for Lorebook export.");
-  return exportNarrativeLorebookRecord({ api: spindle, chat, record: record3, kind: payload.kind, messageId: payload.messageId, swipeId, userId });
+  const result = await exportNarrativeLorebookRecord({
+    api: spindle,
+    chat,
+    record: record3,
+    kind: payload.kind,
+    messageId: payload.messageId,
+    swipeId,
+    occurrence: payload.occurrence,
+    relayVersion: EXTENSION_VERSION,
+    schemaVersion: STATE_SCHEMA_VERSION,
+    userId
+  });
+  const ui = spindle.ui;
+  try {
+    const tabs = await ui.getDrawerTabs?.({ userId }) || [];
+    const lorebookTab = tabs.find((tab) => [tab.id, tab.shortName, tab.tabName, tab.tabDescription, ...tab.keywords || []].some((value) => /(?:lorebook|lore book|world book)/i.test(cleanString(value))));
+    if (lorebookTab && ui.openDrawerTab) {
+      await ui.openDrawerTab(lorebookTab.id, { userId });
+      return { ...result, message: `${result.message} Opened the Lorebook drawer.` };
+    }
+  } catch (error) {
+    spindle.log.warn(`[Reverie Relay] Lorebook export succeeded, but the Lorebook drawer could not be opened: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return { ...result, message: `${result.message} Open the Lorebook drawer to review it.` };
 }
 async function handleFrontendMessage(payload, userId) {
   switch (payload.type) {
@@ -158497,8 +158566,8 @@ async function buildProsePromptComposerMessages(chatId, opportunity, content, se
   });
 }
 function parseProsePromptCompositionJson(raw) {
-  const clean4 = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-  const json = clean4.startsWith("{") ? clean4 : clean4.slice(clean4.indexOf("{"), clean4.lastIndexOf("}") + 1);
+  const clean5 = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const json = clean5.startsWith("{") ? clean5 : clean5.slice(clean5.indexOf("{"), clean5.lastIndexOf("}") + 1);
   const parsed = JSON.parse(json);
   if (!cleanString(parsed.positivePrompt))
     throw new Error("Prompt composer JSON must include positivePrompt.");
@@ -158856,8 +158925,8 @@ function storeProsePlan(state, plan) {
   });
 }
 function parseProsePlannerJson(raw) {
-  const clean4 = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-  const json = clean4.startsWith("{") ? clean4 : clean4.slice(clean4.indexOf("{"), clean4.lastIndexOf("}") + 1);
+  const clean5 = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const json = clean5.startsWith("{") ? clean5 : clean5.slice(clean5.indexOf("{"), clean5.lastIndexOf("}") + 1);
   const parsed = JSON.parse(json);
   if (typeof parsed.shouldIllustrate !== "boolean")
     throw new Error("Planner JSON must include boolean shouldIllustrate.");
@@ -160591,12 +160660,12 @@ ${definition.sampleXml}`;
   return errors;
 }
 function sanitizeSurfaceId(value) {
-  const clean4 = cleanString(value).toLocaleLowerCase().replace(/[^a-z0-9._-]/g, "-").replace(/^-+|-+$/g, "");
-  return /^[a-z0-9][a-z0-9._-]{1,62}$/.test(clean4) ? clean4 : "";
+  const clean5 = cleanString(value).toLocaleLowerCase().replace(/[^a-z0-9._-]/g, "-").replace(/^-+|-+$/g, "");
+  return /^[a-z0-9][a-z0-9._-]{1,62}$/.test(clean5) ? clean5 : "";
 }
 function sanitizeWrapperName(value) {
-  const clean4 = cleanString(value).replace(/[^A-Za-z0-9_-]/g, "");
-  return /^[A-Za-z][A-Za-z0-9_-]{0,62}$/.test(clean4) ? clean4 : "";
+  const clean5 = cleanString(value).replace(/[^A-Za-z0-9_-]/g, "");
+  return /^[A-Za-z][A-Za-z0-9_-]{0,62}$/.test(clean5) ? clean5 : "";
 }
 function sanitizeDeclarativeMarkup(value) {
   return cleanString(value).replace(/<script[\s\S]*?<\/script>/gi, "").replace(/\son[a-z]+\s*=\s*(['"]).*?\1/gi, "").replace(/javascript:/gi, "");
@@ -161413,12 +161482,12 @@ function mergePromptFragmentsUnique(...values) {
   const out = [];
   for (const value of values) {
     for (const fragment of cleanString(value).split(/[,\n]+/)) {
-      const clean4 = fragment.trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
-      const key = normalizedPromptFragment(clean4);
-      if (!clean4 || !key || seen.has(key))
+      const clean5 = fragment.trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
+      const key = normalizedPromptFragment(clean5);
+      if (!clean5 || !key || seen.has(key))
         continue;
       seen.add(key);
-      out.push(clean4);
+      out.push(clean5);
     }
   }
   return out.join(", ");
@@ -162303,9 +162372,9 @@ function cloneValue(value) {
 }
 function firstString(...values) {
   for (const value of values) {
-    const clean4 = cleanString(value);
-    if (clean4)
-      return clean4;
+    const clean5 = cleanString(value);
+    if (clean5)
+      return clean5;
   }
   return "";
 }
@@ -162672,13 +162741,13 @@ function extractBalancedJsonObject(value) {
   return "";
 }
 function decodeLooseJsonString(value) {
-  const clean4 = value.trim();
-  if (!clean4)
+  const clean5 = value.trim();
+  if (!clean5)
     return "";
   try {
-    return JSON.parse(`"${clean4.replace(/\r?\n/g, "\\n")}"`);
+    return JSON.parse(`"${clean5.replace(/\r?\n/g, "\\n")}"`);
   } catch {}
-  return clean4.replace(/\\n/g, " ").replace(/\\r/g, " ").replace(/\\t/g, " ").replace(/\\"/g, '"').replace(/\\\\/g, "\\").trim();
+  return clean5.replace(/\\n/g, " ").replace(/\\r/g, " ").replace(/\\t/g, " ").replace(/\\"/g, '"').replace(/\\\\/g, "\\").trim();
 }
 function extractLooseJsonStringField(value, keys) {
   for (const key of keys) {
@@ -162702,20 +162771,20 @@ function parsedPromptFields(parsed) {
   return prompt ? { prompt, negativeAdditions, legacyNegativePrompt: hasLegacy } : null;
 }
 function parsePromptJson(raw) {
-  const clean4 = stripParserCodeFences(raw);
-  if (!clean4)
+  const clean5 = stripParserCodeFences(raw);
+  if (!clean5)
     throw new Error("Parser returned an empty response.");
-  const balanced = extractBalancedJsonObject(clean4);
+  const balanced = extractBalancedJsonObject(clean5);
   if (balanced) {
     try {
       const parsed = parsedPromptFields(JSON.parse(balanced));
       if (parsed)
-        return { ...parsed, recoveryMethod: balanced === clean4 ? undefined : "balanced-json" };
+        return { ...parsed, recoveryMethod: balanced === clean5 ? undefined : "balanced-json" };
     } catch {}
   }
-  const firstBrace = clean4.indexOf("{");
+  const firstBrace = clean5.indexOf("{");
   if (firstBrace >= 0) {
-    let repaired = clean4.slice(firstBrace).trim();
+    let repaired = clean5.slice(firstBrace).trim();
     repaired = repaired.replace(/,\s*$/, "");
     const quoteCount = (repaired.match(/(?<!\\)"/g) || []).length;
     if (quoteCount % 2 === 1)
@@ -162730,17 +162799,17 @@ function parsePromptJson(raw) {
         return { ...parsed, recoveryMethod: "repaired-json" };
     } catch {}
   }
-  const prompt = extractLooseJsonStringField(clean4, ["prompt", "positivePrompt", "positive_prompt", "finalPrompt", "final_prompt"]);
-  const negativeAdditions = extractLooseJsonStringField(clean4, ["negativeAdditions", "negative_prompt", "negativePrompt"]);
+  const prompt = extractLooseJsonStringField(clean5, ["prompt", "positivePrompt", "positive_prompt", "finalPrompt", "final_prompt"]);
+  const negativeAdditions = extractLooseJsonStringField(clean5, ["negativeAdditions", "negative_prompt", "negativePrompt"]);
   if (prompt) {
     return {
       prompt,
       negativeAdditions,
-      legacyNegativePrompt: !/negativeAdditions/i.test(clean4) && /negativePrompt/i.test(clean4),
+      legacyNegativePrompt: !/negativeAdditions/i.test(clean5) && /negativePrompt/i.test(clean5),
       recoveryMethod: "field-salvage"
     };
   }
-  const plain = clean4.replace(/^Here(?:'s| is) (?:the )?(?:strict )?JSON:?/i, "").replace(/^Final (?:positive )?prompt:?/i, "").trim();
+  const plain = clean5.replace(/^Here(?:'s| is) (?:the )?(?:strict )?JSON:?/i, "").replace(/^Final (?:positive )?prompt:?/i, "").trim();
   if (!/[{}]/.test(plain) && plain.length >= 24 && !/^(?:error|unable|cannot|sorry)\b/i.test(plain)) {
     return { prompt: plain, negativeAdditions: "", legacyNegativePrompt: false, recoveryMethod: "plain-text" };
   }
@@ -163353,7 +163422,8 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context) {
       throw abortError();
     const input = { ...finalRequest, userId, signal: controller.signal };
     const api = spindle.imageGen;
-    const canStream = typeof api.generateStream === "function";
+    const providerInfo = await streamProviderInfo(plan.provider, userId);
+    const canStream = imageProviderSupportsStreaming(plan.provider, providerInfo, typeof api.generateStream === "function");
     sendImageStreamEvent(userId, context, { event: "started", streaming: canStream, statusText: canStream ? "Connecting to live preview\u2026" : "Starting generation\u2026" });
     if (!canStream || !api.generateStream) {
       const result2 = await api.generate(input);
@@ -163431,6 +163501,19 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context) {
   } finally {
     releaseLane?.();
     releaseImageStream(context, controller);
+  }
+}
+async function streamProviderInfo(providerId, userId) {
+  try {
+    const api = spindle.imageGen;
+    if (!api.getProviders)
+      return;
+    const providers = await api.getProviders(userId);
+    const normalized2 = cleanString(providerId).toLocaleLowerCase();
+    return providers.find((provider) => cleanString(provider.id).toLocaleLowerCase() === normalized2 || cleanString(provider.name).toLocaleLowerCase() === normalized2);
+  } catch (error) {
+    spindle.log.warn(`[ReverieRelay:image_stream_provider] ${error instanceof Error ? error.message : String(error)}`);
+    return;
   }
 }
 function sendImageStreamEvent(userId, context, patch) {
@@ -163938,8 +164021,8 @@ function branchLabelForSnapshot(snapshot) {
   return "Original";
 }
 function imageIdFromUrl2(value) {
-  const clean4 = cleanString(value);
-  const match = clean4.match(/(?:results|images|image-gen)\/([^/?#"\s]+)/i);
+  const clean5 = cleanString(value);
+  const match = clean5.match(/(?:results|images|image-gen)\/([^/?#"\s]+)/i);
   return match ? decodeURIComponent(match[1]) : "";
 }
 function stringList3(value) {
@@ -164233,8 +164316,8 @@ async function sendState(userId, chatId) {
   if (chatId)
     cacheRenderSnapshot(chatId, userId, state, config);
   if (chatId)
-    syncEnabledSurfaceMacro(chatId, state, config, userId).catch((error) => {
-      spindle.log.warn(`[Reverie Relay] Deferred resolved-macro sync failed: ${error instanceof Error ? error.message : String(error)}`);
+    await syncEnabledSurfaceMacro(chatId, state, config, userId).catch((error) => {
+      spindle.log.warn(`[Reverie Relay] Resolved-macro sync failed: ${error instanceof Error ? error.message : String(error)}`);
     });
   const records = Object.values(state.slots).sort((a, b) => b.updatedAt - a.updatedAt);
   const globalAssets = await hostOwnedRelayAssetLibrary(state.assetLibrary, userId);
@@ -165485,8 +165568,8 @@ function sanitizeRecentVisualContext(value) {
     return "";
   if (/\b(OOC|integration test|debug export|motive ledger|router logs?|regex|stylesheet|developer handoff)\b/i.test(value))
     return "";
-  const clean4 = value.replace(/```[\s\S]*?```/g, " ").replace(/<style\b[\s\S]*?<\/style>/gi, " ").replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<(?:image_request|reverie-illustration)\b[\s\S]*?<\/(?:image_request|reverie-illustration)>/gi, " ").replace(/<!--\s*(?:reverie-relay|dreamglass):image(?:-error)?[\s\S]*?-->/gi, " ").replace(/<(?:tw_media|ig_media|ig_slide|s_img|k_img|image_request_error)\b[\s\S]*?<\/(?:tw_media|ig_media|ig_slide|s_img|k_img|image_request_error)>/gi, " ").replace(/\{[\s\S]{120,}?\}/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-  return compact(clean4, 700);
+  const clean5 = value.replace(/```[\s\S]*?```/g, " ").replace(/<style\b[\s\S]*?<\/style>/gi, " ").replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<(?:image_request|reverie-illustration)\b[\s\S]*?<\/(?:image_request|reverie-illustration)>/gi, " ").replace(/<!--\s*(?:reverie-relay|dreamglass):image(?:-error)?[\s\S]*?-->/gi, " ").replace(/<(?:tw_media|ig_media|ig_slide|s_img|k_img|image_request_error)\b[\s\S]*?<\/(?:tw_media|ig_media|ig_slide|s_img|k_img|image_request_error)>/gi, " ").replace(/\{[\s\S]{120,}?\}/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return compact(clean5, 700);
 }
 function resolveNamedVisualSubjects(sceneBrief, presets) {
   const matches = [];
@@ -165682,8 +165765,8 @@ function escapeRegExp3(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function cleanNullableString(value) {
-  const clean4 = cleanString(value);
-  return clean4 || null;
+  const clean5 = cleanString(value);
+  return clean5 || null;
 }
 function cleanParameters(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -165796,26 +165879,26 @@ function disciplineParserNegativeAdditions(additions, positivePrompt, classifica
   };
 }
 function disciplineParsedPositivePrompt(prompt, classification, job) {
-  let clean4 = prompt;
+  let clean5 = prompt;
   if (!requestHasVisibleFace(classification)) {
     for (const pattern of [...PORTRAIT_POSITIVE_PATTERNS, ...NON_PERSON_POSITIVE_PATTERNS]) {
-      clean4 = clean4.replace(pattern, " ");
+      clean5 = clean5.replace(pattern, " ");
     }
-    clean4 = clean4.replace(/\b(?:face\s*)?expression(?:\s*tags?)?\s*:\s*(?:none|n\/a|not applicable)\b\s*,?/gi, " ");
+    clean5 = clean5.replace(/\b(?:face\s*)?expression(?:\s*tags?)?\s*:\s*(?:none|n\/a|not applicable)\b\s*,?/gi, " ");
   }
   const requested = `${job.originalSceneBrief} ${job.caption || ""}`.toLocaleLowerCase();
   const generic = /^(?:realistic|4k(?: photography)?(?: style)?|professional photography)$/i;
-  clean4 = clean4.split(",").map((part) => part.trim()).filter((part) => part && (!generic.test(part) || requested.includes(part.toLocaleLowerCase()))).join(", ");
-  return clean4.replace(/\s+/g, " ").replace(/^,\s*|,\s*$/g, "").trim();
+  clean5 = clean5.split(",").map((part) => part.trim()).filter((part) => part && (!generic.test(part) || requested.includes(part.toLocaleLowerCase()))).join(", ");
+  return clean5.replace(/\s+/g, " ").replace(/^,\s*|,\s*$/g, "").trim();
 }
 function enforceDirectSurfaceFraming(prompt, classification) {
-  let clean4 = prompt.replace(/\bno\s+unless explicitly requested\b/gi, " ").replace(/\s+/g, " ").replace(/,\s*,/g, ",").replace(/^\s*[,;:\x97-]+|[,;:\x97-]+\s*$/g, "").trim();
+  let clean5 = prompt.replace(/\bno\s+unless explicitly requested\b/gi, " ").replace(/\s+/g, " ").replace(/,\s*,/g, ",").replace(/^\s*[,;:\x97-]+|[,;:\x97-]+\s*$/g, "").trim();
   const fragments = classification === "screenshot/article/ui" ? ["direct flat 2D screen capture", "edge-to-edge interface content", "orthographic front-on view", "screen content only", "crisp readable UI layout"] : classification === "document" ? ["document fills most of the frame", "top-down or near-top-down close-up", "page-centered composition", "minimal surrounding surface"] : [];
   if (!fragments.length)
-    return clean4;
-  const normalized2 = clean4.toLocaleLowerCase();
+    return clean5;
+  const normalized2 = clean5.toLocaleLowerCase();
   const missing = fragments.filter((fragment) => !normalized2.includes(fragment.toLocaleLowerCase()));
-  return [clean4, ...missing].filter(Boolean).join(", ");
+  return [clean5, ...missing].filter(Boolean).join(", ");
 }
 function directPromptConflictReason(prompt, negativeTerm, classification) {
   const positive = prompt.toLocaleLowerCase();
@@ -165870,8 +165953,8 @@ function negativeTermSources(term, pipeline) {
   return sources.filter(([, value]) => value.split(",").some((candidate) => candidate.trim().toLocaleLowerCase() === normalized2)).map(([label]) => label);
 }
 function compact(value, max) {
-  const clean4 = value.replace(/\s+/g, " ").trim();
-  return clean4.length > max ? `${clean4.slice(0, max)}...` : clean4;
+  const clean5 = value.replace(/\s+/g, " ").trim();
+  return clean5.length > max ? `${clean5.slice(0, max)}...` : clean5;
 }
 function logStage(config, stage, details, level = "info") {
   if (!config.debugLogging && level !== "error")

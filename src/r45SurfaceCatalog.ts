@@ -31,35 +31,6 @@ Album Cover contract note: a real album/release title is required in [title] bef
   return module
 }
 
-const CHARACTER_PROFILE_PROMPT = `<character_profile_utility>
-[CAST SHEET — REVERIE RELAY UTILITY]
-
-A Cast Sheet is a compact visual introduction card for a named character. <character_profile> remains the stable canonical root. Its first child is the mandatory <portrait> region. The Relay <image_request> lives inside that portrait; never substitute <media> for it.
-
-Use exactly one request with target="custom.artifact-media", aspect="3:4", and a unique lowercase slug-safe id and matching slot beginning with character-profile-. Describe visible appearance, current clothing, expression, posture, meaningful props, environment, lighting, and portrait composition. Keep readable text, labels, logos, captions, watermarks, and speech bubbles out of the generated portrait.
-
-The image must remain inside the same portrait region through pending, live preview, completed, retry, reparse, and reload states. After </portrait>, output <name>, <role>, <hook>, and <trait> in that order. Use only visible or already established information safe to the current viewpoint.
-
-OUTPUT FORMAT — EXACT
-<character_profile>
-<portrait>
-<image_request
-  id="character-profile-UNIQUE-ID"
-  target="custom.artifact-media"
-  slot="character-profile-UNIQUE-ID"
-  aspect="3:4"
-  alt="Portrait of Character"
->
-<scene_brief>Polished story-appropriate illustrated portrait with established visible identity, current clothing, expression, posture, meaningful setting, and no readable text.</scene_brief>
-</image_request>
-</portrait>
-<name>Character Name</name>
-<role>Scene-relevant role</role>
-<hook>One-line orientation hook</hook>
-<trait>Concrete visible or established trait</trait>
-</character_profile>
-</character_profile_utility>`
-
 const rows: CatalogRow[] = [
   { id: 'smartphone', label: 'Smartphone', icon: '▣', root: 'smart_phone', target: 'smartphone.message-image', category: 'social-messaging', aspect: '4:3', sample: `<smart_phone sender="Contact A" initial="A" time="21:14" day="Friday" battery="72"><notifications><s_note app="Messages" sender="Contact A" time="21:12">New message</s_note></notifications><contact>Contact A · mobile</contact><messages><s_recv time="21:12">Look at this.</s_recv><s_img side="recv" time="21:12">${request('phone-message-1', 'smartphone.message-image', '4:3', 'Context-specific photo sent by Contact A in this conversation, no phone interface or readable text.')}</s_img><s_sent time="21:14">I see it.</s_sent></messages><info>Conversation details</info></smart_phone>` },
   { id: 'instagram', label: 'Instagram Post', icon: '◎', root: 'ig_app', target: 'instagram.single', category: 'social-messaging', aspect: '1:1', sample: `<ig_app user="@archive_a" loc="North Pier" likes="1,284" verified="true">${request('instagram-post-1', 'instagram.single', '1:1', 'Square social photograph of North Pier after rain, complete scene visible, no interface or readable text.')}<caption>Blue hour after the rain.</caption><comments><i_comment user="@reader_a" time="12m" likes="4" verified="">Beautiful light.<i_reply user="@archive_a" time="8m">Thank you.</i_reply></i_comment></comments></ig_app>` },
@@ -70,7 +41,7 @@ const rows: CatalogRow[] = [
   { id: 'photo-booth-strip', label: 'Photo Booth Strip', icon: '▥', root: 'photo_booth_strip', category: 'narrative-visuals', aspect: '2:5', sample: `<photo_booth_strip title="After Midnight" date="Tonight"><booth_frame>${request('booth-frame-1', 'custom.artifact-media', '2:5', 'First pose in one coherent vertical photo-booth session, stable identities, wardrobe, booth, and lighting, no text.')}</booth_frame><booth_frame>${request('booth-frame-2', 'custom.artifact-media', '2:5', 'Second pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.')}</booth_frame><booth_frame>${request('booth-frame-3', 'custom.artifact-media', '2:5', 'Third pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.')}</booth_frame><booth_frame>${request('booth-frame-4', 'custom.artifact-media', '2:5', 'Fourth pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.')}</booth_frame><caption>Four frames after midnight.</caption></photo_booth_strip>` },
   { id: 'polaroid', label: 'Polaroid', icon: '□', root: 'polaroid_frame', category: 'narrative-visuals', aspect: '1:1', sample: `<polaroid_frame date="Tonight" location="North Pier"><photo>${request('polaroid-photo-1', 'custom.artifact-media', '1:1', 'Complete square candid instant photograph at North Pier after rain, no paper border or readable text.')}</photo><caption>After the rain.</caption></polaroid_frame>` },
   { id: 'youtube-thumbnail', label: 'YouTube Watch Page', icon: '▶', root: 'yt_thumbnail', category: 'covers-promotion', aspect: '16:9', sample: `<yt_thumbnail channel="Field Archive" title="The Last Train at North Pier" views="18K views" age="2 hours ago" subscribers="84K subscribers"><yt_media>${request('youtube-frame-1', 'custom.artifact-media', '16:9', 'Wide frame of the last train arriving at North Pier, key action center-safe, no YouTube chrome, logo, play icon, or readable text.')}</yt_media><yt_comments><yt_comment user="viewer_one" time="12m" likes="28">The platform light changed.</yt_comment><yt_comment user="viewer_two" time="4m" likes="9">Look near the far gate.</yt_comment></yt_comments></yt_thumbnail>` },
-  { id: 'character-profile', label: 'Cast Sheet', icon: '♙', root: 'character_profile', category: 'narrative-visuals', aspect: '3:4', profile: 'character-portrait', promptModule: CHARACTER_PROFILE_PROMPT, sample: `<character_profile><portrait>${request('character-profile-guide', 'custom.artifact-media', '3:4', 'Polished story-appropriate illustrated portrait of the named character, current appearance and clothing, expressive posture, meaningful setting, no readable text.')}</portrait><name>Character A</name><role>Field Guide</role><hook>Knows the city after dark.</hook><trait>Observant · patient · guarded</trait></character_profile>` },
+  { id: 'character-profile', label: 'Cast Sheet', icon: '♙', root: 'character_profile', category: 'narrative-visuals', aspect: '3:4', profile: 'character-portrait', sample: `<character_profile><portrait>${request('character-profile-guide', 'custom.artifact-media', '3:4', 'Polished story-appropriate illustrated portrait of the named character, current appearance and clothing, expressive posture, meaningful setting, no readable text.')}</portrait><name>Character A</name><role>Field Guide</role><hook>Knows the city after dark.</hook><trait>Observant · patient · guarded</trait></character_profile>` },
   { id: 'music-player', label: 'Music Player', icon: '♫', root: 'music_player', category: 'covers-promotion', aspect: '1:1', sample: `<music_player track="Night Signal" artist="Fictional Artist" album="Afterglow" current="1:12" duration="3:48"><mu_cover>${request('music-cover', 'custom.artifact-media', '1:1', 'Square fictional album artwork with an abstract night-city composition and no readable text.')}</mu_cover><mu_lyrics>Instrumental passage.</mu_lyrics><mu_queue>Next track · Quiet Avenue</mu_queue></music_player>` },
   { id: 'location-share', label: 'Live Location', icon: '⌖', root: 'location_share', category: 'social-messaging', aspect: '4:3', sample: `<location_share sender="[contextual sender]" destination="[contextual destination]" eta="[contextual ETA]" remaining="[contextual distance]" updated="[contextual update]"><lc_map>${request('location-map', 'custom.artifact-media', '4:3', 'Top-down modern navigation map for the current contextual route toward the authored destination, route geometry and destination-pin area visible, no people, no portrait photography, no generated text labels.')}</lc_map><lc_note>Contextual route note.</lc_note><lc_steps><lc_step>Contextual start</lc_step><lc_step>Contextual destination</lc_step></lc_steps></location_share>` },
   { id: 'voice-memo', label: 'Voice Memo', icon: '◉', root: 'voice_memo', category: 'social-messaging', aspect: '1:1', sample: `<voice_memo sender="Character A" time="18:05" duration="0:42" status="played"><vm_avatar>${request('voice-avatar', 'custom.artifact-media', '1:1', 'Centered reusable head-and-shoulders avatar of Character A, neutral background, no text.')}</vm_avatar><vm_transcript>I reached the platform. Call when you arrive.</vm_transcript><vm_calls>One outgoing call.</vm_calls></voice_memo>` },

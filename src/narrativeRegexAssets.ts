@@ -58,6 +58,15 @@ const EXPECTED_PIN: Record<NarrativeRegexVariant, string> = {
 }
 
 const DRAMATIC_CUTAWAY_PACK = dramaticCutawayPack as unknown as NarrativeRegexPack
+const NARRATIVE_MEDIA_OWNER_CLASS = /(?:dg-dramatic-media|r65-media|rv6-media|ru-media|ru-portrait|ru-secret-media|ru-thread-media|rrcp-media|rrcp-photo-media|rrcp-wallpaper)/
+
+/** Relay resolves Narrative-owned jobs to direct artifact media nodes. Keep
+ * those nodes inside the approved layouts without redesigning their CSS. */
+export const NARRATIVE_MEDIA_COMPATIBILITY_STYLE = `<style data-reverie-narrative-media-compat="1">
+.dg-dramatic-media{min-width:0;max-width:100%;overflow:hidden;text-align:center}
+.dg-dramatic-media>img,.dg-dramatic-media>.reverie-artifact-media{display:block!important;width:100%!important;max-width:100%!important;height:auto!important;margin-inline:auto!important;object-fit:contain!important;object-position:center!important}
+.r65-media>.reverie-artifact-media,.rv6-media>.reverie-artifact-media,.ru-media>.reverie-artifact-media,.ru-portrait>.reverie-artifact-media,.ru-secret-media>.reverie-artifact-media,.ru-thread-media>.reverie-artifact-media,.rrcp-media>.reverie-artifact-media,.rrcp-photo-media>.reverie-artifact-media,.rrcp-wallpaper>.reverie-artifact-media{display:block!important;width:100%!important;max-width:100%!important;height:auto!important;margin-inline:auto!important;object-fit:contain!important;object-position:center!important}
+</style>`
 
 const safeMessageId = (value: string): string => String(value || 'narrative').replace(/[^A-Za-z0-9_-]+/g, '-') || 'narrative'
 const NARRATIVE_MARKUP = /\[(?:SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i
@@ -133,7 +142,15 @@ export function narrativeRegexScripts(variant: NarrativeRegexVariant): Narrative
   const ids = scripts.map(script => script.script_id)
   if (new Set(ids).size !== ids.length) throw new Error(`Duplicate active Narrative Regex script IDs in ${variant}`)
   return scripts
-    .map(script => ({ ...script, replace_string: sceneCompassPresentation(script.script_id, script.replace_string) }))
+    .map(script => {
+      const replacement = sceneCompassPresentation(script.script_id, script.replace_string)
+      return {
+        ...script,
+        replace_string: NARRATIVE_MEDIA_OWNER_CLASS.test(replacement)
+          ? `${NARRATIVE_MEDIA_COMPATIBILITY_STYLE}${replacement}`
+          : replacement,
+      }
+    })
     .sort((left, right) => Number(left.sort_order) - Number(right.sort_order))
 }
 

@@ -1467,6 +1467,43 @@ const TARGETS = new Set<ImageTarget>([
 const MAX_COUNT = 4
 const MAX_PROMPT_CHARS = 6000
 
+const NARRATIVE_MEDIA_CONTEXTS: ReadonlyArray<{ open: RegExp; close: RegExp }> = [
+  { open: /<dramatic_parallel\b[^>]*>/gi, close: /<\/dramatic_parallel\s*>/gi },
+  { open: /<chaos_payload\b[^>]*>/gi, close: /<\/chaos_payload\s*>/gi },
+  { open: /<dossier_ui\b[^>]*>/gi, close: /<\/dossier_ui\s*>/gi },
+  { open: /\[SCENE(?:\||\])/gi, close: /\[\/SCENE\]/gi },
+  { open: /\[PARALLEL\|/gi, close: /\[\/PARALLEL\]/gi },
+  { open: /\[NPC:/gi, close: /\[\/NPC\]/gi },
+  { open: /\[SECRET\|/gi, close: /\[\/SECRET\]/gi },
+  { open: /\[WORLD\|/gi, close: /\[\/WORLD\]/gi },
+  { open: /\[WHATIF\|/gi, close: /\[\/WHATIF\]/gi },
+  { open: /\[(?:character_phone|private_phone)\b[^\]]*\]/gi, close: /\[\/(?:character_phone|private_phone)\]/gi },
+  { open: /\[\[(?:else|npc|place)\b[^\]]*\]\]/gi, close: /\[\[\/(?:else|npc|place)\]\]/gi },
+]
+
+function lastMatchIndex(input: string, pattern: RegExp, before: number): number {
+  pattern.lastIndex = 0
+  let last = -1
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(input)) !== null && match.index < before) {
+    last = match.index
+    if (!match[0].length) pattern.lastIndex += 1
+  }
+  return last
+}
+
+export function isNarrativeOwnedImageRequest(content: string, requestIndex: number): boolean {
+  for (const context of NARRATIVE_MEDIA_CONTEXTS) {
+    const openIndex = lastMatchIndex(content, new RegExp(context.open.source, context.open.flags), requestIndex)
+    if (openIndex < 0) continue
+    const close = new RegExp(context.close.source, context.close.flags)
+    close.lastIndex = requestIndex
+    const closeMatch = close.exec(content)
+    if (closeMatch && closeMatch.index >= requestIndex) return true
+  }
+  return false
+}
+
 export function isImageTarget(value: string): value is ImageTarget {
   return TARGETS.has(value as ImageTarget) || /^custom\.[a-z0-9][a-z0-9._-]{1,62}$/i.test(value)
 }
@@ -1549,10 +1586,14 @@ export function parseImageRequests(content: string): ImageRequest[] {
     const attrs = parseAttrs(match[2])
     const body = match[3].trim()
     const isIllustrationProtocol = tagName === 'reverie-illustration'
+    const narrativeOwned = isNarrativeOwnedImageRequest(content, match.index)
     if (isIllustrationProtocol && String(attrs.request || '').toLocaleLowerCase() !== 'generate') continue
 
     const id = (attrs.id || attrs.request_id || (isIllustrationProtocol ? attrs.slot : ''))?.trim()
-    const target = (isIllustrationProtocol ? 'prose.illustration' : attrs.target?.trim()) as ImageTarget | undefined
+    const authoredTarget = (isIllustrationProtocol ? 'prose.illustration' : attrs.target?.trim()) as ImageTarget | undefined
+    const target = (narrativeOwned && authoredTarget === 'prose.illustration'
+      ? 'custom.artifact-media'
+      : authoredTarget) as ImageTarget | undefined
     if (!id || !target || !isImageTarget(target)) continue
 
     const visualPrompt = isIllustrationProtocol ? firstTagText(body, 'visual_prompt')?.trim() : ''
@@ -1590,7 +1631,9 @@ export function parseImageRequests(content: string): ImageRequest[] {
       time: requestTime,
       prompt: prompt.trim().slice(0, MAX_PROMPT_CHARS),
       cast,
-      promptSource: isIllustrationProtocol
+      promptSource: isIllustrationProtocol && narrativeOwned
+        ? 'structured'
+        : isIllustrationProtocol
         ? visualPrompt ? 'visual_prompt' : 'legacy-body'
         : 'structured',
       negative: firstTagText(body, 'negative')?.trim(),

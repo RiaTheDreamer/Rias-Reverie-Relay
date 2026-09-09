@@ -1127,7 +1127,7 @@ export function setup(ctx: SpindleFrontendContext) {
   `)
 
   const tab = ctx.ui.registerDrawerTab({
-    id: 'dreamglass-image-router',
+    id: 'reverie-relay',
     title: 'Reverie Relay',
     shortName: 'R³',
     headerTitle: 'Reverie Relay · Surface Suite',

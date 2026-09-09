@@ -366,9 +366,12 @@ Use only the enabled modules below. The shared protocol above governs placement,
 
 export const REVERIE_ALL_PROTOCOLS = `${REVERIE_SURFACE_PROTOCOL}\n\n${REVERIE_ILLUSTRATION_PROTOCOL}\n\n${REVERIE_ARTIFACT_MEDIA_PROTOCOL}`
 
+/** Legacy XML normalization reference used to recover imported/persisted
+ * Surface definitions. Runtime model instructions are generated from each
+ * canonical sample as bracket-native modules before injection. */
 export const DEFAULT_SURFACE_PROMPT_MODULES: Record<string, string> = {
   smartphone: `SURFACE: SMARTPHONE — REGEX PACK CONTRACT
-Output raw XML only. Use this structure and child order:
+Legacy XML compatibility shape (parser input only; current model authoring is bracket-native). Preserve this structure and child order when repairing imported XML:
 <smart_phone sender="[contact name]" initial="[one letter]" time="[24-hour HH:MM]" day="[day/date]" battery="[0-100]">
 <notifications>
 <s_note app="[app]" sender="[sender]" time="[HH:MM]">Notification text.</s_note>
@@ -387,7 +390,7 @@ Rules: <messages> is required. <notifications>, <contact>, and <info> are option
   'inline-chat': `SURFACE: INLINE CHAT
 Use <inline_chat header="[conversation title]"> for a compact complete private exchange with multiple coherent left and right messages.`,
   instagram: `SURFACE: INSTAGRAM — REGEX PACK CONTRACT
-Output raw XML only. Root attributes may be parsed flexibly, but use this canonical order:
+Legacy XML compatibility shape (parser input only; current model authoring is bracket-native). Root attributes may be parsed flexibly, but preserve this canonical order during repair:
 <ig_app user="[username]" loc="[location]" likes="[count]" verified="[true or empty]">
 [media]
 <caption>Caption text.</caption>
@@ -398,7 +401,7 @@ Output raw XML only. Root attributes may be parsed flexibly, but use this canoni
 Single media: place exactly one <image_request id="instagram-UNIQUE-ID" target="instagram.single" slot="post-media" aspect="1:1" alt="Accessible post description"><scene_brief>Complete visible post image.</scene_brief></image_request> before <caption>.
 Carousel media: place exactly one <image_request id="instagram-UNIQUE-ID" target="instagram.carousel" slot="carousel" count="2" aspect="1:1" alt="Accessible carousel description"><scene_brief>Describe each slide consecutively as Slide 1, Slide 2, and so on.</scene_brief></image_request> before <caption>. Use count 2-4. Never emit target="instagram.slide". Include <caption> and <comments> even when their text is brief. Put every <i_reply> inside its owning <i_comment>.`,
   twitter: `SURFACE: TWITTER / X — REGEX PACK CONTRACT
-Output raw XML only. Attribute order is strict. Use this outer order exactly:
+Legacy XML compatibility shape (parser input only; current model authoring is bracket-native). Preserve this outer order exactly during repair:
 <twitter_app>
 <for_you>...</for_you>
 <following>...</following>
@@ -422,7 +425,7 @@ Optional elements and their strict attribute order:
 <tw_trend rank="[rank]" posts="[count]" category="[category]" location="[location]">Trend name.</tw_trend>
 Never author resolved <tw_media src="..."> markup; Relay writes that after generation.`,
   kakao: `SURFACE: KAKAOTALK — REGEX PACK CONTRACT
-Output raw XML only. Attribute and child order are strict:
+Legacy XML compatibility shape (parser input only; current model authoring is bracket-native). Attribute and child order remain strict during repair:
 <kakao_chat title="[group title]" date="[date]" time="[time]" unread="[count]">
 <participants>
 <k_part name="[name]" avatar="[initial or emoji]" color="[#hex]"/>
@@ -440,7 +443,7 @@ Output raw XML only. Attribute and child order are strict:
 </kakao_chat>
 Place <participants> before <messages>. Use exact k_part, k_msg, k_reply, k_react, k_file, k_system, and k_typing attribute order. Put each 4:3 image request inside its authored <k_img> at the exact message position; never use stale 4:5 media.`,
   'album-cover': `SURFACE: ALBUM COVER — ART-FIRST REGEX PACK CONTRACT
-Output raw XML only. A real album/release title is required for newly authored output: use the established title, or deliberately name the fictional release when the scene creates it. Never substitute a generic label or player state. Artist and release context are optional.
+Legacy XML compatibility shape (parser input only; current model authoring is bracket-native). A real album/release title is required for newly authored output: use the established title, or deliberately name the fictional release when the scene creates it. Never substitute a generic label or player state. Artist and release context are optional.
 <album_cover>
 <title>Actual album or release title</title>
 <artist>Actual artist name when known</artist>

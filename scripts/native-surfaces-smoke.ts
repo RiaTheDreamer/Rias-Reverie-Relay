@@ -41,7 +41,7 @@ const colors: R45ColorMode[] = ['realistic', 'primary']
 let matrixCases = 0
 for (const presentation of presentations) for (const color of colors) {
   const pack = r45SurfaceAuthorityPack(presentation, color)
-  assert(pack.version === '2.2.1' && pack.relay_product_version === '0.2.0', `${presentation}/${color}: authority identity`)
+  assert(pack.version === '2.2.1' && pack.relay_product_version === '0.2.1', `${presentation}/${color}: authority identity`)
   assert(pack.scripts.length === 138 && pack.scripts.every(script => script.disabled !== true), `${presentation}/${color}: all 138 scripts enabled`)
   assert(new Set(pack.scripts.map(script => script.script_id)).size === 138, `${presentation}/${color}: unique script IDs`)
   for (const surface of canonical) {

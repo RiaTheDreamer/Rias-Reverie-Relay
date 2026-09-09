@@ -47,6 +47,13 @@ const legacyModelPlaced = parseImageRequests('<reverie-illustration request="gen
 assert(legacyModelPlaced?.promptSource === 'legacy-body' && legacyModelPlaced.prompt.includes('walking through Location A'), 'expected direct-body prose illustration compatibility')
 const noCast = parseImageRequests('<reverie-illustration request="generate" slot="object-scene" cast="none"><visual_prompt>cracked smartphone lying face-up on a woven rug, empty bedroom</visual_prompt></reverie-illustration>')[0]
 assert(noCast?.cast === 'none', 'expected cast none to survive request parsing')
+const narrativeIllustration = parseImageRequests('<dramatic_parallel><div class="dp-media"><reverie-illustration request="generate" slot="cutaway-1" aspect="16:9" cast="none"><visual_prompt>empty western street under hard noon light</visual_prompt></reverie-illustration></div></dramatic_parallel>')[0]
+assert(narrativeIllustration?.target === 'custom.artifact-media', 'Narrative-owned illustration must resolve inside its artifact-media owner')
+assert(narrativeIllustration?.promptSource === 'structured', 'Narrative-owned illustration must use the shared parser path')
+assert(narrativeIllustration?.slot === 'cutaway-1', 'Narrative-owned illustration must preserve its exact owner slot')
+const bracketNarrativeIllustration = parseImageRequests('[SCENE|Gym|17:10|Tense]<scene-media><reverie-illustration request="generate" slot="scene-card-1"><visual_prompt>players crossing a gym floor</visual_prompt></reverie-illustration></scene-media>[/SCENE]')[0]
+assert(bracketNarrativeIllustration?.target === 'custom.artifact-media' && bracketNarrativeIllustration.promptSource === 'structured', 'bracket Narrative owner must normalize to artifact media')
+assert(modelPlaced?.target === 'prose.illustration' && modelPlaced.promptSource === 'visual_prompt', 'standalone Prose Illustrator must retain its dedicated authoritative path')
 const intentRequests = parseImageRequests(`<tw_post><image_request id="meme-1" target="twitter.media" intent="meme">A deliberately cheap reaction meme.</image_request></tw_post><image_request id="unknown-1" target="twitter.media" intent="banana-catastrophe">Normal candid.</image_request>`)
 assert(intentRequests[0].intent === 'meme', 'expected supported image intent to parse and persist')
 assert(intentRequests[1].intent === 'auto', 'expected unknown image intent to fall back to auto')
@@ -691,7 +698,7 @@ assert(manifest.permissions?.includes('interceptor') && manifest.permissions?.in
 
 const versionMatch = buildSource.match(/EXTENSION_VERSION = '([^']+)'/)
 const buildIdMatch = buildSource.match(/BUILD_ID = '([^']+)'/)
-assert(versionMatch?.[1] === manifest.version && /^\d{8}-0\.2\.0$/i.test(buildIdMatch?.[1] || ''), 'expected shared current release identity')
+assert(versionMatch?.[1] === manifest.version && /^\d{8}-0\.2\.1$/i.test(buildIdMatch?.[1] || ''), 'expected shared current release identity')
 assert(backendSource.includes('STATE_SCHEMA_VERSION = 34'), 'expected state schema 34')
 
 assert(frontendSource.includes("type SuiteSection = 'relay' | 'illustrator' | 'surfaces' | 'memory' | 'archive' | 'settings'"), 'expected six-part Surface Suite navigation')

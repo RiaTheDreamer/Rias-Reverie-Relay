@@ -69,6 +69,9 @@ assert.deepEqual(chat.metadata.chat_world_book_ids, ['existing-user-book', first
 assert.equal(chat.metadata.custom, 'preserved', 'unrelated chat metadata is preserved')
 assert.equal(host.entries[0].input.comment, 'Character Dossier - Example A')
 assert.deepEqual((host.entries[0].input.extensions as any).reverie_relay_source_swipe_id, 2)
+assert.equal((host.entries[0].input.extensions as any).reverie_relay_surface_occurrence, 0)
+assert.equal((host.entries[0].input.extensions as any).reverie_relay_exported_title, 'Example A')
+assert.match((host.entries[0].input.extensions as any).reverie_relay_source_fingerprint, /^\d+:[0-9a-f]{8}$/)
 
 await exportNarrativeLorebookRecord({ api: host.api, chat, record: location!, kind: 'location-file', messageId: 'message-2', swipeId: 0 })
 assert.equal(host.books.length, 2, 'repeated exports reuse the exact chat-owned Relay archive')
