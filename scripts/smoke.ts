@@ -785,6 +785,8 @@ assert(frontendSource.includes('Concurrent Image Jobs') && backendSource.include
 assert(frontendSource.includes('Dry Run') && backendSource.includes('dryRunReportFromPlan') && backendSource.includes('explain_no_generation'), 'expected Dry Run and blocker diagnostics')
 assert(!frontendSource.includes("button('Beginner Mode'") && !frontendSource.includes("button('Expert Mode'") && frontendSource.includes("panelSection('Core Settings'"), 'expected one unified settings interface without beginner/expert gating')
 assert(frontendSource.includes('tutorialModeEnabled') && frontendSource.includes('Quick Start Overview'), 'expected first-run Quick Start Overview')
+assert(frontendSource.includes('patchConfig({ tutorialModeEnabled: false, tutorialStep: 0 })') && frontendSource.includes("button('Open Quick Start Overview', openQuickStartOverview"), 'expected one-time Quick Start persistence with an explicit manual reopen action')
+assert(frontendSource.includes('.dg-router-panel.dg-help-portal::before { content:none!important; display:none!important; }'), 'expected help portal to suppress the full-panel Velvet Prism decoration')
 assert(!frontendSource.includes('Scene Sequence / Storyboard') && !backendSource.includes("type: 'storyboard_action'"), 'expected removed storyboard mode to stay absent')
 assert(frontendSource.includes('message.revision < stateRevision'), 'expected stale frontend state rejection')
 assert(!frontendSource.includes("ctx.events.on('GENERATION_ENDED'"), 'expected backend-only generation discovery')
