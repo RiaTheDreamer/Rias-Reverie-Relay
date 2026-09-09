@@ -10,7 +10,8 @@ import {
   reconcileNarrativeRegex,
   removeNarrativeRegex,
 } from '../src/narrativeDlcRuntime'
-import { applyNarrativeDisplayNames, containsNarrativeRegexMarkup, narrativeRegexPack, narrativeRegexScripts, narrativeUtilityItems, narrativeUtilityNames, renderNarrativeRegex } from '../src/narrativeRegexAssets'
+import { applyNarrativeDisplayNames, containsNarrativeRegexMarkup, narrativeRegexPack, narrativeRegexScripts, narrativeUtilityItems, narrativeUtilityNames, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup } from '../src/narrativeRegexAssets'
+import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { parseImageRequests, renderResolvedMarkup } from '../src/contracts'
 
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
@@ -78,6 +79,7 @@ assert(api.rows.every(row => row.can_mutate && row.folder === NARRATIVE_DLC_FOLD
 assert(api.rows.every(row => row.metadata.reverie_narrative_variant === 'sparkle-button'), 'installed scripts must record selected variant')
 assert(api.rows.some(row => row.actions.length > 0), 'installer must preserve approved Narrative interaction actions')
 assert(api.rows.some(row => row.script_id === 'ria_dramatic_cutaway_lumiverse_native_bulletproof_v8'), 'approved Dramatic Cutaway renderer must be installed')
+assert(api.rows.some(row => row.name.includes('Parallel Scene')) && !api.rows.some(row => row.name.includes('Parallel Current')), 'installed host Regex scripts must use the current public Narrative labels')
 
 const disabledSourceScript = narrativeRegexPack('sparkle-button').scripts.find(script => script.disabled === true)
 assert(Boolean(disabledSourceScript), 'source compatibility pack must retain disabled history for provenance testing')
@@ -146,6 +148,18 @@ assert(resolvedDramaticMedia.includes('class="reverie-artifact-media"') && !reso
 const completedDramatic = renderNarrativeRegex(dramaticFixture.replace(dramaticRequest.fullMatch, resolvedDramaticMedia), 'sparkle-button', 'dramatic-runtime')
 assert(completedDramatic.includes('dg-dramatic-cutaway') && completedDramatic.includes('/api/v1/image-gen/results/cutaway-image'), 'completed Narrative media must survive a full rerender inside the original Surface')
 
+const failedParallelFixture = `[PARALLEL|Campus and beyond|complication]
+- First independent thread <parallel-media><!-- reverie-relay:image-error requestId="parallel-1" slot="thread_1" --><image_request_error id="parallel-1" target="custom.artifact-media" slot="thread_1" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error></parallel-media>
+- Second independent thread <parallel-media><!-- reverie-relay:image-error requestId="parallel-2" slot="thread_2" --><image_request_error id="parallel-2" target="custom.artifact-media" slot="thread_2" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error></parallel-media>
+- Third independent thread <parallel-media><!-- reverie-relay:image-error requestId="parallel-3" slot="thread_3" --><image_request_error id="parallel-3" target="custom.artifact-media" slot="thread_3" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error></parallel-media>
+[/PARALLEL]`
+assert(!shouldRelayRenderNarrativeMarkup(failedParallelFixture.replace(/<!--\s*(?:reverie-relay|dreamglass):image-error\b[\s\S]*?-->\s*<image_request_error\b[\s\S]*?<\/image_request_error>/gi, ''), 'legacy-regex'), 'healthy Regex Rendered Narrative markup must remain host-owned')
+assert(shouldRelayRenderNarrativeMarkup(failedParallelFixture, 'legacy-regex'), 'failed Narrative media must enable the bounded Relay containment fallback in Regex Rendered mode')
+const failedParallelNative = renderNativeSurfaceMarkup(failedParallelFixture, { definitions: {}, activePresetIds: {}, collectionPresets: {}, rendererMode: 'legacy-regex', defaultShellMode: 'sparkling', colorMode: 'realistic' } as any, { chatId: 'failed-parallel', messageId: 'failed-parallel', swipeId: 0 }).content
+const failedParallelRendered = renderNarrativeRegex(failedParallelNative, 'sparkle-button', 'failed-parallel', { chatId: 'failed-parallel', swipeId: 0 })
+assert(!failedParallelRendered.includes('[PARALLEL|') && !failedParallelRendered.includes('[/PARALLEL]'), 'failed media must not expose raw Parallel syntax after the Relay containment fallback')
+assert((failedParallelRendered.match(/data-rrn-native-request="parallel-/g) || []).length === 3, 'failed Parallel media must retain three independently retryable lifecycle owners')
+
 const lorebookFixtures = [
   { kind: 'cast-introduction', source: '[NPC:MAJOR|Lisa]\n<npc-media>portrait</npc-media>\nb: dancer\na: messy lavender hair, glasses\np: observant\n[/NPC]' },
   { kind: 'character-dossier', source: '[[npc Lisa|main]]<npc-media>portrait</npc-media>Identity and history.[[/npc]]' },
@@ -164,7 +178,7 @@ const backend = fs.readFileSync(path.join(root, 'src/backend.ts'), 'utf8')
 const narrativeLorebook = fs.readFileSync(path.join(root, 'src/narrativeLorebook.ts'), 'utf8')
 assert(backend.includes('const automaticNarrative = routerConfig.narrativeDlcEnabled') && backend.includes('buildResolvedNarrativeUtilityPrompt(routerConfig)'), 'Story Model interceptor must resolve Narrative Utilities through the runtime source path')
 assert(backend.includes("name: 'reverie_narrative'") && backend.includes('NARRATIVE_MACRO_MARKER'), 'placed Narrative macro path must be registered and expanded')
-assert(backend.includes('renderNarrativeRegex(renderedContent, snapshot.narrativeVariant') && backend.includes("renderContext.rendererMode !== 'legacy-regex'"), 'Relay/Hybrid must execute the isolated Narrative renderer while legacy Regex mode remains host-owned')
+assert(backend.includes('renderNarrativeRegex(renderedContent, snapshot.narrativeVariant') && backend.includes('shouldRelayRenderNarrativeMarkup(source, renderContext.rendererMode)'), 'Relay/Hybrid must execute the isolated Narrative renderer and failed legacy Regex markup must use the bounded containment fallback')
 assert(backend.includes("type: 'export_narrative_lorebook'") && narrativeLorebook.includes('reverie_relay_lorebook_chat_id') && narrativeLorebook.includes('chat_world_book_ids'), 'Lorebook export must create a chat-owned archive and preserve existing chat bindings')
 assert(narrativeLorebook.includes('reverie_relay_source_message_id') && narrativeLorebook.includes('reverie_relay_source_swipe_id'), 'Lorebook entries must retain source message/swipe provenance')
 assert(narrativeLorebook.includes('reverie_relay_surface_occurrence') && narrativeLorebook.includes('reverie_relay_source_fingerprint') && narrativeLorebook.includes('reverie_relay_version'), 'Lorebook entries must retain exact Surface provenance and Relay schema metadata')

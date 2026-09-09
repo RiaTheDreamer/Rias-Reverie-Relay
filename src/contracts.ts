@@ -1665,13 +1665,26 @@ export function parseRouterMarkers(content: string): ParsedRouterMarker[] {
     const segment = content.slice(markerRe.lastIndex, segmentEnd)
     const kind = match[1].toLocaleLowerCase().endsWith('-error') ? 'failed' : 'resolved'
     const requestId = (attrs.requestId || attrs.request_id || '').trim()
-    const targetValue = attrs.target?.trim() as ImageTarget | undefined
-    const target = targetValue && TARGETS.has(targetValue) ? targetValue : null
     const slot = attrs.slot?.trim() || ''
     const srcMatch = segment.match(/\bsrc\s*=\s*["']([^"']+)["']/i)
     const altMatch = segment.match(/\balt\s*=\s*["']([^"']*)["']/i)
+    const markdownMatch = segment.match(/!\[([^\]]*)\]\(([^)\s]+)\)/i)
+    const customTargetMatch = segment.match(/\bdata-dgir-custom-target\s*=\s*["']([^"']+)["']/i)
     const errorMatch = segment.match(/<image_request_error\b[^>]*>([\s\S]*?)<\/image_request_error>/i)
-    const imageUrl = srcMatch?.[1]?.trim() || ''
+    const imageUrl = srcMatch?.[1]?.trim() || markdownMatch?.[2]?.trim() || ''
+    let targetValue = (attrs.target?.trim() || customTargetMatch?.[1]?.trim() || '') as ImageTarget | ''
+    // Older persisted markers can predate target metadata. Infer only from
+    // unambiguous Relay-owned result wrappers; never guess from request names.
+    if (!targetValue) {
+      if (markdownMatch) targetValue = 'prose.illustration'
+      else if (/<tw_media\b/i.test(segment)) targetValue = 'twitter.media'
+      else if (/<ig_slide\b/i.test(segment)) targetValue = 'instagram.carousel'
+      else if (/<s_img\b/i.test(segment)) targetValue = 'smartphone.message-image'
+      else if (/<k_img\b/i.test(segment)) targetValue = 'kakao.image'
+      else if (/\breverie-artifact-media\b/i.test(segment)) targetValue = 'custom.artifact-media'
+      else if (/<image\b[^>]*>\s*<img\b/i.test(segment)) targetValue = 'instagram.single'
+    }
+    const target = targetValue && isImageTarget(targetValue) ? targetValue : null
     const imageId = imageIdFromUrl(imageUrl)
     const missing = [!requestId ? 'requestId' : '', !target ? 'target' : '', !slot ? 'slot' : '', kind === 'resolved' && !imageUrl ? 'image URL' : ''].filter(Boolean)
     out.push({
@@ -1681,7 +1694,7 @@ export function parseRouterMarkers(content: string): ParsedRouterMarker[] {
       slot,
       imageUrl,
       imageId,
-      alt: altMatch?.[1]?.trim() || '',
+      alt: altMatch?.[1]?.trim() || markdownMatch?.[1]?.trim() || '',
       error: errorMatch?.[1]?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() || '',
       valid: missing.length === 0,
       reason: missing.length ? `Missing or unsupported ${missing.join(', ')}` : undefined,

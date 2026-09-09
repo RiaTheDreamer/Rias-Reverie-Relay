@@ -70,6 +70,7 @@ export const NARRATIVE_MEDIA_COMPATIBILITY_STYLE = `<style data-reverie-narrativ
 
 const safeMessageId = (value: string): string => String(value || 'narrative').replace(/[^A-Za-z0-9_-]+/g, '-') || 'narrative'
 const NARRATIVE_MARKUP = /\[(?:SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i
+const NARRATIVE_FAILED_MEDIA = /<image_request_error\b|<!--\s*(?:reverie-relay|dreamglass):image-error\b/i
 
 export const NARRATIVE_UTILITY_PACK = utilityPack as NarrativeUtilityPack
 export const NARRATIVE_REGEX_VARIANTS: NarrativeRegexVariant[] = ['sparkle-button', 'plain-button', 'inline']
@@ -160,6 +161,15 @@ export function narrativeActiveRegexScriptCount(variant: NarrativeRegexVariant):
 
 export function containsNarrativeRegexMarkup(markup: string): boolean {
   return NARRATIVE_MARKUP.test(String(markup || ''))
+}
+
+/** Regex Rendered normally leaves Narrative presentation to Lumiverse. A
+ * failed media write-back can make an older host Regex pack stop matching an
+ * otherwise valid Narrative block, though. In that narrow case Relay uses its
+ * bundled adapter as a containment fallback so semantic markup cannot leak
+ * into story prose. */
+export function shouldRelayRenderNarrativeMarkup(markup: string, rendererMode: string): boolean {
+  return rendererMode !== 'legacy-regex' || NARRATIVE_FAILED_MEDIA.test(String(markup || ''))
 }
 
 export type NarrativeLorebookKind = 'cast-introduction' | 'character-dossier' | 'location-file'

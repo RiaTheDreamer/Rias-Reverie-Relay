@@ -635,12 +635,21 @@ const recoveredMarkers = parseRouterMarkers(`
 <image_request_error id="failed-r" target="kakao.image" slot="image" retryable="true">Provider failed</image_request_error>
 <!-- dreamglass:image chatId="chat-r" messageId="msg-r" swipeId="1" requestId="broken-r" target="twitter.media" -->
 <tw_media src="/api/v1/images/broken"></tw_media>
+<!-- reverie-relay:image chatId="chat-r" messageId="msg-r" swipeId="1" requestId="prose-r" target="prose.illustration" slot="prose-image" -->
+![reverie-relay](/api/v1/image-gen/results/prose-image-id)
+<!-- reverie-relay:image chatId="chat-r" messageId="msg-r" swipeId="1" requestId="legacy-prose-r" slot="legacy-prose-image" -->
+![Legacy prose alt](/api/v1/image-gen/results/legacy-prose-image-id)
+<!-- reverie-relay:image chatId="chat-r" messageId="msg-r" swipeId="1" requestId="legacy-artifact-r" slot="legacy-artifact-image" -->
+<img src="/api/v1/image-gen/results/legacy-artifact-image-id" alt="Legacy artifact" class="reverie-artifact-media" data-dgir-custom-target="custom.artifact-media">
 `)
-assert(recoveredMarkers.length === 5, 'expected every Router result/error marker to be inspected')
+assert(recoveredMarkers.length === 8, 'expected every Router result/error marker to be inspected')
 assert(recoveredMarkers[0].valid && recoveredMarkers[0].imageId === 'twitter-image-id', 'expected resolved Twitter marker URL and image ID recovery')
 assert(recoveredMarkers.filter(marker => marker.requestId === 'ig-r' && marker.valid).length === 2, 'expected both Instagram carousel slides to recover independently')
 assert(recoveredMarkers[3].kind === 'failed' && recoveredMarkers[3].error === 'Provider failed', 'expected failed marker error recovery')
 assert(!recoveredMarkers[4].valid && recoveredMarkers[4].reason?.includes('slot'), 'expected malformed marker to be reported without registration')
+assert(recoveredMarkers[5].valid && recoveredMarkers[5].target === 'prose.illustration' && recoveredMarkers[5].imageId === 'prose-image-id', 'expected current prose Markdown result recovery')
+assert(recoveredMarkers[6].valid && recoveredMarkers[6].target === 'prose.illustration' && recoveredMarkers[6].alt === 'Legacy prose alt', 'expected unambiguous legacy Markdown result target and alt recovery')
+assert(recoveredMarkers[7].valid && recoveredMarkers[7].target === 'custom.artifact-media' && recoveredMarkers[7].imageId === 'legacy-artifact-image-id', 'expected legacy artifact target recovery from its owned result wrapper')
 assert(slotKey({ chatId: 'chat-r', messageId: 'msg-r', swipeId: 1, requestId: 'ig-r', slot: 'slide-2' }) === 'chat-r:msg-r:1:ig-r:slide-2', 'expected recovered slots to use stable identity')
 
 const activeOnly = selectRescanSwipeRows({ content: 'fallback', swipe_id: 1, swipes: ['inactive marker', 'active marker'] }, false)
