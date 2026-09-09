@@ -121,7 +121,7 @@ import {
   removeNarrativeRegex,
   type NarrativeDlcHealth,
 } from './narrativeDlcRuntime'
-import { NARRATIVE_REGEX_VARIANTS, containsNarrativeRegexMarkup, narrativeRegexScripts, narrativeUtilityNames, renderNarrativeRegex, type NarrativeLorebookKind, type NarrativeRegexVariant } from './narrativeRegexAssets'
+import { NARRATIVE_REGEX_VARIANTS, containsNarrativeRegexMarkup, narrativeRegexScripts, narrativeUtilityNames, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup, type NarrativeLorebookKind, type NarrativeRegexVariant } from './narrativeRegexAssets'
 import { exportNarrativeLorebookRecord, extractNarrativeLorebookRecord } from './narrativeLorebook'
 import {
   acceptSuggestion,
@@ -1670,8 +1670,10 @@ if (typeof registerMessageContentProcessor === 'function') {
       // Narrative Utilities are not part of the 46 built-in registry. Relay
       // executes their approved, bundled display transformations through this
       // isolated adapter so Relay/Hybrid modes do not depend on host Regex
-      // enablement. Regex mode deliberately leaves them for Lumiverse Regex.
-      if (narrativeCandidate && renderContext.rendererMode !== 'legacy-regex') {
+      // enablement. Regex mode normally leaves them for Lumiverse Regex, but
+      // failed media write-back gets a bounded Relay fallback so an older or
+      // stale host Regex pack cannot expose raw Narrative syntax in the story.
+      if (narrativeCandidate && shouldRelayRenderNarrativeMarkup(source, renderContext.rendererMode)) {
         const narrativeRendered = renderNarrativeRegex(renderedContent, snapshot.narrativeVariant, context.messageId || 'narrative', { chatId: context.chatId, swipeId: renderSwipeId })
         if (narrativeRendered !== renderedContent) renderedCount += 1
         renderedContent = narrativeRendered

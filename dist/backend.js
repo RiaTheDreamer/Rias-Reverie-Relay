@@ -240,13 +240,31 @@ function parseRouterMarkers(content) {
     const segment = content.slice(markerRe.lastIndex, segmentEnd);
     const kind = match[1].toLocaleLowerCase().endsWith("-error") ? "failed" : "resolved";
     const requestId = (attrs.requestId || attrs.request_id || "").trim();
-    const targetValue = attrs.target?.trim();
-    const target = targetValue && TARGETS.has(targetValue) ? targetValue : null;
     const slot = attrs.slot?.trim() || "";
     const srcMatch = segment.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
     const altMatch = segment.match(/\balt\s*=\s*["']([^"']*)["']/i);
+    const markdownMatch = segment.match(/!\[([^\]]*)\]\(([^)\s]+)\)/i);
+    const customTargetMatch = segment.match(/\bdata-dgir-custom-target\s*=\s*["']([^"']+)["']/i);
     const errorMatch = segment.match(/<image_request_error\b[^>]*>([\s\S]*?)<\/image_request_error>/i);
-    const imageUrl = srcMatch?.[1]?.trim() || "";
+    const imageUrl = srcMatch?.[1]?.trim() || markdownMatch?.[2]?.trim() || "";
+    let targetValue = attrs.target?.trim() || customTargetMatch?.[1]?.trim() || "";
+    if (!targetValue) {
+      if (markdownMatch)
+        targetValue = "prose.illustration";
+      else if (/<tw_media\b/i.test(segment))
+        targetValue = "twitter.media";
+      else if (/<ig_slide\b/i.test(segment))
+        targetValue = "instagram.carousel";
+      else if (/<s_img\b/i.test(segment))
+        targetValue = "smartphone.message-image";
+      else if (/<k_img\b/i.test(segment))
+        targetValue = "kakao.image";
+      else if (/\breverie-artifact-media\b/i.test(segment))
+        targetValue = "custom.artifact-media";
+      else if (/<image\b[^>]*>\s*<img\b/i.test(segment))
+        targetValue = "instagram.single";
+    }
+    const target = targetValue && isImageTarget(targetValue) ? targetValue : null;
     const imageId = imageIdFromUrl(imageUrl);
     const missing = [!requestId ? "requestId" : "", !target ? "target" : "", !slot ? "slot" : "", kind === "resolved" && !imageUrl ? "image URL" : ""].filter(Boolean);
     out.push({
@@ -256,7 +274,7 @@ function parseRouterMarkers(content) {
       slot,
       imageUrl,
       imageId,
-      alt: altMatch?.[1]?.trim() || "",
+      alt: altMatch?.[1]?.trim() || markdownMatch?.[1]?.trim() || "",
       error: errorMatch?.[1]?.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || "",
       valid: missing.length === 0,
       reason: missing.length ? `Missing or unsupported ${missing.join(", ")}` : undefined
@@ -151783,6 +151801,7 @@ var NARRATIVE_MEDIA_COMPATIBILITY_STYLE = `<style data-reverie-narrative-media-c
 </style>`;
 var safeMessageId2 = (value) => String(value || "narrative").replace(/[^A-Za-z0-9_-]+/g, "-") || "narrative";
 var NARRATIVE_MARKUP = /\[(?:SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i;
+var NARRATIVE_FAILED_MEDIA = /<image_request_error\b|<!--\s*(?:reverie-relay|dreamglass):image-error\b/i;
 var NARRATIVE_UTILITY_PACK = Reverie_Narrative_Utilities_v6_1_FINAL_with_Character_Phone_default;
 var NARRATIVE_REGEX_VARIANTS = ["sparkle-button", "plain-button", "inline"];
 var NARRATIVE_UTILITY_DISPLAY_NAMES = {
@@ -151851,6 +151870,9 @@ function narrativeRegexScripts(variant) {
 function containsNarrativeRegexMarkup(markup) {
   return NARRATIVE_MARKUP.test(String(markup || ""));
 }
+function shouldRelayRenderNarrativeMarkup(markup, rendererMode) {
+  return rendererMode !== "legacy-regex" || NARRATIVE_FAILED_MEDIA.test(String(markup || ""));
+}
 function narrativeLorebookKind(scriptId) {
   if (scriptId === "reverie_npc_intro_images_v1")
     return "cast-introduction";
@@ -151902,10 +151924,10 @@ function selectedTarget(script) {
 }
 function narrativeRegexCreateInput(script, variant) {
   return {
-    name: String(script.name || script.script_id),
+    name: applyNarrativeDisplayNames(String(script.name || script.script_id)),
     script_id: script.script_id,
     find_regex: script.find_regex,
-    replace_string: script.replace_string,
+    replace_string: applyNarrativeDisplayNames(script.replace_string, true),
     flags: script.flags || "",
     placement: script.placement?.length ? [...script.placement] : ["ai_output"],
     scope: script.scope || "global",
@@ -153154,7 +153176,7 @@ if (typeof registerMessageContentProcessor === "function") {
         renderedContent = rendered.content;
         renderedCount += rendered.renderedCount;
       }
-      if (narrativeCandidate && renderContext.rendererMode !== "legacy-regex") {
+      if (narrativeCandidate && shouldRelayRenderNarrativeMarkup(source, renderContext.rendererMode)) {
         const narrativeRendered = renderNarrativeRegex(renderedContent, snapshot.narrativeVariant, context.messageId || "narrative", { chatId: context.chatId, swipeId: renderSwipeId });
         if (narrativeRendered !== renderedContent)
           renderedCount += 1;

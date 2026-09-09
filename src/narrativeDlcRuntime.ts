@@ -38,10 +38,10 @@ function selectedTarget(script: NarrativeRegexScript): 'prompt' | 'response' | '
 
 export function narrativeRegexCreateInput(script: NarrativeRegexScript, variant: NarrativeRegexVariant): NarrativeRegexMutationInput {
   return {
-    name: String(script.name || script.script_id),
+    name: applyNarrativeDisplayNames(String(script.name || script.script_id)),
     script_id: script.script_id,
     find_regex: script.find_regex,
-    replace_string: script.replace_string,
+    replace_string: applyNarrativeDisplayNames(script.replace_string, true),
     flags: script.flags || '',
     placement: script.placement?.length ? [...script.placement] : ['ai_output'],
     scope: script.scope || 'global',
