@@ -3,7 +3,7 @@
   "type": "lumiverse_regex_scripts",
   "name": "Reverie Surfaces R4.5 — Realistic — Plain",
   "notes": "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  "relay_product_version": "0.2.0",
+  "relay_product_version": "0.2.1",
   "surface_pack_revision": "R4.5",
   "surface_pack_mode": "plain",
   "surface_review_revision": "R4.5-FINAL",
@@ -37,7 +37,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -47,7 +47,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_001_958563__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Tinder — Stable User Media Seam — Collapsible Plain — Bracket Native",
@@ -79,7 +79,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -89,7 +89,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_002_01a164__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Generated Avatar Message Transformer — Collapsible Plain — Bracket Native",
@@ -120,7 +120,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -130,7 +130,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_003_98aec6__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Message Media Transformer — Collapsible Plain — Bracket Native",
@@ -161,7 +161,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -171,7 +171,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_004_be8177__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Tinder — Stable Profile Media Seam — Collapsible Plain — Bracket Native",
@@ -203,7 +203,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -213,7 +213,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_005_2b24d1__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Email Item Transformer — Collapsible Plain — Bracket Native",
@@ -244,7 +244,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -254,7 +254,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_006_03f7b6__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🩷 Tinder — Sleek Full-Screen Match Overlay — Collapsible Plain — Bracket Native",
@@ -292,7 +292,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -302,7 +302,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_007_912c10__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Tinder Card Transformer (Match Avatar Fix) — Collapsible Plain — Bracket Native",
@@ -333,7 +333,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -343,7 +343,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_008_3d506a__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Tinder User Avatar Transformer (Match Avatar Fix) — Collapsible Plain — Bracket Native",
@@ -374,7 +374,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -384,7 +384,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_009_87d540__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Twitch Chat Message Transformer — Collapsible Plain — Bracket Native",
@@ -415,7 +415,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -425,7 +425,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_010_ab14de__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Twitch Donation Transformer — Collapsible Plain — Bracket Native",
@@ -456,7 +456,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -466,7 +466,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_011_564772__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Twitch Mod Transformer — Collapsible Plain — Bracket Native",
@@ -497,7 +497,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -507,7 +507,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_012_128e9a__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Discord Message Transformer — Collapsible Plain — Bracket Native",
@@ -538,7 +538,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -548,7 +548,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_013_dee63a__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Discord DM Generated Avatar Message — Collapsible Plain — Bracket Native",
@@ -579,7 +579,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -589,7 +589,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_014_7f19c0__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Discord Server Generated Avatar Message — Collapsible Plain — Bracket Native",
@@ -620,7 +620,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -630,7 +630,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_015_9fc065__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Discord Media Transformer — Collapsible Plain — Bracket Native",
@@ -661,7 +661,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -671,7 +671,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_016_5979a3__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Google Result Transformer — Collapsible Plain — Bracket Native",
@@ -702,7 +702,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -712,7 +712,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_017_982c41__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Surface Review — Gallery Item Transformer — Collapsible Plain — Bracket Native",
@@ -743,7 +743,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -753,7 +753,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_018_f855fa__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ V4 — Case Fact Transformer — Collapsible Plain — Bracket Native",
@@ -785,7 +785,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -795,7 +795,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_019_34416d__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ V4 — Case Timeline Event Transformer — Collapsible Plain — Bracket Native",
@@ -827,7 +827,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -837,7 +837,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_020_af0460__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ V4 — News Instruction Transformer — Collapsible Plain — Bracket Native",
@@ -869,7 +869,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -879,7 +879,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_021_f83b0d__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — Workspace Media Transformer — Collapsible Plain — Bracket Native",
@@ -911,7 +911,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -921,7 +921,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_022_cdb3fd__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — Workspace Voice Transformer — Collapsible Plain — Bracket Native",
@@ -953,7 +953,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -963,7 +963,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_023_dcc599__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — Workspace Bubble Transformer — Collapsible Plain — Bracket Native",
@@ -995,7 +995,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1005,7 +1005,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_024_5fc225__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — iMessage Reaction Transformer — Collapsible Plain — Bracket Native",
@@ -1037,7 +1037,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1047,7 +1047,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_025_991c00__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — iMessage Media Transformer — Collapsible Plain — Bracket Native",
@@ -1079,7 +1079,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1089,7 +1089,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_026_020cdf__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — iMessage System Transformer — Collapsible Plain — Bracket Native",
@@ -1121,7 +1121,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1131,7 +1131,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_027_f68ccd__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — iMessage Bubble Transformer — Collapsible Plain — Bracket Native",
@@ -1163,7 +1163,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1173,7 +1173,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_028_4f1587__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ V4 — Reddit Reply Transformer — Collapsible Plain — Bracket Native",
@@ -1205,7 +1205,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1215,7 +1215,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_029_00347b__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ V4 — Reddit Comment Transformer — Collapsible Plain — Bracket Native",
@@ -1247,7 +1247,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1257,7 +1257,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_030_33174d__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — TikTok Comment Transformer — Collapsible Plain — Bracket Native",
@@ -1290,7 +1290,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1300,7 +1300,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_031_a859dc__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — TikTok Comments Drawer Transformer — Collapsible Plain — Bracket Native",
@@ -1333,7 +1333,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1343,7 +1343,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_032_982465__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "💿 Album / Single Cover — Contextual Release — Collapsible Plain — Bracket Native",
@@ -1365,7 +1365,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 90,
       "description": "Context-dependent real release artwork surface; no internal implementation labels.",
       "metadata": {
@@ -1375,7 +1375,7 @@
         "enable_one_mode_only": true,
         "variant": "structured",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1405,7 +1405,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 91,
       "description": "Context-dependent real release artwork surface; no internal implementation labels.",
       "metadata": {
@@ -1415,7 +1415,7 @@
         "enable_one_mode_only": true,
         "variant": "legacy",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1454,7 +1454,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1464,7 +1464,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_035_f5c6ea__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "💬 Reverie Surface — Inline Chat — Collapsible Plain — Bracket Native",
@@ -1495,7 +1495,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1505,7 +1505,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_036_d82e79__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "📷 Reverie Surface — R4.5 — Collapsible Plain — Bracket Native",
@@ -1537,7 +1537,7 @@
         "enable_one_mode_only": true,
         "r2_3_fix": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1547,7 +1547,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_037_42d20f__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "𝕏 Twitter / X Direct Messages — Bubble Chat — Collapsible Plain — Bracket Native",
@@ -1578,7 +1578,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1588,7 +1588,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_038_c04488__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "💜 Reverie Surface — Discord Direct Messages — Collapsible Plain — Bracket Native",
@@ -1619,7 +1619,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1629,7 +1629,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_039_fd6bce__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🔎 Reverie Surface — Google Images — Collapsible Plain — Bracket Native",
@@ -1660,7 +1660,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1670,7 +1670,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_040_c151c4__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🖼️ Surface Review v4 — Phone Gallery (Restored Grid) — Collapsible Plain — Bracket Native",
@@ -1701,7 +1701,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1711,7 +1711,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_041_5c489f__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🗂️ Surface Review v4 — Classified Case Dossier — Collapsible Plain — Bracket Native",
@@ -1743,7 +1743,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1753,7 +1753,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_042_53ae30__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "📰 Surface Review v5 — News Article / Public Bulletin — Collapsible Plain — Bracket Native",
@@ -1785,7 +1785,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1795,7 +1795,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_043_44ec8b__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🟠 Reddit Thread — Compact Community Post — Collapsible Plain — Bracket Native",
@@ -1827,7 +1827,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1837,7 +1837,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_044_084064__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "◇ Surface Review v4 — Character Profile — Collapsible Plain — Bracket Native",
@@ -1869,7 +1869,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1879,7 +1879,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_045_70238f__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "▤ Surface Review v4 — Magazine Cover — Collapsible Plain — Bracket Native",
@@ -1911,7 +1911,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1921,7 +1921,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_046_dd3bf8__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "♪ TikTok Post + Comments + Stable Drawer — Collapsible Plain — Bracket Native",
@@ -1955,7 +1955,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -1965,7 +1965,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_047_328aaa__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "📸 [Reverie • Instagram] Invalid Carousel Target Guard — Collapsible Plain — Bracket Native",
@@ -1987,7 +1987,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 201,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -1996,7 +1996,7 @@
         "source_order": 1,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2026,7 +2026,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 202,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2035,7 +2035,7 @@
         "source_order": 2,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2065,7 +2065,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 203,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2074,7 +2074,7 @@
         "source_order": 3,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2104,7 +2104,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 204,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2113,7 +2113,7 @@
         "source_order": 4,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2143,7 +2143,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 205,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2152,7 +2152,7 @@
         "source_order": 5,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2182,7 +2182,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 206,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2191,7 +2191,7 @@
         "source_order": 6,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2221,7 +2221,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 207,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2230,7 +2230,7 @@
         "source_order": 7,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2260,7 +2260,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 208,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2269,7 +2269,7 @@
         "source_order": 8,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2299,7 +2299,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 209,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2308,7 +2308,7 @@
         "source_order": 9,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2338,7 +2338,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 210,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2347,7 +2347,7 @@
         "source_order": 10,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2377,7 +2377,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 211,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2386,7 +2386,7 @@
         "source_order": 11,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2416,7 +2416,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 212,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2425,7 +2425,7 @@
         "source_order": 12,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2455,7 +2455,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 213,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2464,7 +2464,7 @@
         "source_order": 13,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2494,7 +2494,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 214,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2503,7 +2503,7 @@
         "source_order": 14,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2533,7 +2533,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 215,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2542,7 +2542,7 @@
         "source_order": 15,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2577,7 +2577,7 @@
         "internal_transformer": true,
         "surface": "twitch",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2587,7 +2587,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_063_15f5da__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "💬 [Reverie • KakaoTalk] System Event — Collapsible Plain — Bracket Native",
@@ -2609,7 +2609,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 216,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2618,7 +2618,7 @@
         "source_order": 16,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2653,7 +2653,7 @@
         "internal_transformer": true,
         "surface": "mission-board",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2663,7 +2663,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_065_41a66b__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "💬 [Reverie • KakaoTalk] Typing Indicator — Collapsible Plain — Bracket Native",
@@ -2685,7 +2685,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 217,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2694,7 +2694,7 @@
         "source_order": 17,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2724,7 +2724,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 218,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2733,7 +2733,7 @@
         "source_order": 18,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2763,7 +2763,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 219,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2772,7 +2772,7 @@
         "source_order": 19,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2802,7 +2802,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 220,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2811,7 +2811,7 @@
         "source_order": 20,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2841,7 +2841,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 221,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2850,7 +2850,7 @@
         "source_order": 21,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2880,7 +2880,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 222,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2889,7 +2889,7 @@
         "source_order": 22,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2919,7 +2919,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 223,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2928,7 +2928,7 @@
         "source_order": 23,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2958,7 +2958,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 224,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -2967,7 +2967,7 @@
         "source_order": 24,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -2997,7 +2997,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 225,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3006,7 +3006,7 @@
         "source_order": 25,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3036,7 +3036,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 226,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3045,7 +3045,7 @@
         "source_order": 26,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3075,7 +3075,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 227,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3084,7 +3084,7 @@
         "source_order": 27,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3114,7 +3114,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 228,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3123,7 +3123,7 @@
         "source_order": 28,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3153,7 +3153,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 229,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3162,7 +3162,7 @@
         "source_order": 29,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3192,7 +3192,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 230,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3201,7 +3201,7 @@
         "source_order": 30,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3231,7 +3231,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 231,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3240,7 +3240,7 @@
         "source_order": 31,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3270,7 +3270,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 232,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3279,7 +3279,7 @@
         "source_order": 32,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3309,7 +3309,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 233,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3319,7 +3319,7 @@
         "enable_one_mode_only": true,
         "utility_contract": "for_you_following_thread_trends_separated",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3349,7 +3349,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 233,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3358,7 +3358,7 @@
         "source_order": 33,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3388,7 +3388,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 234,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3397,7 +3397,7 @@
         "source_order": 34,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3427,7 +3427,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 235,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3436,7 +3436,7 @@
         "source_order": 35,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3466,7 +3466,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 236,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3475,7 +3475,7 @@
         "source_order": 36,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3505,7 +3505,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 238,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3514,7 +3514,7 @@
         "source_order": 38,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3544,7 +3544,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 239,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3553,7 +3553,7 @@
         "source_order": 39,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3583,7 +3583,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 240,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3592,7 +3592,7 @@
         "source_order": 40,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3622,13 +3622,13 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 240.98,
       "description": "R4.5 side-aware smartphone image transformer.",
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3658,13 +3658,13 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 240.99,
       "description": "R4.5 side-aware smartphone image transformer.",
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3694,7 +3694,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 241,
       "description": "Legacy compatibility only. Canonical Utility MUST author side=\"sent\" or side=\"recv\"; no-side images fall back left/received.",
       "metadata": {
@@ -3703,7 +3703,7 @@
         "source_order": 41,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3733,7 +3733,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 242,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3742,7 +3742,7 @@
         "source_order": 42,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3772,7 +3772,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 243,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3781,7 +3781,7 @@
         "source_order": 43,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3811,7 +3811,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 249,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3820,7 +3820,7 @@
         "source_order": 49,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3850,7 +3850,7 @@
       "substitute_macros": "raw",
       "disabled": false,
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router",
+      "owner_extension_identifier": "reverie_relay",
       "sort_order": 280,
       "description": "Unified Reverie Surface pack (inline) — preserved accepted renderer.",
       "metadata": {
@@ -3860,7 +3860,7 @@
         "enable_one_mode_only": true,
         "surface_label": "Relationship Web",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3896,7 +3896,7 @@
         "surface_label": "Evidence Photo",
         "utility_revision": "structured-evidence-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3906,7 +3906,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_095_7266ba__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🎞️ Photo Booth Strip — Four Frame Print — Collapsible Plain — Bracket Native",
@@ -3934,7 +3934,7 @@
         "surface_label": "Photo Booth Strip",
         "utility_revision": "four-frame-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3944,7 +3944,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_096_0ef47f__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🖼️ Polaroid — Instant Film Print — Collapsible Plain — Bracket Native",
@@ -3972,7 +3972,7 @@
         "surface_label": "Polaroid",
         "utility_revision": "captioned-polaroid-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -3982,7 +3982,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_097_ed9e83__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "💬 Workspace Chat — Bubble Channels — Collapsible Plain — Bracket Native",
@@ -4010,7 +4010,7 @@
         "surface_label": "Workspace Chat",
         "utility_revision": "four-populated-channels",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4020,7 +4020,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_098_0821b9__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "✉️ Email — Dark Mode Inbox — Collapsible Plain — Bracket Native",
@@ -4047,7 +4047,7 @@
         "surface_outer": true,
         "surface_label": "Email",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4057,7 +4057,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_099_465030__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "💬 iMessage — Correct Sender Alignment — Collapsible Plain — Bracket Native",
@@ -4084,7 +4084,7 @@
         "surface_outer": true,
         "surface_label": "iMessage",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4094,7 +4094,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_100_9dc259__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🟣 Twitch — Stream + Chat + Mods + Interactive Poll — Collapsible Plain — Bracket Native",
@@ -4121,7 +4121,7 @@
         "surface_outer": true,
         "surface_label": "Twitch",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4131,7 +4131,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_101_2028bb__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🎧 Music Player — Spotify-Style — Collapsible Plain — Bracket Native",
@@ -4159,7 +4159,7 @@
         "surface_label": "Music Player",
         "utility_revision": "lyrics-direct-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4169,7 +4169,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_102_9da300__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🗺️ Live Location — Chat + Tracker Popup — Collapsible Plain — Bracket Native",
@@ -4197,7 +4197,7 @@
         "surface_label": "Live Location",
         "utility_revision": "chat-popup-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4207,7 +4207,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_103_735ecc__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🎙️ Voice Memo — Dark Recorder + Transcript Popup — Collapsible Plain — Bracket Native",
@@ -4235,7 +4235,7 @@
         "surface_label": "Voice Memo",
         "utility_revision": "transcript-direct-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4245,7 +4245,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_104_7ac3b8__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "📝 Notes App — R4.5 — Collapsible Plain — Bracket Native",
@@ -4274,7 +4274,7 @@
         "utility_revision": "multi-note-v2",
         "r2_3_fix": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4284,7 +4284,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_105_ade6e5__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🛒 Marketplace — R4.5 — Collapsible Plain — Bracket Native",
@@ -4312,7 +4312,7 @@
         "surface_label": "Marketplace",
         "r2_3_fix": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4322,7 +4322,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_106_6ef651__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🏠 Property Listing — R4.5 — Collapsible Plain — Bracket Native",
@@ -4354,7 +4354,7 @@
         "surface_outer": true,
         "r2_3_fix": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4364,7 +4364,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_107_51cf00__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🟩 Naver News — R4.5 — Collapsible Plain — Bracket Native",
@@ -4398,7 +4398,7 @@
         "surface_label": "Naver News",
         "r2_3_fix": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4408,7 +4408,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_108_19573c__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Letter Literal Newline Pair Normalizer — Collapsible Plain — Bracket Native",
@@ -4434,7 +4434,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4444,7 +4444,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr37_plain_letter_newlines__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "💌 Letter — Real Paper Correspondence — Collapsible Plain — Bracket Native",
@@ -4472,7 +4472,7 @@
         "surface_label": "Letter",
         "utility_revision": "paper-letter-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4482,7 +4482,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_109_a08811__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🩺 Medical Chart — EHR Clinical Dashboard — Collapsible Plain — Bracket Native",
@@ -4510,7 +4510,7 @@
         "surface_label": "Medical Chart",
         "utility_revision": "chart-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4520,7 +4520,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_110_dcc78b__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "⚖️ Court Transcript — Real Transcript Record — Collapsible Plain — Bracket Native",
@@ -4547,7 +4547,7 @@
         "surface_outer": true,
         "surface_label": "Court Transcript",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4557,7 +4557,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_111_69d05e__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "📚 Wikipedia Page — Article + Infobox — Collapsible Plain — Bracket Native",
@@ -4584,7 +4584,7 @@
         "surface_outer": true,
         "surface_label": "Wiki Page",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4594,7 +4594,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_112_36785d__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "📖 Diary — Clickable Multi-Day Journal — Collapsible Plain — Bracket Native",
@@ -4622,7 +4622,7 @@
         "surface_label": "Diary",
         "utility_revision": "multi-entry-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4632,7 +4632,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_114_1ca1c8__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🗒️ Mission / List Board — Interactive Planner — Collapsible Plain — Bracket Native",
@@ -4660,7 +4660,7 @@
         "surface_label": "Mission / List Board",
         "utility_revision": "generic-list-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4670,7 +4670,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_115_efb533__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "📹 CCTV — Multi-Camera Security Monitor — Collapsible Plain — Bracket Native",
@@ -4697,7 +4697,7 @@
         "surface_outer": true,
         "surface_label": "CCTV",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4707,7 +4707,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_116_55ea32__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "💜 Discord Server — Realistic Clickable Channels — Collapsible Plain — Bracket Native",
@@ -4735,7 +4735,7 @@
         "surface_label": "Discord Server",
         "utility_revision": "four-populated-channels",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4745,7 +4745,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_117_d86361__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — Medical Vital Transformer — Collapsible Plain — Bracket Native",
@@ -4771,7 +4771,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4781,7 +4781,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_118_ff366e__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — Court Transcript Line Transformer — Collapsible Plain — Bracket Native",
@@ -4807,7 +4807,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4817,7 +4817,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_119_9fbcd8__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — Wiki Fact Transformer — Collapsible Plain — Bracket Native",
@@ -4843,7 +4843,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4853,7 +4853,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_120_a671ea__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — YouTube Comment Transformer — Collapsible Plain — Bracket Native",
@@ -4879,7 +4879,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4889,7 +4889,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr22_pl_121_cab2c2__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — Instagram DM Message Bubble — Collapsible Plain — Bracket Native",
@@ -4915,7 +4915,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4925,7 +4925,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr23_pl_igdm_msg__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — Instagram DM Media Bubble — Collapsible Plain — Bracket Native",
@@ -4951,7 +4951,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4961,7 +4961,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr23_pl_igdm_media__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — eBay Bid Row — Collapsible Plain — Bracket Native",
@@ -4987,7 +4987,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -4997,7 +4997,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr23_pl_ebay_bid__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — eBay Action Button — Collapsible Plain — Bracket Native",
@@ -5023,7 +5023,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -5033,7 +5033,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr23_pl_ebay_action__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ R4.5 — Naver Comment Row — Collapsible Plain — Bracket Native",
@@ -5059,7 +5059,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -5069,7 +5069,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "rr23_pl_naver_comment__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Instagram Profile Comment — Collapsible Plain — Bracket Native",
@@ -5096,7 +5096,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -5106,7 +5106,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "r41_igc_pl__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Instagram Profile Post Grid + Modal Unit — Collapsible Plain — Bracket Native",
@@ -5133,7 +5133,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -5143,7 +5143,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "r41_igp_pl__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Instagram Profile Tagged Grid Item — Collapsible Plain — Bracket Native",
@@ -5170,7 +5170,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -5180,7 +5180,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "r41_igm_pl__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "📸 Instagram Profile — Contained Post Viewer — Collapsible Plain — Bracket Native",
@@ -5207,7 +5207,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": false,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -5217,7 +5217,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "r41_igprofile_pl__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Twitter Profile Comment — Collapsible Plain — Bracket Native",
@@ -5244,7 +5244,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -5254,7 +5254,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "r41_twc_pl__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Twitter Profile Tweet — Collapsible Plain — Bracket Native",
@@ -5281,7 +5281,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -5291,7 +5291,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "r41_twp_pl__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Twitter Profile Media Item — Collapsible Plain — Bracket Native",
@@ -5318,7 +5318,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -5328,7 +5328,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "r41_twm_pl__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "🐦 Twitter / X Profile — Posts / Media — Collapsible Plain — Bracket Native",
@@ -5355,7 +5355,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": false,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -5365,7 +5365,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "r41_twprofile_pl__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "📸 Instagram Stories — Three-Story Viewer — Collapsible Plain — Bracket Native",
@@ -5392,7 +5392,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": false,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -5402,7 +5402,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "r41_stories_pl__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     },
     {
       "name": "↳ Twitter Profile Thread Item — Collapsible Plain — Bracket Native",
@@ -5429,7 +5429,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.0",
+        "relay_product_version": "0.2.1",
         "authoring_contract": "reverie-bracket-native-v1",
         "semantic_delimiters": "square-brackets",
         "presentation_variant": "plain",
@@ -5439,7 +5439,7 @@
       "folder": "🌊 Reverie Surfaces — Bracket Native — Plain Button",
       "script_id": "r43_twthread_pl__bracket_v1",
       "actions": [],
-      "owner_extension_identifier": "dreamglass_image_router"
+      "owner_extension_identifier": "reverie_relay"
     }
   ]
 }

@@ -1,4 +1,5 @@
 import { narrativeRegexScripts, type NarrativeLorebookKind } from './narrativeRegexAssets'
+import { contentFingerprint } from './contracts'
 
 export type NarrativeLorebookRecord = {
   title: string
@@ -86,9 +87,13 @@ export async function exportNarrativeLorebookRecord(input: {
   kind: NarrativeLorebookKind
   messageId: string
   swipeId: number
+  occurrence?: number
+  relayVersion?: string
+  schemaVersion?: number
   userId?: string
 }): Promise<{ bookId: string; entryId: string; message: string }> {
   const { api, chat, record, kind, messageId, swipeId, userId } = input
+  const occurrence = Math.max(0, Number.isFinite(Number(input.occurrence)) ? Number(input.occurrence) : 0)
   const books = await listBooks(api, userId)
   let book = books.find(candidate => candidate.metadata?.reverie_relay_export_book === true && candidate.metadata?.reverie_relay_lorebook_chat_id === chat.id)
   let createdBook = false
@@ -116,9 +121,14 @@ export async function exportNarrativeLorebookRecord(input: {
         reverie_relay_export_entry: true,
         reverie_relay_lorebook_chat_id: chat.id,
         reverie_relay_surface_kind: kind,
+        reverie_relay_surface_occurrence: occurrence,
         reverie_relay_source_message_id: messageId,
         reverie_relay_source_swipe_id: swipeId,
+        reverie_relay_source_fingerprint: contentFingerprint(`${kind}\n${record.title}\n${record.content}`),
+        reverie_relay_exported_title: record.title,
         reverie_relay_exported_at: new Date().toISOString(),
+        reverie_relay_version: input.relayVersion || 'unknown',
+        reverie_relay_schema_version: Number.isFinite(Number(input.schemaVersion)) ? Number(input.schemaVersion) : 1,
       },
     }, userId)
     entryId = entry.id

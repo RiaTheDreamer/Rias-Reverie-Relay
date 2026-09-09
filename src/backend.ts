@@ -107,6 +107,7 @@ import { hybridSurfaceOwner, REVIEWED_REGEX_SURFACE_IDS, shippedSurfaceDefinitio
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { hasR45UtilityContract, r45UtilityContract } from './r45UtilityContracts'
 import { assertProviderRequestSafe } from './providerPromptSafety'
+import { imageProviderSupportsStreaming } from './imageStreaming'
 import { normalizeSurfaceDocument } from './surfaceXml'
 import { bracketSurfacePromptModule } from './bracketSurfaceAuthoring'
 import { r45SurfaceAuthorityPack, r45SurfaceAuthorityScripts } from './r45SurfaceAuthority'
@@ -749,7 +750,7 @@ const DEFAULT_GENERATION_PROFILE: GenerationProfile = {
 }
 
 const CONFIG_PATH = 'config.json'
-const EXTENSION_ID = 'dreamglass_image_router'
+const EXTENSION_ID = 'reverie_relay'
 const STATE_SCHEMA_VERSION = 34
 const PROSE_OPPORTUNITY_PLANNER_VERSION = 'prose-opportunity-sidecar-v1'
 const PROSE_PROMPT_COMPOSER_VERSION = 'prose-prompt-composer-v1'
@@ -1243,9 +1244,11 @@ function compactBuiltInSurfacePromptModule(definition: CustomSurfaceDefinition):
 
 function r45BracketSpecificGuidance(contract: string): string {
   const body = cleanString(contract)
+    .replace(/^<[A-Za-z][\w:-]*_utility>\s*/i, '')
+    .replace(/<\/[A-Za-z][\w:-]*_utility>\s*$/i, '')
     .replace(/^R4\.5 FINAL SURFACE UTILITY CONTRACT[\s\S]*?generic substitute cards, HTML layouts, centered prose blobs, or renderer fallback text\.\s*/i, '')
     .replace(/^(?:SURFACE|BRACKET) ROOT:\s*(?:<[^>]+>|\[[^\]]+\])\s*/im, '')
-    .split(/\n\s*Canonical structure:/i)[0]
+    .split(/\n\s*(?:Canonical structure:|OUTPUT FORMAT(?:\s+—\s+EXACT)?)/i)[0]
     .replace(/Output raw XML only\.?/gi, '')
     .replace(/<((?!image_request\b|\/image_request\b|scene_brief\b|\/scene_brief\b)[A-Za-z][\w:-]*)>/g, '[$1]')
     .replace(/<\/((?!image_request\b|scene_brief\b)[A-Za-z][\w:-]*)>/g, '[/$1]')
@@ -1282,7 +1285,7 @@ function canonicalSurfacePromptModule(definition: CustomSurfaceDefinition): stri
   // A Surface Utility is user-editable.  Keep a non-stale authored module rather
   // than silently replacing it with the stock pack during the next state load.
   // The shipped R4.5 contract remains the default/fallback, not a write lock.
-  if (text && !containsStalePromptTemplate(text)) return ensureSurfacePromptContainsImageRequest(definition, text)
+  if (text && !definition.builtIn && !containsStalePromptTemplate(text)) return ensureSurfacePromptContainsImageRequest(definition, text)
   const builtInDefault = cleanString(builtInSurfaceDefinitionTemplate?.[definition.surfaceId]?.promptModule)
   if (builtInDefault && /bracket-native syntax/i.test(builtInDefault)) return builtInDefault
   const r45 = r45UtilityContract(definition.baseSurfaceId)
@@ -1293,8 +1296,9 @@ function canonicalSurfacePromptModule(definition: CustomSurfaceDefinition): stri
     target: definition.targetId,
     aspect: definition.supportedAspectRatios[0],
   })
-  if (r45) return ensureSurfacePromptContainsImageRequest(definition, `${bracket}${r45BracketSpecificGuidance(r45)}`)
-  if (definition.builtIn || !text || containsStalePromptTemplate(text)) return ensureSurfacePromptContainsImageRequest(definition, bracket)
+  const builtInGuidance = r45 || text
+  if (definition.builtIn) return ensureSurfacePromptContainsImageRequest(definition, `${bracket}${r45BracketSpecificGuidance(builtInGuidance)}`)
+  if (!text || containsStalePromptTemplate(text)) return ensureSurfacePromptContainsImageRequest(definition, bracket)
   return ensureSurfacePromptContainsImageRequest(definition, `${text}\n\n${bracket}`)
 }
 
@@ -1803,16 +1807,17 @@ spindle.registerMacro({
 
 function resolvedRelayMacroValue(ctx: any, name: 'reverie_surfaces' | 'reverie_illustrator' | 'reverie_narrative' | 'reverie_all'): string {
   const read = (scope: 'chat' | 'global', key: string) => cleanString(ctx?.env?.variables?.[scope]?.get?.(key))
-  const cached = read('chat', name) || read('global', name)
+  const cached = read('chat', name)
   if (cached) return cached
-
-  const surfaces = buildEnabledSurfaceUtility(defaultCustomSurfaceStudio(), 'macro').content
-  const illustrator = resolveIllustratorStoryPrompt(defaultProseIllustratorSettings(), [])
-  const narrative = buildResolvedNarrativeUtilityPrompt(DEFAULT_CONFIG).content
-  if (name === 'reverie_surfaces') return surfaces
-  if (name === 'reverie_illustrator') return illustrator
-  if (name === 'reverie_narrative') return narrative
-  return [surfaces, narrative, illustrator].filter(Boolean).join('\n\n')
+  // Do not borrow another chat's global cache or expand all defaults. The
+  // interceptor resolves this marker against the active chat's live state.
+  const markers = {
+    reverie_surfaces: '<reverie_surfaces_macro/>',
+    reverie_illustrator: '<reverie_illustrator_macro/>',
+    reverie_narrative: '<reverie_narrative_macro/>',
+    reverie_all: '<reverie_all_macro/>',
+  } as const
+  return markers[name]
 }
 
 
@@ -3024,7 +3029,26 @@ async function exportNarrativeSurfaceToLorebook(payload: Extract<FrontendMessage
   const record = extractNarrativeLorebookRecord(getSwipeContent(message, swipeId), payload.kind, payload.occurrence)
   if (!record) throw new Error('Relay could not safely isolate that exact Narrative Surface for Lorebook export.')
 
-  return exportNarrativeLorebookRecord({ api: spindle, chat, record, kind: payload.kind, messageId: payload.messageId, swipeId, userId })
+  const result = await exportNarrativeLorebookRecord({
+    api: spindle, chat, record, kind: payload.kind, messageId: payload.messageId, swipeId,
+    occurrence: payload.occurrence, relayVersion: EXTENSION_VERSION, schemaVersion: STATE_SCHEMA_VERSION, userId,
+  })
+  const ui = spindle.ui as typeof spindle.ui & {
+    getDrawerTabs?: (options?: { userId?: string }) => Promise<Array<{ id: string; shortName?: string; tabName?: string; tabDescription?: string; keywords?: string[] }>>
+    openDrawerTab?: (tabId: string, options?: { userId?: string }) => Promise<void>
+  }
+  try {
+    const tabs = await ui.getDrawerTabs?.({ userId }) || []
+    const lorebookTab = tabs.find(tab => [tab.id, tab.shortName, tab.tabName, tab.tabDescription, ...(tab.keywords || [])]
+      .some(value => /(?:lorebook|lore book|world book)/i.test(cleanString(value))))
+    if (lorebookTab && ui.openDrawerTab) {
+      await ui.openDrawerTab(lorebookTab.id, { userId })
+      return { ...result, message: `${result.message} Opened the Lorebook drawer.` }
+    }
+  } catch (error) {
+    spindle.log.warn(`[Reverie Relay] Lorebook export succeeded, but the Lorebook drawer could not be opened: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  return { ...result, message: `${result.message} Open the Lorebook drawer to review it.` }
 }
 
 async function handleFrontendMessage(payload: FrontendMessage, userId?: string): Promise<void> {
@@ -3845,6 +3869,9 @@ export function resolveAppearanceSidecarRouting(
 ): { sidecarConnectionId: string | null; sidecarModel: string; sidecarParameters: Record<string, unknown> } {
   const useGlobalSidecar = settings.useGlobalAppearanceSidecar !== false
   const globalConnectionId = config.appearanceSidecarConnectionId || config.parserConnectionId
+  // When an explicit Sidecar connection is selected, blank means that
+  // connection's own default model. With no explicit connection, blank keeps
+  // inheriting the Relay Parser model override.
   const globalModel = config.appearanceSidecarModel
     || (config.appearanceSidecarConnectionId ? '' : config.parserModel)
   const globalParameters = Object.keys(config.appearanceSidecarParameters || {}).length ? config.appearanceSidecarParameters : config.parserParameters
@@ -11518,7 +11545,8 @@ async function generateWithOptionalStream(
       generate: (input: Record<string, unknown>) => Promise<any>
       generateStream?: (input: Record<string, unknown>) => AsyncIterable<any>
     }
-    const canStream = typeof api.generateStream === 'function'
+    const providerInfo = await streamProviderInfo(plan.provider, userId)
+    const canStream = imageProviderSupportsStreaming(plan.provider, providerInfo, typeof api.generateStream === 'function')
     sendImageStreamEvent(userId, context, { event: 'started', streaming: canStream, statusText: canStream ? 'Connecting to live preview…' : 'Starting generation…' })
 
     if (!canStream || !api.generateStream) {
@@ -12437,8 +12465,8 @@ async function sendState(userId?: string, chatId?: string): Promise<void> {
     state = await getState(chatId, userId)
   }
   if (chatId) cacheRenderSnapshot(chatId, userId, state, config)
-  if (chatId) void syncEnabledSurfaceMacro(chatId, state, config, userId).catch(error => {
-    spindle.log.warn(`[Reverie Relay] Deferred resolved-macro sync failed: ${error instanceof Error ? error.message : String(error)}`)
+  if (chatId) await syncEnabledSurfaceMacro(chatId, state, config, userId).catch(error => {
+    spindle.log.warn(`[Reverie Relay] Resolved-macro sync failed: ${error instanceof Error ? error.message : String(error)}`)
   })
   const records = Object.values(state.slots).sort((a, b) => b.updatedAt - a.updatedAt)
   const globalAssets = await hostOwnedRelayAssetLibrary(state.assetLibrary, userId)

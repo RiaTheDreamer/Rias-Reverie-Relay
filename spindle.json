@@ -1,7 +1,7 @@
 {
-  "version": "0.2.0",
+  "version": "0.2.1",
   "name": "Reverie Relay",
-  "identifier": "dreamglass_image_router",
+  "identifier": "reverie_relay",
   "author": "Ria",
   "description": "Reverie Relay: persistent Surface controls, live-preview image generation, recoverable inline Status Cards, chat-wide media cleanup, Prose Illustrator, Appearance Memory, and Relay-owned ImageGen controls.",
   "permissions": [

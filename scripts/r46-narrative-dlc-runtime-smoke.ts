@@ -11,6 +11,7 @@ import {
   removeNarrativeRegex,
 } from '../src/narrativeDlcRuntime'
 import { applyNarrativeDisplayNames, containsNarrativeRegexMarkup, narrativeRegexPack, narrativeRegexScripts, narrativeUtilityItems, narrativeUtilityNames, renderNarrativeRegex } from '../src/narrativeRegexAssets'
+import { parseImageRequests, renderResolvedMarkup } from '../src/contracts'
 
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
 
@@ -53,7 +54,7 @@ class MockRegexApi {
   }
   dto(input: any, id: string) {
     const metadata = structuredClone(input.metadata || {})
-    if (input.folder && input.folder_version) metadata._lumiverse_spindle_extension = { identifier: 'dreamglass_image_router', version: input.folder_version }
+    if (input.folder && input.folder_version) metadata._lumiverse_spindle_extension = { identifier: 'reverie_relay', version: input.folder_version }
     return {
       id, can_mutate: input.can_mutate !== false, name: input.name, script_id: input.script_id || '',
       find_regex: input.find_regex, replace_string: input.replace_string || '', flags: input.flags || '',
@@ -130,6 +131,20 @@ const dramaticFixture = '<dramatic_parallel><div class="dp-head">LOCATION:Roof â
 assert(containsNarrativeRegexMarkup(dramaticFixture), 'Relay Narrative detection must include Dramatic Cutaway XML')
 const dramaticRendered = renderNarrativeRegex(dramaticFixture, 'sparkle-button', 'dramatic-runtime')
 assert(dramaticRendered.includes('dg-dramatic-cutaway') && !dramaticRendered.includes('<dramatic_parallel>'), 'approved Dramatic Cutaway renderer must execute in the shared Narrative adapter')
+assert(dramaticRendered.includes('data-reverie-narrative-media-compat="1"'), 'Dramatic Cutaway must install the shared resolved-media compatibility sizing')
+for (const owner of ['dg-dramatic-media', 'r65-media', 'rv6-media', 'ru-media', 'ru-portrait', 'ru-secret-media', 'ru-thread-media', 'rrcp-media', 'rrcp-photo-media', 'rrcp-wallpaper']) {
+  assert(dramaticRendered.includes(owner), `${owner}: shared Narrative media compatibility coverage is missing`)
+}
+const dramaticRequest = parseImageRequests(dramaticFixture)[0]
+assert(dramaticRequest?.target === 'custom.artifact-media' && dramaticRequest.promptSource === 'structured', 'Dramatic Cutaway media must use the shared parsed artifact lane')
+const resolvedDramaticMedia = renderResolvedMarkup({
+  chatId: 'chat-dramatic', messageId: 'message-dramatic', swipeId: 0,
+  requestId: dramaticRequest.id, target: dramaticRequest.target, slots: [dramaticRequest.slot],
+  count: 1, alt: 'Cutaway image', originalSceneBrief: dramaticRequest.prompt,
+}, [{ slot: dramaticRequest.slot, imageId: 'cutaway-image', imageUrl: '/api/v1/image-gen/results/cutaway-image' }])
+assert(resolvedDramaticMedia.includes('class="reverie-artifact-media"') && !resolvedDramaticMedia.includes('![reverie-relay]'), 'completed Narrative media must remain a direct image inside its Regex owner instead of switching to prose Markdown')
+const completedDramatic = renderNarrativeRegex(dramaticFixture.replace(dramaticRequest.fullMatch, resolvedDramaticMedia), 'sparkle-button', 'dramatic-runtime')
+assert(completedDramatic.includes('dg-dramatic-cutaway') && completedDramatic.includes('/api/v1/image-gen/results/cutaway-image'), 'completed Narrative media must survive a full rerender inside the original Surface')
 
 const lorebookFixtures = [
   { kind: 'cast-introduction', source: '[NPC:MAJOR|Lisa]\n<npc-media>portrait</npc-media>\nb: dancer\na: messy lavender hair, glasses\np: observant\n[/NPC]' },
@@ -152,6 +167,8 @@ assert(backend.includes("name: 'reverie_narrative'") && backend.includes('NARRAT
 assert(backend.includes('renderNarrativeRegex(renderedContent, snapshot.narrativeVariant') && backend.includes("renderContext.rendererMode !== 'legacy-regex'"), 'Relay/Hybrid must execute the isolated Narrative renderer while legacy Regex mode remains host-owned')
 assert(backend.includes("type: 'export_narrative_lorebook'") && narrativeLorebook.includes('reverie_relay_lorebook_chat_id') && narrativeLorebook.includes('chat_world_book_ids'), 'Lorebook export must create a chat-owned archive and preserve existing chat bindings')
 assert(narrativeLorebook.includes('reverie_relay_source_message_id') && narrativeLorebook.includes('reverie_relay_source_swipe_id'), 'Lorebook entries must retain source message/swipe provenance')
+assert(narrativeLorebook.includes('reverie_relay_surface_occurrence') && narrativeLorebook.includes('reverie_relay_source_fingerprint') && narrativeLorebook.includes('reverie_relay_version'), 'Lorebook entries must retain exact Surface provenance and Relay schema metadata')
+assert(backend.includes('getDrawerTabs?.({ userId })') && backend.includes('ui.openDrawerTab(lorebookTab.id'), 'successful Lorebook export must discover and open the supported host Lorebook drawer')
 assert(!fs.readFileSync(path.join(root, 'src/nativeSurfaces.ts'), 'utf8').includes('renderNarrativeRegex'), 'Narrative rendering must remain isolated from the 46 built-in Surface registry')
 const frontend = fs.readFileSync(path.join(root, 'src/frontend.ts'), 'utf8')
 for (const name of narrativeUtilityNames()) assert(frontend.includes(`'${name}'`), `${name}: Surface Library must expose an individual Narrative Utility toggle`)

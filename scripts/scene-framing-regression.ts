@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
-import { renderNarrativeRegex, narrativeRegexPack, narrativeRegexScripts } from '../src/narrativeRegexAssets'
+import { NARRATIVE_MEDIA_COMPATIBILITY_STYLE, renderNarrativeRegex, narrativeRegexPack, narrativeRegexScripts } from '../src/narrativeRegexAssets'
 
 const storage = new Map<string, unknown>()
 const requests: any[] = []
@@ -48,7 +48,12 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button'] as const) {
   const originals = narrativeRegexPack(variant).scripts
   for (const script of narrativeRegexScripts(variant)) {
     const original = originals.find(row => row.script_id === script.script_id)
-    if (original && script.script_id !== 'reverie_scene_tracker_images_v1') assert.equal(script.replace_string, original.replace_string, `${script.script_id}: unrelated styling changed`)
+    if (original && script.script_id !== 'reverie_scene_tracker_images_v1') {
+      const suppliedReplacement = script.replace_string.startsWith(NARRATIVE_MEDIA_COMPATIBILITY_STYLE)
+        ? script.replace_string.slice(NARRATIVE_MEDIA_COMPATIBILITY_STYLE.length)
+        : script.replace_string
+      assert.equal(suppliedReplacement, original.replace_string, `${script.script_id}: supplied Narrative styling changed`)
+    }
   }
   fixtures[variant] = renderNarrativeRegex(renderNativeSurfaceMarkup(raw, { definitions: {}, activePresetIds: {}, rendererMode: 'relay' } as any, { chatId: 'browser', messageId: 'm', swipeId: 0, autoGenerate: false }).content, variant, 'm')
   assert(fixtures[variant].includes('rr-scene-compass') && fixtures[variant].includes('data-rrn-native-request="compass"'))

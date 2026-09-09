@@ -147,7 +147,7 @@ let stylesRemoved = 0
 
 const drawer = {
   root: new FakeElement(),
-  tabId: 'dreamglass-image-router',
+  tabId: 'reverie-relay',
   setTitle: () => {},
   setShortName: () => {},
   setBadge: () => {},
@@ -200,7 +200,7 @@ const frontendModule = await import(moduleUrl)
 const cleanup = frontendModule.setup(ctx)
 assert(typeof cleanup === 'function', 'built frontend setup must return its lifecycle cleanup')
 assert(stylesRegistered === 1, 'frontend setup must register Relay styles')
-assert(drawerRegistrations.length === 1 && drawerRegistrations[0].id === 'dreamglass-image-router', 'frontend setup must register the Relay drawer tab')
+assert(drawerRegistrations.length === 1 && drawerRegistrations[0].id === 'reverie-relay', 'frontend setup must register the Relay drawer tab')
 assert(inputRegistrations.length === 2, 'frontend setup must register both input-bar actions')
 assert(inputRegistrations.some(entry => entry.options.id === 'open-reverie-relay'), 'Relay input-bar action must be registered')
 assert(inputRegistrations.some(entry => entry.options.id === 'open-reverie-surfaces'), 'Surface Registry input-bar action must be registered')

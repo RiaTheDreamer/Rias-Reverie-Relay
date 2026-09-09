@@ -9,6 +9,6 @@ for (const file of ['dist/backend.js', 'dist/frontend.js']) {
   const source = fs.readFileSync(full, 'utf8')
   assert(source.length > 20_000, `${file} is unexpectedly small`)
   assert(!/from\s+["']\.\.?\//.test(source), `${file} retains an unresolved relative import`)
-  assert(source.includes('0.2.0'), `${file} does not contain the current release version`)
+  assert(source.includes('0.2.1'), `${file} does not contain the current release version`)
 }
 console.log('dist dependency and version smoke passed.')
