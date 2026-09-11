@@ -896,6 +896,7 @@ const relayBatchLocks = new Set<string>()
 const relayProcessingKeys = new Set<string>()
 const BACKEND_STARTED_AT = Date.now()
 const stateMutationQueues = new Map<string, Promise<void>>()
+const narrativeStartupReconciledUsers = new Set<string>()
 const configMutationQueues = new Map<string, Promise<void>>()
 const pendingGenerationContent = new Map<string, { content: string; receivedAt: number }>()
 export const ILLUSTRATOR_RUNTIME_CACHE_POLICY = { maxEntries: 128, ttlMs: 15 * 60_000 } as const
@@ -3053,9 +3054,28 @@ async function exportNarrativeSurfaceToLorebook(payload: Extract<FrontendMessage
   return { ...result, message: `${result.message} Open the Lorebook drawer to review it.` }
 }
 
+async function reconcileInstalledNarrativeOnStartup(userId?: string): Promise<void> {
+  const scope = userId || '__default__'
+  if (narrativeStartupReconciledUsers.has(scope)) return
+  narrativeStartupReconciledUsers.add(scope)
+  const current = await getConfig(userId)
+  if (!current.narrativeDlcEnabled || !current.narrativeDlcLastSync?.installed) return
+  const variant = narrativeVariantForSurfaceShellMode(current.surfaceDefaultShellMode)
+  try {
+    const inspected = await inspectNarrativeRegex(spindle.regex_scripts, variant, userId)
+    const health = inspected.status === 'healthy'
+      ? inspected
+      : await reconcileNarrativeRegex(spindle.regex_scripts, variant, userId)
+    await setConfig({ narrativeDlcVariant: variant, narrativeDlcLastSync: health }, userId)
+  } catch (error) {
+    spindle.log.warn(`[Reverie Relay] Installed Narrative Regex startup reconciliation failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 async function handleFrontendMessage(payload: FrontendMessage, userId?: string): Promise<void> {
   switch (payload.type) {
     case 'list_state':
+      await reconcileInstalledNarrativeOnStartup(userId)
       await sendState(userId, payload.chatId ?? undefined)
       return
     case 'scan_message':
