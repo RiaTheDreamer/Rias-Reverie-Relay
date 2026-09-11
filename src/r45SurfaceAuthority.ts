@@ -50,7 +50,7 @@ const sortedBracketScripts = new Map<string, R45RegexScript[]>()
 export function r45SurfaceAuthorityPack(presentation: R45PresentationMode, color: R45ColorMode): R45Pack {
   const key = `${presentation}:${color}` as const
   const pack = PACKS[key]
-  if (!pack || pack.type !== 'lumiverse_regex_scripts' || pack.relay_product_version !== '0.2.1' || pack.scripts.length !== 138) {
+  if (!pack || pack.type !== 'lumiverse_regex_scripts' || pack.relay_product_version !== '0.2.2' || pack.scripts.length !== 138) {
     throw new Error(`Invalid R4.5 Surface authority selection: ${key}`)
   }
   return pack

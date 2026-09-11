@@ -3,7 +3,7 @@
   "type": "lumiverse_regex_scripts",
   "name": "Reverie Surfaces R4.5 — Primary — Spark",
   "notes": "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  "relay_product_version": "0.2.1",
+  "relay_product_version": "0.2.2",
   "surface_pack_revision": "R4.5",
   "surface_pack_mode": "spark",
   "surface_review_revision": "R4.5-FINAL",
@@ -37,7 +37,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_001_79437d",
@@ -74,7 +74,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_002_adfed4",
@@ -110,7 +110,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_003_841fca",
@@ -146,7 +146,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_004_a2b1b8",
@@ -183,7 +183,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_005_d2adf0",
@@ -219,7 +219,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_006_b5a1df",
@@ -262,7 +262,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_007_6d238f",
@@ -298,7 +298,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_008_c7741a",
@@ -334,7 +334,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_009_fe1f7c",
@@ -370,7 +370,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_010_68f63a",
@@ -406,7 +406,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_011_36e620",
@@ -442,7 +442,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_012_ada37b",
@@ -478,7 +478,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_013_e25008",
@@ -514,7 +514,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_014_0da462",
@@ -550,7 +550,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_015_0bb8fa",
@@ -586,7 +586,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_016_237a96",
@@ -622,7 +622,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_017_852244",
@@ -658,7 +658,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_018_e28561",
@@ -695,7 +695,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_019_b346b5",
@@ -732,7 +732,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_020_5224ea",
@@ -769,7 +769,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_021_c03155",
@@ -806,7 +806,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_022_ddceb8",
@@ -843,7 +843,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_023_591347",
@@ -880,7 +880,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_024_e5ccdf",
@@ -917,7 +917,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_025_aaaa05",
@@ -954,7 +954,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_026_4c6c16",
@@ -991,7 +991,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_027_0efe95",
@@ -1028,7 +1028,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_028_887f90",
@@ -1065,7 +1065,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_029_b8f53b",
@@ -1102,7 +1102,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_030_75b09c",
@@ -1140,7 +1140,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_031_691604",
@@ -1178,7 +1178,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_032_aa5046",
@@ -1215,7 +1215,7 @@
         "enable_one_mode_only": true,
         "variant": "structured",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_033_1c5665"
@@ -1250,7 +1250,7 @@
         "enable_one_mode_only": true,
         "variant": "legacy",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_034_ba998e"
@@ -1284,7 +1284,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_035_b1cd9f",
@@ -1320,7 +1320,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_036_812632",
@@ -1357,7 +1357,7 @@
         "enable_one_mode_only": true,
         "r2_3_fix": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_037_4c291d",
@@ -1393,7 +1393,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_038_d0a4b5",
@@ -1429,7 +1429,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_039_900980",
@@ -1465,7 +1465,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_040_affcb9",
@@ -1501,7 +1501,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_041_6ba6af",
@@ -1538,7 +1538,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_042_bf4cfb",
@@ -1575,7 +1575,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_043_f10400",
@@ -1612,7 +1612,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_044_78f604",
@@ -1649,7 +1649,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_045_06dcb0",
@@ -1686,7 +1686,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_046_8ddcb6",
@@ -1725,7 +1725,7 @@
         "approved_redesign": true,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_047_98c223",
@@ -1761,7 +1761,7 @@
         "source_order": 1,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_048_bfd492"
@@ -1795,7 +1795,7 @@
         "source_order": 2,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_049_c2b693"
@@ -1829,7 +1829,7 @@
         "source_order": 3,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_050_5e5ace"
@@ -1863,7 +1863,7 @@
         "source_order": 4,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_051_86cbe5"
@@ -1897,7 +1897,7 @@
         "source_order": 5,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_052_8acef9"
@@ -1931,7 +1931,7 @@
         "source_order": 6,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_053_73b284"
@@ -1965,7 +1965,7 @@
         "source_order": 7,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_054_a71e35"
@@ -1999,7 +1999,7 @@
         "source_order": 8,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_055_d307cc"
@@ -2033,7 +2033,7 @@
         "source_order": 9,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_056_87f08b"
@@ -2067,7 +2067,7 @@
         "source_order": 10,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_057_d47fb5"
@@ -2101,7 +2101,7 @@
         "source_order": 11,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_058_572553"
@@ -2135,7 +2135,7 @@
         "source_order": 12,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_059_23e7b6"
@@ -2169,7 +2169,7 @@
         "source_order": 13,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_060_e2c00b"
@@ -2203,7 +2203,7 @@
         "source_order": 14,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_061_f217db"
@@ -2237,7 +2237,7 @@
         "source_order": 15,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_062_ca3507"
@@ -2267,7 +2267,7 @@
         "internal_transformer": true,
         "surface": "twitch",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_063_109b6b",
@@ -2303,7 +2303,7 @@
         "source_order": 16,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_064_55436c"
@@ -2333,7 +2333,7 @@
         "internal_transformer": true,
         "surface": "mission-board",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_065_b051b9",
@@ -2369,7 +2369,7 @@
         "source_order": 17,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_066_4c0764"
@@ -2403,7 +2403,7 @@
         "source_order": 18,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_067_ca2bc5"
@@ -2437,7 +2437,7 @@
         "source_order": 19,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_068_182012"
@@ -2471,7 +2471,7 @@
         "source_order": 20,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_069_a91d13"
@@ -2505,7 +2505,7 @@
         "source_order": 21,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_070_32baae"
@@ -2539,7 +2539,7 @@
         "source_order": 22,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_071_57b192"
@@ -2573,7 +2573,7 @@
         "source_order": 23,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_072_3716d0"
@@ -2607,7 +2607,7 @@
         "source_order": 24,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_073_c9c3c1"
@@ -2641,7 +2641,7 @@
         "source_order": 25,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_074_744661"
@@ -2675,7 +2675,7 @@
         "source_order": 26,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_075_1f7d2b"
@@ -2709,7 +2709,7 @@
         "source_order": 27,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_076_23f35e"
@@ -2743,7 +2743,7 @@
         "source_order": 28,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_077_5109da"
@@ -2777,7 +2777,7 @@
         "source_order": 29,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_078_a74d3a"
@@ -2811,7 +2811,7 @@
         "source_order": 30,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_079_012836"
@@ -2845,7 +2845,7 @@
         "source_order": 31,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_080_3dc7fb"
@@ -2879,7 +2879,7 @@
         "source_order": 32,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_081_8dd34c"
@@ -2914,7 +2914,7 @@
         "enable_one_mode_only": true,
         "utility_contract": "for_you_following_thread_trends_separated",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_082_1e6889"
@@ -2948,7 +2948,7 @@
         "source_order": 33,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_083_a90135"
@@ -2982,7 +2982,7 @@
         "source_order": 34,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_084_7f904e"
@@ -3016,7 +3016,7 @@
         "source_order": 35,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_085_4ee547"
@@ -3050,7 +3050,7 @@
         "source_order": 36,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_086_b34fc8"
@@ -3084,7 +3084,7 @@
         "source_order": 38,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_087_4678e3"
@@ -3118,7 +3118,7 @@
         "source_order": 39,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_088_a564f2"
@@ -3152,7 +3152,7 @@
         "source_order": 40,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_089_89696d"
@@ -3183,7 +3183,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr37_spark_simg_sent"
@@ -3214,7 +3214,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr37_spark_simg_recv"
@@ -3248,7 +3248,7 @@
         "source_order": 41,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_090_86d091"
@@ -3282,7 +3282,7 @@
         "source_order": 42,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_091_6e869d"
@@ -3316,7 +3316,7 @@
         "source_order": 43,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_092_47d780"
@@ -3350,7 +3350,7 @@
         "source_order": 49,
         "enable_one_mode_only": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_093_2cb884"
@@ -3385,7 +3385,7 @@
         "enable_one_mode_only": true,
         "surface_label": "Relationship Web",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_094_ba2829"
@@ -3416,7 +3416,7 @@
         "surface_label": "Evidence Photo",
         "utility_revision": "structured-evidence-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_095_abac4e",
@@ -3449,7 +3449,7 @@
         "surface_label": "Photo Booth Strip",
         "utility_revision": "four-frame-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_096_4a6466",
@@ -3482,7 +3482,7 @@
         "surface_label": "Polaroid",
         "utility_revision": "captioned-polaroid-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_097_85e108",
@@ -3515,7 +3515,7 @@
         "surface_label": "Workspace Chat",
         "utility_revision": "four-populated-channels",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_098_fd15e2",
@@ -3547,7 +3547,7 @@
         "surface_outer": true,
         "surface_label": "Email",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_099_53f974",
@@ -3579,7 +3579,7 @@
         "surface_outer": true,
         "surface_label": "iMessage",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_100_450906",
@@ -3611,7 +3611,7 @@
         "surface_outer": true,
         "surface_label": "Twitch",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_101_0a3245",
@@ -3644,7 +3644,7 @@
         "surface_label": "Music Player",
         "utility_revision": "lyrics-direct-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_102_f590e6",
@@ -3677,7 +3677,7 @@
         "surface_label": "Live Location",
         "utility_revision": "chat-popup-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_103_18cff3",
@@ -3710,7 +3710,7 @@
         "surface_label": "Voice Memo",
         "utility_revision": "transcript-direct-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_104_7c77c2",
@@ -3744,7 +3744,7 @@
         "utility_revision": "multi-note-v2",
         "r2_3_fix": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_105_7f498e",
@@ -3777,7 +3777,7 @@
         "surface_label": "Marketplace",
         "r2_3_fix": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_106_a510df",
@@ -3814,7 +3814,7 @@
         "surface_outer": true,
         "r2_3_fix": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_107_80e6ed",
@@ -3853,7 +3853,7 @@
         "surface_label": "Naver News",
         "r2_3_fix": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_108_5eb0e9",
@@ -3884,7 +3884,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr37_spark_letter_newlines",
@@ -3917,7 +3917,7 @@
         "surface_label": "Letter",
         "utility_revision": "paper-letter-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_109_4a5e54",
@@ -3950,7 +3950,7 @@
         "surface_label": "Medical Chart",
         "utility_revision": "chart-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_110_2bf4e9",
@@ -3982,7 +3982,7 @@
         "surface_outer": true,
         "surface_label": "Court Transcript",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_111_e334f1",
@@ -4014,7 +4014,7 @@
         "surface_outer": true,
         "surface_label": "Wiki Page",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_112_f3669e",
@@ -4047,7 +4047,7 @@
         "surface_label": "Diary",
         "utility_revision": "multi-entry-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_114_1c020f",
@@ -4080,7 +4080,7 @@
         "surface_label": "Mission / List Board",
         "utility_revision": "generic-list-v2",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_115_259f72",
@@ -4112,7 +4112,7 @@
         "surface_outer": true,
         "surface_label": "CCTV",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_116_c98d00",
@@ -4145,7 +4145,7 @@
         "surface_label": "Discord Server",
         "utility_revision": "four-populated-channels",
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_117_062be9",
@@ -4176,7 +4176,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_118_4ca169",
@@ -4207,7 +4207,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_119_09d5f9",
@@ -4238,7 +4238,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_120_45897f",
@@ -4269,7 +4269,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr22_sp_121_207dbe",
@@ -4300,7 +4300,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr23_sp_igdm_msg",
@@ -4331,7 +4331,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr23_sp_igdm_media",
@@ -4362,7 +4362,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr23_sp_ebay_bid",
@@ -4393,7 +4393,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr23_sp_ebay_action",
@@ -4424,7 +4424,7 @@
       "metadata": {
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "🌊 Reverie Surfaces — Collapsible Sparkling",
       "script_id": "rr23_sp_naver_comment",
@@ -4456,7 +4456,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "R4.1 Profiles & Stories",
       "script_id": "r41_igc_sp",
@@ -4488,7 +4488,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "R4.1 Profiles & Stories",
       "script_id": "r41_igp_sp",
@@ -4520,7 +4520,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "R4.1 Profiles & Stories",
       "script_id": "r41_igm_sp",
@@ -4552,7 +4552,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": false,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "R4.1 Profiles & Stories",
       "script_id": "r41_igprofile_sp",
@@ -4584,7 +4584,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "R4.1 Profiles & Stories",
       "script_id": "r41_twc_sp",
@@ -4616,7 +4616,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "R4.1 Profiles & Stories",
       "script_id": "r41_twp_sp",
@@ -4648,7 +4648,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "R4.1 Profiles & Stories",
       "script_id": "r41_twm_sp",
@@ -4680,7 +4680,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": false,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "R4.1 Profiles & Stories",
       "script_id": "r41_twprofile_sp",
@@ -4712,7 +4712,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": false,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "R4.1 Profiles & Stories",
       "script_id": "r41_stories_sp",
@@ -4744,7 +4744,7 @@
         "surface_pack_revision": "R4.5",
         "internal_transformer": true,
         "authority": "Reverie Surfaces R4.5 FINAL",
-        "relay_product_version": "0.2.1"
+        "relay_product_version": "0.2.2"
       },
       "folder": "R4.1 Profiles & Stories",
       "script_id": "r43_twthread_sp",

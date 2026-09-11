@@ -1,11 +1,7 @@
 {
-  "version": "0.2.1",
+  "version": "0.2.2",
   "name": "Reverie Relay",
   "identifier": "reverie_relay",
-  "previous_identifiers": [
-    "dreamglass_image_router",
-    "reverie__relay"
-  ],
   "author": "Ria",
   "github": "https://github.com/RiaTheDreamer/Rias-Reverie-Relay",
   "homepage": "https://github.com/RiaTheDreamer/Rias-Reverie-Relay",

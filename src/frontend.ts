@@ -4431,6 +4431,10 @@ memory: [['genetics', 'Appearance Memory']],
       },
     }
     if (config) config = { ...config, proseIllustratorSettings: merged }
+    // Interface-only presentation controls must take effect immediately. They
+    // do not need to wait for the backend state echo (which may be delayed
+    // while a generation queue is active).
+    applyGlobalInterfaceSettings()
     if (!proseSettingsRenderFrame) {
       proseSettingsRenderFrame = window.requestAnimationFrame(() => {
         proseSettingsRenderFrame = 0

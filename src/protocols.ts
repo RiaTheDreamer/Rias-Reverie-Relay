@@ -351,7 +351,7 @@ MEDIA
 The one XML exception is generated media: place each complete <image_request> inside the exact owning bracket media field, post, message, attachment, or frame. Give it a stable unique id, meaningful slot, supported aspect, accessible alt text, and one complete <scene_brief>. Never use target="instagram.slide". A carousel is one target="instagram.carousel" request with count="2-4".
 
 SMARTPHONE
-Use [smart_phone] with sender, initial, time, day, battery, and ordered messages as child bracket fields. Every Smartphone image message is an [s_img] row containing mandatory [side]sent|recv[/side], its time, and one complete 4:3 smartphone.message-image request at the exact conversation position. Never omit side and never put media in contact or info.
+Use [smart_phone] with explicitly closed [sender], [initial], [time], [day], [battery], and ordered [messages] child fields. Text rows are [s_recv][time]HH:MM[/time]text[/s_recv] and [s_sent][time]HH:MM[/time]text[/s_sent]. Never write XML-style attributes in bracket openings and never leave a scalar field unclosed. Every Smartphone image message is an [s_img] row containing mandatory [side]sent|recv[/side], its time, and one complete 4:3 smartphone.message-image request at the exact conversation position. Never omit side and never put media in contact or info.
 
 REGEX-PACK ROOTS
 Use the exact bracket root documented by the selected enabled module. Relay canonicalizes bracket-native authoring into its renderer contract; Regex compatibility must not redefine the model-facing grammar.`

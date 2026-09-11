@@ -34,6 +34,34 @@ export type BracketSurfaceAuditRow = {
 const escapeRe = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const attrCache = new Map<string, Map<string, Set<string>>>()
 
+const SMARTPHONE_HEADER_FIELDS = ['sender', 'initial', 'time', 'day', 'battery'] as const
+
+/**
+ * Recover the narrow hybrid form produced when a model starts a Smartphone in
+ * bracket syntax but writes its scalar header fields like unclosed XML text.
+ * Only non-empty, same-line values before [messages] are repaired. Balanced
+ * canonical fields, multiline fields, and all message bodies are left alone.
+ */
+export function normalizeSmartphoneBracketDrift(source: string): { markup: string; warnings: string[] } {
+  const input = String(source || '')
+  if (!/^\s*\[smart_phone(?:\s+[^\]]*)?\]/i.test(input)) return { markup: input, warnings: [] }
+  const messagesAt = input.search(/\[messages(?:\s+[^\]]*)?\]/i)
+  const headerEnd = messagesAt >= 0 ? messagesAt : input.length
+  let header = input.slice(0, headerEnd)
+  const warnings: string[] = []
+  for (const field of SMARTPHONE_HEADER_FIELDS) {
+    const line = new RegExp(`(^[\\t ]*\\[${field}\\])([^\\r\\n]+)$`, 'gim')
+    header = header.replace(line, (matched, opening: string, rawValue: string) => {
+      if (new RegExp(`\\[\\/${field}\\]`, 'i').test(rawValue)) return matched
+      const value = rawValue.trim().replace(/\]$/, '').trim()
+      if (!value || /\[[\/]?[A-Za-z][\w-]*(?:\s+[^\]]*)?\]/.test(value)) return matched
+      warnings.push(`smartphone: closed recoverable [${field}] scalar drift.`)
+      return `${opening}${value}[/${field}]`
+    })
+  }
+  return { markup: header + input.slice(headerEnd), warnings }
+}
+
 function collectAttrFields(specs: SurfaceNormalizationSpec[]): Map<string, Set<string>> {
   const complete = completeSurfaceSpecs(specs)
   const key = complete.map(spec => `${spec.id}:${spec.sampleXml}`).join('\n')
@@ -258,12 +286,16 @@ export function normalizeBracketSurfaceDocument(
     const spec = aliases.find(row => row.alias.toLowerCase() === normalizeBracketName(open[1]).toLowerCase())?.spec
     if (!spec) continue
     const block = parseBracketRootBlock(input, open.index!, surfaceRootAliases(spec))
-    const parsed = parseBracketDocument(block.source)
+    const preNormalized = spec.id === 'smartphone'
+      ? normalizeSmartphoneBracketDrift(block.source)
+      : { markup: block.source, warnings: [] as string[] }
+    const parsed = parseBracketDocument(preNormalized.markup)
     const root = parsed.roots.find(row => surfaceRootAliases(spec).map(normalizeBracketName).includes(row.name))
     const rootDiagnostics = [...block.diagnostics, ...parsed.diagnostics.filter(row => !/Malformed child/.test(row))]
     const canonical = root && !rootDiagnostics.length
       ? bracketRootToCanonicalMarkup(root, attrFieldsByTag)
       : { markup: block.source, warnings: [], objectCount: 0 }
+    canonical.warnings.unshift(...preNormalized.warnings)
     const resultDiagnostics = root && !rootDiagnostics.length ? [] : [`${spec.id}: ${rootDiagnostics.join('; ') || 'Bracket root could not be parsed.'}`]
     diagnostics.push(...resultDiagnostics)
     const rendered = render ? render({
