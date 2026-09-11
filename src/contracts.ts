@@ -1283,6 +1283,8 @@ export type SlotRecord = {
   prosePlanId?: string
   proseAnchor?: ProseIllustrationAnchor
   proseSynthetic?: boolean
+  proseImageAlignment?: ProseImageAlignment
+  proseImageSize?: ProseImageSize
   composedPositivePrompt?: string
   composedNegativePrompt?: string
   prosePromptComposition?: ProsePromptComposition

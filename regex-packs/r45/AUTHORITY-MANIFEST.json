@@ -1,6 +1,6 @@
 {
   "authority": "Reverie Surfaces R4.5 FINAL six-pack bundle",
-  "relayProductVersion": "0.2.1",
+  "relayProductVersion": "0.2.2",
   "behaviorPreserved": [
     "script_id",
     "find_regex",

@@ -5,6 +5,8 @@ import { R45_ACTIVE_ROOTS, containsR45RenderedSurface, r45SurfaceAuthorityPack, 
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { SHIPPED_SURFACE_SPECS, shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
 import { completeSurfaceSpecs } from '../src/surfaceXml'
+import { normalizeBracketSurfaceDocument } from '../src/bracketSurfaceBridge'
+import { containsRenderedRegexSurface, renderRegexSurfaceParity } from '../src/regexSurfaceParity'
 
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
 
@@ -41,7 +43,7 @@ const colors: R45ColorMode[] = ['realistic', 'primary']
 let matrixCases = 0
 for (const presentation of presentations) for (const color of colors) {
   const pack = r45SurfaceAuthorityPack(presentation, color)
-  assert(pack.version === '2.2.1' && pack.relay_product_version === '0.2.1', `${presentation}/${color}: authority identity`)
+  assert(pack.version === '2.2.1' && pack.relay_product_version === '0.2.2', `${presentation}/${color}: authority identity`)
   assert(pack.scripts.length === 138 && pack.scripts.every(script => script.disabled !== true), `${presentation}/${color}: all 138 scripts enabled`)
   assert(new Set(pack.scripts.map(script => script.script_id)).size === 138, `${presentation}/${color}: unique script IDs`)
   for (const surface of canonical) {
@@ -82,6 +84,37 @@ for (const presentation of presentations) {
 }
 const google = canonical.find(row => row.id === 'google-images')!
 assert(/object-fit\s*:\s*(?:cover|contain)/i.test(renderR45SurfaceAuthority(google.sample, 'inline', 'realistic', 'google')), 'Google Images media-fit contract missing')
+
+const strictPhone = `[smart_phone]
+[sender]Cheer Squad[/sender]
+[initial]C[/initial]
+[time]00:11[/time]
+[day]Thursday[/day]
+[battery]23[/battery]
+[messages]
+[s_recv][time]00:08[/time]DAYEON: ARIN WHAT IS THIS[/s_recv]
+[s_sent][time]00:09[/time]I see it.[/s_sent]
+[/messages]
+[/smart_phone]`
+const hybridPhone = strictPhone
+  .replace('[sender]Cheer Squad[/sender]', '[sender]Cheer Squad')
+  .replace('[initial]C[/initial]', '[initial]C')
+  .replace('[time]00:11[/time]', '[time]00:11')
+  .replace('[day]Thursday[/day]', '[day]Thursday')
+  .replace('[battery]23[/battery]', '[battery]23]')
+  .replace('[s_recv][time]00:08[/time]', '[s_recv time="00:08"]')
+  .replace('[s_sent][time]00:09[/time]', '[s_sent time="00:09"]')
+for (const [label, phone] of [['strict', strictPhone], ['hybrid', hybridPhone]] as const) {
+  const normalized = normalizeBracketSurfaceDocument(phone, SHIPPED_SURFACE_SPECS)
+  assert(normalized.diagnostics.length === 0, `${label} Smartphone: normalization failed`)
+  assert(normalized.markup.includes('[battery]23[/battery]'), `${label} Smartphone: battery field was not canonical`)
+  assert(normalized.markup.includes('[s_recv][time]00:08[/time]'), `${label} Smartphone: received time was not a nested field`)
+  assert(normalized.markup.includes('[s_sent][time]00:09[/time]'), `${label} Smartphone: sent time was not a nested field`)
+  const rendered = renderRegexSurfaceParity(normalized.markup, 'inline', `phone-${label}`)
+  assert(containsRenderedRegexSurface(rendered) && !rendered.includes('[smart_phone]'), `${label} Smartphone: Surface was not consumed`)
+  assert(rendered.includes('DAYEON: ARIN WHAT IS THIS') && rendered.includes('I see it.'), `${label} Smartphone: ordered messages were lost`)
+  assert(rendered.includes('rpx-msg-row-recv') && rendered.includes('rpx-msg-row-sent'), `${label} Smartphone: sent/received styling was lost`)
+}
 const tikTok = canonical.find(row => row.id === 'tiktok-post')!
 const tikTokRendered = renderR45SurfaceAuthority(tikTok.sample, 'inline', 'realistic', 'tiktok')
 assert(containsR45RenderedSurface(tikTokRendered) && !tikTokRendered.includes('Relay Surface needs repair'), 'valid TikTok must use its rich renderer')

@@ -6947,7 +6947,8 @@ async function generateProseIllustrationPlan(chatId: string, planId: string, nat
       alt: plan.altText || plan.title || 'Scene illustration', caption: plan.caption, count: 1,
       requestAspect: plan.aspectRatio, createdAt: now, discoveredAt: now, registeredAt: now, queuedAt: now, updatedAt: now,
       selectedPromptProfileId: plan.promptProfileId, proseIllustrationId: plan.planId, prosePlanId: plan.planId,
-      proseAnchor: plan.anchor, proseSynthetic: true, attempts: [], promptPipeline: emptyPromptPipeline({ caption: plan.caption, originalNegativePrompt: '' }), history: [],
+      proseAnchor: plan.anchor, proseSynthetic: true, proseImageAlignment: plan.imageAlignment || 'center', proseImageSize: plan.imageSize || 'medium',
+      attempts: [], promptPipeline: emptyPromptPipeline({ caption: plan.caption, originalNegativePrompt: '' }), history: [],
       composedPositivePrompt: plan.promptComposition?.positivePrompt,
       composedNegativePrompt: plan.promptComposition?.negativePrompt,
       prosePromptComposition: plan.promptComposition,
@@ -11718,6 +11719,10 @@ function migrateSlotRecord(record: SlotRecord): void {
   if (!record.recoverySource) record.queuedAt ||= record.createdAt || now
   record.attempts ||= []
   record.history ||= []
+  if (record.targetApp === 'prose') {
+    record.proseImageAlignment = ['left', 'center', 'right'].includes(cleanString(record.proseImageAlignment)) ? record.proseImageAlignment : 'center'
+    record.proseImageSize = ['small', 'medium', 'large', 'full'].includes(cleanString(record.proseImageSize)) ? record.proseImageSize : 'medium'
+  }
   record.history = record.history.map(version => ({ ...version, imageIntent: normalizeImageIntent(version.imageIntent ?? record.imageIntent), promptPipeline: version.promptPipeline ? { ...version.promptPipeline, imageIntent: normalizeImageIntent(version.promptPipeline.imageIntent ?? version.imageIntent ?? record.imageIntent) } : version.promptPipeline }))
   record.promptPipeline ||= emptyPromptPipeline(record)
   record.promptPipeline.imageIntent = normalizeImageIntent(record.promptPipeline.imageIntent ?? record.imageIntent)

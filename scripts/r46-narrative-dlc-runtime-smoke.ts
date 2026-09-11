@@ -10,7 +10,7 @@ import {
   reconcileNarrativeRegex,
   removeNarrativeRegex,
 } from '../src/narrativeDlcRuntime'
-import { applyNarrativeDisplayNames, containsNarrativeRegexMarkup, narrativeRegexPack, narrativeRegexScripts, narrativeUtilityItems, narrativeUtilityNames, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup } from '../src/narrativeRegexAssets'
+import { NARRATIVE_UTILITY_DISPLAY_NAMES, applyNarrativeDisplayNames, containsNarrativeRegexMarkup, narrativeRegexPack, narrativeRegexScripts, narrativeUtilityItems, narrativeUtilityNames, normalizeNarrativeMarkupForRendering, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup } from '../src/narrativeRegexAssets'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { parseImageRequests, renderResolvedMarkup } from '../src/contracts'
 
@@ -80,6 +80,13 @@ assert(api.rows.every(row => row.metadata.reverie_narrative_variant === 'sparkle
 assert(api.rows.some(row => row.actions.length > 0), 'installer must preserve approved Narrative interaction actions')
 assert(api.rows.some(row => row.script_id === 'ria_dramatic_cutaway_lumiverse_native_bulletproof_v8'), 'approved Dramatic Cutaway renderer must be installed')
 assert(api.rows.some(row => row.name.includes('Parallel Scene')) && !api.rows.some(row => row.name.includes('Parallel Current')), 'installed host Regex scripts must use the current public Narrative labels')
+const installedNarrativeCopy = api.rows.map(row => `${row.name}\n${row.replace_string}`).join('\n')
+for (const [oldName, currentName] of Object.entries(NARRATIVE_UTILITY_DISPLAY_NAMES)) {
+  assert(!installedNarrativeCopy.includes(oldName), `installed Narrative copy retained old name: ${oldName}`)
+  if (narrativeRegexPack('sparkle-button').scripts.some(script => `${script.name}\n${script.replace_string}`.includes(oldName))) {
+    assert(installedNarrativeCopy.includes(currentName), `installed Narrative copy omitted current name: ${currentName}`)
+  }
+}
 
 const disabledSourceScript = narrativeRegexPack('sparkle-button').scripts.find(script => script.disabled === true)
 assert(Boolean(disabledSourceScript), 'source compatibility pack must retain disabled history for provenance testing')
@@ -159,6 +166,24 @@ const failedParallelNative = renderNativeSurfaceMarkup(failedParallelFixture, { 
 const failedParallelRendered = renderNarrativeRegex(failedParallelNative, 'sparkle-button', 'failed-parallel', { chatId: 'failed-parallel', swipeId: 0 })
 assert(!failedParallelRendered.includes('[PARALLEL|') && !failedParallelRendered.includes('[/PARALLEL]'), 'failed media must not expose raw Parallel syntax after the Relay containment fallback')
 assert((failedParallelRendered.match(/data-rrn-native-request="parallel-/g) || []).length === 3, 'failed Parallel media must retain three independently retryable lifecycle owners')
+
+const parallelCanonical = `[PARALLEL|Campus and beyond|shifting]
+- Soobin: one <parallel-media><image_request id="parallel-one" target="custom.artifact-media" slot="parallel-one" aspect="4:3"><scene_brief>Soobin waits outside the gym.</scene_brief></image_request></parallel-media>
+- Hana: two <parallel-media><image_request id="parallel-two" target="custom.artifact-media" slot="parallel-two" aspect="4:3"><scene_brief>Hana reads a new message.</scene_brief></image_request></parallel-media>
+- Jiyoon: three <parallel-media><image_request id="parallel-three" target="custom.artifact-media" slot="parallel-three" aspect="4:3"><scene_brief>Jiyoon crosses the courtyard.</scene_brief></image_request></parallel-media>
+<parallel-context><trajectory>Three existing threads continue moving.</trajectory><intersection>The shared campus timing creates pressure.</intersection></parallel-context>
+[/PARALLEL]`
+const parallelCanonicalRendered = renderNarrativeRegex(parallelCanonical, 'sparkle-button', 'parallel-canonical')
+assert(!parallelCanonicalRendered.includes('[PARALLEL|') && parallelCanonicalRendered.includes('Three existing threads continue moving.') && parallelCanonicalRendered.includes('The shared campus timing creates pressure.'), 'canonical Parallel context was not rendered')
+
+const parallelMissingContext = parallelCanonical.replace(/\s*<parallel-context>[\s\S]*?<\/parallel-context>/, '')
+const parallelMissingContextRendered = renderNarrativeRegex(parallelMissingContext, 'sparkle-button', 'parallel-old')
+assert(!parallelMissingContextRendered.includes('[PARALLEL|') && parallelMissingContextRendered.includes('Soobin: one') && parallelMissingContextRendered.includes('Jiyoon: three'), 'old-format Parallel without context must retain all text entries')
+
+const parallelEmptyMedia = parallelMissingContext.replace(/<parallel-media>[\s\S]*?<\/parallel-media>/g, '<parallel-media>  \n  </parallel-media>')
+assert(!normalizeNarrativeMarkupForRendering(parallelEmptyMedia).includes('<parallel-media>  '), 'empty Parallel media whitespace was not normalized')
+const parallelEmptyRendered = renderNarrativeRegex(parallelEmptyMedia, 'sparkle-button', 'parallel-empty')
+assert(!parallelEmptyRendered.includes('[PARALLEL|') && (parallelEmptyRendered.match(/<article class="r65-thread">/g) || []).length === 3, 'empty Parallel media must degrade to three textual thread cards')
 
 const lorebookFixtures = [
   { kind: 'cast-introduction', source: '[NPC:MAJOR|Lisa]\n<npc-media>portrait</npc-media>\nb: dancer\na: messy lavender hair, glasses\np: observant\n[/NPC]' },

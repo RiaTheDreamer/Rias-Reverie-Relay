@@ -28,6 +28,23 @@ function runtimeUtilityPrompt(row: CatalogRow): string {
   if (row.id === 'album-cover') return `${module}
 
 Album Cover contract note: a real album/release title is required in [title] before [artist], [release], and [artwork]. Do not use placeholders as the release title.`
+  if (row.id === 'smartphone') return `${module}
+
+Smartphone contract note: every scalar and message field must be explicitly closed. Never put XML-style attributes in bracket opening tags.
+
+STRICT MESSAGE SHAPE
+[messages]
+  [s_recv]
+    [time]HH:MM[/time]
+    Received message text.
+  [/s_recv]
+  [s_sent]
+    [time]HH:MM[/time]
+    Sent message text.
+  [/s_sent]
+[/messages]
+
+The shell fields are [sender]...[/sender], [initial]...[/initial], [time]...[/time], [day]...[/day], and [battery]...[/battery]. Never emit unclosed scalar fields, [battery]value], or [s_recv time="..."] / [s_sent time="..."].`
   return module
 }
 

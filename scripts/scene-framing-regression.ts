@@ -52,7 +52,11 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button'] as const) {
       const suppliedReplacement = script.replace_string.startsWith(NARRATIVE_MEDIA_COMPATIBILITY_STYLE)
         ? script.replace_string.slice(NARRATIVE_MEDIA_COMPATIBILITY_STYLE.length)
         : script.replace_string
-      assert.equal(suppliedReplacement, original.replace_string, `${script.script_id}: supplied Narrative styling changed`)
+      const structuralAddition = '<div class="r65-section r65-parallel-context"><p class="r65-section-title">Context</p><div class="r65-opt" data-label="Trajectory">$<trajectory></div><div class="r65-opt r65-gap" data-label="Intersection">$<intersection></div></div>'
+      const suppliedBase = script.script_id === 'reverie_parallel_tracker_images_v1'
+        ? suppliedReplacement.replace(structuralAddition, '')
+        : suppliedReplacement
+      assert.equal(suppliedBase, original.replace_string, `${script.script_id}: supplied Narrative styling changed`)
     }
   }
   fixtures[variant] = renderNarrativeRegex(renderNativeSurfaceMarkup(raw, { definitions: {}, activePresetIds: {}, rendererMode: 'relay' } as any, { chatId: 'browser', messageId: 'm', swipeId: 0, autoGenerate: false }).content, variant, 'm')
