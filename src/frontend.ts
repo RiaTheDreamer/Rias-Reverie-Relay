@@ -345,6 +345,10 @@ export function setup(ctx: SpindleFrontendContext) {
   let nativeSettingsLastSyncedAt = 0
   let nativeSettingsFetchInFlight: Promise<NativeSettingsSnapshot | null> | null = null
   const NATIVE_SETTINGS_CACHE_TTL_MS = 1_000
+  const nativeSnapshotScanAttempts = new Map<string, number>()
+  const nativeSnapshotScanTimers = new Map<string, number>()
+  const nativeSnapshotScanWarned = new Set<string>()
+  let terminalStateRefreshTimer = 0
   let recipeEditorId = ''
   let historySubTab: HistorySubTab = 'all-chats-gallery'
   let vaultSelectedCharacterId = ''
@@ -1387,6 +1391,7 @@ export function setup(ctx: SpindleFrontendContext) {
           failed: message.event === 'error',
         })
         resetRelayOrbInteractivity()
+        scheduleTerminalStateRefresh(message.chatId)
       } else {
         const progress = streamStatusText(message)
         const current = streamPreviews.get(key)
@@ -1918,6 +1923,7 @@ export function setup(ctx: SpindleFrontendContext) {
         if (!response.ok) return null
         const row = await response.json() as { value?: Record<string, unknown> }
         const settings = { ...(row.value || {}) }
+        if (Object.keys(settings).length === 0) return null
         await enrichNativeVisualPrompts(settings)
         nativeImageSettingsCache = settings
         nativeImageSettingsCachedAt = Date.now()
@@ -2201,7 +2207,33 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   async function sendScanWithNativeSnapshot(chatId: string, messageId: string | null, swipeId?: number | null, sourceContent?: string): Promise<void> {
-    const snapshot = await syncNativeSettings()
+    const key = `${chatId}:${messageId || '__latest__'}:${swipeId ?? '__active__'}`
+    const scheduled = nativeSnapshotScanTimers.get(key)
+    if (scheduled) {
+      window.clearTimeout(scheduled)
+      nativeSnapshotScanTimers.delete(key)
+    }
+    const attempt = nativeSnapshotScanAttempts.get(key) || 0
+    const snapshot = await syncNativeSettings(attempt > 0)
+    if (!snapshot) {
+      if (attempt >= 7) {
+        if (!nativeSnapshotScanWarned.has(key)) {
+          nativeSnapshotScanWarned.add(key)
+          showToast('warning', 'Relay is still waiting for Native ImageGen settings. The queued images will resume automatically when the settings endpoint responds.')
+        }
+        ctx.sendToBackend({ type: 'list_state', chatId })
+      }
+      nativeSnapshotScanAttempts.set(key, Math.min(7, attempt + 1))
+      const delay = attempt >= 7 ? 10_000 : Math.min(4_000, 250 * (2 ** attempt))
+      const timer = window.setTimeout(() => {
+        nativeSnapshotScanTimers.delete(key)
+        void sendScanWithNativeSnapshot(chatId, messageId, swipeId, sourceContent)
+      }, delay)
+      nativeSnapshotScanTimers.set(key, timer)
+      return
+    }
+    nativeSnapshotScanAttempts.delete(key)
+    nativeSnapshotScanWarned.delete(key)
     ctx.sendToBackend({
       type: 'scan_message',
       chatId,
@@ -2211,6 +2243,14 @@ export function setup(ctx: SpindleFrontendContext) {
       nativeImageSettings: snapshot?.settings,
       nativeSettingsCapturedAt: snapshot?.capturedAt,
     })
+  }
+
+  function scheduleTerminalStateRefresh(chatId?: string): void {
+    if (terminalStateRefreshTimer) window.clearTimeout(terminalStateRefreshTimer)
+    terminalStateRefreshTimer = window.setTimeout(() => {
+      terminalStateRefreshTimer = 0
+      ctx.sendToBackend({ type: 'list_state', chatId: chatId || activeChatId })
+    }, 180)
   }
 
   function deepQueryAll<T extends Element>(root: ParentNode, selector: string): T[] {
@@ -2261,7 +2301,71 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   const mediaCardUpdates = new WeakMap<HTMLElement, { signature: string; media: Element | null }>()
+  const boundNarrativeControls = new WeakSet<HTMLElement>()
+  function bindNarrativeInteractiveControls(): void {
+    for (const launcher of deepQueryAll<HTMLElement>(document, '.rrcp-presentation-sparkling > .rrcp-launch, .rrcp-presentation-plain > .rrcp-launch')) {
+      if (boundNarrativeControls.has(launcher)) continue
+      const wrap = launcher.parentElement
+      const toggle = launcher.querySelector<HTMLInputElement>('.rrcp-launch-toggle')
+      const shell = wrap ? Array.from(wrap.children).find(child => child.classList.contains('rrcp-shell')) as HTMLElement | undefined : undefined
+      if (!wrap || !shell) continue
+      boundNarrativeControls.add(launcher)
+      launcher.tabIndex = 0
+      launcher.setAttribute('role', 'button')
+      launcher.setAttribute('aria-expanded', toggle?.checked ? 'true' : 'false')
+      const activate = (event: Event) => {
+        event.preventDefault()
+        const open = !(toggle?.checked || wrap.dataset.rrcpOpen === 'true')
+        if (toggle) toggle.checked = open
+        wrap.dataset.rrcpOpen = open ? 'true' : 'false'
+        launcher.setAttribute('aria-expanded', open ? 'true' : 'false')
+        shell.style.setProperty('display', open ? 'block' : 'none', 'important')
+      }
+      launcher.addEventListener('click', activate)
+      launcher.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') activate(event)
+      })
+    }
+    for (const launcher of deepQueryAll<HTMLElement>(document, '.rrcp-app-launch')) {
+      if (boundNarrativeControls.has(launcher)) continue
+      const toggle = launcher.querySelector<HTMLInputElement>('.rrcp-app-toggle')
+      const page = launcher.nextElementSibling instanceof HTMLElement && launcher.nextElementSibling.classList.contains('rrcp-page')
+        ? launcher.nextElementSibling
+        : null
+      if (!page) continue
+      boundNarrativeControls.add(launcher)
+      launcher.tabIndex = 0
+      launcher.setAttribute('role', 'button')
+      launcher.setAttribute('aria-expanded', toggle?.checked ? 'true' : 'false')
+      const activate = (event: Event) => {
+        event.preventDefault()
+        const open = !(toggle?.checked || launcher.dataset.rrcpOpen === 'true')
+        const phone = launcher.closest('.rrcp-phone')
+        if (open && phone) {
+          for (const other of Array.from(phone.querySelectorAll<HTMLElement>('.rrcp-app-launch'))) {
+            if (other === launcher) continue
+            const otherToggle = other.querySelector<HTMLInputElement>('.rrcp-app-toggle')
+            if (otherToggle) otherToggle.checked = false
+            other.dataset.rrcpOpen = 'false'
+            other.setAttribute('aria-expanded', 'false')
+            const otherPage = other.nextElementSibling
+            if (otherPage instanceof HTMLElement && otherPage.classList.contains('rrcp-page')) otherPage.style.setProperty('display', 'none', 'important')
+          }
+        }
+        if (toggle) toggle.checked = open
+        launcher.dataset.rrcpOpen = open ? 'true' : 'false'
+        launcher.setAttribute('aria-expanded', open ? 'true' : 'false')
+        page.style.setProperty('display', open ? 'block' : 'none', 'important')
+      }
+      launcher.addEventListener('click', activate)
+      launcher.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') activate(event)
+      })
+    }
+  }
+
   function bindInlineImages(): void {
+    bindNarrativeInteractiveControls()
     const now = Date.now()
     for (const record of records) {
       const visibleSwipe = activeSwipeByMessage.get(record.messageId)
@@ -2270,9 +2374,10 @@ export function setup(ctx: SpindleFrontendContext) {
       if (!root) continue
       const requestCards = deepQueryAll<HTMLElement>(root as ParentNode, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`)
       const active = ['preparing', 'queued', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)
+      const stallEligible = ['preparing', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)
       const stream = streamPreviews.get(record.key)
       const lastActivityAt = Math.max(record.updatedAt || record.createdAt || now, stream?.updatedAt || 0)
-      const stalled = active && now - lastActivityAt > 90_000
+      const stalled = stallEligible && now - lastActivityAt > 90_000
       const needsPlacementRepair = record.status === 'placement-repair-needed'
       const recoverable = stalled || needsPlacementRepair || record.status === 'failed' || record.status === 'image-unavailable' || record.status === 'cancelled'
       const statusLabel = stalled ? 'Stalled'
@@ -8964,6 +9069,12 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     streamPreviews.clear()
     completedPreviewGenerations.clear()
     clearTimeout(bindTimer)
+    clearTimeout(terminalStateRefreshTimer)
+    terminalStateRefreshTimer = 0
+    for (const timer of nativeSnapshotScanTimers.values()) window.clearTimeout(timer)
+    nativeSnapshotScanTimers.clear()
+    nativeSnapshotScanAttempts.clear()
+    nativeSnapshotScanWarned.clear()
     for (const stale of Array.from(document.querySelectorAll<HTMLElement>('.dg-illustration-portal-button'))) stale.remove()
     clearTimeout(activeChatSyncTimer)
     clearInterval(sidecarNoticeTimer)

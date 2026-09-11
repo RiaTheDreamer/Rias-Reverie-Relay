@@ -71,7 +71,7 @@ class MockRegexApi {
 
 const api = new MockRegexApi()
 const activeScriptCount = narrativeRegexScripts('sparkle-button').length
-assert(activeScriptCount === 54, `active Narrative install must contain 53 approved base scripts plus Dramatic Cutaway, saw ${activeScriptCount}`)
+assert(activeScriptCount === 56, `active Narrative install must contain 53 approved base scripts, the Phone repair normalizer, Plot Sparks, and Dramatic Cutaway, saw ${activeScriptCount}`)
 const first = await reconcileNarrativeRegex(api as any, 'sparkle-button')
 assert(first.status === 'healthy' && first.healthy === activeScriptCount && api.creates === activeScriptCount, 'first install must create and validate only active owned scripts')
 assert(api.rows.every(row => row.disabled !== true && !/DISABLED|tombstone/i.test(row.name)), 'disabled legacy duplicates and tombstones must not be installed')
@@ -79,6 +79,19 @@ assert(api.rows.every(row => row.can_mutate && row.folder === NARRATIVE_DLC_FOLD
 assert(api.rows.every(row => row.metadata.reverie_narrative_variant === 'sparkle-button'), 'installed scripts must record selected variant')
 assert(api.rows.some(row => row.actions.length > 0), 'installer must preserve approved Narrative interaction actions')
 assert(api.rows.some(row => row.script_id === 'ria_dramatic_cutaway_lumiverse_native_bulletproof_v8'), 'approved Dramatic Cutaway renderer must be installed')
+assert(api.rows.some(row => row.script_id === 'ria_plot_sparks_og_sparkle_tabs_bulletproof_v7' && row.name.includes('Plot Sparks') && row.replace_string.includes('Plot Sparks') && !row.replace_string.includes('Chaos Hooks')), 'approved Plot Sparks renderer must be installed with its accepted Regex name and launcher label')
+const phoneRepair = api.rows.find(row => row.script_id === 'rrcp_repair_missing_optional_wallpaper_v462')
+const phoneShell = api.rows.find(row => row.script_id === 'rrpp_proto_shell_v31')
+assert(phoneRepair && phoneShell && phoneRepair.sort_order < phoneShell.sort_order, 'missing-wallpaper repair must install before the Character Phone shell renderer')
+
+const retiredRegexLabels = ['Character File', 'Cast Arrival', 'Unified Archive', 'Place File', 'Knowledge Veil', 'Beyond the Frame', 'Parallel Current', 'Scene Compass', 'World Texture', 'Unwalked Path']
+const acceptedRegexLabels = ['Character Dossier', 'Cast Introduction', 'Archive Entry', 'Location File', 'Backstage Secrets', 'Off-Stage', 'Parallel Scene', 'Scene Shift', 'Setting the Scene', 'In Another Life']
+for (const variant of ['sparkle-button', 'plain-button', 'inline'] as const) {
+  const sourcePresentation = JSON.stringify(narrativeRegexPack(variant).scripts.filter(script => script.disabled !== true).map(script => ({ name: script.name, replace_string: script.replace_string })))
+  for (const label of retiredRegexLabels) assert(!sourcePresentation.includes(label), `${variant}: retired label ${label} remains embedded in the active Regex source`)
+  for (const label of acceptedRegexLabels) assert(sourcePresentation.includes(label), `${variant}: accepted label ${label} is missing from the active Regex source`)
+  assert(sourcePresentation.includes('Introducing...') && sourcePresentation.includes('Welcome to the Stage...'), `${variant}: accepted special launcher labels are missing from the active Regex source`)
+}
 assert(api.rows.some(row => row.name.includes('Parallel Scene')) && !api.rows.some(row => row.name.includes('Parallel Current')), 'installed host Regex scripts must use the current public Narrative labels')
 const installedNarrativeCopy = api.rows.map(row => `${row.name}\n${row.replace_string}`).join('\n')
 for (const [oldName, currentName] of Object.entries(NARRATIVE_UTILITY_DISPLAY_NAMES)) {
@@ -155,6 +168,25 @@ assert(resolvedDramaticMedia.includes('class="reverie-artifact-media"') && !reso
 const completedDramatic = renderNarrativeRegex(dramaticFixture.replace(dramaticRequest.fullMatch, resolvedDramaticMedia), 'sparkle-button', 'dramatic-runtime')
 assert(completedDramatic.includes('dg-dramatic-cutaway') && completedDramatic.includes('/api/v1/image-gen/results/cutaway-image'), 'completed Narrative media must survive a full rerender inside the original Surface')
 
+const plotVectors = ['detonation', 'heartknife', 'wrongness', 'crash-in', 'matchstrike', 'reputation-fire', 'wildcard-collision']
+const plotSparksFixture = `<chaos_payload id="nightmare_sat_02x" lifecycle="Unused plot sparks dissolve after this response.">${plotVectors.map((vector, index) => `<chaos_hook key="${String.fromCharCode(97 + index)}" vector="${vector}"><hook_text>Independent plot spark ${index + 1}.</hook_text><hook_media>image-${index + 1}</hook_media></chaos_hook>`).join('')}</chaos_payload>`
+assert(containsNarrativeRegexMarkup(plotSparksFixture), 'Relay Narrative detection must include Plot Sparks semantic markup')
+const plotSparksRendered = renderNarrativeRegex(plotSparksFixture, 'sparkle-button', 'plot-sparks-runtime')
+assert(plotSparksRendered.includes('ch-og') && plotSparksRendered.includes('Plot Sparks') && !plotSparksRendered.includes('Chaos Hooks') && !plotSparksRendered.includes('<chaos_payload'), 'approved Plot Sparks renderer must consume tolerant payload IDs and expose only its accepted launcher label')
+
+const phoneApps = Array.from({ length: 8 }, (_, index) => `[cp_app][cp_slot]${index + 1}[/cp_slot][cp_name]App ${index + 1}[/cp_name][cp_icon]◇[/cp_icon][cp_tone]blue[/cp_tone][cp_badge]0[/cp_badge][cp_content][cp_row][cp_glyph]◇[/cp_glyph][cp_title]Row ${index + 1}[/cp_title][cp_meta]Meta[/cp_meta][cp_text]Text[/cp_text][/cp_row][/cp_content][/cp_app]`).join('')
+const missingWallpaperPhone = `[character_phone][cp_presentation]sparkling[/cp_presentation][cp_owner]Han Minjae[/cp_owner][cp_subtitle]Private phone[/cp_subtitle][cp_time]09:47[/cp_time][cp_day]Monday[/cp_day][cp_battery]63[/cp_battery][cp_apps]${phoneApps}[/cp_apps][/character_phone]`
+const normalizedPhone = normalizeNarrativeMarkupForRendering(missingWallpaperPhone)
+assert(normalizedPhone.includes('[cp_battery]63[/cp_battery][cp_wallpaper][/cp_wallpaper][cp_apps]'), 'missing optional Phone wallpaper wrapper must be inserted at its canonical position')
+assert((normalizeNarrativeMarkupForRendering(normalizedPhone).match(/\[cp_wallpaper\]/g) || []).length === 1, 'Phone wallpaper repair must be idempotent')
+for (const variant of ['sparkle-button', 'plain-button'] as const) {
+  const renderedPhone = renderNarrativeRegex(missingWallpaperPhone, variant, `phone-${variant}`)
+  assert(!renderedPhone.includes('[character_phone]') && !renderedPhone.includes('[/character_phone]'), `${variant}: repaired Character Phone shell did not render`)
+  assert(renderedPhone.includes(`<div class="rrcp-wrap rrcp-presentation-${variant === 'sparkle-button' ? 'sparkling' : 'plain'}">`) && renderedPhone.includes('class="rrcp-launch-toggle"'), `${variant}: supplied Character Phone presentation structure changed`)
+}
+const inlinePhone = renderNarrativeRegex(missingWallpaperPhone, 'inline', 'phone-inline')
+assert(inlinePhone.includes('<div class="rrcp-wrap rrcp-presentation-inline"><div class="rrcp-shell">') && !inlinePhone.includes('class="rrcp-launch-toggle"'), 'Inline Character Phone must remain directly open without a launcher')
+
 const failedParallelFixture = `[PARALLEL|Campus and beyond|complication]
 - First independent thread <parallel-media><!-- reverie-relay:image-error requestId="parallel-1" slot="thread_1" --><image_request_error id="parallel-1" target="custom.artifact-media" slot="thread_1" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error></parallel-media>
 - Second independent thread <parallel-media><!-- reverie-relay:image-error requestId="parallel-2" slot="thread_2" --><image_request_error id="parallel-2" target="custom.artifact-media" slot="thread_2" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error></parallel-media>
@@ -202,6 +234,7 @@ const root = path.resolve(new URL('..', import.meta.url).pathname.replace(/^\/([
 const backend = fs.readFileSync(path.join(root, 'src/backend.ts'), 'utf8')
 const narrativeLorebook = fs.readFileSync(path.join(root, 'src/narrativeLorebook.ts'), 'utf8')
 assert(backend.includes('const automaticNarrative = routerConfig.narrativeDlcEnabled') && backend.includes('buildResolvedNarrativeUtilityPrompt(routerConfig)'), 'Story Model interceptor must resolve Narrative Utilities through the runtime source path')
+assert(backend.includes('await reconcileInstalledNarrativeOnStartup(userId)') && backend.includes("const inspected = await inspectNarrativeRegex(spindle.regex_scripts, variant, userId)") && backend.includes("await reconcileNarrativeRegex(spindle.regex_scripts, variant, userId)"), 'already-enabled Narrative installs must reconcile their owned Regex source once after an extension update')
 assert(backend.includes("name: 'reverie_narrative'") && backend.includes('NARRATIVE_MACRO_MARKER'), 'placed Narrative macro path must be registered and expanded')
 assert(backend.includes('renderNarrativeRegex(renderedContent, snapshot.narrativeVariant') && backend.includes('shouldRelayRenderNarrativeMarkup(source, renderContext.rendererMode)'), 'Relay/Hybrid must execute the isolated Narrative renderer and failed legacy Regex markup must use the bounded containment fallback')
 assert(backend.includes("type: 'export_narrative_lorebook'") && narrativeLorebook.includes('reverie_relay_lorebook_chat_id') && narrativeLorebook.includes('chat_world_book_ids'), 'Lorebook export must create a chat-owned archive and preserve existing chat bindings')
@@ -222,4 +255,4 @@ assert(librarySource.indexOf('View Exact Injected Prompt') < librarySource.index
 assert(!frontend.includes('Inject FINAL Narrative Utilities') && !frontend.includes('complete FINAL Utility contract'), 'user-facing Surface controls must call them Narrative Utilities')
 assert(!frontend.slice(settingsStart).includes("panelSection('Narrative Utilities'"), 'Narrative Utility controls must not remain in Settings')
 
-console.log(`R4.6 Narrative runtime smoke passed: ${activeScriptCount} active-only owned scripts including Dramatic Cutaway, no disabled legacy installs, Relay/Hybrid rendering, combined prompt preview wiring, and 13 complete Narrative Utility injections.`)
+console.log(`R4.6 Narrative runtime smoke passed: ${activeScriptCount} active-only owned scripts including Phone repair, Plot Sparks, and Dramatic Cutaway, accepted Regex display names, preserved Phone presentation, no disabled legacy installs, Relay/Hybrid rendering, combined prompt preview wiring, and 13 complete Narrative Utility injections.`)

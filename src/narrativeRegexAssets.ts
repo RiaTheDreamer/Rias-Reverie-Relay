@@ -3,6 +3,7 @@ import plainPack from '../regex-packs/narrative-final/Reverie-Narrative-Surfaces
 import sparklePack from '../regex-packs/narrative-final/Reverie-Narrative-Surfaces-FINAL-Sparkle-Button.json'
 import utilityPack from '../regex-packs/narrative-final/Reverie-Narrative-Utilities-v6.1-FINAL-with-Character-Phone.json'
 import dramaticCutawayPack from '../regex-packs/narrative-final/Reverie-Dramatic-Cutaway-BULLETPROOF-V8.json'
+import plotSparksPack from '../regex-packs/narrative-final/Reverie-Plot-Sparks-BULLETPROOF-V7.json'
 import { sceneCompassPresentation } from './sceneCompassPresentation'
 
 export type NarrativeRegexVariant = 'sparkle-button' | 'plain-button' | 'inline'
@@ -58,7 +59,30 @@ const EXPECTED_PIN: Record<NarrativeRegexVariant, string> = {
 }
 
 const DRAMATIC_CUTAWAY_PACK = dramaticCutawayPack as unknown as NarrativeRegexPack
+const PLOT_SPARKS_PACK = plotSparksPack as unknown as NarrativeRegexPack
 const NARRATIVE_MEDIA_OWNER_CLASS = /(?:dg-dramatic-media|r65-media|rv6-media|ru-media|ru-portrait|ru-secret-media|ru-thread-media|rrcp-media|rrcp-photo-media|rrcp-wallpaper)/
+const CHARACTER_PHONE_OPTIONAL_WALLPAPER_NORMALIZER: NarrativeRegexScript = {
+  script_id: 'rrcp_repair_missing_optional_wallpaper_v462',
+  name: '↳ Character Phone — Repair Missing Optional Wallpaper Wrapper v4.6.2',
+  find_regex: '(\\[cp_battery\\]\\s*[0-9]{1,3}\\s*\\[/cp_battery\\])\\s*(?=\\[cp_apps\\])',
+  replace_string: '$1[cp_wallpaper][/cp_wallpaper]',
+  flags: 'gi',
+  placement: ['ai_output'],
+  scope: 'global',
+  scope_id: null,
+  target: ['display'],
+  min_depth: null,
+  max_depth: null,
+  trim_strings: [],
+  run_on_edit: false,
+  substitute_macros: 'none',
+  sort_order: 499,
+  disabled: false,
+  description: 'Repairs a commonly omitted empty cp_wallpaper wrapper before the approved Character Phone shell renderer runs.',
+  folder: '📱 Character Phone — FINAL',
+  metadata: { release: 'FINAL', surface: 'Character Phone', repair: 'missing-optional-wallpaper' },
+  actions: [],
+}
 
 /** Relay resolves Narrative-owned jobs to direct artifact media nodes. Keep
  * those nodes inside the approved layouts without redesigning their CSS. */
@@ -71,7 +95,7 @@ export const NARRATIVE_MEDIA_COMPATIBILITY_STYLE = `<style data-reverie-narrativ
 </style>`
 
 const safeMessageId = (value: string): string => String(value || 'narrative').replace(/[^A-Za-z0-9_-]+/g, '-') || 'narrative'
-const NARRATIVE_MARKUP = /\[(?:SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i
+const NARRATIVE_MARKUP = /\[(?:SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i
 const NARRATIVE_FAILED_MEDIA = /<image_request_error\b|<!--\s*(?:reverie-relay|dreamglass):image-error\b/i
 
 export const NARRATIVE_UTILITY_PACK = utilityPack as NarrativeUtilityPack
@@ -80,6 +104,7 @@ export const NARRATIVE_REGEX_VARIANTS: NarrativeRegexVariant[] = ['sparkle-butto
 /** Public theater labels. Loom names and script IDs remain stable migration
  * keys; only user/model-facing copy crosses this boundary. */
 export const NARRATIVE_UTILITY_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  'Character Profile': 'Cast Sheet',
   'Chaos Hooks': 'Plot Sparks',
   'Knowledge Veil': 'Backstage Secrets',
   'Beyond the Frame': 'Off-Stage',
@@ -158,7 +183,9 @@ function parallelSceneReplacement(replacement: string): string {
 }
 
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
-  return String(markup || '').replace(/<parallel-media>\s*<\/parallel-media>/gi, '<parallel-media></parallel-media>')
+  return String(markup || '')
+    .replace(/(\[cp_battery\]\s*[0-9]{1,3}\s*\[\/cp_battery\])\s*(?=\[cp_apps\])/gi, '$1[cp_wallpaper][/cp_wallpaper]')
+    .replace(/<parallel-media>\s*<\/parallel-media>/gi, '<parallel-media></parallel-media>')
 }
 
 export function narrativeRegexPack(variant: NarrativeRegexVariant): NarrativeRegexPack {
@@ -178,8 +205,13 @@ export function narrativeRegexScripts(variant: NarrativeRegexVariant): Narrative
   if (DRAMATIC_CUTAWAY_PACK.type !== 'lumiverse_regex_scripts' || DRAMATIC_CUTAWAY_PACK.scripts.length !== 1) {
     throw new Error('Invalid approved Dramatic Cutaway Regex asset')
   }
+  if (PLOT_SPARKS_PACK.type !== 'lumiverse_regex_scripts' || PLOT_SPARKS_PACK.scripts.length !== 1) {
+    throw new Error('Invalid approved Plot Sparks Regex asset')
+  }
   const scripts = [
+    CHARACTER_PHONE_OPTIONAL_WALLPAPER_NORMALIZER,
     ...narrativeRegexPack(variant).scripts.filter(script => script.disabled !== true),
+    ...PLOT_SPARKS_PACK.scripts.filter(script => script.disabled !== true),
     ...DRAMATIC_CUTAWAY_PACK.scripts.filter(script => script.disabled !== true),
   ]
   const ids = scripts.map(script => script.script_id)

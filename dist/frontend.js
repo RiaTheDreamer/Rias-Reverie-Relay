@@ -6768,12 +6768,12 @@ width:100%!important;height:100%!important}
       owner_extension_identifier: "reverie_relay"
     },
     {
-      name: "◇ Surface Review v4 — Character Profile — Inline",
+      name: "◇ Surface Review v4 — Cast Sheet — Inline",
       find_regex: "<character_profile>\\s*<portrait>([\\s\\S]*?)</portrait>\\s*<name>([\\s\\S]*?)</name>\\s*<role>([\\s\\S]*?)</role>\\s*<hook>([\\s\\S]*?)</hook>\\s*<trait>([\\s\\S]*?)</trait>\\s*</character_profile>",
       replace_string: `
 <style>
 .srv4-profile{--a:var(--lumiverse-primary,#d45b9f);width:100%;max-width:720px;margin:14px auto;color:#f7edf3;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.srv4-profile *{box-sizing:border-box}.srv4-profile>details>summary{display:table;list-style:none;margin:0 auto 10px;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 50%,#555);border-radius:999px;background:#100c11;color:#f9ddec;font-size:9.9px;font-weight:900;text-transform:uppercase;cursor:pointer}.srv4-profile>details>summary::-webkit-details-marker{display:none}.srv4-cp{display:grid;grid-template-columns:280px 1fr;overflow:hidden;border-radius:22px;border:1px solid #4b2a3b;background:linear-gradient(145deg,#1d1018,#0e0b0e);box-shadow:0 25px 70px #000a}.srv4-cp .portrait{min-height:390px;overflow:hidden}.srv4-cp .portrait image_request,.srv4-cp .portrait img,.srv4-cp .portrait .reverie-artifact-media{display:block;width:100%!important;height:100%!important;object-fit:cover!important;object-position:center!important}.srv4-cp scene_brief{display:none!important}.srv4-cp .copy{padding:28px}.srv4-cp .eyebrow{color:#ff82ae;font:900 9px monospace;letter-spacing:.13em;text-transform:uppercase}.srv4-cp h2{font:900 41.8px/1 Georgia,serif;margin:9px 0 5px}.srv4-cp .role{color:#cbb9c3}.srv4-cp .hook{font:italic 19.8px/1.5 Georgia,serif;border-left:3px solid var(--a);padding:12px 0 12px 15px;margin:23px 0}.srv4-cp .traitlabel{font-size:9.9px;color:#a8919d;text-transform:uppercase;letter-spacing:.12em}.srv4-cp .trait{display:inline-block;margin-top:7px;border:1px solid #583247;background:#26121f;border-radius:999px;padding:7px 10px;color:#ffd7e6}@container(max-width:560px){.srv4-cp{grid-template-columns:minmax(138px,40%) minmax(0,60%)}.srv4-cp .portrait{min-height:300px}}
-</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Character Profile</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div>
+</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Cast Sheet</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div>
 
 <style data-r30="avatar-center">
 .srv-avatar,.srv-discord-avatar,.twlr-avatar,.twlr-avatar-lg,.twlr-comment-avatar,
@@ -19446,16 +19446,16 @@ width:100%!important;height:100%!important}
       owner_extension_identifier: "reverie_relay"
     },
     {
-      name: "◇ Surface Review v4 — Character Profile — Collapsible Plain",
+      name: "◇ Surface Review v4 — Cast Sheet — Collapsible Plain",
       find_regex: "<character_profile>\\s*<portrait>([\\s\\S]*?)</portrait>\\s*<name>([\\s\\S]*?)</name>\\s*<role>([\\s\\S]*?)</role>\\s*<hook>([\\s\\S]*?)</hook>\\s*<trait>([\\s\\S]*?)</trait>\\s*</character_profile>",
       replace_string: `<style>
 .rr22-collapse{width:100%;margin:0 auto;padding:5px 0;border:0!important;background:transparent!important}
 .rr22-collapse>summary{display:table;margin:0 auto 1px;padding:11px 19px;min-height:42px;list-style:none;cursor:pointer;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 72%,#f4e7ef 28%);border-radius:999px;background:linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 16%,#171419 84%),#171419);color:color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 18%,#ffffff 82%);font:850 11px/1 system-ui;letter-spacing:.02em;text-transform:none;box-shadow:0 8px 24px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 18%,transparent),inset 0 1px 0 rgba(255,255,255,.08)}
 .rr22-collapse>summary::-webkit-details-marker{display:none}.rr22-collapse[open]>summary{border-color:color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 88%,#ffe9f3 12%);background:linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 24%,#201821 76%),#1d171c);color:#fff4fa;box-shadow:0 10px 28px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 26%,transparent),inset 0 1px 0 rgba(255,255,255,.1)}
-</style><details class="rr22-collapse" style="width:100%!important;margin:0 auto!important;padding:4px 0!important;border:0!important;background:transparent!important;"><summary style="display:flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;width:max-content!important;min-width:0!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 18px!important;line-height:1!important;vertical-align:middle!important;">View Character Profile</summary><div class="rr22-collapse-body">
+</style><details class="rr22-collapse" style="width:100%!important;margin:0 auto!important;padding:4px 0!important;border:0!important;background:transparent!important;"><summary style="display:flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;width:max-content!important;min-width:0!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 18px!important;line-height:1!important;vertical-align:middle!important;">View Cast Sheet</summary><div class="rr22-collapse-body">
 <style>
 .srv4-profile{--a:var(--lumiverse-primary,#d45b9f);width:100%;max-width:720px;margin:14px auto;color:#f7edf3;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.srv4-profile *{box-sizing:border-box}.srv4-profile>details>summary{display:table;list-style:none;margin:0 auto 1px;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 50%,#555);border-radius:999px;background:#100c11;color:#f9ddec;font-size:9.9px;font-weight:900;text-transform:uppercase;cursor:pointer}.srv4-profile>details>summary::-webkit-details-marker{display:none}.srv4-cp{display:grid;grid-template-columns:280px 1fr;overflow:hidden;border-radius:22px;border:1px solid #4b2a3b;background:linear-gradient(145deg,#1d1018,#0e0b0e);box-shadow:0 25px 70px #000a}.srv4-cp .portrait{min-height:390px;overflow:hidden}.srv4-cp .portrait image_request,.srv4-cp .portrait img,.srv4-cp .portrait .reverie-artifact-media{display:block;width:100%!important;height:100%!important;object-fit:cover!important;object-position:center!important}.srv4-cp scene_brief{display:none!important}.srv4-cp .copy{padding:28px}.srv4-cp .eyebrow{color:#ff82ae;font:900 9px monospace;letter-spacing:.13em;text-transform:uppercase}.srv4-cp h2{font:900 41.8px/1 Georgia,serif;margin:9px 0 5px}.srv4-cp .role{color:#cbb9c3}.srv4-cp .hook{font:italic 19.8px/1.5 Georgia,serif;border-left:3px solid var(--a);padding:12px 0 12px 15px;margin:23px 0}.srv4-cp .traitlabel{font-size:9.9px;color:#a8919d;text-transform:uppercase;letter-spacing:.12em}.srv4-cp .trait{display:inline-block;margin-top:7px;border:1px solid #583247;background:#26121f;border-radius:999px;padding:7px 10px;color:#ffd7e6}@container(max-width:560px){.srv4-cp{grid-template-columns:minmax(138px,40%) minmax(0,60%)}.srv4-cp .portrait{min-height:300px}}
-</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Character Profile</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div></div></details>
+</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Cast Sheet</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div></div></details>
 
 
 <style data-r30="launcher-even">
@@ -34447,17 +34447,17 @@ width:100%!important;height:100%!important}
       owner_extension_identifier: "reverie_relay"
     },
     {
-      name: "◇ Surface Review v4 — Character Profile — Collapsible Sparkling",
+      name: "◇ Surface Review v4 — Cast Sheet — Collapsible Sparkling",
       find_regex: "<character_profile>\\s*<portrait>([\\s\\S]*?)</portrait>\\s*<name>([\\s\\S]*?)</name>\\s*<role>([\\s\\S]*?)</role>\\s*<hook>([\\s\\S]*?)</hook>\\s*<trait>([\\s\\S]*?)</trait>\\s*</character_profile>",
       replace_string: `<style>
 .rr22-spark-collapse{width:100%;margin:15px auto;border:0!important;background:transparent!important;text-align:center}
 .rr22-spark-collapse>summary{position:relative;isolation:isolate;display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin:0 auto 1px;padding:11px 22px;overflow:hidden;list-style:none;cursor:pointer;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 55%,#55424c);border-radius:999px;background:radial-gradient(circle at 20% 20%,rgba(255,255,255,.07),transparent 32%),linear-gradient(180deg,color-mix(in srgb,#23141d 76%,var(--lumiverse-primary,#d45b9f) 24%),#100b0f);color:#f8eaf2;font:850 11px/1 system-ui;letter-spacing:.03em;box-shadow:0 10px 28px #0007,0 0 18px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 18%,transparent)}
 .rr22-spark-collapse>summary::-webkit-details-marker{display:none}.rr22-spark-collapse>summary span{position:relative;z-index:2}
 .rr22-sparks{position:absolute!important;inset:0!important;z-index:1!important;pointer-events:none!important}.rr22-sparks i{position:absolute;width:3px;height:3px;border-radius:50%;background:#fff;box-shadow:0 0 8px var(--lumiverse-primary,#d45b9f);opacity:.55}.rr22-sparks i:nth-child(1){left:12%;top:68%}.rr22-sparks i:nth-child(2){left:31%;top:24%}.rr22-sparks i:nth-child(3){left:52%;top:75%}.rr22-sparks i:nth-child(4){left:72%;top:20%}.rr22-sparks i:nth-child(5){left:89%;top:62%}
-</style><details class="rr22-spark-collapse" style="width:100%!important;margin:0 auto!important;padding:4px 0!important;border:0!important;background:transparent!important;"><summary style="display:flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;width:max-content!important;min-width:0!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 18px!important;line-height:1!important;vertical-align:middle!important;"><span class="rr41-sparkfield" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="rr22-sparks"><i></i><i></i><i></i><i></i><i></i></span><span>View Character Profile</span></summary><div>
+</style><details class="rr22-spark-collapse" style="width:100%!important;margin:0 auto!important;padding:4px 0!important;border:0!important;background:transparent!important;"><summary style="display:flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;width:max-content!important;min-width:0!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 18px!important;line-height:1!important;vertical-align:middle!important;"><span class="rr41-sparkfield" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="rr22-sparks"><i></i><i></i><i></i><i></i><i></i></span><span>View Cast Sheet</span></summary><div>
 <style>
 .srv4-profile{--a:var(--lumiverse-primary,#d45b9f);width:100%;max-width:720px;margin:14px auto;color:#f7edf3;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.srv4-profile *{box-sizing:border-box}.srv4-profile>details>summary{display:table;list-style:none;margin:0 auto 1px;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 50%,#555);border-radius:999px;background:#100c11;color:#f9ddec;font-size:9.9px;font-weight:900;text-transform:uppercase;cursor:pointer}.srv4-profile>details>summary::-webkit-details-marker{display:none}.srv4-cp{display:grid;grid-template-columns:280px 1fr;overflow:hidden;border-radius:22px;border:1px solid #4b2a3b;background:linear-gradient(145deg,#1d1018,#0e0b0e);box-shadow:0 25px 70px #000a}.srv4-cp .portrait{min-height:390px;overflow:hidden}.srv4-cp .portrait image_request,.srv4-cp .portrait img,.srv4-cp .portrait .reverie-artifact-media{display:block;width:100%!important;height:100%!important;object-fit:cover!important;object-position:center!important}.srv4-cp scene_brief{display:none!important}.srv4-cp .copy{padding:28px}.srv4-cp .eyebrow{color:#ff82ae;font:900 9px monospace;letter-spacing:.13em;text-transform:uppercase}.srv4-cp h2{font:900 41.8px/1 Georgia,serif;margin:9px 0 5px}.srv4-cp .role{color:#cbb9c3}.srv4-cp .hook{font:italic 19.8px/1.5 Georgia,serif;border-left:3px solid var(--a);padding:12px 0 12px 15px;margin:23px 0}.srv4-cp .traitlabel{font-size:9.9px;color:#a8919d;text-transform:uppercase;letter-spacing:.12em}.srv4-cp .trait{display:inline-block;margin-top:7px;border:1px solid #583247;background:#26121f;border-radius:999px;padding:7px 10px;color:#ffd7e6}@container(max-width:560px){.srv4-cp{grid-template-columns:minmax(138px,40%) minmax(0,60%)}.srv4-cp .portrait{min-height:300px}}
-</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Character Profile</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div></div></details>
+</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Cast Sheet</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div></div></details>
 
 
 <style data-r30="launcher-even">
@@ -49119,12 +49119,12 @@ width:100%!important;height:100%!important}
       owner_extension_identifier: "reverie_relay"
     },
     {
-      name: "◇ Surface Review v4 — Character Profile — Inline",
+      name: "◇ Surface Review v4 — Cast Sheet — Inline",
       find_regex: "<character_profile>\\s*<portrait>([\\s\\S]*?)</portrait>\\s*<name>([\\s\\S]*?)</name>\\s*<role>([\\s\\S]*?)</role>\\s*<hook>([\\s\\S]*?)</hook>\\s*<trait>([\\s\\S]*?)</trait>\\s*</character_profile>",
       replace_string: `
 <style>
 .srv4-profile{--a:var(--lumiverse-primary,#d45b9f);width:100%;max-width:720px;margin:14px auto;color:#f7edf3;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.srv4-profile *{box-sizing:border-box}.srv4-profile>details>summary{display:table;list-style:none;margin:0 auto 10px;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 50%,#555);border-radius:999px;background:#100c11;color:#f9ddec;font-size:9.9px;font-weight:900;text-transform:uppercase;cursor:pointer}.srv4-profile>details>summary::-webkit-details-marker{display:none}.srv4-cp{display:grid;grid-template-columns:280px 1fr;overflow:hidden;border-radius:22px;border:1px solid #4b2a3b;background:linear-gradient(145deg,#1d1018,#0e0b0e);box-shadow:0 25px 70px #000a}.srv4-cp .portrait{min-height:390px;overflow:hidden}.srv4-cp .portrait image_request,.srv4-cp .portrait img,.srv4-cp .portrait .reverie-artifact-media{display:block;width:100%!important;height:100%!important;object-fit:cover!important;object-position:center!important}.srv4-cp scene_brief{display:none!important}.srv4-cp .copy{padding:28px}.srv4-cp .eyebrow{color:#ff82ae;font:900 9px monospace;letter-spacing:.13em;text-transform:uppercase}.srv4-cp h2{font:900 41.8px/1 Georgia,serif;margin:9px 0 5px}.srv4-cp .role{color:#cbb9c3}.srv4-cp .hook{font:italic 19.8px/1.5 Georgia,serif;border-left:3px solid var(--a);padding:12px 0 12px 15px;margin:23px 0}.srv4-cp .traitlabel{font-size:9.9px;color:#a8919d;text-transform:uppercase;letter-spacing:.12em}.srv4-cp .trait{display:inline-block;margin-top:7px;border:1px solid #583247;background:#26121f;border-radius:999px;padding:7px 10px;color:#ffd7e6}@container(max-width:560px){.srv4-cp{grid-template-columns:minmax(138px,40%) minmax(0,60%)}.srv4-cp .portrait{min-height:300px}}
-</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Character Profile</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div>
+</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Cast Sheet</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div>
 
 <style data-r30="avatar-center">
 .srv-avatar,.srv-discord-avatar,.twlr-avatar,.twlr-avatar-lg,.twlr-comment-avatar,
@@ -61786,16 +61786,16 @@ width:100%!important;height:100%!important}
       owner_extension_identifier: "reverie_relay"
     },
     {
-      name: "◇ Surface Review v4 — Character Profile — Collapsible Plain",
+      name: "◇ Surface Review v4 — Cast Sheet — Collapsible Plain",
       find_regex: "<character_profile>\\s*<portrait>([\\s\\S]*?)</portrait>\\s*<name>([\\s\\S]*?)</name>\\s*<role>([\\s\\S]*?)</role>\\s*<hook>([\\s\\S]*?)</hook>\\s*<trait>([\\s\\S]*?)</trait>\\s*</character_profile>",
       replace_string: `<style>
 .rr22-collapse{width:100%;margin:0 auto;padding:5px 0;border:0!important;background:transparent!important}
 .rr22-collapse>summary{display:table;margin:0 auto 1px;padding:11px 19px;min-height:42px;list-style:none;cursor:pointer;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 72%,#f4e7ef 28%);border-radius:999px;background:linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 16%,#171419 84%),#171419);color:color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 18%,#ffffff 82%);font:850 11px/1 system-ui;letter-spacing:.02em;text-transform:none;box-shadow:0 8px 24px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 18%,transparent),inset 0 1px 0 rgba(255,255,255,.08)}
 .rr22-collapse>summary::-webkit-details-marker{display:none}.rr22-collapse[open]>summary{border-color:color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 88%,#ffe9f3 12%);background:linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 24%,#201821 76%),#1d171c);color:#fff4fa;box-shadow:0 10px 28px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 26%,transparent),inset 0 1px 0 rgba(255,255,255,.1)}
-</style><details class="rr22-collapse" style="width:100%!important;margin:0 auto!important;padding:4px 0!important;border:0!important;background:transparent!important;"><summary style="display:flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;width:max-content!important;min-width:0!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 18px!important;line-height:1!important;vertical-align:middle!important;">View Character Profile</summary><div class="rr22-collapse-body">
+</style><details class="rr22-collapse" style="width:100%!important;margin:0 auto!important;padding:4px 0!important;border:0!important;background:transparent!important;"><summary style="display:flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;width:max-content!important;min-width:0!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 18px!important;line-height:1!important;vertical-align:middle!important;">View Cast Sheet</summary><div class="rr22-collapse-body">
 <style>
 .srv4-profile{--a:var(--lumiverse-primary,#d45b9f);width:100%;max-width:720px;margin:14px auto;color:#f7edf3;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.srv4-profile *{box-sizing:border-box}.srv4-profile>details>summary{display:table;list-style:none;margin:0 auto 1px;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 50%,#555);border-radius:999px;background:#100c11;color:#f9ddec;font-size:9.9px;font-weight:900;text-transform:uppercase;cursor:pointer}.srv4-profile>details>summary::-webkit-details-marker{display:none}.srv4-cp{display:grid;grid-template-columns:280px 1fr;overflow:hidden;border-radius:22px;border:1px solid #4b2a3b;background:linear-gradient(145deg,#1d1018,#0e0b0e);box-shadow:0 25px 70px #000a}.srv4-cp .portrait{min-height:390px;overflow:hidden}.srv4-cp .portrait image_request,.srv4-cp .portrait img,.srv4-cp .portrait .reverie-artifact-media{display:block;width:100%!important;height:100%!important;object-fit:cover!important;object-position:center!important}.srv4-cp scene_brief{display:none!important}.srv4-cp .copy{padding:28px}.srv4-cp .eyebrow{color:#ff82ae;font:900 9px monospace;letter-spacing:.13em;text-transform:uppercase}.srv4-cp h2{font:900 41.8px/1 Georgia,serif;margin:9px 0 5px}.srv4-cp .role{color:#cbb9c3}.srv4-cp .hook{font:italic 19.8px/1.5 Georgia,serif;border-left:3px solid var(--a);padding:12px 0 12px 15px;margin:23px 0}.srv4-cp .traitlabel{font-size:9.9px;color:#a8919d;text-transform:uppercase;letter-spacing:.12em}.srv4-cp .trait{display:inline-block;margin-top:7px;border:1px solid #583247;background:#26121f;border-radius:999px;padding:7px 10px;color:#ffd7e6}@container(max-width:560px){.srv4-cp{grid-template-columns:minmax(138px,40%) minmax(0,60%)}.srv4-cp .portrait{min-height:300px}}
-</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Character Profile</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div></div></details>
+</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Cast Sheet</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div></div></details>
 
 
 <style data-r30="launcher-even">
@@ -76776,17 +76776,17 @@ width:100%!important;height:100%!important}
       owner_extension_identifier: "reverie_relay"
     },
     {
-      name: "◇ Surface Review v4 — Character Profile — Collapsible Sparkling",
+      name: "◇ Surface Review v4 — Cast Sheet — Collapsible Sparkling",
       find_regex: "<character_profile>\\s*<portrait>([\\s\\S]*?)</portrait>\\s*<name>([\\s\\S]*?)</name>\\s*<role>([\\s\\S]*?)</role>\\s*<hook>([\\s\\S]*?)</hook>\\s*<trait>([\\s\\S]*?)</trait>\\s*</character_profile>",
       replace_string: `<style>
 .rr22-spark-collapse{width:100%;margin:15px auto;border:0!important;background:transparent!important;text-align:center}
 .rr22-spark-collapse>summary{position:relative;isolation:isolate;display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin:0 auto 1px;padding:11px 22px;overflow:hidden;list-style:none;cursor:pointer;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 55%,#55424c);border-radius:999px;background:radial-gradient(circle at 20% 20%,rgba(255,255,255,.07),transparent 32%),linear-gradient(180deg,color-mix(in srgb,#23141d 76%,var(--lumiverse-primary,#d45b9f) 24%),#100b0f);color:#f8eaf2;font:850 11px/1 system-ui;letter-spacing:.03em;box-shadow:0 10px 28px #0007,0 0 18px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 18%,transparent)}
 .rr22-spark-collapse>summary::-webkit-details-marker{display:none}.rr22-spark-collapse>summary span{position:relative;z-index:2}
 .rr22-sparks{position:absolute!important;inset:0!important;z-index:1!important;pointer-events:none!important}.rr22-sparks i{position:absolute;width:3px;height:3px;border-radius:50%;background:#fff;box-shadow:0 0 8px var(--lumiverse-primary,#d45b9f);opacity:.55}.rr22-sparks i:nth-child(1){left:12%;top:68%}.rr22-sparks i:nth-child(2){left:31%;top:24%}.rr22-sparks i:nth-child(3){left:52%;top:75%}.rr22-sparks i:nth-child(4){left:72%;top:20%}.rr22-sparks i:nth-child(5){left:89%;top:62%}
-</style><details class="rr22-spark-collapse" style="width:100%!important;margin:0 auto!important;padding:4px 0!important;border:0!important;background:transparent!important;"><summary style="display:flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;width:max-content!important;min-width:0!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 18px!important;line-height:1!important;vertical-align:middle!important;"><span class="rr41-sparkfield" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="rr22-sparks"><i></i><i></i><i></i><i></i><i></i></span><span>View Character Profile</span></summary><div>
+</style><details class="rr22-spark-collapse" style="width:100%!important;margin:0 auto!important;padding:4px 0!important;border:0!important;background:transparent!important;"><summary style="display:flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;width:max-content!important;min-width:0!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 18px!important;line-height:1!important;vertical-align:middle!important;"><span class="rr41-sparkfield" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="rr22-sparks"><i></i><i></i><i></i><i></i><i></i></span><span>View Cast Sheet</span></summary><div>
 <style>
 .srv4-profile{--a:var(--lumiverse-primary,#d45b9f);width:100%;max-width:720px;margin:14px auto;color:#f7edf3;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.srv4-profile *{box-sizing:border-box}.srv4-profile>details>summary{display:table;list-style:none;margin:0 auto 1px;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 50%,#555);border-radius:999px;background:#100c11;color:#f9ddec;font-size:9.9px;font-weight:900;text-transform:uppercase;cursor:pointer}.srv4-profile>details>summary::-webkit-details-marker{display:none}.srv4-cp{display:grid;grid-template-columns:280px 1fr;overflow:hidden;border-radius:22px;border:1px solid #4b2a3b;background:linear-gradient(145deg,#1d1018,#0e0b0e);box-shadow:0 25px 70px #000a}.srv4-cp .portrait{min-height:390px;overflow:hidden}.srv4-cp .portrait image_request,.srv4-cp .portrait img,.srv4-cp .portrait .reverie-artifact-media{display:block;width:100%!important;height:100%!important;object-fit:cover!important;object-position:center!important}.srv4-cp scene_brief{display:none!important}.srv4-cp .copy{padding:28px}.srv4-cp .eyebrow{color:#ff82ae;font:900 9px monospace;letter-spacing:.13em;text-transform:uppercase}.srv4-cp h2{font:900 41.8px/1 Georgia,serif;margin:9px 0 5px}.srv4-cp .role{color:#cbb9c3}.srv4-cp .hook{font:italic 19.8px/1.5 Georgia,serif;border-left:3px solid var(--a);padding:12px 0 12px 15px;margin:23px 0}.srv4-cp .traitlabel{font-size:9.9px;color:#a8919d;text-transform:uppercase;letter-spacing:.12em}.srv4-cp .trait{display:inline-block;margin-top:7px;border:1px solid #583247;background:#26121f;border-radius:999px;padding:7px 10px;color:#ffd7e6}@container(max-width:560px){.srv4-cp{grid-template-columns:minmax(138px,40%) minmax(0,60%)}.srv4-cp .portrait{min-height:300px}}
-</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Character Profile</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div></div></details>
+</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Cast Sheet</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div></div></details>
 
 
 <style data-r30="launcher-even">
@@ -91657,12 +91657,12 @@ width:100%!important;height:100%!important}
       owner_extension_identifier: "reverie_relay"
     },
     {
-      name: "◇ Surface Review v4 — Character Profile — Inline — Bracket Native",
+      name: "◇ Surface Review v4 — Cast Sheet — Inline — Bracket Native",
       find_regex: "\\[character_profile\\]\\s*\\[portrait\\]([\\s\\S]*?)\\[/portrait\\]\\s*\\[name\\]([\\s\\S]*?)\\[/name\\]\\s*\\[role\\]([\\s\\S]*?)\\[/role\\]\\s*\\[hook\\]([\\s\\S]*?)\\[/hook\\]\\s*\\[trait\\]([\\s\\S]*?)\\[/trait\\]\\s*\\[/character_profile\\]",
       replace_string: `
 <style>
 .srv4-profile{--a:var(--lumiverse-primary,#d45b9f);width:100%;max-width:720px;margin:14px auto;color:#f7edf3;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.srv4-profile *{box-sizing:border-box}.srv4-profile>details>summary{display:table;list-style:none;margin:0 auto 10px;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 50%,#555);border-radius:999px;background:#100c11;color:#f9ddec;font-size:9.9px;font-weight:900;text-transform:uppercase;cursor:pointer}.srv4-profile>details>summary::-webkit-details-marker{display:none}.srv4-cp{display:grid;grid-template-columns:280px 1fr;overflow:hidden;border-radius:22px;border:1px solid #4b2a3b;background:linear-gradient(145deg,#1d1018,#0e0b0e);box-shadow:0 25px 70px #000a}.srv4-cp .portrait{min-height:390px;overflow:hidden}.srv4-cp .portrait image_request,.srv4-cp .portrait img,.srv4-cp .portrait .reverie-artifact-media{display:block;width:100%!important;height:100%!important;object-fit:cover!important;object-position:center!important}.srv4-cp scene_brief{display:none!important}.srv4-cp .copy{padding:28px}.srv4-cp .eyebrow{color:#ff82ae;font:900 9px monospace;letter-spacing:.13em;text-transform:uppercase}.srv4-cp h2{font:900 41.8px/1 Georgia,serif;margin:9px 0 5px}.srv4-cp .role{color:#cbb9c3}.srv4-cp .hook{font:italic 19.8px/1.5 Georgia,serif;border-left:3px solid var(--a);padding:12px 0 12px 15px;margin:23px 0}.srv4-cp .traitlabel{font-size:9.9px;color:#a8919d;text-transform:uppercase;letter-spacing:.12em}.srv4-cp .trait{display:inline-block;margin-top:7px;border:1px solid #583247;background:#26121f;border-radius:999px;padding:7px 10px;color:#ffd7e6}@container(max-width:560px){.srv4-cp{grid-template-columns:minmax(138px,40%) minmax(0,60%)}.srv4-cp .portrait{min-height:300px}}
-</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Character Profile</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div>
+</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Cast Sheet</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div>
 
 <style data-r30="avatar-center">
 .srv-avatar,.srv-discord-avatar,.twlr-avatar,.twlr-avatar-lg,.twlr-comment-avatar,
@@ -105025,16 +105025,16 @@ width:100%!important;height:100%!important}
       owner_extension_identifier: "reverie_relay"
     },
     {
-      name: "◇ Surface Review v4 — Character Profile — Collapsible Plain — Bracket Native",
+      name: "◇ Surface Review v4 — Cast Sheet — Collapsible Plain — Bracket Native",
       find_regex: "\\[character_profile\\]\\s*\\[portrait\\]([\\s\\S]*?)\\[/portrait\\]\\s*\\[name\\]([\\s\\S]*?)\\[/name\\]\\s*\\[role\\]([\\s\\S]*?)\\[/role\\]\\s*\\[hook\\]([\\s\\S]*?)\\[/hook\\]\\s*\\[trait\\]([\\s\\S]*?)\\[/trait\\]\\s*\\[/character_profile\\]",
       replace_string: `<style>
 .rr22-collapse{width:100%;margin:0 auto;padding:5px 0;border:0!important;background:transparent!important}
 .rr22-collapse>summary{display:table;margin:0 auto 1px;padding:11px 19px;min-height:42px;list-style:none;cursor:pointer;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 72%,#f4e7ef 28%);border-radius:999px;background:linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 16%,#171419 84%),#171419);color:color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 18%,#ffffff 82%);font:850 11px/1 system-ui;letter-spacing:.02em;text-transform:none;box-shadow:0 8px 24px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 18%,transparent),inset 0 1px 0 rgba(255,255,255,.08)}
 .rr22-collapse>summary::-webkit-details-marker{display:none}.rr22-collapse[open]>summary{border-color:color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 88%,#ffe9f3 12%);background:linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 24%,#201821 76%),#1d171c);color:#fff4fa;box-shadow:0 10px 28px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 26%,transparent),inset 0 1px 0 rgba(255,255,255,.1)}
-</style><details class="rr22-collapse" style="width:100%!important;margin:0 auto!important;padding:4px 0!important;border:0!important;background:transparent!important;"><summary style="display:flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;width:max-content!important;min-width:0!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 18px!important;line-height:1!important;vertical-align:middle!important;">View Character Profile</summary><div class="rr22-collapse-body">
+</style><details class="rr22-collapse" style="width:100%!important;margin:0 auto!important;padding:4px 0!important;border:0!important;background:transparent!important;"><summary style="display:flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;width:max-content!important;min-width:0!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 18px!important;line-height:1!important;vertical-align:middle!important;">View Cast Sheet</summary><div class="rr22-collapse-body">
 <style>
 .srv4-profile{--a:var(--lumiverse-primary,#d45b9f);width:100%;max-width:720px;margin:14px auto;color:#f7edf3;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.srv4-profile *{box-sizing:border-box}.srv4-profile>details>summary{display:table;list-style:none;margin:0 auto 1px;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 50%,#555);border-radius:999px;background:#100c11;color:#f9ddec;font-size:9.9px;font-weight:900;text-transform:uppercase;cursor:pointer}.srv4-profile>details>summary::-webkit-details-marker{display:none}.srv4-cp{display:grid;grid-template-columns:280px 1fr;overflow:hidden;border-radius:22px;border:1px solid #4b2a3b;background:linear-gradient(145deg,#1d1018,#0e0b0e);box-shadow:0 25px 70px #000a}.srv4-cp .portrait{min-height:390px;overflow:hidden}.srv4-cp .portrait image_request,.srv4-cp .portrait img,.srv4-cp .portrait .reverie-artifact-media{display:block;width:100%!important;height:100%!important;object-fit:cover!important;object-position:center!important}.srv4-cp scene_brief{display:none!important}.srv4-cp .copy{padding:28px}.srv4-cp .eyebrow{color:#ff82ae;font:900 9px monospace;letter-spacing:.13em;text-transform:uppercase}.srv4-cp h2{font:900 41.8px/1 Georgia,serif;margin:9px 0 5px}.srv4-cp .role{color:#cbb9c3}.srv4-cp .hook{font:italic 19.8px/1.5 Georgia,serif;border-left:3px solid var(--a);padding:12px 0 12px 15px;margin:23px 0}.srv4-cp .traitlabel{font-size:9.9px;color:#a8919d;text-transform:uppercase;letter-spacing:.12em}.srv4-cp .trait{display:inline-block;margin-top:7px;border:1px solid #583247;background:#26121f;border-radius:999px;padding:7px 10px;color:#ffd7e6}@container(max-width:560px){.srv4-cp{grid-template-columns:minmax(138px,40%) minmax(0,60%)}.srv4-cp .portrait{min-height:300px}}
-</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Character Profile</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div></div></details>
+</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Cast Sheet</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div></div></details>
 
 
 <style data-r30="launcher-even">
@@ -120838,17 +120838,17 @@ width:100%!important;height:100%!important}
       owner_extension_identifier: null
     },
     {
-      name: "◇ Surface Review v4 — Character Profile — Collapsible Sparkling — Bracket Native",
+      name: "◇ Surface Review v4 — Cast Sheet — Collapsible Sparkling — Bracket Native",
       find_regex: "\\[character_profile\\]\\s*\\[portrait\\]([\\s\\S]*?)\\[/portrait\\]\\s*\\[name\\]([\\s\\S]*?)\\[/name\\]\\s*\\[role\\]([\\s\\S]*?)\\[/role\\]\\s*\\[hook\\]([\\s\\S]*?)\\[/hook\\]\\s*\\[trait\\]([\\s\\S]*?)\\[/trait\\]\\s*\\[/character_profile\\]",
       replace_string: `<style>
 .rr22-spark-collapse{width:100%;margin:15px auto;border:0!important;background:transparent!important;text-align:center}
 .rr22-spark-collapse>summary{position:relative;isolation:isolate;display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin:0 auto 1px;padding:11px 22px;overflow:hidden;list-style:none;cursor:pointer;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 55%,#55424c);border-radius:999px;background:radial-gradient(circle at 20% 20%,rgba(255,255,255,.07),transparent 32%),linear-gradient(180deg,color-mix(in srgb,#23141d 76%,var(--lumiverse-primary,#d45b9f) 24%),#100b0f);color:#f8eaf2;font:850 11px/1 system-ui;letter-spacing:.03em;box-shadow:0 10px 28px #0007,0 0 18px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 18%,transparent)}
 .rr22-spark-collapse>summary::-webkit-details-marker{display:none}.rr22-spark-collapse>summary span{position:relative;z-index:2}
 .rr22-sparks{position:absolute!important;inset:0!important;z-index:1!important;pointer-events:none!important}.rr22-sparks i{position:absolute;width:3px;height:3px;border-radius:50%;background:#fff;box-shadow:0 0 8px var(--lumiverse-primary,#d45b9f);opacity:.55}.rr22-sparks i:nth-child(1){left:12%;top:68%}.rr22-sparks i:nth-child(2){left:31%;top:24%}.rr22-sparks i:nth-child(3){left:52%;top:75%}.rr22-sparks i:nth-child(4){left:72%;top:20%}.rr22-sparks i:nth-child(5){left:89%;top:62%}
-</style><details class="rr22-spark-collapse" style="width:100%!important;margin:0 auto!important;padding:4px 0!important;border:0!important;background:transparent!important;"><summary style="display:flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;width:max-content!important;min-width:0!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 18px!important;line-height:1!important;vertical-align:middle!important;"><span class="rr41-sparkfield" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="rr22-sparks"><i></i><i></i><i></i><i></i><i></i></span><span>View Character Profile</span></summary><div>
+</style><details class="rr22-spark-collapse" style="width:100%!important;margin:0 auto!important;padding:4px 0!important;border:0!important;background:transparent!important;"><summary style="display:flex!important;align-items:center!important;justify-content:center!important;box-sizing:border-box!important;width:max-content!important;min-width:0!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 18px!important;line-height:1!important;vertical-align:middle!important;"><span class="rr41-sparkfield" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="rr22-sparks"><i></i><i></i><i></i><i></i><i></i></span><span>View Cast Sheet</span></summary><div>
 <style>
 .srv4-profile{--a:var(--lumiverse-primary,#d45b9f);width:100%;max-width:720px;margin:14px auto;color:#f7edf3;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}.srv4-profile *{box-sizing:border-box}.srv4-profile>details>summary{display:table;list-style:none;margin:0 auto 1px;padding:7px 12px;border:1px solid color-mix(in srgb,var(--a) 50%,#555);border-radius:999px;background:#100c11;color:#f9ddec;font-size:9.9px;font-weight:900;text-transform:uppercase;cursor:pointer}.srv4-profile>details>summary::-webkit-details-marker{display:none}.srv4-cp{display:grid;grid-template-columns:280px 1fr;overflow:hidden;border-radius:22px;border:1px solid #4b2a3b;background:linear-gradient(145deg,#1d1018,#0e0b0e);box-shadow:0 25px 70px #000a}.srv4-cp .portrait{min-height:390px;overflow:hidden}.srv4-cp .portrait image_request,.srv4-cp .portrait img,.srv4-cp .portrait .reverie-artifact-media{display:block;width:100%!important;height:100%!important;object-fit:cover!important;object-position:center!important}.srv4-cp scene_brief{display:none!important}.srv4-cp .copy{padding:28px}.srv4-cp .eyebrow{color:#ff82ae;font:900 9px monospace;letter-spacing:.13em;text-transform:uppercase}.srv4-cp h2{font:900 41.8px/1 Georgia,serif;margin:9px 0 5px}.srv4-cp .role{color:#cbb9c3}.srv4-cp .hook{font:italic 19.8px/1.5 Georgia,serif;border-left:3px solid var(--a);padding:12px 0 12px 15px;margin:23px 0}.srv4-cp .traitlabel{font-size:9.9px;color:#a8919d;text-transform:uppercase;letter-spacing:.12em}.srv4-cp .trait{display:inline-block;margin-top:7px;border:1px solid #583247;background:#26121f;border-radius:999px;padding:7px 10px;color:#ffd7e6}@container(max-width:560px){.srv4-cp{grid-template-columns:minmax(138px,40%) minmax(0,60%)}.srv4-cp .portrait{min-height:300px}}
-</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Character Profile</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div></div></details>
+</style><div class="srv4-profile"><details open><summary style="display:none!important">◇ Cast Sheet</summary><article class="srv4-cp"><div class="portrait">$1</div><div class="copy"><div class="eyebrow">Character Introduction</div><h2>$2</h2><div class="role">$3</div><div class="hook">“$4”</div><div class="traitlabel">Established trait</div><span class="trait">$5</span></div></article></details></div></div></details>
 
 
 <style data-r30="launcher-even">
@@ -134142,6 +134142,7 @@ function settingHelp(label, fallback = "") {
 }
 // src/narrativeRegexAssets.ts
 var NARRATIVE_UTILITY_DISPLAY_NAMES = {
+  "Character Profile": "Cast Sheet",
   "Chaos Hooks": "Plot Sparks",
   "Knowledge Veil": "Backstage Secrets",
   "Beyond the Frame": "Off-Stage",
@@ -134263,6 +134264,10 @@ function setup(ctx) {
   let nativeSettingsLastSyncedAt = 0;
   let nativeSettingsFetchInFlight = null;
   const NATIVE_SETTINGS_CACHE_TTL_MS = 1000;
+  const nativeSnapshotScanAttempts = new Map;
+  const nativeSnapshotScanTimers = new Map;
+  const nativeSnapshotScanWarned = new Set;
+  let terminalStateRefreshTimer = 0;
   let recipeEditorId = "";
   let historySubTab = "all-chats-gallery";
   let vaultSelectedCharacterId = "";
@@ -135287,6 +135292,7 @@ ${message.prompt}`;
           failed: message.event === "error"
         });
         resetRelayOrbInteractivity();
+        scheduleTerminalStateRefresh(message.chatId);
       } else {
         const progress = streamStatusText(message);
         const current = streamPreviews.get(key);
@@ -135869,6 +135875,8 @@ ${message.prompt}`;
           return null;
         const row = await response.json();
         const settings = { ...row.value || {} };
+        if (Object.keys(settings).length === 0)
+          return null;
         await enrichNativeVisualPrompts(settings);
         nativeImageSettingsCache = settings;
         nativeImageSettingsCachedAt = Date.now();
@@ -136121,7 +136129,33 @@ ${message.prompt}`;
     });
   }
   async function sendScanWithNativeSnapshot(chatId, messageId, swipeId, sourceContent) {
-    const snapshot = await syncNativeSettings();
+    const key = `${chatId}:${messageId || "__latest__"}:${swipeId ?? "__active__"}`;
+    const scheduled = nativeSnapshotScanTimers.get(key);
+    if (scheduled) {
+      window.clearTimeout(scheduled);
+      nativeSnapshotScanTimers.delete(key);
+    }
+    const attempt = nativeSnapshotScanAttempts.get(key) || 0;
+    const snapshot = await syncNativeSettings(attempt > 0);
+    if (!snapshot) {
+      if (attempt >= 7) {
+        if (!nativeSnapshotScanWarned.has(key)) {
+          nativeSnapshotScanWarned.add(key);
+          showToast("warning", "Relay is still waiting for Native ImageGen settings. The queued images will resume automatically when the settings endpoint responds.");
+        }
+        ctx.sendToBackend({ type: "list_state", chatId });
+      }
+      nativeSnapshotScanAttempts.set(key, Math.min(7, attempt + 1));
+      const delay = attempt >= 7 ? 1e4 : Math.min(4000, 250 * 2 ** attempt);
+      const timer = window.setTimeout(() => {
+        nativeSnapshotScanTimers.delete(key);
+        sendScanWithNativeSnapshot(chatId, messageId, swipeId, sourceContent);
+      }, delay);
+      nativeSnapshotScanTimers.set(key, timer);
+      return;
+    }
+    nativeSnapshotScanAttempts.delete(key);
+    nativeSnapshotScanWarned.delete(key);
     ctx.sendToBackend({
       type: "scan_message",
       chatId,
@@ -136131,6 +136165,14 @@ ${message.prompt}`;
       nativeImageSettings: snapshot?.settings,
       nativeSettingsCapturedAt: snapshot?.capturedAt
     });
+  }
+  function scheduleTerminalStateRefresh(chatId) {
+    if (terminalStateRefreshTimer)
+      window.clearTimeout(terminalStateRefreshTimer);
+    terminalStateRefreshTimer = window.setTimeout(() => {
+      terminalStateRefreshTimer = 0;
+      ctx.sendToBackend({ type: "list_state", chatId: chatId || activeChatId });
+    }, 180);
   }
   function deepQueryAll(root, selector) {
     const found = new Set;
@@ -136191,7 +136233,79 @@ ${message.prompt}`;
     }, 80);
   }
   const mediaCardUpdates = new WeakMap;
+  const boundNarrativeControls = new WeakSet;
+  function bindNarrativeInteractiveControls() {
+    for (const launcher of deepQueryAll(document, ".rrcp-presentation-sparkling > .rrcp-launch, .rrcp-presentation-plain > .rrcp-launch")) {
+      if (boundNarrativeControls.has(launcher))
+        continue;
+      const wrap = launcher.parentElement;
+      const toggle = launcher.querySelector(".rrcp-launch-toggle");
+      const shell2 = wrap ? Array.from(wrap.children).find((child) => child.classList.contains("rrcp-shell")) : undefined;
+      if (!wrap || !shell2)
+        continue;
+      boundNarrativeControls.add(launcher);
+      launcher.tabIndex = 0;
+      launcher.setAttribute("role", "button");
+      launcher.setAttribute("aria-expanded", toggle?.checked ? "true" : "false");
+      const activate = (event) => {
+        event.preventDefault();
+        const open = !(toggle?.checked || wrap.dataset.rrcpOpen === "true");
+        if (toggle)
+          toggle.checked = open;
+        wrap.dataset.rrcpOpen = open ? "true" : "false";
+        launcher.setAttribute("aria-expanded", open ? "true" : "false");
+        shell2.style.setProperty("display", open ? "block" : "none", "important");
+      };
+      launcher.addEventListener("click", activate);
+      launcher.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ")
+          activate(event);
+      });
+    }
+    for (const launcher of deepQueryAll(document, ".rrcp-app-launch")) {
+      if (boundNarrativeControls.has(launcher))
+        continue;
+      const toggle = launcher.querySelector(".rrcp-app-toggle");
+      const page = launcher.nextElementSibling instanceof HTMLElement && launcher.nextElementSibling.classList.contains("rrcp-page") ? launcher.nextElementSibling : null;
+      if (!page)
+        continue;
+      boundNarrativeControls.add(launcher);
+      launcher.tabIndex = 0;
+      launcher.setAttribute("role", "button");
+      launcher.setAttribute("aria-expanded", toggle?.checked ? "true" : "false");
+      const activate = (event) => {
+        event.preventDefault();
+        const open = !(toggle?.checked || launcher.dataset.rrcpOpen === "true");
+        const phone = launcher.closest(".rrcp-phone");
+        if (open && phone) {
+          for (const other of Array.from(phone.querySelectorAll(".rrcp-app-launch"))) {
+            if (other === launcher)
+              continue;
+            const otherToggle = other.querySelector(".rrcp-app-toggle");
+            if (otherToggle)
+              otherToggle.checked = false;
+            other.dataset.rrcpOpen = "false";
+            other.setAttribute("aria-expanded", "false");
+            const otherPage = other.nextElementSibling;
+            if (otherPage instanceof HTMLElement && otherPage.classList.contains("rrcp-page"))
+              otherPage.style.setProperty("display", "none", "important");
+          }
+        }
+        if (toggle)
+          toggle.checked = open;
+        launcher.dataset.rrcpOpen = open ? "true" : "false";
+        launcher.setAttribute("aria-expanded", open ? "true" : "false");
+        page.style.setProperty("display", open ? "block" : "none", "important");
+      };
+      launcher.addEventListener("click", activate);
+      launcher.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ")
+          activate(event);
+      });
+    }
+  }
   function bindInlineImages() {
+    bindNarrativeInteractiveControls();
     const now = Date.now();
     for (const record of records) {
       const visibleSwipe = activeSwipeByMessage.get(record.messageId);
@@ -136202,9 +136316,10 @@ ${message.prompt}`;
         continue;
       const requestCards = deepQueryAll(root, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`);
       const active = ["preparing", "queued", "parsing", "generating", "previewing", "placement-pending"].includes(record.status);
+      const stallEligible = ["preparing", "parsing", "generating", "previewing", "placement-pending"].includes(record.status);
       const stream = streamPreviews.get(record.key);
       const lastActivityAt = Math.max(record.updatedAt || record.createdAt || now, stream?.updatedAt || 0);
-      const stalled = active && now - lastActivityAt > 90000;
+      const stalled = stallEligible && now - lastActivityAt > 90000;
       const needsPlacementRepair = record.status === "placement-repair-needed";
       const recoverable = stalled || needsPlacementRepair || record.status === "failed" || record.status === "image-unavailable" || record.status === "cancelled";
       const statusLabel = stalled ? "Stalled" : record.status === "recovered-pending" ? "Ready" : record.status === "preparing" ? "Preparing" : record.status === "queued" ? "Queued" : record.status === "parsing" ? "Preparing" : record.status === "generating" ? "Generating" : record.status === "placement-pending" ? "Inserting" : record.status === "placement-repair-needed" ? "Repair needed" : record.status === "completed" ? "Ready" : record.status === "failed" || record.status === "image-unavailable" ? "Failed" : record.status === "cancelled" ? "Stopped" : "Requested";
@@ -143015,6 +143130,13 @@ Original prompt metadata unavailable`;
     streamPreviews.clear();
     completedPreviewGenerations.clear();
     clearTimeout(bindTimer);
+    clearTimeout(terminalStateRefreshTimer);
+    terminalStateRefreshTimer = 0;
+    for (const timer of nativeSnapshotScanTimers.values())
+      window.clearTimeout(timer);
+    nativeSnapshotScanTimers.clear();
+    nativeSnapshotScanAttempts.clear();
+    nativeSnapshotScanWarned.clear();
     for (const stale of Array.from(document.querySelectorAll(".dg-illustration-portal-button")))
       stale.remove();
     clearTimeout(activeChatSyncTimer);
