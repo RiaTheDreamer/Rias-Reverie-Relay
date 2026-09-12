@@ -951,13 +951,14 @@ const abortableOperationSerials = new Map<string, number>()
 
 type RenderSnapshot = {
   studio: CustomSurfaceStudioState
+  contractFingerprint: string
   autoGenerate: boolean
   narrativeVariant: NarrativeRegexVariant
   records: SlotRecord[]
   cachedAt: number
 }
 
-const renderSnapshotCache = new BoundedLruCache<RenderSnapshot>({ maxEntries: 64, ttlMs: 5 * 60_000 })
+const renderSnapshotCache = new BoundedLruCache<RenderSnapshot>({ maxEntries: 64, ttlMs: 30 * 60_000 })
 const renderOutputCache = new BoundedLruCache<{ content: string; scope: string; messageId: string; swipeId: string }>({
   maxEntries: 96,
   maxBytes: 3 * 1024 * 1024,
@@ -997,9 +998,50 @@ function renderScopeKey(chatId: string, userId?: string): string {
   return `${userId || '__default__'}:${chatId}`
 }
 
+function renderStudioContractFingerprint(studio: CustomSurfaceStudioState): string {
+  const definitions = Object.values(studio.definitions || {})
+    .map(definition => {
+      const { promptEnabled: _promptEnabled, promptModule: _promptModule, updatedAt: _updatedAt, ...displayDefinition } = definition
+      return displayDefinition
+    })
+    .sort((left, right) => left.surfaceId.localeCompare(right.surfaceId))
+  return contentFingerprint(JSON.stringify({
+    rendererMode: studio.rendererMode,
+    shellMode: studio.defaultShellMode,
+    colorMode: studio.colorMode,
+    activePresetIds: studio.activePresetIds,
+    definitions,
+  }))
+}
+
+function renderConfigurationFingerprint(config: RouterConfig): string {
+  return contentFingerprint(JSON.stringify({
+    autoGenerate: config.autoGenerate,
+    rendererMode: config.surfaceRendererMode,
+    shellMode: config.surfaceDefaultShellMode,
+    colorMode: config.surfaceColorMode,
+    narrativeVariant: config.narrativeDlcVariant,
+    studio: renderStudioContractFingerprint(config.globalSurfaceStudio),
+  }))
+}
+
+function hotFallbackRenderSnapshot(userId?: string): RenderSnapshot {
+  const config = configCache.get(userConfigCacheKey(userId))?.value || DEFAULT_CONFIG
+  const studio = normalizeCustomSurfaceStudio(config.globalSurfaceStudio)
+  return {
+    studio,
+    contractFingerprint: renderStudioContractFingerprint(studio),
+    autoGenerate: config.autoGenerate,
+    narrativeVariant: narrativeVariantForSurfaceShellMode(config.surfaceDefaultShellMode),
+    records: [],
+    cachedAt: Date.now(),
+  }
+}
+
 function cacheRenderSnapshot(chatId: string, userId: string | undefined, state: StateFile, config: RouterConfig): RenderSnapshot {
   const snapshot: RenderSnapshot = {
     studio: state.customSurfaces,
+    contractFingerprint: renderStudioContractFingerprint(state.customSurfaces),
     autoGenerate: config.autoGenerate,
     narrativeVariant: narrativeVariantForSurfaceShellMode(config.surfaceDefaultShellMode),
     records: Object.values(state.slots),
@@ -1251,8 +1293,17 @@ function r45BracketSpecificGuidance(contract: string): string {
     .replace(/^(?:SURFACE|BRACKET) ROOT:\s*(?:<[^>]+>|\[[^\]]+\])\s*/im, '')
     .split(/\n\s*(?:Canonical structure:|OUTPUT FORMAT(?:\s+—\s+EXACT)?)/i)[0]
     .replace(/Output raw XML only\.?/gi, '')
+    .replace(/<((?!image_request\b|scene_brief\b)[A-Za-z][\w:-]*)((?:\s+[\w:-]+\s*=\s*["'][^"']*["'])+)\s*>/g, (_full, tag: string, rawAttrs: string) => {
+      const fields = [...rawAttrs.matchAll(/([\w:-]+)\s*=\s*["']([^"']*)["']/g)]
+        .map(match => `[${match[1]}]${match[2]}[/${match[1]}]`)
+        .join(' ')
+      return `[${tag}] with child fields ${fields}`
+    })
+    .replace(/<((?!image_request\b|scene_brief\b)[A-Za-z][\w:-]*)\s+[^>]*>/g, '[$1]')
     .replace(/<((?!image_request\b|\/image_request\b|scene_brief\b|\/scene_brief\b)[A-Za-z][\w:-]*)>/g, '[$1]')
     .replace(/<\/((?!image_request\b|scene_brief\b)[A-Za-z][\w:-]*)>/g, '[/$1]')
+    .replace(/\battributes\b/gi, 'child fields')
+    .replace(/\bXML\b/g, 'bracket fields')
     .trim()
   return body ? `\n\nR4.5 SURFACE-SPECIFIC RULES\n${body}` : ''
 }
@@ -1288,8 +1339,10 @@ function canonicalSurfacePromptModule(definition: CustomSurfaceDefinition): stri
   // The shipped R4.5 contract remains the default/fallback, not a write lock.
   if (text && !definition.builtIn && !containsStalePromptTemplate(text)) return ensureSurfacePromptContainsImageRequest(definition, text)
   const builtInDefault = cleanString(builtInSurfaceDefinitionTemplate?.[definition.surfaceId]?.promptModule)
-  if (builtInDefault && /bracket-native syntax/i.test(builtInDefault)) return builtInDefault
   const r45 = r45UtilityContract(definition.baseSurfaceId)
+  if (builtInDefault && /bracket-native syntax/i.test(builtInDefault)) {
+    return ensureSurfacePromptContainsImageRequest(definition, `${builtInDefault}${r45BracketSpecificGuidance(r45)}`)
+  }
   const bracket = bracketSurfacePromptModule({
     label: definition.displayName,
     root: definition.canonicalOuterWrapper,
@@ -1630,23 +1683,23 @@ if (typeof registerMessageContentProcessor === 'function') {
     if (!source || (!nativeCandidate && !narrativeCandidate)) return
     try {
       const scope = renderScopeKey(context.chatId, context.userId)
+      // Render-origin processing sits directly in Lumiverse's paint path. Never
+      // block the visible prose on storage reads. Generation/chat lifecycle hooks
+      // keep this snapshot hot; a cold start uses current in-memory config and
+      // renders stable pending media slots until the ordinary state broadcast
+      // patches their lifecycle in place.
       let snapshot = renderSnapshotCache.get(scope)
       if (!snapshot) {
-        const [state, config] = await Promise.all([
-          getState(context.chatId, context.userId),
-          getConfig(context.userId),
-        ])
-        snapshot = cacheRenderSnapshot(context.chatId, context.userId, state, config)
+        warmRenderSnapshot(context.chatId, context.userId)
+        snapshot = hotFallbackRenderSnapshot(context.userId)
+        renderSnapshotCache.set(scope, snapshot)
       }
       const renderSwipeId = context.extra?.swipe_id === undefined && context.extra?.swipeId === undefined
         ? undefined
         : Number(context.extra?.swipe_id ?? context.extra?.swipeId)
-      const recordSignature = snapshot.records
-        .filter(record => !context.messageId || record.messageId === context.messageId)
-        .filter(record => renderSwipeId === undefined || record.swipeId === renderSwipeId)
-        .map(record => `${record.key}:${isSlotLifecycleActive(record.status) ? 'active' : record.status}:${record.imageUrl || record.pendingPlacement?.imageUrl || ''}:${record.requestAspect || ''}:${record.error || ''}`)
-        .join('|')
-      const outputKey = `${scope}:${context.messageId || '__new__'}:${renderSwipeId ?? '__active__'}:${contentFingerprint(source)}:${snapshot.studio.rendererMode}:${snapshot.studio.defaultShellMode}:${snapshot.studio.colorMode}:${snapshot.narrativeVariant}:${contentFingerprint(recordSignature)}`
+      // Slot lifecycle changes are patched into the existing media island by the
+      // frontend. They must not invalidate and remount the surrounding prose.
+      const outputKey = `${scope}:${context.messageId || '__new__'}:${renderSwipeId ?? '__active__'}:${contentFingerprint(source)}:${snapshot.contractFingerprint}:${snapshot.narrativeVariant}`
       const cached = renderOutputCache.get(outputKey)
       if (cached) return { content: cached.content }
       const renderContext = {
@@ -11080,7 +11133,9 @@ async function setConfig(patch: Partial<RouterConfig>, userId?: string): Promise
     const next = normalizeConfig({ ...current, ...patch })
     await spindle.userStorage.setJson(CONFIG_PATH, next, { indent: 2, userId })
     configCache.set(key, { value: next, cachedAt: Date.now() })
-    invalidateRenderCaches(undefined, userId)
+    if (renderConfigurationFingerprint(current) !== renderConfigurationFingerprint(next)) {
+      invalidateRenderCaches(undefined, userId)
+    }
     return next
   } finally {
     release()

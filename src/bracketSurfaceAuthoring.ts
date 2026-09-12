@@ -44,17 +44,15 @@ function bracketExample(node: XmlNode, depth = 0): string {
   const pad = '  '.repeat(depth)
   const lines = [`${pad}[${node.tag}]`]
   for (const [key, value] of Object.entries(node.attrs)) lines.push(`${pad}  [${key}]${bracketValue(value)}[/${key}]`)
-  const media = node.children.filter((child): child is XmlNode => typeof child !== 'string' && MEDIA_TAGS.has(child.tag))
-  const other = node.children.filter(child => !(typeof child !== 'string' && MEDIA_TAGS.has(child.tag)))
-  if (media.length) {
-    lines.push(`${pad}  [media]`)
-    for (const child of media) lines.push(`${pad}    ${serializeXml(child)}`)
-    lines.push(`${pad}  [/media]`)
-  }
-  for (const child of other) {
+  // Media remains XML, but it must stay directly inside the exact semantic
+  // owner and at its authored position. A generic [media] wrapper is not part
+  // of the R4.5 bracket grammar and used to leak visibly into 39 Surfaces.
+  for (const child of node.children) {
     if (typeof child === 'string') {
       const text = child.trim()
       if (text) lines.push(`${pad}  ${bracketValue(text)}`)
+    } else if (MEDIA_TAGS.has(child.tag)) {
+      lines.push(`${pad}  ${serializeXml(child)}`)
     } else {
       lines.push(bracketExample(child, depth + 1))
     }
@@ -80,7 +78,7 @@ export function bracketSurfacePromptModule(input: {
   return `SURFACE: ${input.label.toUpperCase()}
 Author this Surface in bracket-native syntax, not XML. Describe semantic content only: names, titles, messages, timestamps, sections, captions, and approved media requests.${target}${aspect}
 No attributes in opening bracket tags. All semantic fields are child bracket nodes: [field]value[/field]. Repeated rows, messages, posts, comments, gallery items, and sections must be repeated child blocks, never attributes on an opening bracket.
-Preserve repeated child order exactly. Chat/message rows are ordered lists, never one combined text block. Do not author HTML, CSS, launcher chrome, data attributes, or renderer internals. Existing <image_request> media payloads remain XML inside a [media] field until a separate image protocol replaces them.
+Preserve repeated child order exactly. Chat/message rows are ordered lists, never one combined text block. Do not author HTML, CSS, launcher chrome, data attributes, or renderer internals. Existing <image_request> media payloads remain XML directly inside their exact owning bracket field. Never add a generic [media] wrapper unless that Surface explicitly names its owning field [media].
 
 BRACKET ROOT: [${input.root}]
 

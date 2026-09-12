@@ -1,11 +1,12 @@
 // Complete local Surface authority and lifecycle smoke. No host/provider calls.
 import type { CustomSurfaceDefinition, CustomSurfaceStudioState } from '../src/contracts'
 import { characterProfilePortraitHasExactRelayImage, normalizeCharacterProfileContract, renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
-import { R45_ACTIVE_ROOTS, containsR45RenderedSurface, r45SurfaceAuthorityPack, renderR45SurfaceAuthority, type R45ColorMode, type R45PresentationMode } from '../src/r45SurfaceAuthority'
+import { R45_ACTIVE_ROOTS, containsR45RenderedSurface, r45BracketSurfaceAuthorityPack, r45SurfaceAuthorityPack, renderR45SurfaceAuthority, type R45ColorMode, type R45PresentationMode } from '../src/r45SurfaceAuthority'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { SHIPPED_SURFACE_SPECS, shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
 import { completeSurfaceSpecs } from '../src/surfaceXml'
 import { normalizeBracketSurfaceDocument } from '../src/bracketSurfaceBridge'
+import { bracketExampleFromXml } from '../src/bracketSurfaceAuthoring'
 import { containsRenderedRegexSurface, renderRegexSurfaceParity } from '../src/regexSurfaceParity'
 
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
@@ -38,8 +39,56 @@ for (const retired of ['weverse-post', 'fandom', 'fansite', 'photocard', 'webtoo
 }
 assert(R45_ACTIVE_ROOTS.length === 46 && new Set(R45_ACTIVE_ROOTS).size === 46, 'R4.5 root inventory must be complete and unique')
 
+function visibleBracketTags(markup: string): string[] {
+  const visible = String(markup || '')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+  return [...new Set(visible.match(/\[\/?[A-Za-z_][^\]]*\]/g) || [])]
+}
+
+function completedRecords(definition: CustomSurfaceDefinition, messageId: string) {
+  return [...definition.sampleXml.matchAll(/<image_request\b([^>]*)>/gi)].map((match, index) => {
+    const attrs = Object.fromEntries([...match[1].matchAll(/([\w:-]+)="([^"]*)"/g)].map(attr => [attr[1], attr[2]]))
+    return {
+      requestId: attrs.id || attrs.slot || `request-${index + 1}`,
+      slot: attrs.slot || attrs.id || `slot-${index + 1}`,
+      target: attrs.target || definition.targetId,
+      requestAspect: attrs.aspect || definition.supportedAspectRatios[0] || '1:1',
+      messageId,
+      status: 'completed' as const,
+      imageUrl: `https://example.test/${definition.baseSurfaceId}-${index + 1}.png`,
+      imageId: `${definition.baseSurfaceId}-${index + 1}`,
+    }
+  })
+}
+
 const presentations: R45PresentationMode[] = ['inline', 'plain', 'sparkling']
 const colors: R45ColorMode[] = ['realistic', 'primary']
+const wrapperOwningChildRules = new Set(['live_mod', 'k_part', 'k_react', 'k_typing', 'notif', 'contact', 'mk_bid'])
+for (const presentation of presentations) {
+  const pack = r45BracketSurfaceAuthorityPack(presentation)
+  for (const script of pack.scripts) {
+    assert(script.disabled || !script.name.includes('Disabled Compatibility'), `${presentation}/${script.script_id}: enabled rule must not claim to be disabled`)
+    const opening = /^\\\[([A-Za-z][\w:-]*)\\\]/.exec(script.find_regex)?.[1] || ''
+    if (!wrapperOwningChildRules.has(opening)) continue
+    assert(script.find_regex.includes(`\\[/${opening}\\]`), `${presentation}/${opening}: child transformer must consume its closing wrapper`)
+  }
+}
+
+const supplementalDefinitions = r45SupplementalSurfaceDefinitions(1)
+assert(supplementalDefinitions.every(definition => definition.validationRules.some(rule => /^required-media:\d+$/.test(rule)) && definition.validationRules.some(rule => /^maximum-media:\d+$/.test(rule))), 'every supplemental Surface must declare media limits')
+for (const [surfaceId, expected] of Object.entries({
+  'imessage-chat': ['4:3'],
+  'workspace-chat': ['4:3'],
+  'dating-profile': ['1:1', '3:4'],
+  'twitter-profile': ['1:1', '3:1', '16:9'],
+  'instagram-stories': ['9:16', '1:1'],
+})) {
+  const definition = definitions.find(row => row.baseSurfaceId === surfaceId)!
+  assert(expected.every(aspect => definition.supportedAspectRatios.includes(aspect)), `${surfaceId}: supported aspect metadata is incomplete`)
+}
 let matrixCases = 0
 for (const presentation of presentations) for (const color of colors) {
   const pack = r45SurfaceAuthorityPack(presentation, color)
@@ -61,6 +110,7 @@ for (const presentation of presentations) for (const color of colors) {
 }
 
 let ownershipCases = 0
+let bracketOwnershipCases = 0
 for (const rendererMode of ['relay', 'legacy-regex', 'hybrid'] as const) for (const presentation of presentations) for (const colorMode of colors) {
   const matrixStudio = { ...studio, rendererMode, defaultShellMode: presentation, colorMode }
   for (const definition of definitions) {
@@ -74,6 +124,22 @@ for (const rendererMode of ['relay', 'legacy-regex', 'hybrid'] as const) for (co
     }
     assert(!rendered.content.includes('Relay Surface needs repair'), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: valid XML fell into repair UI`)
     ownershipCases += 1
+
+    const bracket = bracketExampleFromXml(definition.sampleXml)
+    assert(!/\[media\]/i.test(bracket), `${definition.surfaceId}: canonical authoring invented a generic media wrapper`)
+    for (const lifecycle of ['pending', 'completed'] as const) {
+      const messageId = `bracket-${definition.surfaceId}-${rendererMode}-${presentation}-${colorMode}-${lifecycle}`
+      const bracketRendered = renderNativeSurfaceMarkup(bracket, matrixStudio, {
+        chatId: 'native-bracket', messageId,
+        records: lifecycle === 'completed' ? completedRecords(definition, messageId) : [],
+      })
+      const residual = visibleBracketTags(bracketRendered.content)
+      assert(!residual.length, `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}/${lifecycle}: visible bracket markup remained: ${residual.join(', ')}`)
+      assert(!bracketRendered.content.includes('Relay Surface needs repair'), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}/${lifecycle}: canonical bracket fell into repair UI`)
+      assert(!bracketRendered.content.includes(`[${definition.canonicalOuterWrapper}]`), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}/${lifecycle}: raw bracket root remained`)
+      assert(!/<image_request\b/i.test(bracketRendered.content), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}/${lifecycle}: request was not hydrated in place`)
+      bracketOwnershipCases += 1
+    }
   }
 }
 
@@ -115,6 +181,18 @@ for (const [label, phone] of [['strict', strictPhone], ['hybrid', hybridPhone]] 
   assert(rendered.includes('DAYEON: ARIN WHAT IS THIS') && rendered.includes('I see it.'), `${label} Smartphone: ordered messages were lost`)
   assert(rendered.includes('rpx-msg-row-recv') && rendered.includes('rpx-msg-row-sent'), `${label} Smartphone: sent/received styling was lost`)
 }
+const legacyMediaPhone = strictPhone.replace(
+  '[s_sent][time]00:09[/time]I see it.[/s_sent]',
+  '[s_img][side]sent[/side][time]00:09[/time][media]<image_request id="legacy-phone-media" target="smartphone.message-image" slot="legacy-phone-media" aspect="4:3" alt="Legacy attachment"><scene_brief>Legacy attachment.</scene_brief></image_request>[/media][/s_img]',
+)
+const legacyMediaRendered = renderNativeSurfaceMarkup(legacyMediaPhone, studio, { chatId: 'legacy-phone', messageId: 'legacy-phone-message' })
+assert(!visibleBracketTags(legacyMediaRendered.content).length && !legacyMediaRendered.content.includes('Relay Surface needs repair'), 'legacy generic media wrapper must normalize without visible markup')
+
+const threeNotes = bracketExampleFromXml(canonical.find(row => row.id === 'notes-app')!.sample)
+  .replace(/\s*\[nt_note\]\s*\[slot\]4\[\/slot\][\s\S]*?\[\/nt_note\]\s*(?=\[\/nt_list\])/, '\n')
+const threeNotesRendered = renderRegexSurfaceParity(threeNotes, 'plain', 'notes-three')
+assert(threeNotesRendered.includes('rr23-notes-shell') && !visibleBracketTags(threeNotesRendered).length && !threeNotesRendered.includes('Relay Surface needs repair'), 'Notes App must render one-to-four notes without raw markup')
+assert(!/<input\b[^>]*id="rr23-note-4-notes-three"/i.test(threeNotesRendered) && !/<label\b[^>]*for="rr23-note-4-notes-three"/i.test(threeNotesRendered), 'three-note Notes App must not render a blank fourth tab')
 const tikTok = canonical.find(row => row.id === 'tiktok-post')!
 const tikTokRendered = renderR45SurfaceAuthority(tikTok.sample, 'inline', 'realistic', 'tiktok')
 assert(containsR45RenderedSurface(tikTokRendered) && !tikTokRendered.includes('Relay Surface needs repair'), 'valid TikTok must use its rich renderer')
@@ -137,4 +215,4 @@ assert(characterProfilePortraitHasExactRelayImage(repaired, { chatId: 'profile-c
 const repairedRendered = renderNativeSurfaceMarkup(completed, studio, { chatId: 'profile-chat', messageId: 'profile-message' })
 assert(repairedRendered.content.includes('/mock/profile.png') && !repairedRendered.content.includes('Portrait request unavailable'), 'completed repaired portrait did not display')
 
-console.log(`native surfaces smoke ok: ${canonical.length} active Surfaces, ${matrixCases} direct R4.5 cases, ${ownershipCases} Relay/Regex/Hybrid ownership cases, lifecycle preserved`)
+console.log(`native surfaces smoke ok: ${canonical.length} active Surfaces, ${matrixCases} direct R4.5 cases, ${ownershipCases} XML ownership cases, ${bracketOwnershipCases} bracket pending/completed ownership cases, lifecycle preserved`)

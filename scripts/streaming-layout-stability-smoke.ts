@@ -64,6 +64,14 @@ const mixed = rendered(`${request('square', '1:1')}\nMiddle prose\n${request('wi
 ])
 for (const [id, ratio, state] of [['square', '1:1', 'completed'], ['wide', '16:9', 'generating'], ['tall', '9:16', 'queued']] as const) assertStableSlot(mixed, id, ratio, state)
 
+const terminalSource = `Opening prose remains visible.\n${request('terminal', '4:3')}\nClosing prose remains visible.`
+const terminalPending = rendered(terminalSource, [{ requestId: 'terminal', slot: 'terminal', target: 'custom.artifact-media', status: 'generating', messageId: 'layout-message', requestAspect: '4:3' }])
+const terminalCompleted = rendered(terminalSource, [{ requestId: 'terminal', slot: 'terminal', target: 'custom.artifact-media', status: 'completed', messageId: 'layout-message', requestAspect: '4:3', imageUrl: '/mock/terminal.jpg' }])
+for (const [state, content] of [['pending', terminalPending], ['completed', terminalCompleted]] as const) {
+  assert(content.includes('Opening prose remains visible.') && content.includes('Closing prose remains visible.'), `${state}: terminal lifecycle transition removed surrounding prose`)
+  assertStableSlot(content, 'terminal', '4:3', state === 'pending' ? 'generating' : 'completed')
+}
+
 const phone = definitions.find(definition => definition.baseSurfaceId === 'smartphone')!
 const phoneRendered = rendered(phone.sampleXml)
 assert((phoneRendered.includes('data-reverie-r45-lifecycle-media="smartphone"') || phoneRendered.includes('data-rrn-native-request="phone-message-1"')) && phoneRendered.includes('class="rrl-media-slot"') && phoneRendered.includes('--reverie-media-aspect:4 / 3'), 'Smartphone pending media must reserve its 4:3 message-image slot inside the Surface')
@@ -79,5 +87,9 @@ assert(frontendSource.includes('invalidateDisplayIfContractChanged') && (fronten
 
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
 assert(backendSource.includes('activeStreamingSurfaceChats.add(chatId)') && backendSource.includes('activeStreamingSurfaceChats.has(chatId)'), 'Surface discovery must wait until assistant streaming finishes')
+const renderProcessor = backendSource.slice(backendSource.indexOf("if (typeof registerMessageContentProcessor === 'function')"), backendSource.indexOf('const registerInterceptor'))
+assert(renderProcessor.includes('hotFallbackRenderSnapshot(context.userId)') && !renderProcessor.includes('await Promise.all([\n          getState'), 'render-origin processing must never wait on state/config storage reads')
+assert(!renderProcessor.includes('recordSignature') && renderProcessor.includes('contentFingerprint(source)'), 'slot lifecycle changes must reuse the same rendered message body')
+assert(backendSource.includes('renderConfigurationFingerprint(current) !== renderConfigurationFingerprint(next)'), 'unrelated settings writes must not invalidate every rendered message')
 
 console.log('streaming layout stability smoke passed: stable reserved slots, state geometry, multi-image/aspect coverage, and frontend in-place binding verified.')
