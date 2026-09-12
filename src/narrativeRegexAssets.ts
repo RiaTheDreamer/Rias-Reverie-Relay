@@ -262,6 +262,15 @@ function normalizeFlatArchiveDossiers(markup: string): string {
 
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
   return normalizeFlatArchiveDossiers(String(markup || ''))
+    .replace(/(\[(character_phone|private_phone)\b[^\]]*\])([\s\S]*?)\[\/\2\]/gi, (_full, opening: string, root: string, body: string) => {
+      // Story models occasionally open Character Phone fields with bracket
+      // grammar and close only the SVG-bearing fields as XML. The app-module
+      // renderer then misses the entire app and leaks its raw cp_* scaffold.
+      // Keep this repair bounded to a complete phone root and leave canonical
+      // bracket payloads byte-for-byte unchanged.
+      const repairedBody = body.replace(/<\/(cp_[A-Za-z][A-Za-z0-9_]*)>/gi, '[/$1]')
+      return `${opening}${repairedBody}[/${root}]`
+    })
     .replace(/(\[cp_battery\]\s*[0-9]{1,3}\s*\[\/cp_battery\])\s*(?=\[cp_apps\])/gi, '$1[cp_wallpaper][/cp_wallpaper]')
     .replace(/<parallel-media>\s*<\/parallel-media>/gi, '<parallel-media></parallel-media>')
 }

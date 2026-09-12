@@ -193,6 +193,14 @@ const inlinePhone = renderNarrativeRegex(missingWallpaperPhone, 'inline', 'phone
 assert(inlinePhone.includes('<div class="rrcp-wrap rrcp-presentation-inline"><div class="rrcp-shell">') && !inlinePhone.includes('class="rrcp-launch-toggle"'), 'Inline Character Phone must remain directly open without a launcher')
 assert(inlinePhone.includes('.rrcp-wallpaper>.reverie-artifact-media') && inlinePhone.includes('height:100%!important') && inlinePhone.includes('object-fit:cover!important'), 'Character Phone wallpaper media must cover the complete fixed phone screen')
 assert(!/\.rrcp-photo-media[^}]+object-fit:cover/i.test(inlinePhone), 'Phone wallpaper sizing must not force ordinary app photos to crop')
+const hybridPhone = missingWallpaperPhone
+  .replace(/\[cp_icon\]◇\[\/cp_icon\]/g, '[cp_icon]<svg viewBox="0 0 24 24"><path d="M2 2h20v20H2z"/></svg></cp_icon>')
+  .replace(/\[cp_glyph\]◇\[\/cp_glyph\]/g, '[cp_glyph]<svg viewBox="0 0 24 24"><path d="M12 2v20"/></svg></cp_glyph>')
+const normalizedHybridPhone = normalizeNarrativeMarkupForRendering(hybridPhone)
+assert(!/<\/cp_(?:icon|glyph)>/i.test(normalizedHybridPhone) && normalizedHybridPhone.includes('[/cp_icon]') && normalizedHybridPhone.includes('[/cp_glyph]'), 'Character Phone must normalize mixed XML closers back to canonical bracket grammar')
+const renderedHybridPhone = renderNarrativeRegex(hybridPhone, 'inline', 'phone-hybrid-svg-closers')
+assert((renderedHybridPhone.match(/class="rrcp-entry /g) || []).length === 8, 'mixed SVG field closers must not prevent any Character Phone app from rendering')
+assert(!/\[\/?cp_(?:app|slot|name|icon|tone|badge|content|row|glyph)\b/i.test(renderedHybridPhone), 'mixed SVG field closers must not leak raw Character Phone scaffolding')
 
 const canonicalArchive = '<dossier_ui category="SECRET"><archive-head><icon>🤫</icon><name>Canonical Secret</name><state>PARTIAL</state><relation>A ↔ B</relation><role>Hidden act</role></archive-head><archive-stats><archive-stat><label>Exposure</label><value>75</value></archive-stat><archive-stat><label>Certainty</label><value>40</value></archive-stat><archive-stat><label>Consequence</label><value>90</value></archive-stat></archive-stats><archive-details><archive-row label="The Hidden Truth">Truth.</archive-row><archive-row label="Known By">A.</archive-row><archive-row label="Hidden From">B.</archive-row><archive-row label="Near-Slips">One clue.</archive-row><archive-row label="Impact If Revealed">Trust changes.</archive-row><archive-row label="Current Status">SLIPPING</archive-row></archive-details><archive-export>[SECRET: Canonical Secret]\nCURRENT STATUS: SLIPPING</archive-export></dossier_ui>'
 assert(normalizeNarrativeMarkupForRendering(canonicalArchive) === canonicalArchive, 'canonical Archive Entry payloads must remain byte-for-byte unchanged')

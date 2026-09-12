@@ -107,6 +107,25 @@ try {
 npcStableView = appearanceMemoryView(npcVault, npcStable.canonicalCharacterId)
 assert(has(npcStableView.stableAppearance, 'black_hair') && !has(npcStableView.stableAppearance, 'bronze_hair'), 'lighting descriptions must not overwrite stable hair identity')
 
+// Current Outfit is transient state, not a fallback rendering of saved
+// wardrobe. Explicit clears persist, and newer current-turn Sidecar evidence
+// advances it without deleting the saved wardrobe library.
+const outfitVault = emptyContinuityVault('appearance-outfit-lifecycle')
+const outfitSubject = registerCanonicalCharacter(outfitVault, { name: 'Outfit Alpha', sourceType: 'manual', userConfirmed: true })
+addAppearanceFact(outfitVault, { layer: 'wardrobe', characterId: outfitSubject.canonicalCharacterId, category: 'saved-outfit', value: 'formal black shirt', sourceType: 'manual', userConfirmed: true })
+saveManualAppearanceMemory(outfitVault, { characterId: outfitSubject.canonicalCharacterId, stableAppearance: '', currentOutfit: 'grey hoodie, jeans' })
+assert(appearanceMemoryView(outfitVault, outfitSubject.canonicalCharacterId).currentOutfit === 'gray_hoodie, jeans', 'manual Current Outfit must save independently from saved wardrobe')
+saveManualAppearanceMemory(outfitVault, { characterId: outfitSubject.canonicalCharacterId, stableAppearance: '', currentOutfit: '' })
+assert(appearanceMemoryView(outfitVault, outfitSubject.canonicalCharacterId).currentOutfit === '', 'manually clearing Current Outfit must persist as empty')
+assert(Object.values(outfitVault.wardrobe).some(fact => fact.category === 'saved-outfit' && fact.status === 'active'), 'clearing Current Outfit must preserve saved wardrobe')
+saveManualAppearanceMemory(outfitVault, { characterId: outfitSubject.canonicalCharacterId, stableAppearance: '', currentOutfit: 'training uniform' })
+ingestAppearanceSidecarObservations(outfitVault, sidecar([{
+  subject: { name: 'Outfit Alpha', aliases: [], role: 'character', trustworthy: true }, confidence: .98,
+  facts: [{ layer: 'wardrobe', category: 'current-outfit', value: 'white sleep shirt, black shorts', provenance: 'current-assistant-message' }],
+}]), { chatId: outfitVault.chatId, messageId: 'outfit-change-1', swipeId: 0, activeCharacter: { id: outfitSubject.canonicalCharacterId, name: 'Outfit Alpha', aliases: [] }, activePersona: null })
+assert(appearanceMemoryView(outfitVault, outfitSubject.canonicalCharacterId).currentOutfit === 'white_sleep_shirt, black_shorts', 'current-turn Sidecar evidence must independently replace the previous Current Outfit')
+assert(Object.values(outfitVault.wardrobe).some(fact => fact.category === 'saved-outfit' && fact.status === 'active'), 'Sidecar Current Outfit updates must not delete saved wardrobe')
+
 // I. Character, persona, and named NPC paths use the same storage semantics.
 const parityVault = emptyContinuityVault('appearance-canonical-parity')
 const activeCharacter = { id: 'active-character', name: 'Prime Alpha', aliases: [] }
@@ -233,7 +252,12 @@ const backendMessages = [{ id: 'm1', role: 'assistant', content: 'Prime Beta wai
   chat: { async getMessages() { return structuredClone(backendMessages) } },
   world_books: { async getActivated() { return [] }, entries: { async get() { return null } } },
   connections: { async get() { return { id: 'offline', name: 'Offline', provider: 'offline', model: 'offline' } }, async list() { return [{ id: 'offline', name: 'Offline', provider: 'offline', model: 'offline' }] } },
-  generate: { async raw(request: any) { backendRequests.push(structuredClone(request)); return { content: JSON.stringify({ prompt: 'Prime Beta with black hair, winged eyeliner, and long eyelashes.', negativeAdditions: '' }) } } },
+  generate: { async raw(request: any) {
+    backendRequests.push(structuredClone(request))
+    const system = String(request?.messages?.[0]?.content || '')
+    if (system.includes('Appearance Sidecar')) return { content: JSON.stringify({ observations: [{ subject: { name: 'Prime Beta', aliases: [], role: 'persona', trustworthy: true }, confidence: .98, facts: [{ layer: 'wardrobe', category: 'current-outfit', value: 'red dress', provenance: 'current-assistant-message' }] }] }) }
+    return { content: JSON.stringify({ prompt: 'Prime Beta with black hair, winged eyeliner, and long eyelashes.', negativeAdditions: '' }) }
+  } },
   imageGen: new Proxy({}, { get() { throw new Error('Image generation is forbidden in this smoke') } }),
   log: { info() {}, warn() {}, error() {} },
   variables: { global: { async set() {} }, chat: { async set() {} } },
@@ -246,8 +270,12 @@ for (const domain of ['eyeliner', 'makeup:eyeliner', 'eye-makeup']) {
 }
 addAppearanceFact(backendVault, { layer: 'visual-identity', characterId: persona.canonicalCharacterId, category: 'hair-color', value: 'black hair', sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar' })
 addAppearanceFact(backendVault, { layer: 'visual-identity', characterId: persona.canonicalCharacterId, category: 'other', value: 'manhwa lashes', sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar' })
+saveManualAppearanceMemory(backendVault, { characterId: persona.canonicalCharacterId, stableAppearance: appearanceMemoryView(backendVault, persona.canonicalCharacterId).stableAppearance, currentOutfit: 'blue hoodie' })
 backendState.set('states/prompt-once.json', { chatId: 'prompt-once', continuityVault: backendVault, slots: {}, logs: [] })
 const config = await backend.getConfig('offline')
+await backend.runAppearanceSidecar({ chatId: 'prompt-once', messageId: 'ordinary-turn', swipeId: 0, content: 'Prime Beta changes into a red dress.', userId: 'offline', reason: 'generation-ended' })
+const independentOutfitState = backendState.get('states/prompt-once.json') as any
+assert(appearanceMemoryView(independentOutfitState.continuityVault, persona.canonicalCharacterId).currentOutfit === 'red_dress', 'Appearance Sidecar must update Current Outfit on an ordinary completed turn without an image request')
 const prepared = await backend.parseSlotPrompt({ requestId: 'prompt-once-request', chatId: 'prompt-once', messageId: 'm1', swipeId: 0, target: 'custom.artifact-media', slots: ['portrait'], count: 1, originalSceneBrief: 'Prime Beta portrait.', originalRequestXml: '', alt: 'Portrait', caption: '', aspect: '3:4', cast: 'user', promptSource: 'structured', originalNegativePrompt: '', promptProfileId: 'social-candid' }, 'portrait', backendMessages as any, 0, config, 'offline', {})
 const parserPrompt = JSON.stringify(backendRequests.at(-1)?.messages || [])
 assert(prepared.promptPipeline.identityResolution?.fallbacks.some((row: string) => row.includes('Appearance Sidecar state used')), 'unresolved persona binding should use Sidecar fallback')
