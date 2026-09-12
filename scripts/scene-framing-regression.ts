@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
-import { NARRATIVE_MEDIA_COMPATIBILITY_STYLE, renderNarrativeRegex, narrativeRegexPack, narrativeRegexScripts } from '../src/narrativeRegexAssets'
+import { NARRATIVE_BLOCK_SPACING_STYLE, NARRATIVE_MEDIA_COMPATIBILITY_STYLE, renderNarrativeRegex, narrativeRegexPack, narrativeRegexScripts } from '../src/narrativeRegexAssets'
 
 const storage = new Map<string, unknown>()
 const requests: any[] = []
@@ -52,10 +52,13 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button'] as const) {
       const suppliedReplacement = script.replace_string.startsWith(NARRATIVE_MEDIA_COMPATIBILITY_STYLE)
         ? script.replace_string.slice(NARRATIVE_MEDIA_COMPATIBILITY_STYLE.length)
         : script.replace_string
+      const compatibilityBase = suppliedReplacement.startsWith(NARRATIVE_BLOCK_SPACING_STYLE)
+        ? suppliedReplacement.slice(NARRATIVE_BLOCK_SPACING_STYLE.length)
+        : suppliedReplacement
       const structuralAddition = '<div class="r65-section r65-parallel-context"><p class="r65-section-title">Context</p><div class="r65-opt" data-label="Trajectory">$<trajectory></div><div class="r65-opt r65-gap" data-label="Intersection">$<intersection></div></div>'
       const suppliedBase = script.script_id === 'reverie_parallel_tracker_images_v1'
-        ? suppliedReplacement.replace(structuralAddition, '')
-        : suppliedReplacement
+        ? compatibilityBase.replace(structuralAddition, '')
+        : compatibilityBase
       assert.equal(suppliedBase, original.replace_string, `${script.script_id}: supplied Narrative styling changed`)
     }
   }

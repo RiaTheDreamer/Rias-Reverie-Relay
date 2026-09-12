@@ -143,6 +143,10 @@ assert(utility.utilityNames.join('|') === narrativeUtilityNames().join('|'), 'Ut
 for (const item of narrativeUtilityItems()) {
   assert(utility.content.includes(applyNarrativeDisplayNames(item.loomContent)), `${item.loomName}: final prompt injection must preserve the complete source Utility instructions under its public label`)
 }
+for (const oldName of Object.keys(NARRATIVE_UTILITY_DISPLAY_NAMES)) {
+  assert(!narrativeUtilityItems().some(item => item.loomContent.includes(oldName)), `runtime Utility content retained retired model-facing name: ${oldName}`)
+  assert(!utility.content.includes(oldName), `combined Narrative prompt retained retired model-facing name: ${oldName}`)
+}
 assert(utility.content.includes('<reverie_narrative_utility') && utility.content.includes('contract="narrative"'), 'Narrative Utility wrapper must use the Narrative contract name')
 const subset = buildNarrativeUtilityPrompt(['Scene Compass', 'Character Phone'])
 assert(subset.utilityNames.join('|') === 'Character Phone|Scene Compass', 'selected Utility prompt must preserve source order and contain only enabled contracts')
@@ -154,6 +158,7 @@ assert(containsNarrativeRegexMarkup(dramaticFixture), 'Relay Narrative detection
 const dramaticRendered = renderNarrativeRegex(dramaticFixture, 'sparkle-button', 'dramatic-runtime')
 assert(dramaticRendered.includes('dg-dramatic-cutaway') && !dramaticRendered.includes('<dramatic_parallel>'), 'approved Dramatic Cutaway renderer must execute in the shared Narrative adapter')
 assert(dramaticRendered.includes('data-reverie-narrative-media-compat="1"'), 'Dramatic Cutaway must install the shared resolved-media compatibility sizing')
+assert(dramaticRendered.includes('data-reverie-narrative-block-spacing="1"') && dramaticRendered.includes('margin-bottom:clamp(24px,4.5vw,34px)!important'), 'Narrative launcher roots must retain a readable gutter from surrounding prose')
 for (const owner of ['dg-dramatic-media', 'r65-media', 'rv6-media', 'ru-media', 'ru-portrait', 'ru-secret-media', 'ru-thread-media', 'rrcp-media', 'rrcp-photo-media', 'rrcp-wallpaper']) {
   assert(dramaticRendered.includes(owner), `${owner}: shared Narrative media compatibility coverage is missing`)
 }
@@ -186,6 +191,35 @@ for (const variant of ['sparkle-button', 'plain-button'] as const) {
 }
 const inlinePhone = renderNarrativeRegex(missingWallpaperPhone, 'inline', 'phone-inline')
 assert(inlinePhone.includes('<div class="rrcp-wrap rrcp-presentation-inline"><div class="rrcp-shell">') && !inlinePhone.includes('class="rrcp-launch-toggle"'), 'Inline Character Phone must remain directly open without a launcher')
+assert(inlinePhone.includes('.rrcp-wallpaper>.reverie-artifact-media') && inlinePhone.includes('height:100%!important') && inlinePhone.includes('object-fit:cover!important'), 'Character Phone wallpaper media must cover the complete fixed phone screen')
+assert(!/\.rrcp-photo-media[^}]+object-fit:cover/i.test(inlinePhone), 'Phone wallpaper sizing must not force ordinary app photos to crop')
+
+const canonicalArchive = '<dossier_ui category="SECRET"><archive-head><icon>🤫</icon><name>Canonical Secret</name><state>PARTIAL</state><relation>A ↔ B</relation><role>Hidden act</role></archive-head><archive-stats><archive-stat><label>Exposure</label><value>75</value></archive-stat><archive-stat><label>Certainty</label><value>40</value></archive-stat><archive-stat><label>Consequence</label><value>90</value></archive-stat></archive-stats><archive-details><archive-row label="The Hidden Truth">Truth.</archive-row><archive-row label="Known By">A.</archive-row><archive-row label="Hidden From">B.</archive-row><archive-row label="Near-Slips">One clue.</archive-row><archive-row label="Impact If Revealed">Trust changes.</archive-row><archive-row label="Current Status">SLIPPING</archive-row></archive-details><archive-export>[SECRET: Canonical Secret]\nCURRENT STATUS: SLIPPING</archive-export></dossier_ui>'
+assert(normalizeNarrativeMarkupForRendering(canonicalArchive) === canonicalArchive, 'canonical Archive Entry payloads must remain byte-for-byte unchanged')
+
+const flatArchive = `<dossier_ui category="SECRET">
+🤫
+The Textbook Lie
+SLIPPING
+Minjae ↔ Arin
+Exposed Act of Service
+Exposure75
+Certainty40
+Consequence90
+Minjae did not own a textbook. He gave Arin the absolute last copy in the campus store and lied about it.
+Minjae Han.
+Song Arin and the Psychology Cohort.
+Arin noticing the empty shelf; Arin seeing him carrying the reserve copy.
+The destruction of Minjae's plausible deniability regarding his feelings for her.
+SLIPPING
+[SECRET: The Textbook Lie]
+THE HIDDEN TRUTH: Minjae gave Arin the final copy and lied about it.
+CURRENT STATUS: SLIPPING
+</dossier_ui>`
+const normalizedFlatArchive = normalizeNarrativeMarkupForRendering(flatArchive)
+assert(normalizedFlatArchive.includes('<archive-head>') && normalizedFlatArchive.includes('<state>PARTIAL</state>') && normalizedFlatArchive.includes('<archive-row label="The Hidden Truth">'), 'flat SECRET Archive drift must normalize into the canonical structured contract')
+const renderedFlatArchive = renderNarrativeRegex(flatArchive, 'sparkle-button', 'flat-archive')
+assert(renderedFlatArchive.includes('class="ra66"') && renderedFlatArchive.includes('The Textbook Lie') && renderedFlatArchive.includes('The Hidden Truth') && !renderedFlatArchive.includes('<dossier_ui'), 'normalized flat Archive Entry must render through the approved Dossier presentation')
 
 const failedParallelFixture = `[PARALLEL|Campus and beyond|complication]
 - First independent thread <parallel-media><!-- reverie-relay:image-error requestId="parallel-1" slot="thread_1" --><image_request_error id="parallel-1" target="custom.artifact-media" slot="thread_1" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error></parallel-media>
