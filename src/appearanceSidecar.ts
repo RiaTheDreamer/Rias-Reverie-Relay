@@ -193,6 +193,7 @@ export function ingestAppearanceSidecarObservations(
           sourceReference: { sourceType: 'appearance-sidecar', sourceReference: `sidecar:${fact.provenance}`, chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId },
           chatId: input.chatId, sourceMessageId: input.messageId, sourceSwipeId: input.swipeId,
           currentWardrobe: fact.layer === 'wardrobe' && fact.category === 'current-outfit',
+          replaceUserConfirmedCurrentWardrobe: fact.layer === 'wardrobe' && fact.category === 'current-outfit' && fact.provenance === 'current-assistant-message',
         })
         acceptedFacts += savedFacts.length
       } catch {

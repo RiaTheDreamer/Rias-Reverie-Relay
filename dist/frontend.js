@@ -137883,7 +137883,7 @@ ${candidate.error}` : ""}`;
       const title = document.createElement("strong");
       title.textContent = "No illustration requests were authored";
       const detail = document.createElement("div");
-      detail.textContent = "The active runtime requested Model-Placed illustrations, but the completed story response contained no valid <reverie-illustration> tags.";
+      detail.textContent = "The active Story Model illustration mode requested images, but the completed response contained no valid <reverie-illustration> tags.";
       const missingActions = document.createElement("div");
       missingActions.className = "dg-actions";
       missingActions.append(button("Copy Preset Prompt", () => void copyText(REVERIE_ILLUSTRATION_PROTOCOL, "Full Model-Placed preset prompt copied"), false, "primary"), button("Use Relay-Planned Once", () => {

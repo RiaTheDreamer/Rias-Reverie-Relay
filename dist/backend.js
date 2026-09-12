@@ -3604,8 +3604,9 @@ function addCanonicalAppearanceFact(vault, input, now = Date.now(), options = {}
   };
   map[factId] = fact;
   supersedeAppearanceConflicts(vault, fact.layer, character.canonicalCharacterId, factId, now);
-  if (input.layer === "wardrobe" && input.currentWardrobe && !options.deferCurrentWardrobeSupersede)
-    supersedeCurrentWardrobe(vault, character.canonicalCharacterId, factId, now, Boolean(input.userConfirmed));
+  if (input.layer === "wardrobe" && input.currentWardrobe && !options.deferCurrentWardrobeSupersede) {
+    supersedeCurrentWardrobe(vault, character.canonicalCharacterId, factId, now, Boolean(input.userConfirmed || input.replaceUserConfirmedCurrentWardrobe));
+  }
   appendHistory(vault, "fact-added", { characterId: character.canonicalCharacterId, factId, sourceReference, details: { layer: input.layer, category: input.category } }, now);
   syncCharacterSheetPresentation(vault, character.canonicalCharacterId, now);
   vault.updatedAt = now;
@@ -3628,7 +3629,7 @@ function addAppearanceFacts(vault, input, now = Date.now()) {
     }, now, { deferCurrentWardrobeSupersede: currentWardrobeBatch }));
   }
   if (currentWardrobeBatch) {
-    supersedeCurrentWardrobeSet(vault, input.characterId, new Set(saved.filter((fact) => fact.layer === "wardrobe").map((fact) => fact.factId)), now, Boolean(input.userConfirmed));
+    supersedeCurrentWardrobeSet(vault, input.characterId, new Set(saved.filter((fact) => fact.layer === "wardrobe").map((fact) => fact.factId)), now, Boolean(input.userConfirmed || input.replaceUserConfirmedCurrentWardrobe));
     syncCharacterSheetPresentation(vault, input.characterId, now);
   }
   return saved;
@@ -3986,12 +3987,11 @@ function appearanceMemoryView(vault, characterId) {
   const wardrobe = active(Object.values(vault.wardrobe));
   const current = active(Object.values(vault.currentAppearance));
   const currentOutfit = wardrobe.filter((fact) => fact.currentWardrobe || fact.category === "current-outfit").map(appearanceFactDescriptor);
-  const fallbackOutfit = currentOutfit.length ? currentOutfit : wardrobe.map(appearanceFactDescriptor);
   const facts = [...stable, ...wardrobe, ...current];
   return {
     characterId,
     stableAppearance: stable.map(appearanceFactDescriptor).join(", "),
-    currentOutfit: fallbackOutfit.join(", "),
+    currentOutfit: currentOutfit.join(", "),
     currentState: current.map(appearanceFactDescriptor).join(", "),
     hasFacts: facts.length > 0,
     updatedAt: Math.max(0, ...facts.map((fact) => fact.updatedAt))
@@ -4071,7 +4071,7 @@ function saveManualAppearanceMemory(vault, input, now = Date.now()) {
     }, now);
   } else {
     for (const fact of Object.values(vault.wardrobe)) {
-      if (fact.canonicalCharacterId !== input.characterId || !fact.currentWardrobe || fact.userConfirmed)
+      if (fact.canonicalCharacterId !== input.characterId || fact.category !== "current-outfit" && !fact.currentWardrobe)
         continue;
       fact.status = "inactive";
       fact.currentWardrobe = false;
@@ -5284,7 +5284,8 @@ function ingestAppearanceSidecarObservations(vault, observations, input) {
           chatId: input.chatId,
           sourceMessageId: input.messageId,
           sourceSwipeId: input.swipeId,
-          currentWardrobe: fact.layer === "wardrobe" && fact.category === "current-outfit"
+          currentWardrobe: fact.layer === "wardrobe" && fact.category === "current-outfit",
+          replaceUserConfirmedCurrentWardrobe: fact.layer === "wardrobe" && fact.category === "current-outfit" && fact.provenance === "current-assistant-message"
         });
         acceptedFacts += savedFacts.length;
       } catch {}
@@ -152345,7 +152346,10 @@ function normalizeFlatArchiveDossiers(markup) {
   });
 }
 function normalizeNarrativeMarkupForRendering(markup) {
-  return normalizeFlatArchiveDossiers(String(markup || "")).replace(/(\[cp_battery\]\s*[0-9]{1,3}\s*\[\/cp_battery\])\s*(?=\[cp_apps\])/gi, "$1[cp_wallpaper][/cp_wallpaper]").replace(/<parallel-media>\s*<\/parallel-media>/gi, "<parallel-media></parallel-media>");
+  return normalizeFlatArchiveDossiers(String(markup || "")).replace(/(\[(character_phone|private_phone)\b[^\]]*\])([\s\S]*?)\[\/\2\]/gi, (_full, opening, root, body) => {
+    const repairedBody = body.replace(/<\/(cp_[A-Za-z][A-Za-z0-9_]*)>/gi, "[/$1]");
+    return `${opening}${repairedBody}[/${root}]`;
+  }).replace(/(\[cp_battery\]\s*[0-9]{1,3}\s*\[\/cp_battery\])\s*(?=\[cp_apps\])/gi, "$1[cp_wallpaper][/cp_wallpaper]").replace(/<parallel-media>\s*<\/parallel-media>/gi, "<parallel-media></parallel-media>");
 }
 function narrativeRegexPack(variant) {
   const pack = PACKS2[variant];
@@ -153787,7 +153791,7 @@ if (typeof registerInterceptor === "function") {
           surfaceMacroExpanded = true;
         if (/<reverie_narrative_utility\b/i.test(content))
           narrativeMacroExpanded = true;
-        if (/<reverie_illustrator_runtime\b|\[REVERIE RELAY\s+[\u2014-]\s+(?:MODEL-PLACED|RELAY-PLANNED)/i.test(content))
+        if (/<reverie_illustrator_runtime\b|\[?REVERIE RELAY\s+[\u2014-]\s+(?:MODEL-PLACED|RELAY-PLANNED|INLINE PROTOCOL)/i.test(content))
           illustratorMacroExpanded = true;
         ALL_MACRO_MARKER.lastIndex = 0;
         if (ALL_MACRO_MARKER.test(content)) {
@@ -153824,7 +153828,7 @@ if (typeof registerInterceptor === "function") {
       if (!studio.utilityInjectionEnabled && !surfaceMacroExpanded)
         maybeWarnUtilityNotInjected(chatId, context?.userId);
       const automaticSurfaceProtocol = studio.utilityInjectionEnabled && !surfaceMacroExpanded ? registryPrompt(settings, "story.surface-protocol") : "";
-      const automaticIllustrator = settings.mode === "model-placed" && settings.automaticProtocolInjection && !illustratorMacroExpanded ? illustratorPrompt : "";
+      const automaticIllustrator = (settings.mode === "model-placed" || settings.mode === "inline-protocol") && settings.automaticProtocolInjection && !illustratorMacroExpanded ? illustratorPrompt : "";
       const automaticNarrative = routerConfig.narrativeDlcEnabled && !narrativeMacroExpanded ? narrativeUtility.content : "";
       const automaticRuntime = "";
       const combined = [automaticSurfaceProtocol, automaticUtility?.content || "", automaticNarrative, automaticIllustrator, automaticRuntime].filter(Boolean).join(`
@@ -154137,7 +154141,7 @@ async function handleGenerationEnded(payload, userId) {
   if (payload?.error || !payload?.chatId || !payload?.messageId || !payload?.content)
     return;
   const runtime = latestIllustratorRuntimeByChat.get(cleanString(payload.chatId));
-  if (runtime && Date.now() - runtime.createdAt < 15 * 60000 && /<mode>model-placed<\/mode>/i.test(runtime.directive) && /<request_illustrations>true<\/request_illustrations>/i.test(runtime.directive) && !/<minimum_count>0<\/minimum_count>/i.test(runtime.directive) && !payloadHasProseIllustration) {
+  if (runtime && Date.now() - runtime.createdAt < 15 * 60000 && /<mode>(?:model-placed|inline-protocol)<\/mode>/i.test(runtime.directive) && /<request_illustrations>true<\/request_illustrations>/i.test(runtime.directive) && !/<minimum_count>0<\/minimum_count>/i.test(runtime.directive) && !payloadHasProseIllustration) {
     const state = await getState(cleanString(payload.chatId), userId);
     const settings = proseSettingsForChat(state, cleanString(payload.chatId));
     if (isEligibleProseContent(payloadContent, settings)) {
@@ -154147,7 +154151,7 @@ async function handleGenerationEnded(payload, userId) {
         eventType: "model_placed_requests_missing",
         chatId: cleanString(payload.chatId),
         messageId: cleanString(payload.messageId),
-        message: "Model-Placed requested prose illustrations, but the completed response contained no reverie-illustration tags.",
+        message: "The active Story Model illustration mode requested images, but the completed response contained no reverie-illustration tags.",
         details: { runtimeDirective: runtime.directive, contentFingerprint: contentFingerprint(payloadContent) }
       }));
       spindle.sendToFrontend({

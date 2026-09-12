@@ -6,9 +6,10 @@ const storage = new Map<string, unknown>()
 let chatPersonaId = 'chat-persona'
 let activePersona: any = { id: 'global-persona', name: 'Global Persona' }
 let connectionReads = 0
+let promptInterceptor: ((messages: any[], context: any) => Promise<any>) | null = null
 
 ;(globalThis as any).spindle = {
-  on() {}, onFrontendMessage() {}, registerInterceptor() {}, registerMacro() {}, registerMessageContentProcessor() {}, sendToFrontend() {},
+  on() {}, onFrontendMessage() {}, registerInterceptor(handler: any) { promptInterceptor = handler }, registerMacro() {}, registerMessageContentProcessor() {}, sendToFrontend() {},
   permissions: { has: () => true }, log: { info() {}, warn() {}, error() {} },
   userStorage: {
     async getJson(path: string, { fallback }: any) { return structuredClone(storage.get(path) ?? fallback) },
@@ -29,6 +30,21 @@ let connectionReads = 0
 
 const backend = await import('../src/backend')
 const protocols = await import('../src/protocols')
+
+storage.set('states/chat-inline.json', {
+  proseIllustrator: { settings: {} },
+  slots: {}, logs: [],
+})
+storage.set('config.json', {
+  proseIllustratorSettings: { ...backend.defaultProseIllustratorSettings(), enabled: true, mode: 'inline-protocol', automaticProtocolInjection: true, perspectiveMode: 'scene-snapshot' },
+  surfacePreferencesInitialized: true,
+})
+assert(promptInterceptor, 'backend did not register the Story Model prompt interceptor')
+const inlineIntercepted = await promptInterceptor!([{ role: 'user', content: 'Continue the scene.' }], { chatId: 'chat-inline', userId: 'user-1' })
+const inlineMessages = Array.isArray(inlineIntercepted) ? inlineIntercepted : inlineIntercepted.messages
+const inlinePrompt = JSON.stringify(inlineMessages)
+assert(inlinePrompt.includes('REVERIE RELAY — INLINE PROTOCOL'), 'Inline Protocol mode was selected but its real prompt was not injected')
+assert(inlinePrompt.includes('<mode>inline-protocol</mode>') && inlinePrompt.includes('<request_illustrations>true</request_illustrations>'), 'Inline Protocol injection lost its live runtime directive')
 
 const definitions = protocols.PROMPT_REGISTRY_DEFINITIONS.filter((row: any) => row.id.startsWith('story.framing.'))
 assert.deepEqual(definitions.map((row: any) => row.id), [
@@ -95,4 +111,4 @@ assert(frontendSource.includes("label: 'Scene Snapshot'") && frontendSource.incl
 assert(frontendSource.includes('dg-choice-five') && frontendSource.includes('repeat(2, minmax(0,1fr))'), 'five framing cards need a responsive narrow layout')
 assert(backendSource.includes("settings.mode === 'inline-protocol' ? 'story.inline-protocol'"), 'Inline preview must identify story.inline-protocol')
 
-console.log('Persona POV plumbing smoke passed: migration, resolver priority, finalized registry, no-Persona refusal, five-card UI, and inline preview identity.')
+console.log('Persona POV plumbing smoke passed: migration, resolver priority, finalized registry, no-Persona refusal, five-card UI, and real Inline Protocol injection.')

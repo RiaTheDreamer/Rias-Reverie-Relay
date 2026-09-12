@@ -106,6 +106,9 @@ type AddAppearanceFactInput = {
   outfitName?: string
   defaultWardrobe?: boolean
   currentWardrobe?: boolean
+  /** Current-turn scene evidence may advance transient outfit state without
+   * granting the replacement permanent user-confirmed authority. */
+  replaceUserConfirmedCurrentWardrobe?: boolean
   chatId?: string
   sourceMessageId?: string
   sourceSwipeId?: number
@@ -796,7 +799,9 @@ function addCanonicalAppearanceFact(
   }
   map[factId] = fact
   supersedeAppearanceConflicts(vault, fact.layer, character.canonicalCharacterId, factId, now)
-  if (input.layer === 'wardrobe' && input.currentWardrobe && !options.deferCurrentWardrobeSupersede) supersedeCurrentWardrobe(vault, character.canonicalCharacterId, factId, now, Boolean(input.userConfirmed))
+  if (input.layer === 'wardrobe' && input.currentWardrobe && !options.deferCurrentWardrobeSupersede) {
+    supersedeCurrentWardrobe(vault, character.canonicalCharacterId, factId, now, Boolean(input.userConfirmed || input.replaceUserConfirmedCurrentWardrobe))
+  }
   appendHistory(vault, 'fact-added', { characterId: character.canonicalCharacterId, factId, sourceReference, details: { layer: input.layer, category: input.category } }, now)
   syncCharacterSheetPresentation(vault, character.canonicalCharacterId, now)
   vault.updatedAt = now
@@ -819,7 +824,7 @@ export function addAppearanceFacts(vault: ContinuityVaultState, input: AddAppear
     }, now, { deferCurrentWardrobeSupersede: currentWardrobeBatch }))
   }
   if (currentWardrobeBatch) {
-    supersedeCurrentWardrobeSet(vault, input.characterId, new Set(saved.filter(fact => fact.layer === 'wardrobe').map(fact => fact.factId)), now, Boolean(input.userConfirmed))
+    supersedeCurrentWardrobeSet(vault, input.characterId, new Set(saved.filter(fact => fact.layer === 'wardrobe').map(fact => fact.factId)), now, Boolean(input.userConfirmed || input.replaceUserConfirmedCurrentWardrobe))
     syncCharacterSheetPresentation(vault, input.characterId, now)
   }
   return saved
@@ -1215,12 +1220,11 @@ export function appearanceMemoryView(vault: ContinuityVaultState, characterId: s
   const currentOutfit = wardrobe
     .filter(fact => fact.currentWardrobe || fact.category === 'current-outfit')
     .map(appearanceFactDescriptor)
-  const fallbackOutfit = currentOutfit.length ? currentOutfit : wardrobe.map(appearanceFactDescriptor)
   const facts = [...stable, ...wardrobe, ...current]
   return {
     characterId,
     stableAppearance: stable.map(appearanceFactDescriptor).join(', '),
-    currentOutfit: fallbackOutfit.join(', '),
+    currentOutfit: currentOutfit.join(', '),
     currentState: current.map(appearanceFactDescriptor).join(', '),
     hasFacts: facts.length > 0,
     updatedAt: Math.max(0, ...facts.map(fact => fact.updatedAt)),
@@ -1298,7 +1302,7 @@ export function saveManualAppearanceMemory(
     }, now)
   } else {
     for (const fact of Object.values(vault.wardrobe)) {
-      if (fact.canonicalCharacterId !== input.characterId || !fact.currentWardrobe || fact.userConfirmed) continue
+      if (fact.canonicalCharacterId !== input.characterId || (fact.category !== 'current-outfit' && !fact.currentWardrobe)) continue
       fact.status = 'inactive'
       fact.currentWardrobe = false
       fact.updatedAt = now

@@ -1776,7 +1776,7 @@ if (typeof registerInterceptor === 'function') {
         // prevents Automatic Injection from serializing the same Utility twice.
         if (/<reverie_surface_utility\b/i.test(content)) surfaceMacroExpanded = true
         if (/<reverie_narrative_utility\b/i.test(content)) narrativeMacroExpanded = true
-        if (/<reverie_illustrator_runtime\b|\[REVERIE RELAY\s+[—-]\s+(?:MODEL-PLACED|RELAY-PLANNED)/i.test(content)) illustratorMacroExpanded = true
+        if (/<reverie_illustrator_runtime\b|\[?REVERIE RELAY\s+[—-]\s+(?:MODEL-PLACED|RELAY-PLANNED|INLINE PROTOCOL)/i.test(content)) illustratorMacroExpanded = true
         ALL_MACRO_MARKER.lastIndex = 0
         if (ALL_MACRO_MARKER.test(content)) {
           surfaceMacroExpanded = true
@@ -1815,7 +1815,7 @@ if (typeof registerInterceptor === 'function') {
       // Automatic injection must honor the live Prompt Registry override just like every
       // other model-facing prompt. The constant remains only as the registry default.
       const automaticSurfaceProtocol = studio.utilityInjectionEnabled && !surfaceMacroExpanded ? registryPrompt(settings, 'story.surface-protocol') : ''
-      const automaticIllustrator = settings.mode === 'model-placed' && settings.automaticProtocolInjection && !illustratorMacroExpanded ? illustratorPrompt : ''
+      const automaticIllustrator = (settings.mode === 'model-placed' || settings.mode === 'inline-protocol') && settings.automaticProtocolInjection && !illustratorMacroExpanded ? illustratorPrompt : ''
       const automaticNarrative = routerConfig.narrativeDlcEnabled && !narrativeMacroExpanded ? narrativeUtility.content : ''
       const automaticRuntime = ''
       const combined = [automaticSurfaceProtocol, automaticUtility?.content || '', automaticNarrative, automaticIllustrator, automaticRuntime].filter(Boolean).join('\n\n')
@@ -2131,14 +2131,14 @@ async function handleGenerationEnded(payload: any, userId?: string): Promise<voi
 
   if (payload?.error || !payload?.chatId || !payload?.messageId || !payload?.content) return
   const runtime = latestIllustratorRuntimeByChat.get(cleanString(payload.chatId))
-  if (runtime && Date.now() - runtime.createdAt < 15 * 60_000 && /<mode>model-placed<\/mode>/i.test(runtime.directive) && /<request_illustrations>true<\/request_illustrations>/i.test(runtime.directive) && !/<minimum_count>0<\/minimum_count>/i.test(runtime.directive) && !payloadHasProseIllustration) {
+  if (runtime && Date.now() - runtime.createdAt < 15 * 60_000 && /<mode>(?:model-placed|inline-protocol)<\/mode>/i.test(runtime.directive) && /<request_illustrations>true<\/request_illustrations>/i.test(runtime.directive) && !/<minimum_count>0<\/minimum_count>/i.test(runtime.directive) && !payloadHasProseIllustration) {
     const state = await getState(cleanString(payload.chatId), userId)
     const settings = proseSettingsForChat(state, cleanString(payload.chatId))
     if (isEligibleProseContent(payloadContent, settings)) {
       await mutateState(cleanString(payload.chatId), userId, next => appendStateLog(next, {
         severity: 'warning', stage: 'prose-illustrator-runtime', eventType: 'model_placed_requests_missing',
         chatId: cleanString(payload.chatId), messageId: cleanString(payload.messageId),
-        message: 'Model-Placed requested prose illustrations, but the completed response contained no reverie-illustration tags.',
+        message: 'The active Story Model illustration mode requested images, but the completed response contained no reverie-illustration tags.',
         details: { runtimeDirective: runtime.directive, contentFingerprint: contentFingerprint(payloadContent) },
       }))
       spindle.sendToFrontend({
