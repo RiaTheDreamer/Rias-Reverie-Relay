@@ -152033,6 +152033,7 @@ var EXPECTED_PIN = {
 var DRAMATIC_CUTAWAY_PACK = Reverie_Dramatic_Cutaway_BULLETPROOF_V8_default;
 var PLOT_SPARKS_PACK = Reverie_Plot_Sparks_BULLETPROOF_V7_default;
 var NARRATIVE_MEDIA_OWNER_CLASS = /(?:dg-dramatic-media|r65-media|rv6-media|ru-media|ru-portrait|ru-secret-media|ru-thread-media|rrcp-media|rrcp-photo-media|rrcp-wallpaper)/;
+var NARRATIVE_PRIMARY_SURFACE_CLASS = /<(?:details|div) class="(?:r65\b|ra66\b|rrcp-wrap\b|ch-og\b|[^\"]*\bdg-dramatic-cutaway\b)/;
 var CHARACTER_PHONE_OPTIONAL_WALLPAPER_NORMALIZER = {
   script_id: "rrcp_repair_missing_optional_wallpaper_v462",
   name: "\u21B3 Character Phone \u2014 Repair Missing Optional Wallpaper Wrapper v4.6.2",
@@ -152058,9 +152059,14 @@ var CHARACTER_PHONE_OPTIONAL_WALLPAPER_NORMALIZER = {
 var NARRATIVE_MEDIA_COMPATIBILITY_STYLE = `<style data-reverie-narrative-media-compat="1">
 .dg-dramatic-media{min-width:0;max-width:100%;overflow:hidden;text-align:center}
 .dg-dramatic-media>img,.dg-dramatic-media>.reverie-artifact-media{display:block!important;width:100%!important;max-width:100%!important;height:auto!important;margin-inline:auto!important;object-fit:contain!important;object-position:center!important}
-.r65-media>.reverie-artifact-media,.rv6-media>.reverie-artifact-media,.ru-media>.reverie-artifact-media,.ru-portrait>.reverie-artifact-media,.ru-secret-media>.reverie-artifact-media,.ru-thread-media>.reverie-artifact-media,.rrcp-media>.reverie-artifact-media,.rrcp-photo-media>.reverie-artifact-media,.rrcp-wallpaper>.reverie-artifact-media{display:block!important;width:100%!important;max-width:100%!important;height:auto!important;margin-inline:auto!important;object-fit:contain!important;object-position:center!important}
+.r65-media>.reverie-artifact-media,.rv6-media>.reverie-artifact-media,.ru-media>.reverie-artifact-media,.ru-portrait>.reverie-artifact-media,.ru-secret-media>.reverie-artifact-media,.ru-thread-media>.reverie-artifact-media,.rrcp-media>.reverie-artifact-media,.rrcp-photo-media>.reverie-artifact-media{display:block!important;width:100%!important;max-width:100%!important;height:auto!important;margin-inline:auto!important;object-fit:contain!important;object-position:center!important}
+.rrcp-wallpaper>.reverie-artifact-media,.rrcp-wallpaper .reverie-artifact-media,.rrcp-wallpaper img{position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;object-fit:cover!important;object-position:center!important}
 .r65-thread>.r65-media:not(:has(image_request,image_request_error,img,.reverie-artifact-media)){display:none!important}
 .r65-parallel-context:not(:has(.r65-opt:not(:empty))){display:none!important}
+</style>`;
+var NARRATIVE_BLOCK_SPACING_STYLE = `<style data-reverie-narrative-block-spacing="1">
+.r65,.ra66,.rrcp-wrap,.ch-og.dg-compact-launch-host,.dg-dramatic-cutaway.dg-compact-launch-host{margin-top:clamp(22px,4vw,30px)!important;margin-bottom:clamp(24px,4.5vw,34px)!important;margin-inline:auto!important}
+@media(max-width:560px){.r65,.ra66,.rrcp-wrap,.ch-og.dg-compact-launch-host,.dg-dramatic-cutaway.dg-compact-launch-host{margin-top:24px!important;margin-bottom:30px!important}}
 </style>`;
 var safeMessageId2 = (value) => String(value || "narrative").replace(/[^A-Za-z0-9_-]+/g, "-") || "narrative";
 var NARRATIVE_MARKUP = /\[(?:SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i;
@@ -152095,7 +152101,10 @@ function narrativeUtilityNames() {
   return (NARRATIVE_UTILITY_PACK.loomItems || []).map((item) => item.loomName).filter(Boolean);
 }
 function narrativeUtilityItems() {
-  return (NARRATIVE_UTILITY_PACK.loomItems || []).map((item) => item.loomName === "Parallel Current" ? { ...item, loomContent: PARALLEL_SCENE_UTILITY } : { ...item });
+  return (NARRATIVE_UTILITY_PACK.loomItems || []).map((item) => {
+    const source = item.loomName === "Parallel Current" ? PARALLEL_SCENE_UTILITY : item.loomContent;
+    return { ...item, loomContent: applyNarrativeDisplayNames(source) };
+  });
 }
 var PARALLEL_SCENE_UTILITY = `### Parallel Scene \u2014 Three Live Threads
 
@@ -152128,8 +152137,75 @@ function parallelSceneReplacement(replacement) {
   const context = '<div class="r65-section r65-parallel-context"><p class="r65-section-title">Context</p><div class="r65-opt" data-label="Trajectory">$<trajectory></div><div class="r65-opt r65-gap" data-label="Intersection">$<intersection></div></div>';
   return replacement.replace("</section></details>", `${context}</section></details>`);
 }
+var FLAT_ARCHIVE_DETAIL_LABELS = {
+  CHARACTER: ["Identity", "Appearance", "Personality", "Behavioral Triggers", "Speech", "Background", "Hidden Depths", "Social Mask"],
+  LOCATION: ["Identity", "Description", "Atmosphere", "Significance", "Behavioral Result", "Connections"],
+  ITEM: ["Type", "Description", "Significance", "Current Status", "Behavioral Triggers", "Rules"],
+  FACTION: ["Members", "Dynamic", "Relationship to Main Cast", "Key Interactions", "Hidden Lore"],
+  EVENT: ["What Happened", "Key Dialogue", "Consequences", "Emotional Impact"],
+  RELATIONSHIP: ["Characters Involved", "Nature of Bond", "Key Dialogue", "Current Status", "Trajectory"],
+  SECRET: ["The Hidden Truth", "Known By", "Hidden From", "Near-Slips", "Impact If Revealed", "Current Status"]
+};
+function archiveText(value) {
+  return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function archiveAttribute(value) {
+  return archiveText(value).replace(/"/g, "&quot;");
+}
+function archivePresentationState(value) {
+  const state = String(value || "").trim().toUpperCase();
+  if (state === "UNLOCKED" || state === "PARTIAL" || state === "LOCKED")
+    return state;
+  if (state === "DISCOVERED")
+    return "UNLOCKED";
+  if (state === "SECURE")
+    return "LOCKED";
+  return "PARTIAL";
+}
+function parseFlatArchiveStat(lines, offset) {
+  const joined = /^(.+?)(?:\s*[:|]\s*|\s+)?(\d{1,3})%?$/.exec(lines[offset] || "");
+  if (joined)
+    return { label: joined[1].trim(), value: String(Math.min(100, Number(joined[2]))), consumed: 1 };
+  if (/^\d{1,3}%?$/.test(lines[offset + 1] || "")) {
+    return { label: lines[offset].trim(), value: String(Math.min(100, Number(lines[offset + 1].replace("%", "")))), consumed: 2 };
+  }
+  return null;
+}
+function normalizeFlatArchiveDossiers(markup) {
+  return markup.replace(/<dossier_ui\s+category="(CHARACTER|LOCATION|ITEM|FACTION|EVENT|RELATIONSHIP|SECRET)">([\s\S]*?)<\/dossier_ui>/gi, (full, rawCategory, body) => {
+    if (/<archive-head\b/i.test(body))
+      return full;
+    const category = rawCategory.toUpperCase();
+    const labels = FLAT_ARCHIVE_DETAIL_LABELS[category];
+    if (!labels)
+      return full;
+    const exportMarker = new RegExp(`\\[(?:${category === "CHARACTER" ? "NPC" : category}):[^\\]]+\\]`, "i").exec(body);
+    if (!exportMarker || exportMarker.index < 0)
+      return full;
+    const headerLines = body.slice(0, exportMarker.index).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const exportText = body.slice(exportMarker.index).trim();
+    if (headerLines.length < 5 + 3 + labels.length || !exportText)
+      return full;
+    const [icon, name, rawState, relation, role] = headerLines.slice(0, 5);
+    const stats = [];
+    let cursor = 5;
+    while (stats.length < 3 && cursor < headerLines.length) {
+      const stat = parseFlatArchiveStat(headerLines, cursor);
+      if (!stat)
+        return full;
+      stats.push({ label: stat.label, value: stat.value });
+      cursor += stat.consumed;
+    }
+    const details = headerLines.slice(cursor);
+    if (stats.length !== 3 || details.length !== labels.length)
+      return full;
+    const statsMarkup = stats.map((stat) => `<archive-stat><label>${archiveText(stat.label)}</label><value>${stat.value}</value></archive-stat>`).join("");
+    const detailsMarkup = labels.map((label, index) => `<archive-row label="${archiveAttribute(label)}">${archiveText(details[index])}</archive-row>`).join("");
+    return `<dossier_ui category="${category}"><archive-head><icon>${archiveText(icon)}</icon><name>${archiveText(name)}</name><state>${archivePresentationState(rawState)}</state><relation>${archiveText(relation)}</relation><role>${archiveText(role)}</role></archive-head><archive-stats>${statsMarkup}</archive-stats><archive-details>${detailsMarkup}</archive-details><archive-export>${archiveText(exportText)}</archive-export></dossier_ui>`;
+  });
+}
 function normalizeNarrativeMarkupForRendering(markup) {
-  return String(markup || "").replace(/(\[cp_battery\]\s*[0-9]{1,3}\s*\[\/cp_battery\])\s*(?=\[cp_apps\])/gi, "$1[cp_wallpaper][/cp_wallpaper]").replace(/<parallel-media>\s*<\/parallel-media>/gi, "<parallel-media></parallel-media>");
+  return normalizeFlatArchiveDossiers(String(markup || "")).replace(/(\[cp_battery\]\s*[0-9]{1,3}\s*\[\/cp_battery\])\s*(?=\[cp_apps\])/gi, "$1[cp_wallpaper][/cp_wallpaper]").replace(/<parallel-media>\s*<\/parallel-media>/gi, "<parallel-media></parallel-media>");
 }
 function narrativeRegexPack(variant) {
   const pack = PACKS2[variant];
@@ -152165,11 +152241,12 @@ function narrativeRegexScripts(variant) {
   return scripts.map((script) => {
     const isParallel = script.script_id === "reverie_parallel_tracker_images_v1";
     const replacement = sceneCompassPresentation(script.script_id, isParallel ? parallelSceneReplacement(script.replace_string) : script.replace_string);
+    const spacedReplacement = NARRATIVE_PRIMARY_SURFACE_CLASS.test(replacement) ? `${NARRATIVE_BLOCK_SPACING_STYLE}${replacement}` : replacement;
     return {
       ...script,
       name: applyNarrativeDisplayNames(String(script.name || script.script_id)),
       find_regex: isParallel ? PARALLEL_SCENE_FIND : script.find_regex,
-      replace_string: NARRATIVE_MEDIA_OWNER_CLASS.test(replacement) ? `${NARRATIVE_MEDIA_COMPATIBILITY_STYLE}${replacement}` : replacement
+      replace_string: NARRATIVE_MEDIA_OWNER_CLASS.test(spacedReplacement) ? `${NARRATIVE_MEDIA_COMPATIBILITY_STYLE}${spacedReplacement}` : spacedReplacement
     };
   }).sort((left, right) => Number(left.sort_order) - Number(right.sort_order));
 }
