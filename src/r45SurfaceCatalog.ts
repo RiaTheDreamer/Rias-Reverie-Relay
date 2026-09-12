@@ -48,6 +48,16 @@ The shell fields are [sender]...[/sender], [initial]...[/initial], [time]...[/ti
   return module
 }
 
+const MEDIA_LIMITS: Record<string, readonly [number, number]> = {
+  smartphone: [0, 8], instagram: [1, 1], twitter: [0, 6], kakao: [0, 8],
+  'album-cover': [1, 1], 'magazine-cover': [1, 1], 'photo-booth-strip': [4, 4], polaroid: [1, 1],
+  'youtube-thumbnail': [1, 1], 'character-profile': [1, 1], 'music-player': [1, 1], 'location-share': [1, 1],
+  'voice-memo': [1, 1], 'notes-app': [0, 4], 'market-listing': [1, 1], 'property-listing': [3, 3],
+  'letter-dispatch': [0, 1], 'medical-record': [1, 1], 'court-transcript': [0, 0], 'codex-entry': [1, 1],
+  'diary-app': [0, 3], 'mission-board': [0, 0], 'cctv-evidence': [3, 3], 'instagram-profile': [8, 12],
+  'twitter-profile': [8, 8], 'instagram-stories': [6, 6],
+}
+
 const rows: CatalogRow[] = [
   { id: 'smartphone', label: 'Smartphone', icon: '▣', root: 'smart_phone', target: 'smartphone.message-image', category: 'social-messaging', aspect: '4:3', sample: `<smart_phone sender="Contact A" initial="A" time="21:14" day="Friday" battery="72"><notifications><s_note app="Messages" sender="Contact A" time="21:12">New message</s_note></notifications><contact>Contact A · mobile</contact><messages><s_recv time="21:12">Look at this.</s_recv><s_img side="recv" time="21:12">${request('phone-message-1', 'smartphone.message-image', '4:3', 'Context-specific photo sent by Contact A in this conversation, no phone interface or readable text.')}</s_img><s_sent time="21:14">I see it.</s_sent></messages><info>Conversation details</info></smart_phone>` },
   { id: 'instagram', label: 'Instagram Post', icon: '◎', root: 'ig_app', target: 'instagram.single', category: 'social-messaging', aspect: '1:1', sample: `<ig_app user="@archive_a" loc="North Pier" likes="1,284" verified="true">${request('instagram-post-1', 'instagram.single', '1:1', 'Square social photograph of North Pier after rain, complete scene visible, no interface or readable text.')}<caption>Blue hour after the rain.</caption><comments><i_comment user="@reader_a" time="12m" likes="4" verified="">Beautiful light.<i_reply user="@archive_a" time="8m">Thank you.</i_reply></i_comment></comments></ig_app>` },
@@ -80,7 +90,11 @@ const rows: CatalogRow[] = [
 export const R45_SUPPLEMENTAL_ROOTS = rows.map(row => [row.root, row.id] as const)
 
 export function r45SupplementalSurfaceDefinitions(now = Date.now()): CustomSurfaceDefinition[] {
-  return rows.map(row => ({
+  return rows.map(row => {
+    const mediaLimits = MEDIA_LIMITS[row.id] || [0, 0]
+    const sampleAspects = [...row.sample.matchAll(/<image_request\b[^>]*\baspect="([^"]+)"/gi)].map(match => match[1])
+    const supportedAspectRatios = [...new Set([...(row.aspect ? [row.aspect] : []), ...sampleAspects])]
+    return ({
     surfaceId: row.id,
     baseSurfaceId: row.id,
     presetName: 'R4.5 FINAL',
@@ -100,7 +114,7 @@ export function r45SupplementalSurfaceDefinitions(now = Date.now()): CustomSurfa
     canonicalOuterWrapper: row.root,
     imageSlotSelector: 'image_request',
     resolvedImageChildFormat: '<img src="{{imageUrl}}" alt="{{alt}}" data-dgir-key="{{slotKey}}" data-dgir-request-id="{{requestId}}" data-dgir-slot="{{slot}}" data-dgir-custom-target="{{target}}" data-dgir-image-id="{{imageId}}">',
-    supportedAspectRatios: row.aspect ? [row.aspect] : [],
+    supportedAspectRatios,
     defaultPromptProfileId: row.profile || 'auto',
     peoplePolicy: 'allow',
     captionSupport: true,
@@ -108,7 +122,10 @@ export function r45SupplementalSurfaceDefinitions(now = Date.now()): CustomSurfa
     defaultCandidateCount: 1,
     compatibleRegenerationIntents: ['new-angle', 'better-expression', 'preserve-composition-improve-quality', 'full-reimagining'],
     declarativeLayoutFields: { presentation: 'inline|plain|sparkling', color: 'realistic|primary', authority: 'R4.5 FINAL' },
-    validationRules: ['balanced-wrapper', 'safe-static-markup', 'stable-request-ownership'],
+    validationRules: [
+      'balanced-wrapper', 'safe-static-markup', 'stable-request-ownership',
+      `required-media:${mediaLimits[0]}`, `maximum-media:${mediaLimits[1]}`,
+    ],
     sampleXml: row.sample,
     deterministicPreviewFixture: { title: row.label, targetId: row.target || 'custom.artifact-media', wrapper: row.root },
     builtIn: true,
@@ -119,5 +136,6 @@ export function r45SupplementalSurfaceDefinitions(now = Date.now()): CustomSurfa
     hybridOwner: 'relay',
     hybridOwnerConfigured: false,
     updatedAt: now,
-  }))
+    })
+  })
 }

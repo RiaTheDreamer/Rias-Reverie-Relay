@@ -47,6 +47,80 @@ const safeMessageId = (value: string): string => String(value || 'surface').repl
 const sortedScripts = new Map<string, R45RegexScript[]>()
 const sortedBracketScripts = new Map<string, R45RegexScript[]>()
 
+function normalizeR45BracketRuntime(markup: string): string {
+  let output = String(markup || '')
+    // Correction-1 examples wrapped every request in a synthetic [media]
+    // field. No approved R4.5 grammar owns that field, so accept and unwrap it
+    // for backward compatibility while current prompts stop authoring it.
+    .replace(/\[media\]\s*([\s\S]*?)\s*\[\/media\]/gi, '$1')
+    // The Location renderer intentionally styles semantic lc_step elements.
+    .replace(/\[lc_step\]\s*([\s\S]*?)\s*\[\/lc_step\]/gi, '<lc_step>$1</lc_step>')
+    // The approved vital transformer captures label followed by raw value.
+    .replace(/(\[med_vital\]\s*\[label\][\s\S]*?\[\/label\])\s*\[value\]\s*([\s\S]*?)\s*\[\/value\](\s*\[\/med_vital\])/gi, '$1$2$3')
+    // Property presentation owns Amenities/History drawers; bracket authoring
+    // must not leave the legacy HTML details wrapper as visible semantics.
+    .replace(/\[details\]\s*\[summary\]\s*Amenities\s*\[\/summary\]\s*(\[prop_amenities\][\s\S]*?\[\/prop_amenities\])\s*\[\/details\]/gi, '$1')
+    .replace(/\[details\]\s*\[summary\]\s*History\s*\[\/summary\]\s*(\[prop_history\][\s\S]*?\[\/prop_history\])\s*\[\/details\]/gi, '$1')
+
+  // Mission items historically had only a status attribute. The final
+  // interactive renderer additionally needs a stable slot for checkbox IDs.
+  output = output.replace(/\[mission_items\]([\s\S]*?)\[\/mission_items\]/gi, (full, body: string) => {
+    let slot = 0
+    const normalized = body.replace(/\[mission_item\]\s*(?!\[slot\])/gi, () => `[mission_item][slot]${++slot}[/slot]`)
+    return full.replace(body, normalized)
+  })
+
+  // Current Twitter Profile samples use name while the accepted post
+  // transformer retained author + verified. Canonicalize only inside posts.
+  output = output.replace(/\[twip_post\]([\s\S]*?)\[\/twip_post\]/gi, (full, body: string) => {
+    let normalized = body.replace(/\[name\]/i, '[author]').replace(/\[\/name\]/i, '[/author]')
+    if (!/\[verified\]/i.test(normalized)) normalized = normalized.replace(/(\[handle\][\s\S]*?\[\/handle\])/i, '$1[verified][/verified]')
+    return full.replace(body, normalized)
+  })
+
+  // Media rows must retain their exact conversation position in pending and
+  // completed states. Convert the semantic owner into the approved visual seam
+  // while leaving the request/image payload untouched for Relay hydration.
+  output = output.replace(/\[s_img\]\s*\[side\]\s*([^\[]+?)\s*\[\/side\]\s*\[time\][\s\S]*?\[\/time\]\s*([\s\S]*?)\s*\[\/s_img\]/gi, (_full, sideValue: string, payload: string) => {
+    const side = /^(?:sent|right|user)$/i.test(sideValue.trim()) ? 'sent' : 'recv'
+    return `<div class="rpx-image-msg rpx-image-msg-${side}" data-reverie-r45-lifecycle-media="smartphone">${payload}</div>`
+  })
+  output = output.replace(/\[s_img\]\s*\[time\][\s\S]*?\[\/time\]\s*([\s\S]*?)\s*\[\/s_img\]/gi, '<div class="rpx-image-msg rpx-image-msg-recv" data-reverie-r45-lifecycle-media="smartphone">$1</div>')
+  output = output.replace(/\[k_img\]([\s\S]*?)\[\/k_img\]/gi, (_full, body: string) => {
+    const caption = /\[caption\]\s*([\s\S]*?)\s*\[\/caption\]/i.exec(body)?.[1]?.trim() || ''
+    const payload = body
+      .replace(/\[(?:side|time|caption)\][\s\S]*?\[\/(?:side|time|caption)\]/gi, '')
+      .trim()
+    return `<figure class="html-safe-wrap kk-image" data-reverie-r45-lifecycle-media="kakao">${payload}${caption ? `<figcaption>${caption}</figcaption>` : ''}</figure>`
+  })
+  return output
+}
+
+function expandR45Replacement(template: string, captures: string[], macro: string): string {
+  return template
+    .replace(/\{\{lastMessageId\}\}/g, macro)
+    .replace(/\$(\d{1,2})/g, (_full, raw: string) => captures[Number(raw) - 1] || '')
+}
+
+function renderVariableNotes(markup: string, template: string, macro: string): string {
+  return markup.replace(/\[notes_app\]\s*\[folder\]\s*([\s\S]*?)\s*\[\/folder\]\s*\[owner\]\s*([\s\S]*?)\s*\[\/owner\]\s*\[nt_list\]([\s\S]*?)\[\/nt_list\]\s*\[\/notes_app\]/gi, (full, folder: string, owner: string, body: string) => {
+    const notes = [...body.matchAll(/\[nt_note\]\s*\[slot\]\s*([1-4])\s*\[\/slot\]\s*\[title\]\s*([\s\S]*?)\s*\[\/title\]\s*\[updated\]\s*([\s\S]*?)\s*\[\/updated\]([\s\S]*?)\[\/nt_note\]/gi)]
+    if (!notes.length || notes.length > 4) return full
+    const captures = [folder, owner]
+    for (const note of notes) captures.push(note[2], note[3], note[4])
+    while (captures.length < 14) captures.push('')
+    let rendered = expandR45Replacement(template, captures, macro)
+    for (let index = notes.length + 1; index <= 4; index += 1) {
+      const id = `rr23-note-${index}-${macro}`
+      rendered = rendered
+        .replace(new RegExp(`<input\\b[^>]*\\bid="${id}"[^>]*>`, 'i'), '')
+        .replace(new RegExp(`<label\\b[^>]*\\bfor="${id}"[^>]*>[\\s\\S]*?<\\/label>`, 'i'), '')
+        .replace(new RegExp(`<section\\b[^>]*class="[^"]*\\bp${index}\\b[^"]*"[^>]*>[\\s\\S]*?<\\/section>`, 'i'), '')
+    }
+    return rendered
+  })
+}
+
 export function r45SurfaceAuthorityPack(presentation: R45PresentationMode, color: R45ColorMode): R45Pack {
   const key = `${presentation}:${color}` as const
   const pack = PACKS[key]
@@ -90,16 +164,25 @@ export function renderR45BracketSurfaceAuthority(
   presentation: R45PresentationMode,
   messageId: string,
 ): string {
-  let output = String(markup || '')
+  let output = normalizeR45BracketRuntime(markup)
   const macro = safeMessageId(messageId)
   for (const script of r45BracketSurfaceAuthorityScripts(presentation)) {
     try {
+      if (/\\\[notes_app\\\]/.test(script.find_regex)) {
+        output = renderVariableNotes(output, script.replace_string, macro)
+        continue
+      }
       const flags = script.flags.includes('g') ? script.flags : `${script.flags}g`
       const replacement = script.replace_string.replace(/\{\{lastMessageId\}\}/g, macro)
       output = output.replace(new RegExp(script.find_regex, flags), replacement)
     } catch {
       return `<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed" data-reverie-r45-script="${script.script_id}">Relay Surface needs repair. Reparse or rescan in Relay.</aside>`
     }
+  }
+  // Never expose a detected but unrendered Surface as raw model markup.
+  for (const root of R45_ACTIVE_ROOTS) {
+    const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    output = output.replace(new RegExp(`\\[${escaped}\\][\\s\\S]*?\\[\\/${escaped}\\]`, 'gi'), '<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed">Relay Surface needs repair. Reparse or rescan in Relay.</aside>')
   }
   return output
 }

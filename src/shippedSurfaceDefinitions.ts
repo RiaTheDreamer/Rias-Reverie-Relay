@@ -358,6 +358,12 @@ const R45_SAMPLE_OVERRIDES: Record<string, string> = {
   'youtube-thumbnail': '<yt_thumbnail channel="Field Archive" title="The Last Train at North Pier" views="18K views" age="2 hours ago" subscribers="84K subscribers"><yt_media><image_request id="youtube-frame-1" target="custom.artifact-media" slot="youtube-frame-1" aspect="16:9" alt="Video frame at North Pier"><scene_brief>Wide frame from the authored video showing the last train arriving at North Pier, key action inside the center-safe area, no YouTube logo, play icon, UI, or readable text.</scene_brief></image_request></yt_media><yt_comments><yt_comment user="viewer_one" time="12m" likes="28">The platform light changed.</yt_comment><yt_comment user="viewer_two" time="4m" likes="9">Look near the far gate.</yt_comment></yt_comments></yt_thumbnail>',
 }
 
+const R45_SUPPORTED_ASPECT_OVERRIDES: Partial<Record<ShippedSurfaceSpec['id'], string[]>> = {
+  'imessage-chat': ['4:3'],
+  'workspace-chat': ['4:3'],
+  'dating-profile': ['1:1', '3:4'],
+}
+
 function applyR45Authority(spec: ShippedSurfaceSpec): ShippedSurfaceSpec {
   const sampleXml = R45_SAMPLE_OVERRIDES[spec.id] || spec.sampleXml
   const customArtifactXml = sampleXml.replace(/target="custom\.[^"]+"/g, 'target="custom.artifact-media"')
@@ -366,7 +372,7 @@ function applyR45Authority(spec: ShippedSurfaceSpec): ShippedSurfaceSpec {
     root: spec.wrapper,
     sampleXml: customArtifactXml,
     target: spec.target.startsWith('custom.') ? 'custom.artifact-media' : spec.target,
-    aspect: spec.defaultAspect,
+    aspect: R45_SUPPORTED_ASPECT_OVERRIDES[spec.id]?.[0] || spec.defaultAspect,
   })
   return {
     ...spec,
@@ -418,7 +424,7 @@ export function shippedSurfaceDefinitions(now = Date.now()): CustomSurfaceDefini
     canonicalOuterWrapper: spec.wrapper,
     imageSlotSelector: 'img',
     resolvedImageChildFormat: imageFormat,
-    supportedAspectRatios: spec.supportedAspects,
+    supportedAspectRatios: R45_SUPPORTED_ASPECT_OVERRIDES[spec.id] || spec.supportedAspects,
     defaultPromptProfileId: spec.profile,
     peoplePolicy: spec.peoplePolicy,
     captionSupport: true,

@@ -1315,19 +1315,13 @@ function bracketExample(node, depth = 0) {
   const lines = [`${pad}[${node.tag}]`];
   for (const [key, value] of Object.entries(node.attrs))
     lines.push(`${pad}  [${key}]${bracketValue(value)}[/${key}]`);
-  const media = node.children.filter((child) => typeof child !== "string" && MEDIA_TAGS.has(child.tag));
-  const other = node.children.filter((child) => !(typeof child !== "string" && MEDIA_TAGS.has(child.tag)));
-  if (media.length) {
-    lines.push(`${pad}  [media]`);
-    for (const child of media)
-      lines.push(`${pad}    ${serializeXml(child)}`);
-    lines.push(`${pad}  [/media]`);
-  }
-  for (const child of other) {
+  for (const child of node.children) {
     if (typeof child === "string") {
       const text = child.trim();
       if (text)
         lines.push(`${pad}  ${bracketValue(text)}`);
+    } else if (MEDIA_TAGS.has(child.tag)) {
+      lines.push(`${pad}  ${serializeXml(child)}`);
     } else {
       lines.push(bracketExample(child, depth + 1));
     }
@@ -1346,7 +1340,7 @@ function bracketSurfacePromptModule(input) {
   return `SURFACE: ${input.label.toUpperCase()}
 Author this Surface in bracket-native syntax, not XML. Describe semantic content only: names, titles, messages, timestamps, sections, captions, and approved media requests.${target}${aspect}
 No attributes in opening bracket tags. All semantic fields are child bracket nodes: [field]value[/field]. Repeated rows, messages, posts, comments, gallery items, and sections must be repeated child blocks, never attributes on an opening bracket.
-Preserve repeated child order exactly. Chat/message rows are ordered lists, never one combined text block. Do not author HTML, CSS, launcher chrome, data attributes, or renderer internals. Existing <image_request> media payloads remain XML inside a [media] field until a separate image protocol replaces them.
+Preserve repeated child order exactly. Chat/message rows are ordered lists, never one combined text block. Do not author HTML, CSS, launcher chrome, data attributes, or renderer internals. Existing <image_request> media payloads remain XML directly inside their exact owning bracket field. Never add a generic [media] wrapper unless that Surface explicitly names its owning field [media].
 
 BRACKET ROOT: [${input.root}]
 
@@ -1388,6 +1382,34 @@ STRICT MESSAGE SHAPE
 The shell fields are [sender]...[/sender], [initial]...[/initial], [time]...[/time], [day]...[/day], and [battery]...[/battery]. Never emit unclosed scalar fields, [battery]value], or [s_recv time="..."] / [s_sent time="..."].`;
   return module;
 }
+var MEDIA_LIMITS = {
+  smartphone: [0, 8],
+  instagram: [1, 1],
+  twitter: [0, 6],
+  kakao: [0, 8],
+  "album-cover": [1, 1],
+  "magazine-cover": [1, 1],
+  "photo-booth-strip": [4, 4],
+  polaroid: [1, 1],
+  "youtube-thumbnail": [1, 1],
+  "character-profile": [1, 1],
+  "music-player": [1, 1],
+  "location-share": [1, 1],
+  "voice-memo": [1, 1],
+  "notes-app": [0, 4],
+  "market-listing": [1, 1],
+  "property-listing": [3, 3],
+  "letter-dispatch": [0, 1],
+  "medical-record": [1, 1],
+  "court-transcript": [0, 0],
+  "codex-entry": [1, 1],
+  "diary-app": [0, 3],
+  "mission-board": [0, 0],
+  "cctv-evidence": [3, 3],
+  "instagram-profile": [8, 12],
+  "twitter-profile": [8, 8],
+  "instagram-stories": [6, 6]
+};
 var rows = [
   { id: "smartphone", label: "Smartphone", icon: "\u25A3", root: "smart_phone", target: "smartphone.message-image", category: "social-messaging", aspect: "4:3", sample: `<smart_phone sender="Contact A" initial="A" time="21:14" day="Friday" battery="72"><notifications><s_note app="Messages" sender="Contact A" time="21:12">New message</s_note></notifications><contact>Contact A \xB7 mobile</contact><messages><s_recv time="21:12">Look at this.</s_recv><s_img side="recv" time="21:12">${request("phone-message-1", "smartphone.message-image", "4:3", "Context-specific photo sent by Contact A in this conversation, no phone interface or readable text.")}</s_img><s_sent time="21:14">I see it.</s_sent></messages><info>Conversation details</info></smart_phone>` },
   { id: "instagram", label: "Instagram Post", icon: "\u25CE", root: "ig_app", target: "instagram.single", category: "social-messaging", aspect: "1:1", sample: `<ig_app user="@archive_a" loc="North Pier" likes="1,284" verified="true">${request("instagram-post-1", "instagram.single", "1:1", "Square social photograph of North Pier after rain, complete scene visible, no interface or readable text.")}<caption>Blue hour after the rain.</caption><comments><i_comment user="@reader_a" time="12m" likes="4" verified="">Beautiful light.<i_reply user="@archive_a" time="8m">Thank you.</i_reply></i_comment></comments></ig_app>` },
@@ -1418,46 +1440,57 @@ var rows = [
 ];
 var R45_SUPPLEMENTAL_ROOTS = rows.map((row) => [row.root, row.id]);
 function r45SupplementalSurfaceDefinitions(now = Date.now()) {
-  return rows.map((row) => ({
-    surfaceId: row.id,
-    baseSurfaceId: row.id,
-    presetName: "R4.5 FINAL",
-    shellMode: "plain",
-    defaultOpen: false,
-    launcherLabel: row.label,
-    density: "comfortable",
-    maxWidth: ["location-share", "cctv-evidence", "property-listing"].includes(row.id) ? "920px" : "760px",
-    mediaFit: ["instagram-profile", "twitter-profile", "instagram-stories", "voice-memo"].includes(row.id) ? "cover" : "contain",
-    accentMode: "theme",
-    customAccent: "#c24b78",
-    typography: ["letter-dispatch", "court-transcript", "codex-entry", "diary-app"].includes(row.id) ? "editorial" : "mixed",
-    advancedCss: "",
-    displayName: row.label,
-    icon: row.icon,
-    targetId: row.target || "custom.artifact-media",
-    canonicalOuterWrapper: row.root,
-    imageSlotSelector: "image_request",
-    resolvedImageChildFormat: '<img src="{{imageUrl}}" alt="{{alt}}" data-dgir-key="{{slotKey}}" data-dgir-request-id="{{requestId}}" data-dgir-slot="{{slot}}" data-dgir-custom-target="{{target}}" data-dgir-image-id="{{imageId}}">',
-    supportedAspectRatios: row.aspect ? [row.aspect] : [],
-    defaultPromptProfileId: row.profile || "auto",
-    peoplePolicy: "allow",
-    captionSupport: true,
-    altTextSupport: true,
-    defaultCandidateCount: 1,
-    compatibleRegenerationIntents: ["new-angle", "better-expression", "preserve-composition-improve-quality", "full-reimagining"],
-    declarativeLayoutFields: { presentation: "inline|plain|sparkling", color: "realistic|primary", authority: "R4.5 FINAL" },
-    validationRules: ["balanced-wrapper", "safe-static-markup", "stable-request-ownership"],
-    sampleXml: row.sample,
-    deterministicPreviewFixture: { title: row.label, targetId: row.target || "custom.artifact-media", wrapper: row.root },
-    builtIn: true,
-    enabled: true,
-    promptEnabled: true,
-    promptCategory: row.category,
-    promptModule: runtimeUtilityPrompt(row),
-    hybridOwner: "relay",
-    hybridOwnerConfigured: false,
-    updatedAt: now
-  }));
+  return rows.map((row) => {
+    const mediaLimits = MEDIA_LIMITS[row.id] || [0, 0];
+    const sampleAspects = [...row.sample.matchAll(/<image_request\b[^>]*\baspect="([^"]+)"/gi)].map((match) => match[1]);
+    const supportedAspectRatios = [...new Set([...row.aspect ? [row.aspect] : [], ...sampleAspects])];
+    return {
+      surfaceId: row.id,
+      baseSurfaceId: row.id,
+      presetName: "R4.5 FINAL",
+      shellMode: "plain",
+      defaultOpen: false,
+      launcherLabel: row.label,
+      density: "comfortable",
+      maxWidth: ["location-share", "cctv-evidence", "property-listing"].includes(row.id) ? "920px" : "760px",
+      mediaFit: ["instagram-profile", "twitter-profile", "instagram-stories", "voice-memo"].includes(row.id) ? "cover" : "contain",
+      accentMode: "theme",
+      customAccent: "#c24b78",
+      typography: ["letter-dispatch", "court-transcript", "codex-entry", "diary-app"].includes(row.id) ? "editorial" : "mixed",
+      advancedCss: "",
+      displayName: row.label,
+      icon: row.icon,
+      targetId: row.target || "custom.artifact-media",
+      canonicalOuterWrapper: row.root,
+      imageSlotSelector: "image_request",
+      resolvedImageChildFormat: '<img src="{{imageUrl}}" alt="{{alt}}" data-dgir-key="{{slotKey}}" data-dgir-request-id="{{requestId}}" data-dgir-slot="{{slot}}" data-dgir-custom-target="{{target}}" data-dgir-image-id="{{imageId}}">',
+      supportedAspectRatios,
+      defaultPromptProfileId: row.profile || "auto",
+      peoplePolicy: "allow",
+      captionSupport: true,
+      altTextSupport: true,
+      defaultCandidateCount: 1,
+      compatibleRegenerationIntents: ["new-angle", "better-expression", "preserve-composition-improve-quality", "full-reimagining"],
+      declarativeLayoutFields: { presentation: "inline|plain|sparkling", color: "realistic|primary", authority: "R4.5 FINAL" },
+      validationRules: [
+        "balanced-wrapper",
+        "safe-static-markup",
+        "stable-request-ownership",
+        `required-media:${mediaLimits[0]}`,
+        `maximum-media:${mediaLimits[1]}`
+      ],
+      sampleXml: row.sample,
+      deterministicPreviewFixture: { title: row.label, targetId: row.target || "custom.artifact-media", wrapper: row.root },
+      builtIn: true,
+      enabled: true,
+      promptEnabled: true,
+      promptCategory: row.category,
+      promptModule: runtimeUtilityPrompt(row),
+      hybridOwner: "relay",
+      hybridOwnerConfigured: false,
+      updatedAt: now
+    };
+  });
 }
 
 // src/r45UtilityContracts.ts
@@ -1475,8 +1508,8 @@ var R45_UTILITY_CONTRACTS = {
   "forum-thread": utility("forum_thread", "Author topic metadata, ordered posts, nested replies, and any post media inside its post/media child. Keep the thread discussion contextual; use 16:9 or 4:3 only for an actual authored attachment."),
   "email-thread": utility("email_thread", "Author ordered <email_item> rows with slot, from, subject, preview, time, <email_body>, and optional <email_attachment>. Attachment media belongs inside the attachment and is 4:3 when visual."),
   "imessage-chat": utility("imessage_chat", "Author ordered message rows. Incoming media is left; focal/user media is right. Every sent photo belongs to its exact message attachment and uses 4:3."),
-  "workspace-chat": utility("workspace_chat", "Author an actual work conversation with ordered channels/messages. Media or files stay inside the message/file child that discusses them and use 4:3."),
-  livestream: utility("livestream", "Author <live_media>, <live_chat>, and <live_mods> in that order. Stream media is an actual 16:9 stream frame; chat and moderation stay textual."),
+  "workspace-chat": utility("workspace_chat", "Author exactly four ordered [ws_channel] sections with contextual messages. Media or files stay inside the message/file child that discusses them and use 4:3."),
+  livestream: utility("livestream", "Author [live_media], [live_chat], and [live_mods] in that order. Stream media is an actual 16:9 stream frame; chat and moderation stay textual. When a poll is present, author exactly two [poll_option] choices."),
   "dating-profile": utility("tinder", 'Author exactly three <profile slot="\u2026" prev="\u2026" next="\u2026"> records. Each <photo> owns one 3:4 identity image: centered face and upper torso, full hair visible, generous headroom, current outfit/context, no extreme close-up. The same source is reused in match states, so it must be crop-safe.'),
   "public-bulletin": utility("public_bulletin", "Author authority, level, headline, timestamp, district, <pb_media>, <pb_body>, and <pb_instructions> in order. <pb_media> owns one 16:9 documentary image of the exact event/place; all readable bulletin text remains XML."),
   "case-file": utility("case_file", "Author the dossier tabs/sheets/evidence/timeline in the approved order. Evidence media stays in its specific evidence field and uses 3:4 or 4:3 documentary framing with the entire clue/object/area visible."),
@@ -1498,7 +1531,7 @@ Canonical text rows:
 [s_recv][time]HH:MM[/time]Received message.[/s_recv]
 [s_sent][time]HH:MM[/time]Sent message.[/s_sent]
 
-All [s_recv], [s_sent], and [s_img] rows remain inside [messages]. Every image message is [s_img][side]sent|recv[/side][time]HH:MM[/time][media]<image_request id="\u2026" target="smartphone.message-image" slot="\u2026" aspect="4:3" alt="\u2026"><scene_brief>Exact contextual attachment only; no phone UI or readable text.</scene_brief></image_request>[/media][/s_img]. sent is user/right; recv is contact/left. Images are allowed only inside a message row; never place media in contact or info.`),
+All [s_recv], [s_sent], and [s_img] rows remain inside [messages]. Every image message is [s_img][side]sent|recv[/side][time]HH:MM[/time]<image_request id="\u2026" target="smartphone.message-image" slot="\u2026" aspect="4:3" alt="\u2026"><scene_brief>Exact contextual attachment only; no phone UI or readable text.</scene_brief></image_request>[/s_img]. sent is user/right; recv is contact/left. Images are allowed only inside a message row; never place media in contact or info.`),
   instagram: utility("ig_app", "Author user, location, likes, verification, one direct 1:1 post/carosel media request, caption, and comments in the approved order. Single target is instagram.single; a carousel is one instagram.carousel request with count 2\u20134. Never use instagram.slide or resolved media markup."),
   twitter: utility("twitter_app", "Author <for_you> first, then optional <following>, <thread>, and <trends>. Each <tw_post> keeps its required attribute order, text, optional one direct 16:9 or contextual 4:3 twitter.media request, and nested comments. Never author resolved <tw_media src> markup."),
   kakao: utility("kakao_chat", 'Child order: <participants> then <messages>. Preserve message order and use exact k_part/k_msg/k_reply/k_react/k_file/k_system/k_typing attributes. An image belongs at its exact conversation position inside a <k_img> media wrapper and contains one target="kakao.image" request with aspect="4:3"; describe the actual chat attachment only. Never use an alternate media aspect or resolved image markup.'),
@@ -1542,14 +1575,14 @@ Canonical structure:
   "music-player": utility("music_player", "Author actual track/release fields and <mu_cover>. Cover art is one contextual 1:1 release image, not a random portrait; player chrome and lyrics remain textual."),
   "location-share": utility("location_share", 'Author sender, destination, eta, remaining, updated, <lc_map>, <lc_note>, and 2\u20135 useful contextual <lc_step> waypoints. Every value derives from the current scene/message; never default to a fixture place, landmark, city, route, or note. <lc_map> ALWAYS owns one 4:3 target="custom.artifact-media" top-down navigation/map request corresponding to the authored route and destination, with visible route geometry/destination-pin area, no people, portrait photography, generated labels, or UI.'),
   "voice-memo": utility("voice_memo", "Author sender/time/duration/status plus <vm_avatar>, transcript, and call history. Avatar is one reusable 1:1 centered face-and-shoulders contact portrait with headroom; transcript remains textual."),
-  "notes-app": utility("notes_app", "Author the notes list and note content from current context. Any note attachment remains in its exact attachment child and uses 4:3; do not fabricate a generic image."),
+  "notes-app": utility("notes_app", "Author one to four ordered [nt_note] records using consecutive [slot] values beginning at 1. Any note attachment remains in its exact attachment child and uses 4:3; do not fabricate a generic image."),
   "market-listing": utility("market_listing", "Author title, price, condition, seller, time, <mk_media>, description, bids, and actions. <mk_media> owns a 1:1 product-only listing photograph with the item fully visible and no readable listing text."),
-  "property-listing": utility("property_listing", "Author listing metadata, <prop_gallery>, description, amenities, and history. Each gallery <prop_media> owns a separate 16:9 property photograph of actual exterior/interior/room content; no random portrait subject."),
+  "property-listing": utility("property_listing", "Author listing metadata, exactly three [prop_media] children inside [prop_gallery], then description, amenities, and history. Each gallery image is a separate 16:9 property photograph of actual exterior/interior/room content; no random portrait subject."),
   "letter-dispatch": utility("letter_dispatch", "Author from, to, date, subject, body paragraph breaks, signature, and optional <ld_media>. Any attachment is 4:3 and stays inside <ld_media>; letter content remains text."),
   "medical-record": utility("medical_record", "Author case/patient/status fields, <med_summary>, REQUIRED <med_media>, vitals, and notes. <med_media> owns one 4:3 scene-relevant fictional clinical/documentary image with no readable chart text."),
   "court-transcript": utility("court_transcript", "Author case/court/status/time/judge, ordered <ct_lines>, objection, and exhibit. Preserve clear speaker/time/body semantics; do not turn the transcript into a generic image Surface."),
   "codex-entry": utility("codex_entry", "Author title/type/region/status/era, <codex_media>, body, facts, and related references. Media is a 4:3 encyclopedia-appropriate subject/place/object image."),
-  "diary-app": utility("diary_app", "Author owner/title and ordered diary entries. A photo is optional only when the authored diary day has an actual attachment; it uses 4:3 and remains in that entry."),
+  "diary-app": utility("diary_app", "Author owner/title and exactly three ordered [diary_entry] records with consecutive slots. A photo is optional only when the authored diary day has an actual attachment; it uses 4:3 and remains in that entry."),
   "mission-board": utility("mission_board", "Author mission metadata, ordered mission items, and a context-specific note. Keep task state textual and do not invent unrelated media."),
   "cctv-evidence": utility("cctv_evidence", "Author exactly three <cv_feed> records for the specified camera locations/angles, followed by note. Each feed owns one 16:9 fixed surveillance view of its exact camera position; no glamour framing or generated timestamp text."),
   "instagram-profile": utility("instagram_profile", "Author avatar, exactly three distinct posts, and tagged grid. Use only Posts and Tagged semantics. Avatar and per-post avatar are 1:1 reusable identity media; each post/tagged image is a distinct 1:1 scene-relevant image. Grid contains imagery only; renderer owns detail view, actions, captions, comments, and tabs."),
@@ -6171,6 +6204,11 @@ var R45_SAMPLE_OVERRIDES = {
   polaroid: '<polaroid_frame date="Tonight" location="North Pier"><photo><image_request id="polaroid-photo-1" target="custom.artifact-media" slot="polaroid-photo-1" aspect="1:1" alt="North Pier instant photograph"><scene_brief>Square candid instant photograph at North Pier after rain, full photographed scene visible, no paper border or readable text.</scene_brief></image_request></photo><caption>After the rain.</caption></polaroid_frame>',
   "youtube-thumbnail": '<yt_thumbnail channel="Field Archive" title="The Last Train at North Pier" views="18K views" age="2 hours ago" subscribers="84K subscribers"><yt_media><image_request id="youtube-frame-1" target="custom.artifact-media" slot="youtube-frame-1" aspect="16:9" alt="Video frame at North Pier"><scene_brief>Wide frame from the authored video showing the last train arriving at North Pier, key action inside the center-safe area, no YouTube logo, play icon, UI, or readable text.</scene_brief></image_request></yt_media><yt_comments><yt_comment user="viewer_one" time="12m" likes="28">The platform light changed.</yt_comment><yt_comment user="viewer_two" time="4m" likes="9">Look near the far gate.</yt_comment></yt_comments></yt_thumbnail>'
 };
+var R45_SUPPORTED_ASPECT_OVERRIDES = {
+  "imessage-chat": ["4:3"],
+  "workspace-chat": ["4:3"],
+  "dating-profile": ["1:1", "3:4"]
+};
 function applyR45Authority(spec) {
   const sampleXml = R45_SAMPLE_OVERRIDES[spec.id] || spec.sampleXml;
   const customArtifactXml = sampleXml.replace(/target="custom\.[^"]+"/g, 'target="custom.artifact-media"');
@@ -6179,7 +6217,7 @@ function applyR45Authority(spec) {
     root: spec.wrapper,
     sampleXml: customArtifactXml,
     target: spec.target.startsWith("custom.") ? "custom.artifact-media" : spec.target,
-    aspect: spec.defaultAspect
+    aspect: R45_SUPPORTED_ASPECT_OVERRIDES[spec.id]?.[0] || spec.defaultAspect
   });
   return {
     ...spec,
@@ -6220,7 +6258,7 @@ function shippedSurfaceDefinitions(now = Date.now()) {
     canonicalOuterWrapper: spec.wrapper,
     imageSlotSelector: "img",
     resolvedImageChildFormat: imageFormat,
-    supportedAspectRatios: spec.supportedAspects,
+    supportedAspectRatios: R45_SUPPORTED_ASPECT_OVERRIDES[spec.id] || spec.supportedAspects,
     defaultPromptProfileId: spec.profile,
     peoplePolicy: spec.peoplePolicy,
     captionSupport: true,
@@ -13884,7 +13922,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_in_082_cd85ff"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Disabled Compatibility \u2014 Inline",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Legacy Compatibility \u2014 Inline",
       find_regex: '<notif\\b(?=[^>]*\\bapp\\s*=\\s*"([^"]*)")(?=[^>]*\\bfrom\\s*=\\s*"([^"]*)")(?=[^>]*\\btext\\s*=\\s*"([^"]*)")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*/>',
       replace_string: `<s_note app="$1" sender="$2" time="$4">$3</s_note>
 
@@ -13970,7 +14008,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_in_083_d8d5ab"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Disabled Compatibility \u2014 Inline",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Legacy Compatibility \u2014 Inline",
       find_regex: '<k_msg\\b(?=[^>]*\\bside\\s*=\\s*"left")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*>([\\s\\S]*?)<\\/k_msg>',
       replace_string: `<s_recv time="$1">$2</s_recv>
 
@@ -14056,7 +14094,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_in_084_cab30f"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Disabled Compatibility \u2014 Inline",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Legacy Compatibility \u2014 Inline",
       find_regex: '<k_msg\\b(?=[^>]*\\bside\\s*=\\s*"right")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*>([\\s\\S]*?)<\\/k_msg>',
       replace_string: `<s_sent time="$1">$2</s_sent>
 
@@ -14142,7 +14180,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_in_085_0d2755"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Disabled Compatibility \u2014 Inline",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Legacy Compatibility \u2014 Inline",
       find_regex: '<contact\\b(?=[^>]*\\bname\\s*=\\s*"([^"]*)")(?=[^>]*\\bstatus\\s*=\\s*"([^"]*)")(?=[^>]*\\bavatar\\s*=\\s*"([^"]*)")[^>]*/>',
       replace_string: `<contact><span class="rpi-contact-name">$1</span><span class="rpi-contact-status">$2</span><span class="rpi-contact-avatar">$3</span></contact>
 
@@ -26834,7 +26872,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_pl_082_4a0641"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Disabled Compatibility \u2014 Collapsible Plain",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Legacy Compatibility \u2014 Collapsible Plain",
       find_regex: '<notif\\b(?=[^>]*\\bapp\\s*=\\s*"([^"]*)")(?=[^>]*\\bfrom\\s*=\\s*"([^"]*)")(?=[^>]*\\btext\\s*=\\s*"([^"]*)")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*/>',
       replace_string: `<s_note app="$1" sender="$2" time="$4">$3</s_note>
 
@@ -26920,7 +26958,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_pl_083_8c0979"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Disabled Compatibility \u2014 Collapsible Plain",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Legacy Compatibility \u2014 Collapsible Plain",
       find_regex: '<k_msg\\b(?=[^>]*\\bside\\s*=\\s*"left")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*>([\\s\\S]*?)<\\/k_msg>',
       replace_string: `<s_recv time="$1">$2</s_recv>
 
@@ -27006,7 +27044,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_pl_084_522b86"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Disabled Compatibility \u2014 Collapsible Plain",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Legacy Compatibility \u2014 Collapsible Plain",
       find_regex: '<k_msg\\b(?=[^>]*\\bside\\s*=\\s*"right")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*>([\\s\\S]*?)<\\/k_msg>',
       replace_string: `<s_sent time="$1">$2</s_sent>
 
@@ -27092,7 +27130,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_pl_085_e6f6bb"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Disabled Compatibility \u2014 Collapsible Plain",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Legacy Compatibility \u2014 Collapsible Plain",
       find_regex: '<contact\\b(?=[^>]*\\bname\\s*=\\s*"([^"]*)")(?=[^>]*\\bstatus\\s*=\\s*"([^"]*)")(?=[^>]*\\bavatar\\s*=\\s*"([^"]*)")[^>]*/>',
       replace_string: `<contact><span class="rpi-contact-name">$1</span><span class="rpi-contact-status">$2</span><span class="rpi-contact-avatar">$3</span></contact>
 
@@ -41984,7 +42022,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_sp_082_1e6889"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Disabled Compatibility \u2014 Collapsible Sparkling",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Legacy Compatibility \u2014 Collapsible Sparkling",
       find_regex: '<notif\\b(?=[^>]*\\bapp\\s*=\\s*"([^"]*)")(?=[^>]*\\bfrom\\s*=\\s*"([^"]*)")(?=[^>]*\\btext\\s*=\\s*"([^"]*)")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*/>',
       replace_string: `<s_note app="$1" sender="$2" time="$4">$3</s_note>
 
@@ -42070,7 +42108,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_sp_083_a90135"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Disabled Compatibility \u2014 Collapsible Sparkling",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Legacy Compatibility \u2014 Collapsible Sparkling",
       find_regex: '<k_msg\\b(?=[^>]*\\bside\\s*=\\s*"left")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*>([\\s\\S]*?)<\\/k_msg>',
       replace_string: `<s_recv time="$1">$2</s_recv>
 
@@ -42156,7 +42194,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_sp_084_7f904e"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Disabled Compatibility \u2014 Collapsible Sparkling",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Legacy Compatibility \u2014 Collapsible Sparkling",
       find_regex: '<k_msg\\b(?=[^>]*\\bside\\s*=\\s*"right")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*>([\\s\\S]*?)<\\/k_msg>',
       replace_string: `<s_sent time="$1">$2</s_sent>
 
@@ -42242,7 +42280,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_sp_085_4ee547"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Disabled Compatibility \u2014 Collapsible Sparkling",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Legacy Compatibility \u2014 Collapsible Sparkling",
       find_regex: '<contact\\b(?=[^>]*\\bname\\s*=\\s*"([^"]*)")(?=[^>]*\\bstatus\\s*=\\s*"([^"]*)")(?=[^>]*\\bavatar\\s*=\\s*"([^"]*)")[^>]*/>',
       replace_string: `<contact><span class="rpi-contact-name">$1</span><span class="rpi-contact-status">$2</span><span class="rpi-contact-avatar">$3</span></contact>
 
@@ -56224,7 +56262,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_in_082_cd85ff"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Disabled Compatibility \u2014 Inline",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Legacy Compatibility \u2014 Inline",
       find_regex: '<notif\\b(?=[^>]*\\bapp\\s*=\\s*"([^"]*)")(?=[^>]*\\bfrom\\s*=\\s*"([^"]*)")(?=[^>]*\\btext\\s*=\\s*"([^"]*)")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*/>',
       replace_string: `<s_note app="$1" sender="$2" time="$4">$3</s_note>
 
@@ -56310,7 +56348,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_in_083_d8d5ab"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Disabled Compatibility \u2014 Inline",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Legacy Compatibility \u2014 Inline",
       find_regex: '<k_msg\\b(?=[^>]*\\bside\\s*=\\s*"left")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*>([\\s\\S]*?)<\\/k_msg>',
       replace_string: `<s_recv time="$1">$2</s_recv>
 
@@ -56396,7 +56434,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_in_084_cab30f"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Disabled Compatibility \u2014 Inline",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Legacy Compatibility \u2014 Inline",
       find_regex: '<k_msg\\b(?=[^>]*\\bside\\s*=\\s*"right")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*>([\\s\\S]*?)<\\/k_msg>',
       replace_string: `<s_sent time="$1">$2</s_sent>
 
@@ -56482,7 +56520,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_in_085_0d2755"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Disabled Compatibility \u2014 Inline",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Legacy Compatibility \u2014 Inline",
       find_regex: '<contact\\b(?=[^>]*\\bname\\s*=\\s*"([^"]*)")(?=[^>]*\\bstatus\\s*=\\s*"([^"]*)")(?=[^>]*\\bavatar\\s*=\\s*"([^"]*)")[^>]*/>',
       replace_string: `<contact><span class="rpi-contact-name">$1</span><span class="rpi-contact-status">$2</span><span class="rpi-contact-avatar">$3</span></contact>
 
@@ -69163,7 +69201,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_pl_082_4a0641"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Disabled Compatibility \u2014 Collapsible Plain",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Legacy Compatibility \u2014 Collapsible Plain",
       find_regex: '<notif\\b(?=[^>]*\\bapp\\s*=\\s*"([^"]*)")(?=[^>]*\\bfrom\\s*=\\s*"([^"]*)")(?=[^>]*\\btext\\s*=\\s*"([^"]*)")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*/>',
       replace_string: `<s_note app="$1" sender="$2" time="$4">$3</s_note>
 
@@ -69249,7 +69287,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_pl_083_8c0979"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Disabled Compatibility \u2014 Collapsible Plain",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Legacy Compatibility \u2014 Collapsible Plain",
       find_regex: '<k_msg\\b(?=[^>]*\\bside\\s*=\\s*"left")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*>([\\s\\S]*?)<\\/k_msg>',
       replace_string: `<s_recv time="$1">$2</s_recv>
 
@@ -69335,7 +69373,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_pl_084_522b86"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Disabled Compatibility \u2014 Collapsible Plain",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Legacy Compatibility \u2014 Collapsible Plain",
       find_regex: '<k_msg\\b(?=[^>]*\\bside\\s*=\\s*"right")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*>([\\s\\S]*?)<\\/k_msg>',
       replace_string: `<s_sent time="$1">$2</s_sent>
 
@@ -69421,7 +69459,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_pl_085_e6f6bb"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Disabled Compatibility \u2014 Collapsible Plain",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Legacy Compatibility \u2014 Collapsible Plain",
       find_regex: '<contact\\b(?=[^>]*\\bname\\s*=\\s*"([^"]*)")(?=[^>]*\\bstatus\\s*=\\s*"([^"]*)")(?=[^>]*\\bavatar\\s*=\\s*"([^"]*)")[^>]*/>',
       replace_string: `<contact><span class="rpi-contact-name">$1</span><span class="rpi-contact-status">$2</span><span class="rpi-contact-avatar">$3</span></contact>
 
@@ -84302,7 +84340,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_sp_082_1e6889"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Disabled Compatibility \u2014 Collapsible Sparkling",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Legacy Compatibility \u2014 Collapsible Sparkling",
       find_regex: '<notif\\b(?=[^>]*\\bapp\\s*=\\s*"([^"]*)")(?=[^>]*\\bfrom\\s*=\\s*"([^"]*)")(?=[^>]*\\btext\\s*=\\s*"([^"]*)")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*/>',
       replace_string: `<s_note app="$1" sender="$2" time="$4">$3</s_note>
 
@@ -84388,7 +84426,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_sp_083_a90135"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Disabled Compatibility \u2014 Collapsible Sparkling",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Legacy Compatibility \u2014 Collapsible Sparkling",
       find_regex: '<k_msg\\b(?=[^>]*\\bside\\s*=\\s*"left")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*>([\\s\\S]*?)<\\/k_msg>',
       replace_string: `<s_recv time="$1">$2</s_recv>
 
@@ -84474,7 +84512,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_sp_084_7f904e"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Disabled Compatibility \u2014 Collapsible Sparkling",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Legacy Compatibility \u2014 Collapsible Sparkling",
       find_regex: '<k_msg\\b(?=[^>]*\\bside\\s*=\\s*"right")(?=[^>]*\\btime\\s*=\\s*"([^"]*)")[^>]*>([\\s\\S]*?)<\\/k_msg>',
       replace_string: `<s_sent time="$1">$2</s_sent>
 
@@ -84560,7 +84598,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_sp_085_4ee547"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Disabled Compatibility \u2014 Collapsible Sparkling",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Legacy Compatibility \u2014 Collapsible Sparkling",
       find_regex: '<contact\\b(?=[^>]*\\bname\\s*=\\s*"([^"]*)")(?=[^>]*\\bstatus\\s*=\\s*"([^"]*)")(?=[^>]*\\bavatar\\s*=\\s*"([^"]*)")[^>]*/>',
       replace_string: `<contact><span class="rpi-contact-name">$1</span><span class="rpi-contact-status">$2</span><span class="rpi-contact-avatar">$3</span></contact>
 
@@ -91964,7 +92002,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Mod Transformer \u2014 Inline \u2014 Bracket Native",
-      find_regex: "\\[live_mod\\]\\s*\\[user\\]\\s*([\\s\\S]*?)\\s*\\[/user\\]\\s*\\[role\\]\\s*([\\s\\S]*?)\\s*\\[/role\\](?:\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\])?",
+      find_regex: "\\[live_mod\\]\\s*\\[user\\]\\s*([\\s\\S]*?)\\s*\\[/user\\]\\s*\\[role\\]\\s*([\\s\\S]*?)\\s*\\[/role\\](?:\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\])?\\s*\\[/live_mod\\]",
       replace_string: `<div class="srv-live-mod"><span class="srv-live-avatar">$3</span><b>$1</b><span>$2</span></div>
 <style data-r45="twitch-left-align">
 .rr22-tw-info,.rr22-tw-side,.rr22-tw-page,
@@ -96409,7 +96447,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Participant Chip \u2014 Inline \u2014 Bracket Native",
-      find_regex: "\\[k_part\\]\\s*\\[name\\]\\s*([\\s\\S]*?)\\s*\\[/name\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[color\\]\\s*([\\s\\S]*?)\\s*\\[/color\\]",
+      find_regex: "\\[k_part\\]\\s*\\[name\\]\\s*([\\s\\S]*?)\\s*\\[/name\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[color\\]\\s*([\\s\\S]*?)\\s*\\[/color\\]\\s*\\[/k_part\\]",
       replace_string: `<span class="html-safe-wrap kk-part" style="--kk-color:$3"><span class="kk-part-ava">$2</span><span class="kk-part-name">$1</span></span>
 
 <style data-r30="avatar-center">
@@ -96920,7 +96958,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Reaction Chip \u2014 Inline \u2014 Bracket Native",
-      find_regex: "\\[k_react\\]\\s*\\[emoji\\]\\s*([\\s\\S]*?)\\s*\\[/emoji\\]\\s*\\[count\\]\\s*([\\s\\S]*?)\\s*\\[/count\\]",
+      find_regex: "\\[k_react\\]\\s*\\[emoji\\]\\s*([\\s\\S]*?)\\s*\\[/emoji\\]\\s*\\[count\\]\\s*([\\s\\S]*?)\\s*\\[/count\\]\\s*\\[/k_react\\]",
       replace_string: `<span class="html-safe-wrap kk-react">$1 <b>$2</b></span>
 
 <style data-r30="avatar-center">
@@ -97295,7 +97333,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Typing Indicator \u2014 Inline \u2014 Bracket Native",
-      find_regex: "\\[k_typing\\]\\s*\\[names\\]\\s*([\\s\\S]*?)\\s*\\[/names\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[color\\]\\s*([\\s\\S]*?)\\s*\\[/color\\]",
+      find_regex: "\\[k_typing\\]\\s*\\[names\\]\\s*([\\s\\S]*?)\\s*\\[/names\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[color\\]\\s*([\\s\\S]*?)\\s*\\[/color\\]\\s*\\[/k_typing\\]",
       replace_string: `<div class="html-safe-wrap kk-typing" style="--kk-color:$3"><span class="kk-typing-ava">$2</span><span class="kk-typing-main"><b>$1</b><span class="kk-typing-dots"><i></i><i></i><i></i></span></span></div>
 
 <style data-r30="avatar-center">
@@ -98963,8 +99001,8 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_in_082_cd85ff__bracket_v1"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Disabled Compatibility \u2014 Inline \u2014 Bracket Native",
-      find_regex: "\\[notif\\]\\s*\\[app\\]\\s*([\\s\\S]*?)\\s*\\[/app\\]\\s*\\[from\\]\\s*([\\s\\S]*?)\\s*\\[/from\\]\\s*\\[text\\]\\s*([\\s\\S]*?)\\s*\\[/text\\]\\s*\\[time\\]\\s*([\\s\\S]*?)\\s*\\[/time\\]",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Legacy Compatibility \u2014 Inline \u2014 Bracket Native",
+      find_regex: "\\[notif\\]\\s*\\[app\\]\\s*([\\s\\S]*?)\\s*\\[/app\\]\\s*\\[from\\]\\s*([\\s\\S]*?)\\s*\\[/from\\]\\s*\\[text\\]\\s*([\\s\\S]*?)\\s*\\[/text\\]\\s*\\[time\\]\\s*([\\s\\S]*?)\\s*\\[/time\\]\\s*\\[/notif\\]",
       replace_string: `<s_note app="$1" sender="$2" time="$4">$3</s_note>
 
 <style data-r30="avatar-center">
@@ -99054,7 +99092,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_in_083_d8d5ab__bracket_v1"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Disabled Compatibility \u2014 Inline \u2014 Bracket Native",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Legacy Compatibility \u2014 Inline \u2014 Bracket Native",
       find_regex: "\\[k_msg\\]\\s*\\[side\\]\\s*left\\s*\\[/side\\]\\s*\\[time\\]\\s*([\\s\\S]*?)\\s*\\[/time\\]([\\s\\S]*?)\\[/k_msg\\]",
       replace_string: `<s_recv time="$1">$2</s_recv>
 
@@ -99145,7 +99183,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_in_084_cab30f__bracket_v1"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Disabled Compatibility \u2014 Inline \u2014 Bracket Native",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Legacy Compatibility \u2014 Inline \u2014 Bracket Native",
       find_regex: "\\[k_msg\\]\\s*\\[side\\]\\s*right\\s*\\[/side\\]\\s*\\[time\\]\\s*([\\s\\S]*?)\\s*\\[/time\\]([\\s\\S]*?)\\[/k_msg\\]",
       replace_string: `<s_sent time="$1">$2</s_sent>
 
@@ -99236,8 +99274,8 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_in_085_0d2755__bracket_v1"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Disabled Compatibility \u2014 Inline \u2014 Bracket Native",
-      find_regex: "\\[contact\\]\\s*\\[name\\]\\s*([\\s\\S]*?)\\s*\\[/name\\]\\s*\\[status\\]\\s*([\\s\\S]*?)\\s*\\[/status\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Legacy Compatibility \u2014 Inline \u2014 Bracket Native",
+      find_regex: "\\[contact\\]\\s*\\[name\\]\\s*([\\s\\S]*?)\\s*\\[/name\\]\\s*\\[status\\]\\s*([\\s\\S]*?)\\s*\\[/status\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[/contact\\]",
       replace_string: `<contact><span class="rpi-contact-name">$1</span><span class="rpi-contact-status">$2</span><span class="rpi-contact-avatar">$3</span></contact>
 
 <style data-r30="avatar-center">
@@ -102987,7 +103025,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Bid Row \u2014 Inline \u2014 Bracket Native",
-      find_regex: "\\[mk_bid\\]\\s*\\[user\\]\\s*([\\s\\S]*?)\\s*\\[/user\\]\\s*\\[amount\\]\\s*([\\s\\S]*?)\\s*\\[/amount\\]",
+      find_regex: "\\[mk_bid\\]\\s*\\[user\\]\\s*([\\s\\S]*?)\\s*\\[/user\\]\\s*\\[amount\\]\\s*([\\s\\S]*?)\\s*\\[/amount\\]\\s*\\[/mk_bid\\]",
       replace_string: '<div class="rr23-ebay-bid"><span>$1</span><b>$2</b></div>',
       flags: "gi",
       placement: [
@@ -104748,7 +104786,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Mod Transformer \u2014 Collapsible Plain \u2014 Bracket Native",
-      find_regex: "\\[live_mod\\]\\s*\\[user\\]\\s*([\\s\\S]*?)\\s*\\[/user\\]\\s*\\[role\\]\\s*([\\s\\S]*?)\\s*\\[/role\\](?:\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\])?",
+      find_regex: "\\[live_mod\\]\\s*\\[user\\]\\s*([\\s\\S]*?)\\s*\\[/user\\]\\s*\\[role\\]\\s*([\\s\\S]*?)\\s*\\[/role\\](?:\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\])?\\s*\\[/live_mod\\]",
       replace_string: `<div class="srv-live-mod"><span class="srv-live-avatar">$3</span><b>$1</b><span>$2</span></div>
 <style data-r45="twitch-left-align">
 .rr22-tw-info,.rr22-tw-side,.rr22-tw-page,
@@ -109950,7 +109988,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Participant Chip \u2014 Collapsible Plain \u2014 Bracket Native",
-      find_regex: "\\[k_part\\]\\s*\\[name\\]\\s*([\\s\\S]*?)\\s*\\[/name\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[color\\]\\s*([\\s\\S]*?)\\s*\\[/color\\]",
+      find_regex: "\\[k_part\\]\\s*\\[name\\]\\s*([\\s\\S]*?)\\s*\\[/name\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[color\\]\\s*([\\s\\S]*?)\\s*\\[/color\\]\\s*\\[/k_part\\]",
       replace_string: `<span class="html-safe-wrap kk-part" style="--kk-color:$3"><span class="kk-part-ava">$2</span><span class="kk-part-name">$1</span></span>
 
 <style data-r30="avatar-center">
@@ -110461,7 +110499,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Reaction Chip \u2014 Collapsible Plain \u2014 Bracket Native",
-      find_regex: "\\[k_react\\]\\s*\\[emoji\\]\\s*([\\s\\S]*?)\\s*\\[/emoji\\]\\s*\\[count\\]\\s*([\\s\\S]*?)\\s*\\[/count\\]",
+      find_regex: "\\[k_react\\]\\s*\\[emoji\\]\\s*([\\s\\S]*?)\\s*\\[/emoji\\]\\s*\\[count\\]\\s*([\\s\\S]*?)\\s*\\[/count\\]\\s*\\[/k_react\\]",
       replace_string: `<span class="html-safe-wrap kk-react">$1 <b>$2</b></span>
 
 <style data-r30="avatar-center">
@@ -110836,7 +110874,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Typing Indicator \u2014 Collapsible Plain \u2014 Bracket Native",
-      find_regex: "\\[k_typing\\]\\s*\\[names\\]\\s*([\\s\\S]*?)\\s*\\[/names\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[color\\]\\s*([\\s\\S]*?)\\s*\\[/color\\]",
+      find_regex: "\\[k_typing\\]\\s*\\[names\\]\\s*([\\s\\S]*?)\\s*\\[/names\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[color\\]\\s*([\\s\\S]*?)\\s*\\[/color\\]\\s*\\[/k_typing\\]",
       replace_string: `<div class="html-safe-wrap kk-typing" style="--kk-color:$3"><span class="kk-typing-ava">$2</span><span class="kk-typing-main"><b>$1</b><span class="kk-typing-dots"><i></i><i></i><i></i></span></span></div>
 
 <style data-r30="avatar-center">
@@ -112603,8 +112641,8 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_pl_082_4a0641__bracket_v1"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Disabled Compatibility \u2014 Collapsible Plain \u2014 Bracket Native",
-      find_regex: "\\[notif\\]\\s*\\[app\\]\\s*([\\s\\S]*?)\\s*\\[/app\\]\\s*\\[from\\]\\s*([\\s\\S]*?)\\s*\\[/from\\]\\s*\\[text\\]\\s*([\\s\\S]*?)\\s*\\[/text\\]\\s*\\[time\\]\\s*([\\s\\S]*?)\\s*\\[/time\\]",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Legacy Compatibility \u2014 Collapsible Plain \u2014 Bracket Native",
+      find_regex: "\\[notif\\]\\s*\\[app\\]\\s*([\\s\\S]*?)\\s*\\[/app\\]\\s*\\[from\\]\\s*([\\s\\S]*?)\\s*\\[/from\\]\\s*\\[text\\]\\s*([\\s\\S]*?)\\s*\\[/text\\]\\s*\\[time\\]\\s*([\\s\\S]*?)\\s*\\[/time\\]\\s*\\[/notif\\]",
       replace_string: `<s_note app="$1" sender="$2" time="$4">$3</s_note>
 
 <style data-r30="avatar-center">
@@ -112694,7 +112732,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_pl_083_8c0979__bracket_v1"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Disabled Compatibility \u2014 Collapsible Plain \u2014 Bracket Native",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Legacy Compatibility \u2014 Collapsible Plain \u2014 Bracket Native",
       find_regex: "\\[k_msg\\]\\s*\\[side\\]\\s*left\\s*\\[/side\\]\\s*\\[time\\]\\s*([\\s\\S]*?)\\s*\\[/time\\]([\\s\\S]*?)\\[/k_msg\\]",
       replace_string: `<s_recv time="$1">$2</s_recv>
 
@@ -112785,7 +112823,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_pl_084_522b86__bracket_v1"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Disabled Compatibility \u2014 Collapsible Plain \u2014 Bracket Native",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Legacy Compatibility \u2014 Collapsible Plain \u2014 Bracket Native",
       find_regex: "\\[k_msg\\]\\s*\\[side\\]\\s*right\\s*\\[/side\\]\\s*\\[time\\]\\s*([\\s\\S]*?)\\s*\\[/time\\]([\\s\\S]*?)\\[/k_msg\\]",
       replace_string: `<s_sent time="$1">$2</s_sent>
 
@@ -112876,8 +112914,8 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       script_id: "rr22_pl_085_e6f6bb__bracket_v1"
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Disabled Compatibility \u2014 Collapsible Plain \u2014 Bracket Native",
-      find_regex: "\\[contact\\]\\s*\\[name\\]\\s*([\\s\\S]*?)\\s*\\[/name\\]\\s*\\[status\\]\\s*([\\s\\S]*?)\\s*\\[/status\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Legacy Compatibility \u2014 Collapsible Plain \u2014 Bracket Native",
+      find_regex: "\\[contact\\]\\s*\\[name\\]\\s*([\\s\\S]*?)\\s*\\[/name\\]\\s*\\[status\\]\\s*([\\s\\S]*?)\\s*\\[/status\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[/contact\\]",
       replace_string: `<contact><span class="rpi-contact-name">$1</span><span class="rpi-contact-status">$2</span><span class="rpi-contact-avatar">$3</span></contact>
 
 <style data-r30="avatar-center">
@@ -118337,7 +118375,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
     },
     {
       name: "\u21B3 R4.5 \u2014 eBay Bid Row \u2014 Collapsible Plain \u2014 Bracket Native",
-      find_regex: "\\[mk_bid\\]\\s*\\[user\\]\\s*([\\s\\S]*?)\\s*\\[/user\\]\\s*\\[amount\\]\\s*([\\s\\S]*?)\\s*\\[/amount\\]",
+      find_regex: "\\[mk_bid\\]\\s*\\[user\\]\\s*([\\s\\S]*?)\\s*\\[/user\\]\\s*\\[amount\\]\\s*([\\s\\S]*?)\\s*\\[/amount\\]\\s*\\[/mk_bid\\]",
       replace_string: '<div class="rr23-ebay-bid"><span>$1</span><b>$2</b></div>',
       flags: "gi",
       placement: [
@@ -120298,7 +120336,7 @@ var Reverie_Surfaces_R4_5_BRACKET_SPARKLE_BUTTON_REALISTIC_default = {
     },
     {
       name: "\u21B3 Surface Review \u2014 Twitch Mod Transformer \u2014 Collapsible Sparkling \u2014 Bracket Native",
-      find_regex: "\\[live_mod\\]\\s*\\[user\\]\\s*([\\s\\S]*?)\\s*\\[/user\\]\\s*\\[role\\]\\s*([\\s\\S]*?)\\s*\\[/role\\](?:\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\])?",
+      find_regex: "\\[live_mod\\]\\s*\\[user\\]\\s*([\\s\\S]*?)\\s*\\[/user\\]\\s*\\[role\\]\\s*([\\s\\S]*?)\\s*\\[/role\\](?:\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\])?\\s*\\[/live_mod\\]",
       replace_string: `<div class="srv-live-mod"><span class="srv-live-avatar">$3</span><b>$1</b><span>$2</span></div>
 <style data-r45="twitch-left-align">
 .rr22-tw-info,.rr22-tw-side,.rr22-tw-page,
@@ -125849,7 +125887,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Participant Chip \u2014 Collapsible Sparkling \u2014 Bracket Native",
-      find_regex: "\\[k_part\\]\\s*\\[name\\]\\s*([\\s\\S]*?)\\s*\\[/name\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[color\\]\\s*([\\s\\S]*?)\\s*\\[/color\\]",
+      find_regex: "\\[k_part\\]\\s*\\[name\\]\\s*([\\s\\S]*?)\\s*\\[/name\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[color\\]\\s*([\\s\\S]*?)\\s*\\[/color\\]\\s*\\[/k_part\\]",
       replace_string: `<span class="html-safe-wrap kk-part" style="--kk-color:$3"><span class="kk-part-ava">$2</span><span class="kk-part-name">$1</span></span>
 
 <style data-r30="avatar-center">
@@ -126365,7 +126403,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Reaction Chip \u2014 Collapsible Sparkling \u2014 Bracket Native",
-      find_regex: "\\[k_react\\]\\s*\\[emoji\\]\\s*([\\s\\S]*?)\\s*\\[/emoji\\]\\s*\\[count\\]\\s*([\\s\\S]*?)\\s*\\[/count\\]",
+      find_regex: "\\[k_react\\]\\s*\\[emoji\\]\\s*([\\s\\S]*?)\\s*\\[/emoji\\]\\s*\\[count\\]\\s*([\\s\\S]*?)\\s*\\[/count\\]\\s*\\[/k_react\\]",
       replace_string: `<span class="html-safe-wrap kk-react">$1 <b>$2</b></span>
 
 <style data-r30="avatar-center">
@@ -126743,7 +126781,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
     },
     {
       name: "\uD83D\uDCAC [Reverie \u2022 KakaoTalk] Typing Indicator \u2014 Collapsible Sparkling \u2014 Bracket Native",
-      find_regex: "\\[k_typing\\]\\s*\\[names\\]\\s*([\\s\\S]*?)\\s*\\[/names\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[color\\]\\s*([\\s\\S]*?)\\s*\\[/color\\]",
+      find_regex: "\\[k_typing\\]\\s*\\[names\\]\\s*([\\s\\S]*?)\\s*\\[/names\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[color\\]\\s*([\\s\\S]*?)\\s*\\[/color\\]\\s*\\[/k_typing\\]",
       replace_string: `<div class="html-safe-wrap kk-typing" style="--kk-color:$3"><span class="kk-typing-ava">$2</span><span class="kk-typing-main"><b>$1</b><span class="kk-typing-dots"><i></i><i></i><i></i></span></span></div>
 
 <style data-r30="avatar-center">
@@ -128607,8 +128645,8 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       owner_extension_identifier: null
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Disabled Compatibility \u2014 Collapsible Sparkling \u2014 Bracket Native",
-      find_regex: "\\[notif\\]\\s*\\[app\\]\\s*([\\s\\S]*?)\\s*\\[/app\\]\\s*\\[from\\]\\s*([\\s\\S]*?)\\s*\\[/from\\]\\s*\\[text\\]\\s*([\\s\\S]*?)\\s*\\[/text\\]\\s*\\[time\\]\\s*([\\s\\S]*?)\\s*\\[/time\\]",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Notification \u2014 Legacy Compatibility \u2014 Collapsible Sparkling \u2014 Bracket Native",
+      find_regex: "\\[notif\\]\\s*\\[app\\]\\s*([\\s\\S]*?)\\s*\\[/app\\]\\s*\\[from\\]\\s*([\\s\\S]*?)\\s*\\[/from\\]\\s*\\[text\\]\\s*([\\s\\S]*?)\\s*\\[/text\\]\\s*\\[time\\]\\s*([\\s\\S]*?)\\s*\\[/time\\]\\s*\\[/notif\\]",
       replace_string: `<s_note app="$1" sender="$2" time="$4">$3</s_note>
 
 <style data-r30="avatar-center">
@@ -128699,7 +128737,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       owner_extension_identifier: null
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Disabled Compatibility \u2014 Collapsible Sparkling \u2014 Bracket Native",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Received Message \u2014 Legacy Compatibility \u2014 Collapsible Sparkling \u2014 Bracket Native",
       find_regex: "\\[k_msg\\]\\s*\\[side\\]\\s*left\\s*\\[/side\\]\\s*\\[time\\]\\s*([\\s\\S]*?)\\s*\\[/time\\]([\\s\\S]*?)\\[/k_msg\\]",
       replace_string: `<s_recv time="$1">$2</s_recv>
 
@@ -128791,7 +128829,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       owner_extension_identifier: null
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Disabled Compatibility \u2014 Collapsible Sparkling \u2014 Bracket Native",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Legacy Sent Message \u2014 Legacy Compatibility \u2014 Collapsible Sparkling \u2014 Bracket Native",
       find_regex: "\\[k_msg\\]\\s*\\[side\\]\\s*right\\s*\\[/side\\]\\s*\\[time\\]\\s*([\\s\\S]*?)\\s*\\[/time\\]([\\s\\S]*?)\\[/k_msg\\]",
       replace_string: `<s_sent time="$1">$2</s_sent>
 
@@ -128883,8 +128921,8 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       owner_extension_identifier: null
     },
     {
-      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Disabled Compatibility \u2014 Collapsible Sparkling \u2014 Bracket Native",
-      find_regex: "\\[contact\\]\\s*\\[name\\]\\s*([\\s\\S]*?)\\s*\\[/name\\]\\s*\\[status\\]\\s*([\\s\\S]*?)\\s*\\[/status\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]",
+      name: "\uD83D\uDCF1 [Real Phone] Normalize Self-Closing Contact \u2014 Legacy Compatibility \u2014 Collapsible Sparkling \u2014 Bracket Native",
+      find_regex: "\\[contact\\]\\s*\\[name\\]\\s*([\\s\\S]*?)\\s*\\[/name\\]\\s*\\[status\\]\\s*([\\s\\S]*?)\\s*\\[/status\\]\\s*\\[avatar\\]\\s*([\\s\\S]*?)\\s*\\[/avatar\\]\\s*\\[/contact\\]",
       replace_string: `<contact><span class="rpi-contact-name">$1</span><span class="rpi-contact-status">$2</span><span class="rpi-contact-avatar">$3</span></contact>
 
 <style data-r30="avatar-center">
@@ -134692,7 +134730,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
     },
     {
       name: "\u21B3 R2.3 \u2014 eBay Bid Row \u2014 Collapsible Sparkling \u2014 Bracket Native",
-      find_regex: "\\[mk_bid\\]\\s*\\[user\\]\\s*([\\s\\S]*?)\\s*\\[/user\\]\\s*\\[amount\\]\\s*([\\s\\S]*?)\\s*\\[/amount\\]",
+      find_regex: "\\[mk_bid\\]\\s*\\[user\\]\\s*([\\s\\S]*?)\\s*\\[/user\\]\\s*\\[amount\\]\\s*([\\s\\S]*?)\\s*\\[/amount\\]\\s*\\[/mk_bid\\]",
       replace_string: '<div class="rr23-ebay-bid"><span>$1</span><b>$2</b></div>',
       flags: "gi",
       placement: [
@@ -135575,6 +135613,52 @@ var BRACKET_PACKS = {
 var safeMessageId = (value) => String(value || "surface").replace(/[^A-Za-z0-9_-]+/g, "-") || "surface";
 var sortedScripts = new Map;
 var sortedBracketScripts = new Map;
+function normalizeR45BracketRuntime(markup) {
+  let output = String(markup || "").replace(/\[media\]\s*([\s\S]*?)\s*\[\/media\]/gi, "$1").replace(/\[lc_step\]\s*([\s\S]*?)\s*\[\/lc_step\]/gi, "<lc_step>$1</lc_step>").replace(/(\[med_vital\]\s*\[label\][\s\S]*?\[\/label\])\s*\[value\]\s*([\s\S]*?)\s*\[\/value\](\s*\[\/med_vital\])/gi, "$1$2$3").replace(/\[details\]\s*\[summary\]\s*Amenities\s*\[\/summary\]\s*(\[prop_amenities\][\s\S]*?\[\/prop_amenities\])\s*\[\/details\]/gi, "$1").replace(/\[details\]\s*\[summary\]\s*History\s*\[\/summary\]\s*(\[prop_history\][\s\S]*?\[\/prop_history\])\s*\[\/details\]/gi, "$1");
+  output = output.replace(/\[mission_items\]([\s\S]*?)\[\/mission_items\]/gi, (full, body) => {
+    let slot = 0;
+    const normalized2 = body.replace(/\[mission_item\]\s*(?!\[slot\])/gi, () => `[mission_item][slot]${++slot}[/slot]`);
+    return full.replace(body, normalized2);
+  });
+  output = output.replace(/\[twip_post\]([\s\S]*?)\[\/twip_post\]/gi, (full, body) => {
+    let normalized2 = body.replace(/\[name\]/i, "[author]").replace(/\[\/name\]/i, "[/author]");
+    if (!/\[verified\]/i.test(normalized2))
+      normalized2 = normalized2.replace(/(\[handle\][\s\S]*?\[\/handle\])/i, "$1[verified][/verified]");
+    return full.replace(body, normalized2);
+  });
+  output = output.replace(/\[s_img\]\s*\[side\]\s*([^\[]+?)\s*\[\/side\]\s*\[time\][\s\S]*?\[\/time\]\s*([\s\S]*?)\s*\[\/s_img\]/gi, (_full, sideValue, payload) => {
+    const side = /^(?:sent|right|user)$/i.test(sideValue.trim()) ? "sent" : "recv";
+    return `<div class="rpx-image-msg rpx-image-msg-${side}" data-reverie-r45-lifecycle-media="smartphone">${payload}</div>`;
+  });
+  output = output.replace(/\[s_img\]\s*\[time\][\s\S]*?\[\/time\]\s*([\s\S]*?)\s*\[\/s_img\]/gi, '<div class="rpx-image-msg rpx-image-msg-recv" data-reverie-r45-lifecycle-media="smartphone">$1</div>');
+  output = output.replace(/\[k_img\]([\s\S]*?)\[\/k_img\]/gi, (_full, body) => {
+    const caption = /\[caption\]\s*([\s\S]*?)\s*\[\/caption\]/i.exec(body)?.[1]?.trim() || "";
+    const payload = body.replace(/\[(?:side|time|caption)\][\s\S]*?\[\/(?:side|time|caption)\]/gi, "").trim();
+    return `<figure class="html-safe-wrap kk-image" data-reverie-r45-lifecycle-media="kakao">${payload}${caption ? `<figcaption>${caption}</figcaption>` : ""}</figure>`;
+  });
+  return output;
+}
+function expandR45Replacement(template, captures, macro) {
+  return template.replace(/\{\{lastMessageId\}\}/g, macro).replace(/\$(\d{1,2})/g, (_full, raw) => captures[Number(raw) - 1] || "");
+}
+function renderVariableNotes(markup, template, macro) {
+  return markup.replace(/\[notes_app\]\s*\[folder\]\s*([\s\S]*?)\s*\[\/folder\]\s*\[owner\]\s*([\s\S]*?)\s*\[\/owner\]\s*\[nt_list\]([\s\S]*?)\[\/nt_list\]\s*\[\/notes_app\]/gi, (full, folder, owner, body) => {
+    const notes = [...body.matchAll(/\[nt_note\]\s*\[slot\]\s*([1-4])\s*\[\/slot\]\s*\[title\]\s*([\s\S]*?)\s*\[\/title\]\s*\[updated\]\s*([\s\S]*?)\s*\[\/updated\]([\s\S]*?)\[\/nt_note\]/gi)];
+    if (!notes.length || notes.length > 4)
+      return full;
+    const captures = [folder, owner];
+    for (const note of notes)
+      captures.push(note[2], note[3], note[4]);
+    while (captures.length < 14)
+      captures.push("");
+    let rendered = expandR45Replacement(template, captures, macro);
+    for (let index = notes.length + 1;index <= 4; index += 1) {
+      const id = `rr23-note-${index}-${macro}`;
+      rendered = rendered.replace(new RegExp(`<input\\b[^>]*\\bid="${id}"[^>]*>`, "i"), "").replace(new RegExp(`<label\\b[^>]*\\bfor="${id}"[^>]*>[\\s\\S]*?<\\/label>`, "i"), "").replace(new RegExp(`<section\\b[^>]*class="[^"]*\\bp${index}\\b[^"]*"[^>]*>[\\s\\S]*?<\\/section>`, "i"), "");
+    }
+    return rendered;
+  });
+}
 function r45SurfaceAuthorityPack(presentation, color) {
   const key = `${presentation}:${color}`;
   const pack = PACKS[key];
@@ -135608,16 +135692,24 @@ function r45BracketSurfaceAuthorityScripts(presentation) {
   return scripts;
 }
 function renderR45BracketSurfaceAuthority(markup, presentation, messageId) {
-  let output = String(markup || "");
+  let output = normalizeR45BracketRuntime(markup);
   const macro = safeMessageId(messageId);
   for (const script of r45BracketSurfaceAuthorityScripts(presentation)) {
     try {
+      if (/\\\[notes_app\\\]/.test(script.find_regex)) {
+        output = renderVariableNotes(output, script.replace_string, macro);
+        continue;
+      }
       const flags = script.flags.includes("g") ? script.flags : `${script.flags}g`;
       const replacement = script.replace_string.replace(/\{\{lastMessageId\}\}/g, macro);
       output = output.replace(new RegExp(script.find_regex, flags), replacement);
     } catch {
       return `<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed" data-reverie-r45-script="${script.script_id}">Relay Surface needs repair. Reparse or rescan in Relay.</aside>`;
     }
+  }
+  for (const root of R45_ACTIVE_ROOTS) {
+    const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    output = output.replace(new RegExp(`\\[${escaped}\\][\\s\\S]*?\\[\\/${escaped}\\]`, "gi"), '<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed">Relay Surface needs repair. Reparse or rescan in Relay.</aside>');
   }
   return output;
 }
@@ -135653,6 +135745,54 @@ function renderR45SurfaceAuthority(markup, presentation, color, messageId) {
   }
   return output;
 }
+var R45_ACTIVE_ROOTS = [
+  "tinder",
+  "album_cover",
+  "newspaper",
+  "inline_chat",
+  "instagram_dm",
+  "x_dm",
+  "discord_dm",
+  "google_image_search",
+  "phone_gallery",
+  "case_file",
+  "public_bulletin",
+  "forum_thread",
+  "character_profile",
+  "magazine_cover",
+  "tiktok_post",
+  "ig_app",
+  "kakao_chat",
+  "twitter_app",
+  "smart_phone",
+  "yt_thumbnail",
+  "relationship_map",
+  "evidence_photo",
+  "photo_booth_strip",
+  "polaroid_frame",
+  "workspace_chat",
+  "email_thread",
+  "imessage_chat",
+  "livestream",
+  "music_player",
+  "location_share",
+  "voice_memo",
+  "notes_app",
+  "market_listing",
+  "property_listing",
+  "naver_news",
+  "letter_dispatch",
+  "medical_record",
+  "court_transcript",
+  "codex_entry",
+  "diary_app",
+  "mission_board",
+  "cctv_evidence",
+  "discord_server",
+  "instagram_profile",
+  "twitter_profile",
+  "instagram_stories"
+];
 function containsR45RenderedSurface(markup) {
   return /(?:rr22-|rr23-|rr41-|r43(?:ig|tw|story)|rrdc|srv54-|igls-|twlr-|rpx-|case-file-dossier|cp-card|data-reverie-surface)/i.test(String(markup || ""));
 }
@@ -151807,7 +151947,7 @@ var Reverie_Plot_Sparks_BULLETPROOF_V7_default = {
     {
       name: "\u2604 Plot Sparks \u2014 Purple \u2014 OG Sparkle Tabs \u2014 BULLETPROOF V7",
       find_regex: `<chaos_payload\\b(?=[^>]*\\bid\\s*=\\s*["']([^"']+)["'])(?=[^>]*\\blifecycle\\s*=\\s*["']([^"']*)["'])[^>]*>\\s*<chaos_hook\\b(?=[^>]*\\bkey\\s*=\\s*["']a["'])(?=[^>]*\\bvector\\s*=\\s*["']detonation["'])[^>]*>\\s*<hook_text\\b[^>]*>\\s*([\\s\\S]*?)\\s*</hook_text>\\s*(?:<hook_media\\b[^>]*>\\s*([\\s\\S]*?)\\s*(?:</hook_media>\\s*)?)?</chaos_hook>\\s*<chaos_hook\\b(?=[^>]*\\bkey\\s*=\\s*["']b["'])(?=[^>]*\\bvector\\s*=\\s*["']heartknife["'])[^>]*>\\s*<hook_text\\b[^>]*>\\s*([\\s\\S]*?)\\s*</hook_text>\\s*(?:<hook_media\\b[^>]*>\\s*([\\s\\S]*?)\\s*(?:</hook_media>\\s*)?)?</chaos_hook>\\s*<chaos_hook\\b(?=[^>]*\\bkey\\s*=\\s*["']c["'])(?=[^>]*\\bvector\\s*=\\s*["']wrongness["'])[^>]*>\\s*<hook_text\\b[^>]*>\\s*([\\s\\S]*?)\\s*</hook_text>\\s*(?:<hook_media\\b[^>]*>\\s*([\\s\\S]*?)\\s*(?:</hook_media>\\s*)?)?</chaos_hook>\\s*<chaos_hook\\b(?=[^>]*\\bkey\\s*=\\s*["']d["'])(?=[^>]*\\bvector\\s*=\\s*["']crash\\-in["'])[^>]*>\\s*<hook_text\\b[^>]*>\\s*([\\s\\S]*?)\\s*</hook_text>\\s*(?:<hook_media\\b[^>]*>\\s*([\\s\\S]*?)\\s*(?:</hook_media>\\s*)?)?</chaos_hook>\\s*<chaos_hook\\b(?=[^>]*\\bkey\\s*=\\s*["']e["'])(?=[^>]*\\bvector\\s*=\\s*["']matchstrike["'])[^>]*>\\s*<hook_text\\b[^>]*>\\s*([\\s\\S]*?)\\s*</hook_text>\\s*(?:<hook_media\\b[^>]*>\\s*([\\s\\S]*?)\\s*(?:</hook_media>\\s*)?)?</chaos_hook>\\s*<chaos_hook\\b(?=[^>]*\\bkey\\s*=\\s*["']f["'])(?=[^>]*\\bvector\\s*=\\s*["']reputation\\-fire["'])[^>]*>\\s*<hook_text\\b[^>]*>\\s*([\\s\\S]*?)\\s*</hook_text>\\s*(?:<hook_media\\b[^>]*>\\s*([\\s\\S]*?)\\s*(?:</hook_media>\\s*)?)?</chaos_hook>\\s*<chaos_hook\\b(?=[^>]*\\bkey\\s*=\\s*["']g["'])(?=[^>]*\\bvector\\s*=\\s*["']wildcard\\-collision["'])[^>]*>\\s*<hook_text\\b[^>]*>\\s*([\\s\\S]*?)\\s*</hook_text>\\s*(?:<hook_media\\b[^>]*>\\s*([\\s\\S]*?)\\s*(?:</hook_media>\\s*)?)?</chaos_hook>\\s*</chaos_payload>`,
-      replace_string: "<!-- UI_START --><style data-ria-chaos-og-tabs-v5>.ch-og{--lumiverse-primary:#8b5cf6;--lumiverse-primary-hover:#a78bfa;--lumiverse-primary-020:rgba(139,92,246,.20);--lumiverse-primary-010:rgba(139,92,246,.10);--lumiverse-primary-text:#eadcff;--ch-text:var(--lumiverse-text,#f7efff);--ch-muted:var(--lumiverse-text-muted,#c8b9d8);--ch-bg:var(--lumiverse-bg-deep,#120918);--ch-panel:var(--lumiverse-bg-040,rgba(255,255,255,.045));--ch-border:var(--lumiverse-border,rgba(196,181,253,.22));box-sizing:border-box;width:min(92%,620px);margin:16px auto 22px;color:var(--ch-text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,'Segoe UI',sans-serif)}.ch-og,.ch-og *{box-sizing:border-box}.ch-og>summary.dg-compact-launch{position:relative!important;isolation:isolate!important;display:flex!important;align-items:center!important;justify-content:center!important;gap:9px!important;width:max-content!important;min-width:0!important;max-width:min(calc(100% - 24px),360px)!important;min-height:42px!important;margin:16px auto 0!important;margin-inline:auto!important;padding:10px 23px!important;overflow:hidden!important;cursor:pointer!important;list-style:none!important;border:1px solid color-mix(in srgb,var(--lumiverse-primary) 52%,var(--ch-border) 48%)!important;border-radius:13px!important;background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-primary-text) 11%,transparent),transparent 32%),linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-bg-elevated,#25172f) 76%,var(--lumiverse-primary) 24%),color-mix(in srgb,var(--lumiverse-bg-deep,#0c0711) 90%,var(--lumiverse-primary) 10%))!important;color:var(--lumiverse-primary-text)!important;font:800 10px/1 var(--lumiverse-font-mono,'Courier New',monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary) 22%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 10%,transparent)!important;-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important}.ch-og>summary.dg-compact-launch::-webkit-details-marker{display:none!important}.ch-og>summary.dg-compact-launch::marker{content:''!important}.ch-og>summary.dg-compact-launch:hover{transform:translateY(-1px)!important;border-color:color-mix(in srgb,var(--lumiverse-primary) 78%,var(--ch-border) 22%)!important;box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 27px color-mix(in srgb,var(--lumiverse-primary) 32%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 12%,transparent)!important}.ch-og>summary.dg-compact-launch:active{transform:translateY(0) scale(.985)!important}.ch-og>summary.dg-compact-launch::after{content:''!important;position:absolute!important;inset:1px!important;z-index:0!important;border-radius:inherit!important;pointer-events:none!important;background:linear-gradient(112deg,transparent 8%,color-mix(in srgb,var(--lumiverse-text,#fff) 7%,transparent) 35%,transparent 58%)!important}.ch-launch-emoji,.ch-launch-label{position:relative!important;z-index:2!important}.ch-launch-emoji{font-size:13px;filter:drop-shadow(0 0 7px color-mix(in srgb,var(--lumiverse-primary) 55%,transparent))}.ch-launch-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dg-unified-sparks{position:absolute!important;inset:0!important;z-index:1!important;overflow:hidden!important;pointer-events:none!important}.dg-unified-sparks i{--x:50%;--y:50%;--dx:0px;--dy:-24px;--size:3px;--dur:8s;--delay:0s;position:absolute!important;left:var(--x)!important;top:var(--y)!important;width:var(--size)!important;height:var(--size)!important;border-radius:999px!important;background:radial-gradient(circle,color-mix(in srgb,var(--lumiverse-primary-text) 94%,white 6%) 0 28%,color-mix(in srgb,var(--lumiverse-primary-text) 68%,var(--lumiverse-primary) 32%) 38%,color-mix(in srgb,var(--lumiverse-primary) 25%,transparent) 65%,transparent 72%)!important;box-shadow:0 0 5px color-mix(in srgb,var(--lumiverse-primary-text) 78%,transparent),0 0 13px color-mix(in srgb,var(--lumiverse-primary) 44%,transparent)!important;opacity:0;animation:dg-unified-spark-float var(--dur) ease-in-out var(--delay) infinite!important}.dg-unified-sparks i:nth-child(1){--x:7%;--y:76%;--dx:8px;--dy:-34px;--size:2px;--dur:8.2s;--delay:-1.2s}.dg-unified-sparks i:nth-child(2){--x:18%;--y:23%;--dx:-5px;--dy:-26px;--size:3px;--dur:9.6s;--delay:-5s}.dg-unified-sparks i:nth-child(3){--x:31%;--y:83%;--dx:4px;--dy:-42px;--size:2px;--dur:10.8s;--delay:-3.8s}.dg-unified-sparks i:nth-child(4){--x:48%;--y:17%;--dx:7px;--dy:-28px;--size:2px;--dur:7.9s;--delay:-6.1s}.dg-unified-sparks i:nth-child(5){--x:64%;--y:79%;--dx:-6px;--dy:-37px;--size:3px;--dur:9.2s;--delay:-2.6s}.dg-unified-sparks i:nth-child(6){--x:80%;--y:29%;--dx:5px;--dy:-31px;--size:2px;--dur:11.2s;--delay:-7.4s}.dg-unified-sparks i:nth-child(7){--x:92%;--y:70%;--dx:-8px;--dy:-30px;--size:3px;--dur:8.8s;--delay:-4.7s}.dg-unified-sparks i:nth-child(8){--x:72%;--y:11%;--dx:4px;--dy:-21px;--size:2px;--dur:10.4s;--delay:-1.8s}@keyframes dg-unified-spark-float{0%{opacity:0;transform:translate3d(0,10px,0) scale(.45)}18%{opacity:.74}55%{opacity:.98}100%{opacity:0;transform:translate3d(var(--dx),var(--dy),0) scale(1.18)}}.ch-shell{margin-top:14px;border:1px solid color-mix(in srgb,var(--lumiverse-primary) 38%,var(--ch-border) 62%);border-radius:18px;overflow:hidden;background:radial-gradient(ellipse at 50% -18%,color-mix(in srgb,var(--lumiverse-primary) 8%,transparent),transparent 48%),linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-bg-deep-080,#1b0f25) 92%,var(--lumiverse-primary) 8%),var(--ch-bg));box-shadow:var(--lumiverse-shadow-lg,0 14px 34px rgba(0,0,0,.35)),0 0 24px color-mix(in srgb,var(--lumiverse-primary) 13%,transparent)}.ch-meta{display:flex;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap;padding:11px 12px;border-bottom:1px solid color-mix(in srgb,var(--lumiverse-primary) 17%,var(--ch-border) 83%);background:color-mix(in srgb,var(--ch-panel) 48%,transparent)}.ch-pill{display:inline-flex;align-items:center;justify-content:center;max-width:100%;padding:5px 9px;border:1px solid color-mix(in srgb,var(--lumiverse-primary) 24%,var(--ch-border) 76%);border-radius:999px;background:color-mix(in srgb,var(--ch-panel) 72%,var(--lumiverse-primary-010) 28%);font:700 8px/1.2 var(--lumiverse-font-mono,'Courier New',monospace);letter-spacing:.105em;text-transform:uppercase;color:color-mix(in srgb,var(--ch-muted) 76%,var(--lumiverse-primary-text) 24%);overflow-wrap:anywhere}.ch-og input[type=radio]{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}.ch-tabs{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;width:100%;padding:12px 12px 0}.ch-tab{display:flex;align-items:center;justify-content:center;min-width:0;padding:7px 4px;border:1px solid color-mix(in srgb,var(--lumiverse-primary) 17%,var(--ch-border) 83%);border-radius:999px;background:color-mix(in srgb,var(--ch-panel) 36%,transparent);font:800 8px/1 var(--lumiverse-font-mono,'Courier New',monospace);letter-spacing:.08em;text-transform:uppercase;color:var(--ch-muted);cursor:pointer;transition:transform .18s ease,border-color .18s ease,background .18s ease,color .18s ease,box-shadow .18s ease;-webkit-tap-highlight-color:transparent;white-space:nowrap;overflow:hidden}.ch-tab:hover{transform:translateY(-1px);border-color:color-mix(in srgb,var(--lumiverse-primary) 45%,var(--ch-border) 55%);color:var(--lumiverse-primary-text)}#ch-$1-a:checked~.ch-tabs label[for='ch-$1-a'],#ch-$1-b:checked~.ch-tabs label[for='ch-$1-b'],#ch-$1-c:checked~.ch-tabs label[for='ch-$1-c'],#ch-$1-d:checked~.ch-tabs label[for='ch-$1-d'],#ch-$1-e:checked~.ch-tabs label[for='ch-$1-e'],#ch-$1-f:checked~.ch-tabs label[for='ch-$1-f'],#ch-$1-g:checked~.ch-tabs label[for='ch-$1-g']{border-color:color-mix(in srgb,var(--lumiverse-primary) 58%,var(--ch-border) 42%);background:color-mix(in srgb,var(--ch-panel) 58%,var(--lumiverse-primary-020) 42%);color:var(--lumiverse-primary-text);box-shadow:0 0 13px color-mix(in srgb,var(--lumiverse-primary) 14%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 5%,transparent)}.ch-stage{padding:12px}.ch-panel{display:none;overflow:hidden;border:1px solid color-mix(in srgb,var(--lumiverse-primary) 17%,var(--ch-border) 83%);border-radius:14px;background:radial-gradient(ellipse at 50% -30%,color-mix(in srgb,var(--lumiverse-primary-text) 4%,transparent),transparent 54%),linear-gradient(180deg,color-mix(in srgb,var(--ch-panel) 82%,var(--lumiverse-primary-010) 18%),color-mix(in srgb,var(--ch-panel) 60%,var(--ch-bg) 40%));box-shadow:inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 4%,transparent),0 10px 24px rgba(0,0,0,.18)}#ch-$1-a:checked~.ch-tabs~.ch-stage .ch-panel-a,#ch-$1-b:checked~.ch-tabs~.ch-stage .ch-panel-b,#ch-$1-c:checked~.ch-tabs~.ch-stage .ch-panel-c,#ch-$1-d:checked~.ch-tabs~.ch-stage .ch-panel-d,#ch-$1-e:checked~.ch-tabs~.ch-stage .ch-panel-e,#ch-$1-f:checked~.ch-tabs~.ch-stage .ch-panel-f,#ch-$1-g:checked~.ch-tabs~.ch-stage .ch-panel-g{display:block}.ch-cardhead{display:flex;align-items:center;justify-content:center;padding:12px 14px 2px}.ch-vector{font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;font-weight:700;color:color-mix(in srgb,var(--ch-text) 90%,var(--lumiverse-primary-text) 10%);text-align:center}.ch-copy{padding:10px 16px 12px;font-size:14px;line-height:1.72;color:color-mix(in srgb,var(--ch-text) 92%,var(--ch-muted) 8%);overflow-wrap:anywhere}.ch-divider{height:1px;margin:0 14px 12px;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--lumiverse-primary) 35%,transparent),transparent)}.ch-media{padding:0 12px 12px}.ch-media img{display:block;width:100%!important;height:auto!important;max-height:330px;object-fit:cover;border-radius:12px!important}.ch-actions{padding:0 12px 12px}.ch-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:40px;padding:10px 12px;border:1px solid color-mix(in srgb,var(--lumiverse-primary) 36%,var(--ch-border) 64%);border-radius:11px;background:linear-gradient(180deg,color-mix(in srgb,var(--ch-panel) 68%,var(--lumiverse-primary-020) 32%),color-mix(in srgb,var(--ch-bg) 84%,var(--lumiverse-primary-010) 16%));box-shadow:inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 5%,transparent),0 0 13px color-mix(in srgb,var(--lumiverse-primary) 10%,transparent);color:var(--lumiverse-primary-text);font:800 8px/1.2 var(--lumiverse-font-mono,'Courier New',monospace);letter-spacing:.11em;text-transform:uppercase;cursor:pointer}.ch-btn:hover{border-color:color-mix(in srgb,var(--lumiverse-primary) 62%,var(--ch-border) 38%);box-shadow:inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 6%,transparent),0 0 18px color-mix(in srgb,var(--lumiverse-primary) 18%,transparent)}.ch-btn[data-lumiverse-regex-action-selected]{border-color:var(--lumiverse-primary-text)}.ch-btn[data-lumiverse-regex-action-used='true']{opacity:.48;cursor:not-allowed}@media(max-width:560px){.ch-og{width:94%;margin:14px auto 18px}.ch-og>summary.dg-compact-launch{max-width:calc(100% - 18px)!important;min-height:40px!important;padding:9px 18px!important;font-size:9px!important;letter-spacing:.16em!important}.ch-meta{padding:9px}.ch-pill{font-size:7px;padding:5px 7px}.ch-tabs{gap:4px;padding:10px 8px 0}.ch-tab{padding:7px 2px;font-size:7px;letter-spacing:.04em}.ch-stage{padding:9px}.ch-vector{font-size:1rem}.ch-copy{font-size:13px;padding:9px 12px 11px}.ch-media,.ch-actions{padding-left:9px;padding-right:9px}.ch-media img{max-height:280px}}@media(prefers-reduced-motion:reduce){.dg-unified-sparks i{animation:none!important;opacity:.42!important}.ch-og>summary.dg-compact-launch,.ch-tab{transition:none!important}}</style><details class=\"ch-og dg-compact-launch-host\"><summary class=\"dg-compact-launch\"><span class=\"dg-unified-sparks\" aria-hidden=\"true\"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class=\"ch-launch-emoji\" aria-hidden=\"true\">\u2604</span><span class=\"ch-launch-label\">Plot Sparks</span></summary><div class=\"ch-shell\"><div class=\"ch-meta\"><span class=\"ch-pill\">ID \u2022 $1</span><span class=\"ch-pill\">$2</span></div><input type=\"radio\" id=\"ch-$1-a\" name=\"ch-$1\" checked><input type=\"radio\" id=\"ch-$1-b\" name=\"ch-$1\"><input type=\"radio\" id=\"ch-$1-c\" name=\"ch-$1\"><input type=\"radio\" id=\"ch-$1-d\" name=\"ch-$1\"><input type=\"radio\" id=\"ch-$1-e\" name=\"ch-$1\"><input type=\"radio\" id=\"ch-$1-f\" name=\"ch-$1\"><input type=\"radio\" id=\"ch-$1-g\" name=\"ch-$1\"><div class=\"ch-tabs\"><label class=\"ch-tab\" for=\"ch-$1-a\">Boom</label><label class=\"ch-tab\" for=\"ch-$1-b\">Heart</label><label class=\"ch-tab\" for=\"ch-$1-c\">Clue</label><label class=\"ch-tab\" for=\"ch-$1-d\">Crash</label><label class=\"ch-tab\" for=\"ch-$1-e\">Spark</label><label class=\"ch-tab\" for=\"ch-$1-f\">Fire</label><label class=\"ch-tab\" for=\"ch-$1-g\">Wild</label></div><div class=\"ch-stage\"><section class=\"ch-panel ch-panel-a\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Detonation</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$3</div><div class=\"ch-media\">$4</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-a\">\u2442 Branch from this hook</button></div></section><section class=\"ch-panel ch-panel-b\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Heartknife</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$5</div><div class=\"ch-media\">$6</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-b\">\u2442 Branch from this hook</button></div></section><section class=\"ch-panel ch-panel-c\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Wrongness</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$7</div><div class=\"ch-media\">$8</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-c\">\u2442 Branch from this hook</button></div></section><section class=\"ch-panel ch-panel-d\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Crash-In</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$9</div><div class=\"ch-media\">$10</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-d\">\u2442 Branch from this hook</button></div></section><section class=\"ch-panel ch-panel-e\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Matchstrike</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$11</div><div class=\"ch-media\">$12</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-e\">\u2442 Branch from this hook</button></div></section><section class=\"ch-panel ch-panel-f\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Reputation Fire</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$13</div><div class=\"ch-media\">$14</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-f\">\u2442 Branch from this hook</button></div></section><section class=\"ch-panel ch-panel-g\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Wildcard Collision</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$15</div><div class=\"ch-media\">$16</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-g\">\u2442 Branch from this hook</button></div></section></div></div></details><!-- UI_END -->",
+      replace_string: "<!-- UI_START --><style data-ria-chaos-og-tabs-v5>.ch-og{--ch-accent:var(--lumiverse-primary,#8b5cf6);--ch-accent-hover:var(--lumiverse-primary-hover,#a78bfa);--ch-accent-020:color-mix(in srgb,var(--ch-accent) 20%,transparent);--ch-accent-010:color-mix(in srgb,var(--ch-accent) 10%,transparent);--ch-accent-text:var(--lumiverse-primary-text,#eadcff);--ch-text:var(--lumiverse-text,#f7efff);--ch-muted:var(--lumiverse-text-muted,#c8b9d8);--ch-bg:var(--lumiverse-bg-deep,#120918);--ch-panel:var(--lumiverse-bg-040,rgba(255,255,255,.045));--ch-border:var(--lumiverse-border,rgba(196,181,253,.22));box-sizing:border-box;width:min(92%,620px);margin:16px auto 22px;color:var(--ch-text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,'Segoe UI',sans-serif)}.ch-og,.ch-og *{box-sizing:border-box}.ch-og>summary.dg-compact-launch{position:relative!important;isolation:isolate!important;display:flex!important;align-items:center!important;justify-content:center!important;gap:9px!important;width:max-content!important;min-width:0!important;max-width:min(calc(100% - 24px),360px)!important;min-height:42px!important;margin:16px auto 0!important;margin-inline:auto!important;padding:10px 23px!important;overflow:hidden!important;cursor:pointer!important;list-style:none!important;border:1px solid color-mix(in srgb,var(--ch-accent) 52%,var(--ch-border) 48%)!important;border-radius:13px!important;background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--ch-accent-text) 11%,transparent),transparent 32%),linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-bg-elevated,#25172f) 76%,var(--ch-accent) 24%),color-mix(in srgb,var(--lumiverse-bg-deep,#0c0711) 90%,var(--ch-accent) 10%))!important;color:var(--ch-accent-text)!important;font:800 10px/1 var(--lumiverse-font-mono,'Courier New',monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--ch-accent) 22%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 10%,transparent)!important;-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important}.ch-og>summary.dg-compact-launch::-webkit-details-marker{display:none!important}.ch-og>summary.dg-compact-launch::marker{content:''!important}.ch-og>summary.dg-compact-launch:hover{transform:translateY(-1px)!important;border-color:color-mix(in srgb,var(--ch-accent) 78%,var(--ch-border) 22%)!important;box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 27px color-mix(in srgb,var(--ch-accent) 32%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 12%,transparent)!important}.ch-og>summary.dg-compact-launch:active{transform:translateY(0) scale(.985)!important}.ch-og>summary.dg-compact-launch::after{content:''!important;position:absolute!important;inset:1px!important;z-index:0!important;border-radius:inherit!important;pointer-events:none!important;background:linear-gradient(112deg,transparent 8%,color-mix(in srgb,var(--lumiverse-text,#fff) 7%,transparent) 35%,transparent 58%)!important}.ch-launch-emoji,.ch-launch-label{position:relative!important;z-index:2!important}.ch-launch-emoji{font-size:13px;filter:drop-shadow(0 0 7px color-mix(in srgb,var(--ch-accent) 55%,transparent))}.ch-launch-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dg-unified-sparks{position:absolute!important;inset:0!important;z-index:1!important;overflow:hidden!important;pointer-events:none!important}.dg-unified-sparks i{--x:50%;--y:50%;--dx:0px;--dy:-24px;--size:3px;--dur:8s;--delay:0s;position:absolute!important;left:var(--x)!important;top:var(--y)!important;width:var(--size)!important;height:var(--size)!important;border-radius:999px!important;background:radial-gradient(circle,color-mix(in srgb,var(--ch-accent-text) 94%,white 6%) 0 28%,color-mix(in srgb,var(--ch-accent-text) 68%,var(--ch-accent) 32%) 38%,color-mix(in srgb,var(--ch-accent) 25%,transparent) 65%,transparent 72%)!important;box-shadow:0 0 5px color-mix(in srgb,var(--ch-accent-text) 78%,transparent),0 0 13px color-mix(in srgb,var(--ch-accent) 44%,transparent)!important;opacity:0;animation:dg-unified-spark-float var(--dur) ease-in-out var(--delay) infinite!important}.dg-unified-sparks i:nth-child(1){--x:7%;--y:76%;--dx:8px;--dy:-34px;--size:2px;--dur:8.2s;--delay:-1.2s}.dg-unified-sparks i:nth-child(2){--x:18%;--y:23%;--dx:-5px;--dy:-26px;--size:3px;--dur:9.6s;--delay:-5s}.dg-unified-sparks i:nth-child(3){--x:31%;--y:83%;--dx:4px;--dy:-42px;--size:2px;--dur:10.8s;--delay:-3.8s}.dg-unified-sparks i:nth-child(4){--x:48%;--y:17%;--dx:7px;--dy:-28px;--size:2px;--dur:7.9s;--delay:-6.1s}.dg-unified-sparks i:nth-child(5){--x:64%;--y:79%;--dx:-6px;--dy:-37px;--size:3px;--dur:9.2s;--delay:-2.6s}.dg-unified-sparks i:nth-child(6){--x:80%;--y:29%;--dx:5px;--dy:-31px;--size:2px;--dur:11.2s;--delay:-7.4s}.dg-unified-sparks i:nth-child(7){--x:92%;--y:70%;--dx:-8px;--dy:-30px;--size:3px;--dur:8.8s;--delay:-4.7s}.dg-unified-sparks i:nth-child(8){--x:72%;--y:11%;--dx:4px;--dy:-21px;--size:2px;--dur:10.4s;--delay:-1.8s}@keyframes dg-unified-spark-float{0%{opacity:0;transform:translate3d(0,10px,0) scale(.45)}18%{opacity:.74}55%{opacity:.98}100%{opacity:0;transform:translate3d(var(--dx),var(--dy),0) scale(1.18)}}.ch-shell{margin-top:14px;border:1px solid color-mix(in srgb,var(--ch-accent) 38%,var(--ch-border) 62%);border-radius:18px;overflow:hidden;background:radial-gradient(ellipse at 50% -18%,color-mix(in srgb,var(--ch-accent) 8%,transparent),transparent 48%),linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-bg-deep-080,#1b0f25) 92%,var(--ch-accent) 8%),var(--ch-bg));box-shadow:var(--lumiverse-shadow-lg,0 14px 34px rgba(0,0,0,.35)),0 0 24px color-mix(in srgb,var(--ch-accent) 13%,transparent)}.ch-meta{display:flex;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap;padding:11px 12px;border-bottom:1px solid color-mix(in srgb,var(--ch-accent) 17%,var(--ch-border) 83%);background:color-mix(in srgb,var(--ch-panel) 48%,transparent)}.ch-pill{display:inline-flex;align-items:center;justify-content:center;max-width:100%;padding:5px 9px;border:1px solid color-mix(in srgb,var(--ch-accent) 24%,var(--ch-border) 76%);border-radius:999px;background:color-mix(in srgb,var(--ch-panel) 72%,var(--ch-accent-010) 28%);font:700 8px/1.2 var(--lumiverse-font-mono,'Courier New',monospace);letter-spacing:.105em;text-transform:uppercase;color:color-mix(in srgb,var(--ch-muted) 76%,var(--ch-accent-text) 24%);overflow-wrap:anywhere}.ch-og input[type=radio]{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}.ch-tabs{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;width:100%;padding:12px 12px 0}.ch-tab{display:flex;align-items:center;justify-content:center;min-width:0;padding:7px 4px;border:1px solid color-mix(in srgb,var(--ch-accent) 17%,var(--ch-border) 83%);border-radius:999px;background:color-mix(in srgb,var(--ch-panel) 36%,transparent);font:800 8px/1 var(--lumiverse-font-mono,'Courier New',monospace);letter-spacing:.08em;text-transform:uppercase;color:var(--ch-muted);cursor:pointer;transition:transform .18s ease,border-color .18s ease,background .18s ease,color .18s ease,box-shadow .18s ease;-webkit-tap-highlight-color:transparent;white-space:nowrap;overflow:hidden}.ch-tab:hover{transform:translateY(-1px);border-color:color-mix(in srgb,var(--ch-accent) 45%,var(--ch-border) 55%);color:var(--ch-accent-text)}#ch-$1-a:checked~.ch-tabs label[for='ch-$1-a'],#ch-$1-b:checked~.ch-tabs label[for='ch-$1-b'],#ch-$1-c:checked~.ch-tabs label[for='ch-$1-c'],#ch-$1-d:checked~.ch-tabs label[for='ch-$1-d'],#ch-$1-e:checked~.ch-tabs label[for='ch-$1-e'],#ch-$1-f:checked~.ch-tabs label[for='ch-$1-f'],#ch-$1-g:checked~.ch-tabs label[for='ch-$1-g']{border-color:color-mix(in srgb,var(--ch-accent) 58%,var(--ch-border) 42%);background:color-mix(in srgb,var(--ch-panel) 58%,var(--ch-accent-020) 42%);color:var(--ch-accent-text);box-shadow:0 0 13px color-mix(in srgb,var(--ch-accent) 14%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 5%,transparent)}.ch-stage{padding:12px}.ch-panel{display:none;overflow:hidden;border:1px solid color-mix(in srgb,var(--ch-accent) 17%,var(--ch-border) 83%);border-radius:14px;background:radial-gradient(ellipse at 50% -30%,color-mix(in srgb,var(--ch-accent-text) 4%,transparent),transparent 54%),linear-gradient(180deg,color-mix(in srgb,var(--ch-panel) 82%,var(--ch-accent-010) 18%),color-mix(in srgb,var(--ch-panel) 60%,var(--ch-bg) 40%));box-shadow:inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 4%,transparent),0 10px 24px rgba(0,0,0,.18)}#ch-$1-a:checked~.ch-tabs~.ch-stage .ch-panel-a,#ch-$1-b:checked~.ch-tabs~.ch-stage .ch-panel-b,#ch-$1-c:checked~.ch-tabs~.ch-stage .ch-panel-c,#ch-$1-d:checked~.ch-tabs~.ch-stage .ch-panel-d,#ch-$1-e:checked~.ch-tabs~.ch-stage .ch-panel-e,#ch-$1-f:checked~.ch-tabs~.ch-stage .ch-panel-f,#ch-$1-g:checked~.ch-tabs~.ch-stage .ch-panel-g{display:block}.ch-cardhead{display:flex;align-items:center;justify-content:center;padding:12px 14px 2px}.ch-vector{font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;font-weight:700;color:color-mix(in srgb,var(--ch-text) 90%,var(--ch-accent-text) 10%);text-align:center}.ch-copy{padding:10px 16px 12px;font-size:14px;line-height:1.72;color:color-mix(in srgb,var(--ch-text) 92%,var(--ch-muted) 8%);overflow-wrap:anywhere}.ch-divider{height:1px;margin:0 14px 12px;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--ch-accent) 35%,transparent),transparent)}.ch-media{padding:0 12px 12px}.ch-media img{display:block;width:100%!important;height:auto!important;max-height:330px;object-fit:cover;border-radius:12px!important}.ch-actions{padding:0 12px 12px}.ch-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:40px;padding:10px 12px;border:1px solid color-mix(in srgb,var(--ch-accent) 36%,var(--ch-border) 64%);border-radius:11px;background:linear-gradient(180deg,color-mix(in srgb,var(--ch-panel) 68%,var(--ch-accent-020) 32%),color-mix(in srgb,var(--ch-bg) 84%,var(--ch-accent-010) 16%));box-shadow:inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 5%,transparent),0 0 13px color-mix(in srgb,var(--ch-accent) 10%,transparent);color:var(--ch-accent-text);font:800 8px/1.2 var(--lumiverse-font-mono,'Courier New',monospace);letter-spacing:.11em;text-transform:uppercase;cursor:pointer}.ch-btn:hover{border-color:color-mix(in srgb,var(--ch-accent) 62%,var(--ch-border) 38%);box-shadow:inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 6%,transparent),0 0 18px color-mix(in srgb,var(--ch-accent) 18%,transparent)}.ch-btn[data-lumiverse-regex-action-selected]{border-color:var(--ch-accent-text)}.ch-btn[data-lumiverse-regex-action-used='true']{opacity:.48;cursor:not-allowed}@media(max-width:560px){.ch-og{width:94%;margin:14px auto 18px}.ch-og>summary.dg-compact-launch{max-width:calc(100% - 18px)!important;min-height:40px!important;padding:9px 18px!important;font-size:9px!important;letter-spacing:.16em!important}.ch-meta{padding:9px}.ch-pill{font-size:7px;padding:5px 7px}.ch-tabs{gap:4px;padding:10px 8px 0}.ch-tab{padding:7px 2px;font-size:7px;letter-spacing:.04em}.ch-stage{padding:9px}.ch-vector{font-size:1rem}.ch-copy{font-size:13px;padding:9px 12px 11px}.ch-media,.ch-actions{padding-left:9px;padding-right:9px}.ch-media img{max-height:280px}}@media(prefers-reduced-motion:reduce){.dg-unified-sparks i{animation:none!important;opacity:.42!important}.ch-og>summary.dg-compact-launch,.ch-tab{transition:none!important}}</style><details class=\"ch-og dg-compact-launch-host\"><summary class=\"dg-compact-launch\"><span class=\"dg-unified-sparks\" aria-hidden=\"true\"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class=\"ch-launch-emoji\" aria-hidden=\"true\">\u2604</span><span class=\"ch-launch-label\">Plot Sparks</span></summary><div class=\"ch-shell\"><div class=\"ch-meta\"><span class=\"ch-pill\">ID \u2022 $1</span><span class=\"ch-pill\">$2</span></div><input type=\"radio\" id=\"ch-$1-a\" name=\"ch-$1\" checked><input type=\"radio\" id=\"ch-$1-b\" name=\"ch-$1\"><input type=\"radio\" id=\"ch-$1-c\" name=\"ch-$1\"><input type=\"radio\" id=\"ch-$1-d\" name=\"ch-$1\"><input type=\"radio\" id=\"ch-$1-e\" name=\"ch-$1\"><input type=\"radio\" id=\"ch-$1-f\" name=\"ch-$1\"><input type=\"radio\" id=\"ch-$1-g\" name=\"ch-$1\"><div class=\"ch-tabs\"><label class=\"ch-tab\" for=\"ch-$1-a\">Boom</label><label class=\"ch-tab\" for=\"ch-$1-b\">Heart</label><label class=\"ch-tab\" for=\"ch-$1-c\">Clue</label><label class=\"ch-tab\" for=\"ch-$1-d\">Crash</label><label class=\"ch-tab\" for=\"ch-$1-e\">Spark</label><label class=\"ch-tab\" for=\"ch-$1-f\">Fire</label><label class=\"ch-tab\" for=\"ch-$1-g\">Wild</label></div><div class=\"ch-stage\"><section class=\"ch-panel ch-panel-a\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Detonation</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$3</div><div class=\"ch-media\">$4</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-a\">\u2442 Branch from this hook</button></div></section><section class=\"ch-panel ch-panel-b\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Heartknife</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$5</div><div class=\"ch-media\">$6</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-b\">\u2442 Branch from this hook</button></div></section><section class=\"ch-panel ch-panel-c\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Wrongness</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$7</div><div class=\"ch-media\">$8</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-c\">\u2442 Branch from this hook</button></div></section><section class=\"ch-panel ch-panel-d\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Crash-In</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$9</div><div class=\"ch-media\">$10</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-d\">\u2442 Branch from this hook</button></div></section><section class=\"ch-panel ch-panel-e\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Matchstrike</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$11</div><div class=\"ch-media\">$12</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-e\">\u2442 Branch from this hook</button></div></section><section class=\"ch-panel ch-panel-f\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Reputation Fire</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$13</div><div class=\"ch-media\">$14</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-f\">\u2442 Branch from this hook</button></div></section><section class=\"ch-panel ch-panel-g\"><div class=\"ch-cardhead\"><div class=\"ch-vector\">Wildcard Collision</div></div><div class=\"ch-divider\"></div><div class=\"ch-copy\">$15</div><div class=\"ch-media\">$16</div><div class=\"ch-actions\"><button type=\"button\" class=\"ch-btn\" data-regex-action=\"choose-chaos-g\">\u2442 Branch from this hook</button></div></section></div></div></details><!-- UI_END -->",
       flags: "g",
       placement: [
         "ai_output"
@@ -152949,7 +153089,7 @@ var scheduledProseOpportunityScans = new Map;
 var deferredReparseRequests = new Map;
 var deferredRegenerateRequests = new Map;
 var abortableOperationSerials = new Map;
-var renderSnapshotCache = new BoundedLruCache({ maxEntries: 64, ttlMs: 5 * 60000 });
+var renderSnapshotCache = new BoundedLruCache({ maxEntries: 64, ttlMs: 30 * 60000 });
 var renderOutputCache = new BoundedLruCache({
   maxEntries: 96,
   maxBytes: 3 * 1024 * 1024,
@@ -152979,9 +153119,45 @@ function trimSurfaceUtilityCache() {
 function renderScopeKey(chatId, userId) {
   return `${userId || "__default__"}:${chatId}`;
 }
+function renderStudioContractFingerprint(studio) {
+  const definitions = Object.values(studio.definitions || {}).map((definition) => {
+    const { promptEnabled: _promptEnabled, promptModule: _promptModule, updatedAt: _updatedAt, ...displayDefinition } = definition;
+    return displayDefinition;
+  }).sort((left, right) => left.surfaceId.localeCompare(right.surfaceId));
+  return contentFingerprint(JSON.stringify({
+    rendererMode: studio.rendererMode,
+    shellMode: studio.defaultShellMode,
+    colorMode: studio.colorMode,
+    activePresetIds: studio.activePresetIds,
+    definitions
+  }));
+}
+function renderConfigurationFingerprint(config) {
+  return contentFingerprint(JSON.stringify({
+    autoGenerate: config.autoGenerate,
+    rendererMode: config.surfaceRendererMode,
+    shellMode: config.surfaceDefaultShellMode,
+    colorMode: config.surfaceColorMode,
+    narrativeVariant: config.narrativeDlcVariant,
+    studio: renderStudioContractFingerprint(config.globalSurfaceStudio)
+  }));
+}
+function hotFallbackRenderSnapshot(userId) {
+  const config = configCache.get(userConfigCacheKey(userId))?.value || DEFAULT_CONFIG;
+  const studio = normalizeCustomSurfaceStudio(config.globalSurfaceStudio);
+  return {
+    studio,
+    contractFingerprint: renderStudioContractFingerprint(studio),
+    autoGenerate: config.autoGenerate,
+    narrativeVariant: narrativeVariantForSurfaceShellMode(config.surfaceDefaultShellMode),
+    records: [],
+    cachedAt: Date.now()
+  };
+}
 function cacheRenderSnapshot(chatId, userId, state, config) {
   const snapshot = {
     studio: state.customSurfaces,
+    contractFingerprint: renderStudioContractFingerprint(state.customSurfaces),
     autoGenerate: config.autoGenerate,
     narrativeVariant: narrativeVariantForSurfaceShellMode(config.surfaceDefaultShellMode),
     records: Object.values(state.slots),
@@ -153201,7 +153377,10 @@ function sidecarRegistryMessages(settings, workflow, runtimePayload) {
   return messages;
 }
 function r45BracketSpecificGuidance(contract) {
-  const body = cleanString(contract).replace(/^<[A-Za-z][\w:-]*_utility>\s*/i, "").replace(/<\/[A-Za-z][\w:-]*_utility>\s*$/i, "").replace(/^R4\.5 FINAL SURFACE UTILITY CONTRACT[\s\S]*?generic substitute cards, HTML layouts, centered prose blobs, or renderer fallback text\.\s*/i, "").replace(/^(?:SURFACE|BRACKET) ROOT:\s*(?:<[^>]+>|\[[^\]]+\])\s*/im, "").split(/\n\s*(?:Canonical structure:|OUTPUT FORMAT(?:\s+\u2014\s+EXACT)?)/i)[0].replace(/Output raw XML only\.?/gi, "").replace(/<((?!image_request\b|\/image_request\b|scene_brief\b|\/scene_brief\b)[A-Za-z][\w:-]*)>/g, "[$1]").replace(/<\/((?!image_request\b|scene_brief\b)[A-Za-z][\w:-]*)>/g, "[/$1]").trim();
+  const body = cleanString(contract).replace(/^<[A-Za-z][\w:-]*_utility>\s*/i, "").replace(/<\/[A-Za-z][\w:-]*_utility>\s*$/i, "").replace(/^R4\.5 FINAL SURFACE UTILITY CONTRACT[\s\S]*?generic substitute cards, HTML layouts, centered prose blobs, or renderer fallback text\.\s*/i, "").replace(/^(?:SURFACE|BRACKET) ROOT:\s*(?:<[^>]+>|\[[^\]]+\])\s*/im, "").split(/\n\s*(?:Canonical structure:|OUTPUT FORMAT(?:\s+\u2014\s+EXACT)?)/i)[0].replace(/Output raw XML only\.?/gi, "").replace(/<((?!image_request\b|scene_brief\b)[A-Za-z][\w:-]*)((?:\s+[\w:-]+\s*=\s*["'][^"']*["'])+)\s*>/g, (_full, tag, rawAttrs) => {
+    const fields = [...rawAttrs.matchAll(/([\w:-]+)\s*=\s*["']([^"']*)["']/g)].map((match) => `[${match[1]}]${match[2]}[/${match[1]}]`).join(" ");
+    return `[${tag}] with child fields ${fields}`;
+  }).replace(/<((?!image_request\b|scene_brief\b)[A-Za-z][\w:-]*)\s+[^>]*>/g, "[$1]").replace(/<((?!image_request\b|\/image_request\b|scene_brief\b|\/scene_brief\b)[A-Za-z][\w:-]*)>/g, "[$1]").replace(/<\/((?!image_request\b|scene_brief\b)[A-Za-z][\w:-]*)>/g, "[/$1]").replace(/\battributes\b/gi, "child fields").replace(/\bXML\b/g, "bracket fields").trim();
   return body ? `
 
 R4.5 SURFACE-SPECIFIC RULES
@@ -153235,9 +153414,10 @@ function canonicalSurfacePromptModule(definition) {
   if (text2 && !definition.builtIn && !containsStalePromptTemplate(text2))
     return ensureSurfacePromptContainsImageRequest(definition, text2);
   const builtInDefault = cleanString(builtInSurfaceDefinitionTemplate?.[definition.surfaceId]?.promptModule);
-  if (builtInDefault && /bracket-native syntax/i.test(builtInDefault))
-    return builtInDefault;
   const r45 = r45UtilityContract(definition.baseSurfaceId);
+  if (builtInDefault && /bracket-native syntax/i.test(builtInDefault)) {
+    return ensureSurfacePromptContainsImageRequest(definition, `${builtInDefault}${r45BracketSpecificGuidance(r45)}`);
+  }
   const bracket = bracketSurfacePromptModule({
     label: definition.displayName,
     root: definition.canonicalOuterWrapper,
@@ -153531,15 +153711,12 @@ if (typeof registerMessageContentProcessor === "function") {
       const scope = renderScopeKey(context.chatId, context.userId);
       let snapshot = renderSnapshotCache.get(scope);
       if (!snapshot) {
-        const [state, config] = await Promise.all([
-          getState(context.chatId, context.userId),
-          getConfig(context.userId)
-        ]);
-        snapshot = cacheRenderSnapshot(context.chatId, context.userId, state, config);
+        warmRenderSnapshot(context.chatId, context.userId);
+        snapshot = hotFallbackRenderSnapshot(context.userId);
+        renderSnapshotCache.set(scope, snapshot);
       }
       const renderSwipeId = context.extra?.swipe_id === undefined && context.extra?.swipeId === undefined ? undefined : Number(context.extra?.swipe_id ?? context.extra?.swipeId);
-      const recordSignature = snapshot.records.filter((record3) => !context.messageId || record3.messageId === context.messageId).filter((record3) => renderSwipeId === undefined || record3.swipeId === renderSwipeId).map((record3) => `${record3.key}:${isSlotLifecycleActive(record3.status) ? "active" : record3.status}:${record3.imageUrl || record3.pendingPlacement?.imageUrl || ""}:${record3.requestAspect || ""}:${record3.error || ""}`).join("|");
-      const outputKey = `${scope}:${context.messageId || "__new__"}:${renderSwipeId ?? "__active__"}:${contentFingerprint(source)}:${snapshot.studio.rendererMode}:${snapshot.studio.defaultShellMode}:${snapshot.studio.colorMode}:${snapshot.narrativeVariant}:${contentFingerprint(recordSignature)}`;
+      const outputKey = `${scope}:${context.messageId || "__new__"}:${renderSwipeId ?? "__active__"}:${contentFingerprint(source)}:${snapshot.contractFingerprint}:${snapshot.narrativeVariant}`;
       const cached = renderOutputCache.get(outputKey);
       if (cached)
         return { content: cached.content };
@@ -163403,7 +163580,9 @@ async function setConfig(patch, userId) {
     const next = normalizeConfig({ ...current, ...patch });
     await spindle.userStorage.setJson(CONFIG_PATH, next, { indent: 2, userId });
     configCache.set(key, { value: next, cachedAt: Date.now() });
-    invalidateRenderCaches(undefined, userId);
+    if (renderConfigurationFingerprint(current) !== renderConfigurationFingerprint(next)) {
+      invalidateRenderCaches(undefined, userId);
+    }
     return next;
   } finally {
     release();
