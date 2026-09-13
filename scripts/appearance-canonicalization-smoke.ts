@@ -7,10 +7,11 @@ import {
   normalizeContinuityVault,
   isValidCanonicalCharacterName,
   registerCanonicalCharacter,
+  replaceAppearanceMemoryFieldFromSidecar,
   saveManualAppearanceMemory,
   selectContinuityForSubjects,
 } from '../src/vault'
-import { ingestAppearanceSidecarObservations, normalizeAppearanceSidecarOutput } from '../src/appearanceSidecar'
+import { ingestAppearanceSidecarObservations, normalizeAppearanceFieldRefreshOutput, normalizeAppearanceSidecarOutput } from '../src/appearanceSidecar'
 
 const assert = (value: unknown, message: string): asserts value => { if (!value) throw new Error(message) }
 const values = (text: string) => text.split(',').map(item => item.trim()).filter(Boolean)
@@ -19,6 +20,7 @@ const lacksProse = (text: string) => {
   assert(!/\b(?:sharp|jet-black|raven-black|manhwa lashes|beneath|outer corner|looked bronze|practice jersey)\b/i.test(text), `prose leaked into canonical tags: ${text}`)
 }
 const sidecar = (observations: any[]) => normalizeAppearanceSidecarOutput(JSON.stringify({ observations }))
+assert(normalizeAppearanceFieldRefreshOutput(JSON.stringify({ fieldResult: { subject: 'Vela', field: 'negative-identity-tags', status: 'known', tags: ['blonde hair'] } }), 'negative-identity-tags').tags[0] === 'blonde hair', 'manual field refresh schema must accept a valid scoped result')
 
 // Host persona names/aliases and Sidecar observations share the existing sheet.
 const personaVault = emptyContinuityVault('persona-alias-migration')
@@ -125,6 +127,9 @@ ingestAppearanceSidecarObservations(outfitVault, sidecar([{
 }]), { chatId: outfitVault.chatId, messageId: 'outfit-change-1', swipeId: 0, activeCharacter: { id: outfitSubject.canonicalCharacterId, name: 'Outfit Alpha', aliases: [] }, activePersona: null })
 assert(appearanceMemoryView(outfitVault, outfitSubject.canonicalCharacterId).currentOutfit === 'white_sleep_shirt, black_shorts', 'current-turn Sidecar evidence must independently replace the previous Current Outfit')
 assert(Object.values(outfitVault.wardrobe).some(fact => fact.category === 'saved-outfit' && fact.status === 'active'), 'Sidecar Current Outfit updates must not delete saved wardrobe')
+const knownOutfitBeforeUnknownRefresh = appearanceMemoryView(outfitVault, outfitSubject.canonicalCharacterId).currentOutfit
+replaceAppearanceMemoryFieldFromSidecar(outfitVault, { characterId: outfitSubject.canonicalCharacterId, field: 'current-outfit', status: 'unknown', tags: [] })
+assert(appearanceMemoryView(outfitVault, outfitSubject.canonicalCharacterId).currentOutfit === knownOutfitBeforeUnknownRefresh, 'an unknown manual Sidecar result must preserve the existing field instead of erasing it')
 
 // I. Character, persona, and named NPC paths use the same storage semantics.
 const parityVault = emptyContinuityVault('appearance-canonical-parity')
@@ -255,6 +260,10 @@ const backendMessages = [{ id: 'm1', role: 'assistant', content: 'Prime Beta wai
   generate: { async raw(request: any) {
     backendRequests.push(structuredClone(request))
     const system = String(request?.messages?.[0]?.content || '')
+    const user = String(request?.messages?.[1]?.content || '')
+    if (system.includes('Appearance Sidecar') && user.includes('"requestedField":"stable-appearance"')) return { content: JSON.stringify({ fieldResult: { subject: 'Prime Beta', field: 'stable-appearance', status: 'known', tags: ['messy lavender hair', 'glasses'] } }) }
+    if (system.includes('Appearance Sidecar') && user.includes('"requestedField":"current-outfit"')) return { content: JSON.stringify({ fieldResult: { subject: 'Prime Beta', field: 'current-outfit', status: 'known', tags: ['green jacket', 'black jeans'] } }) }
+    if (system.includes('Appearance Sidecar') && user.includes('"requestedField":"negative-identity-tags"')) return { content: JSON.stringify({ fieldResult: { subject: 'Prime Beta', field: 'negative-identity-tags', status: 'known', tags: ['blonde hair', 'blue eyes'] } }) }
     if (system.includes('Appearance Sidecar')) return { content: JSON.stringify({ observations: [{ subject: { name: 'Prime Beta', aliases: [], role: 'persona', trustworthy: true }, confidence: .98, facts: [{ layer: 'wardrobe', category: 'current-outfit', value: 'red dress', provenance: 'current-assistant-message' }] }] }) }
     return { content: JSON.stringify({ prompt: 'Prime Beta with black hair, winged eyeliner, and long eyelashes.', negativeAdditions: '' }) }
   } },
@@ -276,11 +285,23 @@ const config = await backend.getConfig('offline')
 await backend.runAppearanceSidecar({ chatId: 'prompt-once', messageId: 'ordinary-turn', swipeId: 0, content: 'Prime Beta changes into a red dress.', userId: 'offline', reason: 'generation-ended' })
 const independentOutfitState = backendState.get('states/prompt-once.json') as any
 assert(appearanceMemoryView(independentOutfitState.continuityVault, persona.canonicalCharacterId).currentOutfit === 'red_dress', 'Appearance Sidecar must update Current Outfit on an ordinary completed turn without an image request')
+await backend.runAppearanceSidecar({ chatId: 'prompt-once', messageId: 'manual-stable', swipeId: 0, content: '', userId: 'offline', mode: 'reconcile', reason: 'manual-stable-appearance-refresh', focusCharacter: { id: persona.canonicalCharacterId, name: 'Prime Beta' }, refreshField: 'stable-appearance' })
+let refreshedState = backendState.get('states/prompt-once.json') as any
+assert(['messy_hair', 'lavender_hair', 'glasses'].every(tag => has(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).stableAppearance, tag)), 'Stable Appearance rerun must replace only the selected field')
+assert(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).currentOutfit === 'red_dress', 'Stable Appearance rerun must preserve Current Outfit')
+await backend.runAppearanceSidecar({ chatId: 'prompt-once', messageId: 'manual-outfit', swipeId: 0, content: '', userId: 'offline', mode: 'reconcile', reason: 'manual-current-outfit-refresh', focusCharacter: { id: persona.canonicalCharacterId, name: 'Prime Beta' }, refreshField: 'current-outfit' })
+refreshedState = backendState.get('states/prompt-once.json') as any
+assert(['green_jacket', 'jeans'].every(tag => has(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).currentOutfit, tag)), 'Current Outfit rerun must replace only the selected field')
+assert(['messy_hair', 'lavender_hair', 'glasses'].every(tag => has(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).stableAppearance, tag)), 'Current Outfit rerun must preserve Stable Appearance')
+await backend.runAppearanceSidecar({ chatId: 'prompt-once', messageId: 'manual-negative', swipeId: 0, content: '', userId: 'offline', mode: 'reconcile', reason: 'manual-negative-identity-tags-refresh', focusCharacter: { id: persona.canonicalCharacterId, name: 'Prime Beta' }, refreshField: 'negative-identity-tags' })
+refreshedState = backendState.get('states/prompt-once.json') as any
+assert(refreshedState.continuityVault.characterSheets[persona.canonicalCharacterId].negativeIdentityTags === 'blonde_hair, blue_eyes', 'Negative Identity Tags rerun must save its dedicated Sidecar result')
+assert(['messy_hair', 'lavender_hair', 'glasses'].every(tag => has(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).stableAppearance, tag)) && ['green_jacket', 'jeans'].every(tag => has(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).currentOutfit, tag)), 'Negative Identity Tags rerun must preserve Stable Appearance and Current Outfit')
 const prepared = await backend.parseSlotPrompt({ requestId: 'prompt-once-request', chatId: 'prompt-once', messageId: 'm1', swipeId: 0, target: 'custom.artifact-media', slots: ['portrait'], count: 1, originalSceneBrief: 'Prime Beta portrait.', originalRequestXml: '', alt: 'Portrait', caption: '', aspect: '3:4', cast: 'user', promptSource: 'structured', originalNegativePrompt: '', promptProfileId: 'social-candid' }, 'portrait', backendMessages as any, 0, config, 'offline', {})
 const parserPrompt = JSON.stringify(backendRequests.at(-1)?.messages || [])
 assert(prepared.promptPipeline.identityResolution?.fallbacks.some((row: string) => row.includes('Appearance Sidecar state used')), 'unresolved persona binding should use Sidecar fallback')
 assert(!parserPrompt.includes('Relay Appearance Memory'), 'Sidecar fallback subject must not also receive duplicate Relay Appearance Memory block')
-for (const tag of ['black_hair', 'winged_eyeliner', 'long_eyelashes']) {
+for (const tag of ['glasses', 'lavender_hair', 'messy_hair']) {
   assert((parserPrompt.match(new RegExp(tag, 'g')) || []).length === 1, `provider-bound parser prompt should contain ${tag} once through clean Sidecar fallback: ${parserPrompt}`)
 }
 

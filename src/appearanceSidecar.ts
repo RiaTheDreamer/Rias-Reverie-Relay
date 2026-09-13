@@ -30,6 +30,15 @@ export type AppearanceSidecarIdentity = {
   aliases: string[]
 }
 
+export type AppearanceMemoryRefreshField = 'stable-appearance' | 'current-outfit' | 'negative-identity-tags'
+
+export type AppearanceFieldRefreshResult = {
+  subject: string
+  field: AppearanceMemoryRefreshField
+  status: 'known' | 'unknown'
+  tags: string[]
+}
+
 const LAYERS = new Set<AppearanceVaultLayer>(['visual-identity', 'wardrobe', 'current-appearance'])
 const CATEGORIES = new Set<AppearanceFactCategory>([
   'hair-color', 'hair-length', 'hair-texture', 'hairstyle', 'eye-color', 'face-shape', 'body-build', 'height', 'scar', 'tattoo', 'birthmark', 'mole', 'prosthetic', 'permanent-mark',
@@ -43,14 +52,17 @@ const stringList = (value: unknown): string[] => Array.isArray(value) ? value.ma
 const clamp = (value: unknown): number => Number.isFinite(Number(value)) ? Math.max(0, Math.min(1, Number(value))) : 0
 const isConflictDomain = (value: string): boolean => /^[a-z][a-z0-9-]{0,47}(?::[a-z][a-z0-9-]{0,47})?$/.test(value) && value.length <= 96
 
-/** Structural validation only. The Appearance Sidecar owns semantic meaning. */
-export function normalizeAppearanceSidecarOutput(raw: string): AppearanceSidecarObservation[] {
+function parseSidecarJsonObject(raw: string): Record<string, unknown> {
   const source = clean(raw).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '')
   const start = source.indexOf('{')
   const end = source.lastIndexOf('}')
   if (start < 0 || end <= start) throw new Error('Appearance Sidecar returned no JSON object.')
-  let parsed: Record<string, unknown>
-  try { parsed = asRecord(JSON.parse(source.slice(start, end + 1))) } catch { throw new Error('Appearance Sidecar returned invalid JSON.') }
+  try { return asRecord(JSON.parse(source.slice(start, end + 1))) } catch { throw new Error('Appearance Sidecar returned invalid JSON.') }
+}
+
+/** Structural validation only. The Appearance Sidecar owns semantic meaning. */
+export function normalizeAppearanceSidecarOutput(raw: string): AppearanceSidecarObservation[] {
+  const parsed = parseSidecarJsonObject(raw)
   const rows = Array.isArray(parsed.observations) ? parsed.observations : []
   const observations: AppearanceSidecarObservation[] = []
   for (const rawObservation of rows.slice(0, 24)) {
@@ -78,6 +90,21 @@ export function normalizeAppearanceSidecarOutput(raw: string): AppearanceSidecar
     })
   }
   return observations
+}
+
+export function normalizeAppearanceFieldRefreshOutput(raw: string, expectedField: AppearanceMemoryRefreshField): AppearanceFieldRefreshResult {
+  const parsed = parseSidecarJsonObject(raw)
+  const result = asRecord(parsed.fieldResult)
+  const subject = clean(result.subject)
+  const field = clean(result.field) as AppearanceMemoryRefreshField
+  const status = clean(result.status)
+  const rawTags = Array.isArray(result.tags) ? result.tags : typeof result.tags === 'string' ? result.tags.split(',') : []
+  const tags = rawTags.map(clean).filter(Boolean).filter(tag => tag.length <= 320).slice(0, 48)
+  if (!subject || field !== expectedField || !['known', 'unknown'].includes(status)) {
+    throw new Error(`Appearance Sidecar returned an invalid ${expectedField} field result.`)
+  }
+  if (status === 'known' && !tags.length) throw new Error(`Appearance Sidecar returned no tags for known ${expectedField}.`)
+  return { subject, field, status: status as AppearanceFieldRefreshResult['status'], tags: status === 'unknown' ? [] : tags }
 }
 
 /**
@@ -112,6 +139,7 @@ export function buildAppearanceSidecarPayload(input: {
   nativeImageGenBindings: unknown
   appearanceMemory: ContinuityVaultState
   focusCharacter?: { id: string; name: string } | null
+  requestedField?: AppearanceMemoryRefreshField
   tier?: ContextTier
   expansionReason?: string
 }): Record<string, unknown> {
@@ -149,6 +177,7 @@ export function buildAppearanceSidecarPayload(input: {
     }),
     appearanceMemory: { subjects: relevantCharacters.map(subject => ({ name: subject.canonicalCharacterName, aliases: subject.aliases })), facts: memory },
     focusCharacter: preserveCompleteSidecarContext(input.focusCharacter || null),
+    requestedField: input.requestedField || null,
     contextMetrics,
   }
 }

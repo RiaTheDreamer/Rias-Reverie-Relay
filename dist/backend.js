@@ -739,6 +739,13 @@ var DEFAULT_SIDECAR_PROMPTS = {
 <runtime_payload>
 {{runtime_payload}}
 </runtime_payload>`,
+  "sidecar.appearance.field-refresh": `Refresh only the requested Appearance Memory field for focusCharacter. Return {"fieldResult":{"subject":"exact focusCharacter name","field":"stable-appearance"|"current-outfit"|"negative-identity-tags","status":"known"|"unknown","tags":["tag or concise visual fragment",...]}} only.
+
+For stable-appearance, include durable face, body, hair, eyes, and permanent identifying features; exclude clothing, pose, expression, camera, and scene details. For current-outfit, include only clothing and worn accessories established for the current/latest scene; use status="unknown" when the current outfit is not established. For negative-identity-tags, derive concise image-negative tags that prevent contradictions with the subject's established stable identity; never negate the desired identity itself, clothing, pose, style, quality, or scene. Use status="unknown" rather than inventing unsupported identity. Treat this as an explicit user-requested refresh of one field and do not return or modify either of the other fields.
+
+<runtime_payload>
+{{runtime_payload}}
+</runtime_payload>`,
   "sidecar.opportunity.system": `You are Reverie Relay Sidecar Opportunity Discovery. Return strict JSON containing opportunity candidates grounded only in the supplied runtime payload.`,
   "sidecar.opportunity.request": `Analyze the active assistant message in the runtime payload. Return {"opportunities":[...]} with zero to the configured maximum. Select distinct meaningful visual beats and provide the complete opportunity schema requested by the payload. Preserve exact paragraph anchors and do not invent canon.
 
@@ -4104,6 +4111,90 @@ function saveManualAppearanceMemory(vault, input, now = Date.now()) {
   appendHistory(vault, "appearance-memory-saved", { characterId: input.characterId, details: { source: "appearance-editor" } }, now);
   vault.updatedAt = now;
 }
+function replaceAppearanceMemoryFieldFromSidecar(vault, input, now = Date.now()) {
+  const character = vault.characters[input.characterId];
+  if (!character)
+    throw new Error("Character not found.");
+  const value = serializeCanonicalTagList(input.tags);
+  if (input.status === "known" && !value)
+    throw new Error(`Appearance Sidecar returned no usable ${input.field} tags.`);
+  if (input.status === "unknown") {
+    appendHistory(vault, "appearance-memory-saved", { characterId: input.characterId, details: { source: "appearance-sidecar-field-refresh", field: input.field, status: input.status, preservedExistingValue: true } }, now);
+    vault.updatedAt = now;
+    return;
+  }
+  if (input.field === "stable-appearance") {
+    for (const fact of Object.values(vault.visualIdentity)) {
+      if (fact.canonicalCharacterId === input.characterId)
+        removeAppearanceFact(vault, fact.factId, now);
+    }
+    addAppearanceFacts(vault, {
+      layer: "visual-identity",
+      characterId: input.characterId,
+      category: "other",
+      value,
+      sourceType: "appearance-sidecar",
+      sourceReference: { sourceType: "appearance-sidecar", sourceReference: "manual-field-refresh:stable-appearance", chatId: input.chatId || vault.chatId, messageId: input.sourceMessageId, swipeId: input.sourceSwipeId },
+      confidence: 1,
+      pinned: true,
+      userConfirmed: false,
+      semanticAuthority: "appearance-sidecar",
+      chatId: input.chatId || vault.chatId,
+      sourceMessageId: input.sourceMessageId,
+      sourceSwipeId: input.sourceSwipeId
+    }, now);
+  } else if (input.field === "current-outfit") {
+    for (const fact of Object.values(vault.wardrobe)) {
+      if (fact.canonicalCharacterId !== input.characterId || fact.category !== "current-outfit" && !fact.currentWardrobe)
+        continue;
+      fact.status = "inactive";
+      fact.active = false;
+      fact.currentWardrobe = false;
+      fact.updatedAt = now;
+    }
+    addAppearanceFacts(vault, {
+      layer: "wardrobe",
+      characterId: input.characterId,
+      category: "current-outfit",
+      value,
+      sourceType: "appearance-sidecar",
+      sourceReference: { sourceType: "appearance-sidecar", sourceReference: "manual-field-refresh:current-outfit", chatId: input.chatId || vault.chatId, messageId: input.sourceMessageId, swipeId: input.sourceSwipeId },
+      confidence: 1,
+      pinned: false,
+      userConfirmed: false,
+      currentWardrobe: true,
+      replaceUserConfirmedCurrentWardrobe: true,
+      semanticAuthority: "appearance-sidecar",
+      chatId: input.chatId || vault.chatId,
+      sourceMessageId: input.sourceMessageId,
+      sourceSwipeId: input.sourceSwipeId
+    }, now);
+  }
+  let sheet = syncCharacterSheetPresentation(vault, input.characterId, now);
+  if (!sheet) {
+    sheet = {
+      canonicalCharacterId: input.characterId,
+      canonicalCharacterName: character.canonicalCharacterName,
+      aliases: [...character.aliases],
+      booruTags: "",
+      currentOutfitTags: "",
+      negativeIdentityTags: "",
+      referenceAssetIds: [],
+      alternateLooks: [],
+      sourceSentence: "",
+      createdAt: now,
+      updatedAt: now
+    };
+    vault.characterSheets[input.characterId] = sheet;
+  }
+  if (input.field === "negative-identity-tags")
+    sheet.negativeIdentityTags = value;
+  sheet.sourceSentence = `Appearance Sidecar refreshed ${input.field}.`;
+  sheet.updatedAt = now;
+  syncCharacterSheetPresentation(vault, input.characterId, now);
+  appendHistory(vault, "appearance-memory-saved", { characterId: input.characterId, details: { source: "appearance-sidecar-field-refresh", field: input.field, status: input.status } }, now);
+  vault.updatedAt = now;
+}
 function findAppearanceFact(vault, factId) {
   return vault.visualIdentity[factId] || vault.wardrobe[factId] || vault.currentAppearance[factId];
 }
@@ -5132,18 +5223,20 @@ var asRecord2 = (value) => value && typeof value === "object" && !Array.isArray(
 var stringList2 = (value) => Array.isArray(value) ? value.map(clean3).filter(Boolean) : [];
 var clamp2 = (value) => Number.isFinite(Number(value)) ? Math.max(0, Math.min(1, Number(value))) : 0;
 var isConflictDomain = (value) => /^[a-z][a-z0-9-]{0,47}(?::[a-z][a-z0-9-]{0,47})?$/.test(value) && value.length <= 96;
-function normalizeAppearanceSidecarOutput(raw) {
+function parseSidecarJsonObject(raw) {
   const source = clean3(raw).replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   const start = source.indexOf("{");
   const end = source.lastIndexOf("}");
   if (start < 0 || end <= start)
     throw new Error("Appearance Sidecar returned no JSON object.");
-  let parsed;
   try {
-    parsed = asRecord2(JSON.parse(source.slice(start, end + 1)));
+    return asRecord2(JSON.parse(source.slice(start, end + 1)));
   } catch {
     throw new Error("Appearance Sidecar returned invalid JSON.");
   }
+}
+function normalizeAppearanceSidecarOutput(raw) {
+  const parsed = parseSidecarJsonObject(raw);
   const rows2 = Array.isArray(parsed.observations) ? parsed.observations : [];
   const observations = [];
   for (const rawObservation of rows2.slice(0, 24)) {
@@ -5174,6 +5267,21 @@ function normalizeAppearanceSidecarOutput(raw) {
     });
   }
   return observations;
+}
+function normalizeAppearanceFieldRefreshOutput(raw, expectedField) {
+  const parsed = parseSidecarJsonObject(raw);
+  const result = asRecord2(parsed.fieldResult);
+  const subject = clean3(result.subject);
+  const field = clean3(result.field);
+  const status = clean3(result.status);
+  const rawTags = Array.isArray(result.tags) ? result.tags : typeof result.tags === "string" ? result.tags.split(",") : [];
+  const tags = rawTags.map(clean3).filter(Boolean).filter((tag) => tag.length <= 320).slice(0, 48);
+  if (!subject || field !== expectedField || !["known", "unknown"].includes(status)) {
+    throw new Error(`Appearance Sidecar returned an invalid ${expectedField} field result.`);
+  }
+  if (status === "known" && !tags.length)
+    throw new Error(`Appearance Sidecar returned no tags for known ${expectedField}.`);
+  return { subject, field, status, tags: status === "unknown" ? [] : tags };
 }
 function preserveCompleteSidecarContext(value) {
   const seen = new WeakSet;
@@ -5239,6 +5347,7 @@ function buildAppearanceSidecarPayload(input) {
     }),
     appearanceMemory: { subjects: relevantCharacters.map((subject) => ({ name: subject.canonicalCharacterName, aliases: subject.aliases })), facts: memory },
     focusCharacter: preserveCompleteSidecarContext(input.focusCharacter || null),
+    requestedField: input.requestedField || null,
     contextMetrics
   };
 }
@@ -155838,21 +155947,21 @@ async function runAppearanceSidecar(input) {
   if (mode !== "normal")
     invalidateContextSnapshots();
   const config = await getConfig(input.userId);
-  if (!config.enabled || !cleanString(input.content) && mode !== "enrichment")
-    return;
+  if (!config.enabled || !cleanString(input.content) && mode !== "enrichment" && !input.refreshField)
+    return false;
   const state = await getState(input.chatId, input.userId);
   const settings = proseSettingsForChat(state, input.chatId);
   if (!settings.appearanceMemoryEnabled || settings.continuityStrength === "off")
-    return;
+    return false;
   const cooldownKey = `${input.chatId}:${input.messageId}:${input.swipeId}`;
   if (mode === "normal") {
     const failedAt = appearanceFailureCooldownByTurn.get(cooldownKey) || 0;
     if (failedAt && Date.now() - failedAt < 5000)
-      return;
+      return false;
   }
   const turnKey = `${input.messageId}:${input.swipeId}:${contentFingerprint(input.content)}${mode === "enrichment" ? `:enrichment:${input.focusCharacter?.id || ""}` : ""}`;
   if (mode === "normal" && state.continuityVault.appearanceSidecar.processedTurnKeys[turnKey])
-    return;
+    return false;
   const [character, persona, characterContext, personaContext] = await Promise.all([
     readChatCharacterIdentity(input.chatId, input.userId),
     readActivePersonaIdentity(input.userId, input.chatId),
@@ -155886,7 +155995,7 @@ async function runAppearanceSidecar(input) {
       next.continuityVault.appearanceSidecar.lastError = "Appearance Sidecar is waiting for a configured Sidecar or Relay parser connection.";
       appendStateLog(next, { severity: "warning", stage: "appearance-sidecar", eventType: "appearance_sidecar_unavailable", chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, message: "Appearance Sidecar is waiting for a configured Sidecar or Relay parser connection." });
     });
-    return;
+    return false;
   }
   const connection = await spindle.connections.get(sidecarConnectionId, input.userId);
   if (!connection)
@@ -155910,17 +156019,52 @@ async function runAppearanceSidecar(input) {
     nativeImageGenBindings: bindings.map((binding) => ({ kind: binding.kind, subjectId: binding.subjectId, subjectName: binding.subjectName, presetId: binding.presetId, presetName: binding.presetName, generationAnchorAvailable: Boolean(binding.prompt), source: binding.source })),
     appearanceMemory: appearanceState.continuityVault,
     focusCharacter: input.focusCharacter || null,
+    requestedField: input.refreshField,
     tier: contextTier,
     expansionReason: mode === "normal" ? "" : input.reason || "Explicit Appearance reconcile"
   });
+  const requestPromptId = input.refreshField ? "sidecar.appearance.field-refresh" : "sidecar.appearance.request";
   const raw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, {
     ...config,
     parserModel: sidecarModel || connection.model,
     parserParameters: sidecarParameters
   }, [
     { role: "system", content: registryPrompt(settings, "sidecar.appearance.system") },
-    { role: "user", content: registryPrompt(settings, "sidecar.appearance.request").replace(/\{\{\s*runtime_payload\s*\}\}/gi, JSON.stringify(payload)) }
+    { role: "user", content: registryPrompt(settings, requestPromptId).replace(/\{\{\s*runtime_payload\s*\}\}/gi, JSON.stringify(payload)) }
   ], input.userId, input.chatId, payload.contextMetrics, "appearance-sidecar");
+  if (input.refreshField) {
+    if (!input.focusCharacter)
+      throw new Error("A character is required for a manual Appearance Sidecar field refresh.");
+    const result = normalizeAppearanceFieldRefreshOutput(raw, input.refreshField);
+    const focused = appearanceState.continuityVault.characters[input.focusCharacter.id];
+    if (!focused)
+      throw new Error("The selected Appearance Memory character no longer exists.");
+    const acceptedNames = new Set([focused.canonicalCharacterName, ...focused.aliases].map((value) => value.trim().toLocaleLowerCase()).filter(Boolean));
+    if (!acceptedNames.has(result.subject.trim().toLocaleLowerCase()))
+      throw new Error(`Appearance Sidecar returned ${result.subject} instead of ${focused.canonicalCharacterName}.`);
+    await mutateState(input.chatId, input.userId, (next) => {
+      replaceAppearanceMemoryFieldFromSidecar(next.continuityVault, {
+        characterId: focused.canonicalCharacterId,
+        field: result.field,
+        status: result.status,
+        tags: result.tags,
+        chatId: input.chatId,
+        sourceMessageId: input.messageId,
+        sourceSwipeId: input.swipeId
+      });
+      const vault = next.continuityVault;
+      vault.appearanceSidecar.lastRunAt = Date.now();
+      vault.appearanceSidecar.lastMessageId = input.messageId;
+      vault.appearanceSidecar.lastSwipeId = input.swipeId;
+      vault.appearanceSidecar.lastConnectionId = connection.id;
+      vault.appearanceSidecar.lastModel = sidecarModel || connection.model;
+      vault.appearanceSidecar.lastError = undefined;
+      if (result.status === "known")
+        vault.appearanceSidecar.revision += 1;
+      appendStateLog(next, { severity: "info", stage: "appearance-sidecar", eventType: "appearance_sidecar_field_refreshed", chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, message: `Appearance Sidecar refreshed ${result.field} for ${focused.canonicalCharacterName}.`, details: { field: result.field, status: result.status, tagCount: result.tags.length, focusCharacter: input.focusCharacter } });
+    });
+    return result;
+  }
   const observations = normalizeAppearanceSidecarOutput(raw);
   await mutateState(input.chatId, input.userId, (next) => {
     const vault = next.continuityVault;
@@ -155947,6 +156091,7 @@ async function runAppearanceSidecar(input) {
       vault.appearanceSidecar.revision += 1;
     appendStateLog(next, { severity: "info", stage: "appearance-sidecar", eventType: mode === "normal" ? "appearance_sidecar_completed" : "appearance_sidecar_reconciled", chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, message: changed ? "Appearance Sidecar updated subject continuity." : "Appearance Sidecar found no continuity changes.", details: { mode, reason: input.reason || mode, focusCharacter: input.focusCharacter || null, observationCount: observations.length, acceptedFacts: ingestion.acceptedFacts, revision: vault.appearanceSidecar.revision, bindings } });
   });
+  return true;
 }
 function resolveAppearanceSidecarRouting(config, settings) {
   const useGlobalSidecar = settings.useGlobalAppearanceSidecar !== false;
@@ -160135,6 +160280,10 @@ async function reuseAssetInSlot(chatId, key, assetId, userId) {
   await sendState(userId, chatId);
 }
 async function handleContinuityAction(payload, userId) {
+  if (payload.action === "rerun_appearance_field") {
+    await handleAppearanceFieldRefresh(payload, userId);
+    return;
+  }
   let continuityNotice = "";
   let manualCharacterForEnrichment = null;
   await mutateState(payload.chatId, userId, (state) => {
@@ -160557,6 +160706,55 @@ async function handleContinuityAction(payload, userId) {
     spindle.sendToFrontend({ type: "relay_notice", level: "success", message: continuityNotice }, userId);
   if (manualCharacterForEnrichment) {
     enrichManualCharacterAppearance(payload.chatId, manualCharacterForEnrichment, userId);
+  }
+}
+async function handleAppearanceFieldRefresh(payload, userId) {
+  const field = payload.appearanceField;
+  const labels = {
+    "stable-appearance": "Stable Appearance",
+    "current-outfit": "Current Outfit",
+    "negative-identity-tags": "Negative Identity Tags"
+  };
+  try {
+    if (!payload.characterId || !field || !labels[field])
+      throw new Error("Choose an Appearance Memory character and field first.");
+    const state = await getState(payload.chatId, userId);
+    const character = state.continuityVault.characters[payload.characterId];
+    if (!character)
+      throw new Error("The selected Appearance Memory character no longer exists.");
+    const messages = (await spindle.chat.getMessages(payload.chatId)).filter((message) => isAssistantMessage(message) && !isOwnMessage(message));
+    const anchor = messages.at(-1);
+    const swipeId = anchor ? activeSwipeId(anchor) : 0;
+    const completed = await runAppearanceSidecar({
+      chatId: payload.chatId,
+      messageId: anchor?.id || `manual-field-refresh:${payload.characterId}`,
+      swipeId,
+      content: anchor ? getSwipeContent(anchor, swipeId) : "",
+      userId,
+      mode: "reconcile",
+      reason: `manual-${field}-refresh`,
+      focusCharacter: { id: character.canonicalCharacterId, name: character.canonicalCharacterName },
+      refreshField: field
+    });
+    if (!completed) {
+      const latest = await getState(payload.chatId, userId);
+      throw new Error(latest.continuityVault.appearanceSidecar.lastError || "Appearance Sidecar is disabled or Appearance Memory strength is Off.");
+    }
+    await sendState(userId, payload.chatId);
+    const fieldResult = typeof completed === "object" ? completed : null;
+    spindle.sendToFrontend({
+      type: "relay_notice",
+      level: fieldResult?.status === "unknown" ? "warning" : "success",
+      message: fieldResult?.status === "unknown" ? `No established ${labels[field]} was found for ${character.canonicalCharacterName}; the existing value was kept.` : `${labels[field]} refreshed for ${character.canonicalCharacterName}.`
+    }, userId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await mutateState(payload.chatId, userId, (state) => {
+      state.continuityVault.appearanceSidecar.lastError = message;
+      appendStateLog(state, { severity: "warning", stage: "appearance-sidecar", eventType: "appearance_sidecar_field_refresh_failed", chatId: payload.chatId, message: `Appearance Sidecar field refresh failed: ${message}`, details: { characterId: payload.characterId, field } });
+    });
+    await sendState(userId, payload.chatId);
+    spindle.sendToFrontend({ type: "relay_notice", level: "error", message: `Could not refresh ${field ? labels[field] : "Appearance Memory"}: ${message}` }, userId);
   }
 }
 function defaultSurfacePromptCategory(surfaceId) {
