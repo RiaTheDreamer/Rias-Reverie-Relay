@@ -768,6 +768,7 @@ assert(backendSource.includes('assetLibrary') && backendSource.includes('version
 assert(frontendSource.includes('Slot Version History') && frontendSource.includes('Compare Assets'), 'expected archive reuse and comparison UI')
 
 assert(frontendSource.includes('Appearance Sidecar') && frontendSource.includes('Stable Appearance') && frontendSource.includes('Current Outfit') && !frontendSource.includes('Scan Selected Character'), 'expected automatic editable Appearance Memory controls without manual scanning')
+assert(frontendSource.includes("addSidecarRefresh(tagsField, 'stable-appearance'") && frontendSource.includes("addSidecarRefresh(outfitField, 'current-outfit'") && frontendSource.includes("addSidecarRefresh(negativeField, 'negative-identity-tags'"), 'expected a scoped Appearance Sidecar rerun button for all three editable identity fields')
 assert(backendSource.includes('continuityVault') && backendSource.includes('selectContinuityForJob') && backendSource.includes('continuity_action'), 'expected backend visual continuity state')
 const vaultUrl = new URL('../src/vault.ts', import.meta.url)
 const vaultSource = await readFile(vaultUrl, 'utf8')

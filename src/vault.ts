@@ -1326,6 +1326,71 @@ export function saveManualAppearanceMemory(
   vault.updatedAt = now
 }
 
+export function replaceAppearanceMemoryFieldFromSidecar(
+  vault: ContinuityVaultState,
+  input: {
+    characterId: string
+    field: 'stable-appearance' | 'current-outfit' | 'negative-identity-tags'
+    status: 'known' | 'unknown'
+    tags: string[]
+    chatId?: string
+    sourceMessageId?: string
+    sourceSwipeId?: number
+  },
+  now = Date.now(),
+): void {
+  const character = vault.characters[input.characterId]
+  if (!character) throw new Error('Character not found.')
+  const value = serializeCanonicalTagList(input.tags)
+  if (input.status === 'known' && !value) throw new Error(`Appearance Sidecar returned no usable ${input.field} tags.`)
+  if (input.status === 'unknown') {
+    appendHistory(vault, 'appearance-memory-saved', { characterId: input.characterId, details: { source: 'appearance-sidecar-field-refresh', field: input.field, status: input.status, preservedExistingValue: true } }, now)
+    vault.updatedAt = now
+    return
+  }
+
+  if (input.field === 'stable-appearance') {
+    for (const fact of Object.values(vault.visualIdentity)) {
+      if (fact.canonicalCharacterId === input.characterId) removeAppearanceFact(vault, fact.factId, now)
+    }
+    addAppearanceFacts(vault, {
+      layer: 'visual-identity', characterId: input.characterId, category: 'other', value,
+      sourceType: 'appearance-sidecar', sourceReference: { sourceType: 'appearance-sidecar', sourceReference: 'manual-field-refresh:stable-appearance', chatId: input.chatId || vault.chatId, messageId: input.sourceMessageId, swipeId: input.sourceSwipeId },
+      confidence: 1, pinned: true, userConfirmed: false, semanticAuthority: 'appearance-sidecar',
+      chatId: input.chatId || vault.chatId, sourceMessageId: input.sourceMessageId, sourceSwipeId: input.sourceSwipeId,
+    }, now)
+  } else if (input.field === 'current-outfit') {
+    for (const fact of Object.values(vault.wardrobe)) {
+      if (fact.canonicalCharacterId !== input.characterId || (fact.category !== 'current-outfit' && !fact.currentWardrobe)) continue
+      fact.status = 'inactive'
+      fact.active = false
+      fact.currentWardrobe = false
+      fact.updatedAt = now
+    }
+    addAppearanceFacts(vault, {
+      layer: 'wardrobe', characterId: input.characterId, category: 'current-outfit', value,
+      sourceType: 'appearance-sidecar', sourceReference: { sourceType: 'appearance-sidecar', sourceReference: 'manual-field-refresh:current-outfit', chatId: input.chatId || vault.chatId, messageId: input.sourceMessageId, swipeId: input.sourceSwipeId },
+      confidence: 1, pinned: false, userConfirmed: false, currentWardrobe: true, replaceUserConfirmedCurrentWardrobe: true, semanticAuthority: 'appearance-sidecar',
+      chatId: input.chatId || vault.chatId, sourceMessageId: input.sourceMessageId, sourceSwipeId: input.sourceSwipeId,
+    }, now)
+  }
+
+  let sheet = syncCharacterSheetPresentation(vault, input.characterId, now)
+  if (!sheet) {
+    sheet = {
+      canonicalCharacterId: input.characterId, canonicalCharacterName: character.canonicalCharacterName, aliases: [...character.aliases],
+      booruTags: '', currentOutfitTags: '', negativeIdentityTags: '', referenceAssetIds: [], alternateLooks: [], sourceSentence: '', createdAt: now, updatedAt: now,
+    }
+    vault.characterSheets[input.characterId] = sheet
+  }
+  if (input.field === 'negative-identity-tags') sheet.negativeIdentityTags = value
+  sheet.sourceSentence = `Appearance Sidecar refreshed ${input.field}.`
+  sheet.updatedAt = now
+  syncCharacterSheetPresentation(vault, input.characterId, now)
+  appendHistory(vault, 'appearance-memory-saved', { characterId: input.characterId, details: { source: 'appearance-sidecar-field-refresh', field: input.field, status: input.status } }, now)
+  vault.updatedAt = now
+}
+
 export function findAppearanceFact(vault: ContinuityVaultState, factId: string): AppearanceVaultFact | undefined {
   return vault.visualIdentity[factId] || vault.wardrobe[factId] || vault.currentAppearance[factId]
 }

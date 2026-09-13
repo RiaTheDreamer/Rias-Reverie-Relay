@@ -244,6 +244,13 @@ var DEFAULT_SIDECAR_PROMPTS = {
 <runtime_payload>
 {{runtime_payload}}
 </runtime_payload>`,
+  "sidecar.appearance.field-refresh": `Refresh only the requested Appearance Memory field for focusCharacter. Return {"fieldResult":{"subject":"exact focusCharacter name","field":"stable-appearance"|"current-outfit"|"negative-identity-tags","status":"known"|"unknown","tags":["tag or concise visual fragment",...]}} only.
+
+For stable-appearance, include durable face, body, hair, eyes, and permanent identifying features; exclude clothing, pose, expression, camera, and scene details. For current-outfit, include only clothing and worn accessories established for the current/latest scene; use status="unknown" when the current outfit is not established. For negative-identity-tags, derive concise image-negative tags that prevent contradictions with the subject's established stable identity; never negate the desired identity itself, clothing, pose, style, quality, or scene. Use status="unknown" rather than inventing unsupported identity. Treat this as an explicit user-requested refresh of one field and do not return or modify either of the other fields.
+
+<runtime_payload>
+{{runtime_payload}}
+</runtime_payload>`,
   "sidecar.opportunity.system": `You are Reverie Relay Sidecar Opportunity Discovery. Return strict JSON containing opportunity candidates grounded only in the supplied runtime payload.`,
   "sidecar.opportunity.request": `Analyze the active assistant message in the runtime payload. Return {"opportunities":[...]} with zero to the configured maximum. Select distinct meaningful visual beats and provide the complete opportunity schema requested by the payload. Preserve exact paragraph anchors and do not invent canon.
 
@@ -139222,6 +139229,28 @@ Next action: ${blocker.action}` : ""}`;
     const refsField = textareaInput("Reference Asset IDs · comma-separated", referenceIds, (value) => {
       referenceIds = value;
     });
+    const hasUnsavedAppearanceEdits = () => booruTags !== (existing?.booruTags || "") || currentOutfitTags !== (existing?.currentOutfitTags || "") || negativeTags !== (existing?.negativeIdentityTags || "") || referenceIds !== (existing?.referenceAssetIds || []).join(", ");
+    const addSidecarRefresh = (fieldElement, appearanceField, label) => {
+      const row = document.createElement("div");
+      row.className = "dg-actions dg-appearance-field-actions";
+      const rerun = button("Rerun Sidecar", () => {
+        if (!activeChatId)
+          return;
+        if (hasUnsavedAppearanceEdits()) {
+          showToast("warning", "Save your Appearance Memory edits before rerunning the Sidecar so they are not discarded.");
+          return;
+        }
+        showToast("info", `Refreshing ${label} for ${character.canonicalCharacterName}…`);
+        ctx.sendToBackend({ type: "continuity_action", chatId: activeChatId, action: "rerun_appearance_field", characterId: character.canonicalCharacterId, appearanceField });
+      }, !activeChatId, "subtle");
+      rerun.title = `Rerun the configured Appearance Sidecar for ${label} only.`;
+      rerun.setAttribute("aria-label", `Rerun Appearance Sidecar for ${label}`);
+      row.appendChild(rerun);
+      fieldElement.appendChild(row);
+    };
+    addSidecarRefresh(tagsField, "stable-appearance", "Stable Appearance");
+    addSidecarRefresh(outfitField, "current-outfit", "Current Outfit");
+    addSidecarRefresh(negativeField, "negative-identity-tags", "Negative Identity Tags");
     const actions = document.createElement("div");
     actions.className = "dg-actions";
     actions.append(button("Save Appearance Memory", () => {

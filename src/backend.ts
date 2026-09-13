@@ -100,7 +100,7 @@ import { canAbortSlotStatus, isGenerationActiveStatus, isSlotLifecycleActive } f
 import { BoundedLruCache } from './boundedCache'
 import { abortableSlotKeys, C5B_CACHE_LIMITS, healthCheck, rememberBoundedMap, summarizeRelayHealth, type RelayHealthCheck } from './c5bReliability'
 import { c5aCastRequirements, enforceC5AKnownIdentity, resolveC5ANativeIdentityBinding, type C5ANativeIdentityBinding } from './c5aIdentity'
-import { buildAppearanceSidecarPayload, ingestAppearanceSidecarObservations, normalizeAppearanceSidecarOutput, preserveCompleteSidecarContext } from './appearanceSidecar'
+import { buildAppearanceSidecarPayload, ingestAppearanceSidecarObservations, normalizeAppearanceFieldRefreshOutput, normalizeAppearanceSidecarOutput, preserveCompleteSidecarContext, type AppearanceFieldRefreshResult, type AppearanceMemoryRefreshField } from './appearanceSidecar'
 import { assertModelContextBudget, invalidateContextSnapshots, measureModelMessages, selectExcerpts, selectLorebookContext, visualSourceSnapshot, type ContextMetrics } from './contextBudget'
 import { BUILD_ID, EXTENSION_VERSION } from './build'
 import { hybridSurfaceOwner, REVIEWED_REGEX_SURFACE_IDS, shippedSurfaceDefinitions, SHIPPED_SURFACE_SPECS } from './shippedSurfaceDefinitions'
@@ -145,6 +145,7 @@ import {
   normalizeContinuityVault,
   registerCanonicalCharacter,
   rejectSuggestion,
+  replaceAppearanceMemoryFieldFromSidecar,
   removeAppearanceFact,
   resolveCanonicalCharacter,
   saveManualAppearanceMemory,
@@ -539,7 +540,7 @@ type FrontendMessage =
   | { type: 'asset_library_action'; chatId: string; action: 'favorite' | 'unfavorite' | 'mark_reference' | 'clear_reference' | 'tag' | 'untag' | 'compare' | 'clear_compare'; assetId?: string; otherAssetId?: string; tag?: string }
   | { type: 'reuse_asset_in_slot'; chatId: string; key: string; assetId: string }
   | { type: 'discover_lora_catalog'; requestId: string; connectionId?: string | null }
-  | { type: 'continuity_action'; chatId: string; action: 'set_strength' | 'create_character' | 'merge_characters' | 'merge_facts' | 'pin' | 'unpin' | 'exclude' | 'include' | 'remove' | 'edit_fact' | 'move_fact' | 'quarantine_fact' | 'ignore_slot' | 'clear_ignore_slot' | 'add_fact' | 'mark_break' | 'clear_current' | 'accept_suggestion' | 'reject_suggestion' | 'move_suggestion_current' | 'move_suggestion_wardrobe' | 'update_migration_item' | 'apply_migration' | 'save_character_sheet' | 'delete_character_sheet' | 'update_character_aliases' | 'delete_character' | 'add_alternate_look' | 'remove_alternate_look' | 'activate_alternate_look' | 'return_to_base'; factId?: string; factIds?: string[]; suggestionId?: string; migrationItemId?: string; selectedMigrationItemIds?: string[]; disposition?: VaultMigrationDisposition; key?: string; strength?: ContinuityStrength; characterId?: string; targetCharacterId?: string; characterName?: string; aliases?: string[]; layer?: AppearanceVaultLayer; category?: AppearanceFactCategory; sourceType?: AppearanceSourceType; value?: string; booruTags?: string; currentOutfitTags?: string; negativeIdentityTags?: string; referenceAssetIds?: string[]; lookId?: string; lookName?: string; assetId?: string; reason?: string; note?: string; permanence?: 'permanent' | 'temporary'; defaultWardrobe?: boolean; currentWardrobe?: boolean }
+  | { type: 'continuity_action'; chatId: string; action: 'set_strength' | 'create_character' | 'merge_characters' | 'merge_facts' | 'pin' | 'unpin' | 'exclude' | 'include' | 'remove' | 'edit_fact' | 'move_fact' | 'quarantine_fact' | 'ignore_slot' | 'clear_ignore_slot' | 'add_fact' | 'mark_break' | 'clear_current' | 'accept_suggestion' | 'reject_suggestion' | 'move_suggestion_current' | 'move_suggestion_wardrobe' | 'update_migration_item' | 'apply_migration' | 'save_character_sheet' | 'rerun_appearance_field' | 'delete_character_sheet' | 'update_character_aliases' | 'delete_character' | 'add_alternate_look' | 'remove_alternate_look' | 'activate_alternate_look' | 'return_to_base'; factId?: string; factIds?: string[]; suggestionId?: string; migrationItemId?: string; selectedMigrationItemIds?: string[]; disposition?: VaultMigrationDisposition; key?: string; strength?: ContinuityStrength; characterId?: string; targetCharacterId?: string; characterName?: string; aliases?: string[]; layer?: AppearanceVaultLayer; category?: AppearanceFactCategory; appearanceField?: AppearanceMemoryRefreshField; sourceType?: AppearanceSourceType; value?: string; booruTags?: string; currentOutfitTags?: string; negativeIdentityTags?: string; referenceAssetIds?: string[]; lookId?: string; lookName?: string; assetId?: string; reason?: string; note?: string; permanence?: 'permanent' | 'temporary'; defaultWardrobe?: boolean; currentWardrobe?: boolean }
   | { type: 'prose_illustrator_action'; chatId: string; action: 'set_settings' | 'preview_prompt' | 'plan_latest' | 'plan_message' | 'relay_plan_once' | 'generate_plan' | 'cancel_active' | 'remove_illustration' | 'pause_auto' | 'resume_auto'; messageId?: string; swipeId?: number; planId?: string; illustrationId?: string; settings?: Partial<ProseIllustratorSettings>; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
   | { type: 'custom_surface_action'; chatId?: string; action: 'create' | 'duplicate' | 'edit' | 'enable' | 'disable' | 'delete' | 'import' | 'activate' | 'set_renderer_mode' | 'set_default_shell_mode' | 'set_color_mode' | 'set_hybrid_owner' | 'set_prompt_enabled' | 'set_category_prompt_enabled' | 'set_prompt_module' | 'set_utility_settings' | 'reset_utility_template' | 'save_collection' | 'set_default_collection' | 'delete_collection' | 'bind_collection' | 'unbind_collection'; surfaceId?: string; definition?: Partial<CustomSurfaceDefinition>; rendererMode?: CustomSurfaceStudioState['rendererMode']; hybridOwner?: CustomSurfaceDefinition['hybridOwner']; shellMode?: SurfaceShellMode; colorMode?: SurfaceColorMode; promptEnabled?: boolean; promptCategory?: SurfacePromptCategory; promptModule?: string; utilityInjectionEnabled?: boolean; utilityInjectionPosition?: SurfaceUtilityInjectionPosition; utilityTemplate?: string; presetId?: string; presetName?: string; surfaceIds?: string[] }
   | { type: 'bulk_chat_media_action'; chatId: string; lane: 'surfaces' | 'illustrations'; mode: 'remove-images-keep-slots' | 'remove-images-and-slots' }
@@ -915,6 +916,7 @@ type AppearanceReadyInput = {
   mode?: AppearanceSidecarMode
   reason?: string
   focusCharacter?: { id: string; name: string }
+  refreshField?: AppearanceMemoryRefreshField
 }
 // Timers only decide when a lifecycle event is noticed. Every planning path for
 // the same authoritative turn shares this promise before it reads Appearance Memory.
@@ -3829,22 +3831,22 @@ async function ensureAppearanceReadyForTurn(input: AppearanceReadyInput): Promis
   }
 }
 
-export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise<void> {
+export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise<boolean | AppearanceFieldRefreshResult> {
   const mode = input.mode || 'normal'
   const contextTier = mode === 'normal' ? 'routine' : mode === 'reconcile' ? 'diagnostic' : 'expanded'
   if (mode !== 'normal') invalidateContextSnapshots()
   const config = await getConfig(input.userId)
-  if (!config.enabled || (!cleanString(input.content) && mode !== 'enrichment')) return
+  if (!config.enabled || (!cleanString(input.content) && mode !== 'enrichment' && !input.refreshField)) return false
   const state = await getState(input.chatId, input.userId)
   const settings = proseSettingsForChat(state, input.chatId)
-  if (!settings.appearanceMemoryEnabled || settings.continuityStrength === 'off') return
+  if (!settings.appearanceMemoryEnabled || settings.continuityStrength === 'off') return false
   const cooldownKey = `${input.chatId}:${input.messageId}:${input.swipeId}`
   if (mode === 'normal') {
     const failedAt = appearanceFailureCooldownByTurn.get(cooldownKey) || 0
-    if (failedAt && Date.now() - failedAt < 5_000) return
+    if (failedAt && Date.now() - failedAt < 5_000) return false
   }
   const turnKey = `${input.messageId}:${input.swipeId}:${contentFingerprint(input.content)}${mode === 'enrichment' ? `:enrichment:${input.focusCharacter?.id || ''}` : ''}`
-  if (mode === 'normal' && state.continuityVault.appearanceSidecar.processedTurnKeys[turnKey]) return
+  if (mode === 'normal' && state.continuityVault.appearanceSidecar.processedTurnKeys[turnKey]) return false
   const [character, persona, characterContext, personaContext] = await Promise.all([
     readChatCharacterIdentity(input.chatId, input.userId),
     readActivePersonaIdentity(input.userId, input.chatId),
@@ -3880,7 +3882,7 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
       next.continuityVault.appearanceSidecar.lastError = 'Appearance Sidecar is waiting for a configured Sidecar or Relay parser connection.'
       appendStateLog(next, { severity: 'warning', stage: 'appearance-sidecar', eventType: 'appearance_sidecar_unavailable', chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, message: 'Appearance Sidecar is waiting for a configured Sidecar or Relay parser connection.' })
     })
-    return
+    return false
   }
   const connection = await spindle.connections.get(sidecarConnectionId, input.userId)
   if (!connection) throw new Error('Appearance Sidecar connection not found.')
@@ -3903,17 +3905,48 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
     nativeImageGenBindings: bindings.map(binding => ({ kind: binding.kind, subjectId: binding.subjectId, subjectName: binding.subjectName, presetId: binding.presetId, presetName: binding.presetName, generationAnchorAvailable: Boolean(binding.prompt), source: binding.source })),
     appearanceMemory: appearanceState.continuityVault,
     focusCharacter: input.focusCharacter || null,
+    requestedField: input.refreshField,
     tier: contextTier,
     expansionReason: mode === 'normal' ? '' : input.reason || 'Explicit Appearance reconcile',
   })
+  const requestPromptId = input.refreshField ? 'sidecar.appearance.field-refresh' : 'sidecar.appearance.request'
   const raw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, {
     ...config,
     parserModel: sidecarModel || connection.model,
     parserParameters: sidecarParameters,
   }, [
     { role: 'system', content: registryPrompt(settings, 'sidecar.appearance.system') },
-    { role: 'user', content: registryPrompt(settings, 'sidecar.appearance.request').replace(/\{\{\s*runtime_payload\s*\}\}/gi, JSON.stringify(payload)) },
+    { role: 'user', content: registryPrompt(settings, requestPromptId).replace(/\{\{\s*runtime_payload\s*\}\}/gi, JSON.stringify(payload)) },
   ], input.userId, input.chatId, payload.contextMetrics as ContextMetrics, 'appearance-sidecar')
+  if (input.refreshField) {
+    if (!input.focusCharacter) throw new Error('A character is required for a manual Appearance Sidecar field refresh.')
+    const result = normalizeAppearanceFieldRefreshOutput(raw, input.refreshField)
+    const focused = appearanceState.continuityVault.characters[input.focusCharacter.id]
+    if (!focused) throw new Error('The selected Appearance Memory character no longer exists.')
+    const acceptedNames = new Set([focused.canonicalCharacterName, ...focused.aliases].map(value => value.trim().toLocaleLowerCase()).filter(Boolean))
+    if (!acceptedNames.has(result.subject.trim().toLocaleLowerCase())) throw new Error(`Appearance Sidecar returned ${result.subject} instead of ${focused.canonicalCharacterName}.`)
+    await mutateState(input.chatId, input.userId, next => {
+      replaceAppearanceMemoryFieldFromSidecar(next.continuityVault, {
+        characterId: focused.canonicalCharacterId,
+        field: result.field,
+        status: result.status,
+        tags: result.tags,
+        chatId: input.chatId,
+        sourceMessageId: input.messageId,
+        sourceSwipeId: input.swipeId,
+      })
+      const vault = next.continuityVault
+      vault.appearanceSidecar.lastRunAt = Date.now()
+      vault.appearanceSidecar.lastMessageId = input.messageId
+      vault.appearanceSidecar.lastSwipeId = input.swipeId
+      vault.appearanceSidecar.lastConnectionId = connection.id
+      vault.appearanceSidecar.lastModel = sidecarModel || connection.model
+      vault.appearanceSidecar.lastError = undefined
+      if (result.status === 'known') vault.appearanceSidecar.revision += 1
+      appendStateLog(next, { severity: 'info', stage: 'appearance-sidecar', eventType: 'appearance_sidecar_field_refreshed', chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, message: `Appearance Sidecar refreshed ${result.field} for ${focused.canonicalCharacterName}.`, details: { field: result.field, status: result.status, tagCount: result.tags.length, focusCharacter: input.focusCharacter } })
+    })
+    return result
+  }
   const observations = normalizeAppearanceSidecarOutput(raw)
   await mutateState(input.chatId, input.userId, next => {
     const vault = next.continuityVault
@@ -3936,6 +3969,7 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
     if (changed) vault.appearanceSidecar.revision += 1
     appendStateLog(next, { severity: 'info', stage: 'appearance-sidecar', eventType: mode === 'normal' ? 'appearance_sidecar_completed' : 'appearance_sidecar_reconciled', chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, message: changed ? 'Appearance Sidecar updated subject continuity.' : 'Appearance Sidecar found no continuity changes.', details: { mode, reason: input.reason || mode, focusCharacter: input.focusCharacter || null, observationCount: observations.length, acceptedFacts: ingestion.acceptedFacts, revision: vault.appearanceSidecar.revision, bindings } })
   })
+  return true
 }
 
 export function resolveAppearanceSidecarRouting(
@@ -7738,6 +7772,10 @@ async function reuseAssetInSlot(chatId: string, key: string, assetId: string, us
 }
 
 async function handleContinuityAction(payload: Extract<FrontendMessage, { type: 'continuity_action' }>, userId?: string): Promise<void> {
+  if (payload.action === 'rerun_appearance_field') {
+    await handleAppearanceFieldRefresh(payload, userId)
+    return
+  }
   let continuityNotice = ''
   let manualCharacterForEnrichment: { id: string; name: string } | null = null
   await mutateState(payload.chatId, userId, state => {
@@ -8078,6 +8116,56 @@ async function handleContinuityAction(payload: Extract<FrontendMessage, { type: 
     // This starts only after the canonical record has been persisted. No model
     // call is made inside the state mutation queue.
     void enrichManualCharacterAppearance(payload.chatId, manualCharacterForEnrichment, userId)
+  }
+}
+
+async function handleAppearanceFieldRefresh(payload: Extract<FrontendMessage, { type: 'continuity_action' }>, userId?: string): Promise<void> {
+  const field = payload.appearanceField
+  const labels: Record<AppearanceMemoryRefreshField, string> = {
+    'stable-appearance': 'Stable Appearance',
+    'current-outfit': 'Current Outfit',
+    'negative-identity-tags': 'Negative Identity Tags',
+  }
+  try {
+    if (!payload.characterId || !field || !labels[field]) throw new Error('Choose an Appearance Memory character and field first.')
+    const state = await getState(payload.chatId, userId)
+    const character = state.continuityVault.characters[payload.characterId]
+    if (!character) throw new Error('The selected Appearance Memory character no longer exists.')
+    const messages = (await spindle.chat.getMessages(payload.chatId) as ChatMessage[]).filter(message => isAssistantMessage(message) && !isOwnMessage(message))
+    const anchor = messages.at(-1)
+    const swipeId = anchor ? activeSwipeId(anchor) : 0
+    const completed = await runAppearanceSidecar({
+      chatId: payload.chatId,
+      messageId: anchor?.id || `manual-field-refresh:${payload.characterId}`,
+      swipeId,
+      content: anchor ? getSwipeContent(anchor, swipeId) : '',
+      userId,
+      mode: 'reconcile',
+      reason: `manual-${field}-refresh`,
+      focusCharacter: { id: character.canonicalCharacterId, name: character.canonicalCharacterName },
+      refreshField: field,
+    })
+    if (!completed) {
+      const latest = await getState(payload.chatId, userId)
+      throw new Error(latest.continuityVault.appearanceSidecar.lastError || 'Appearance Sidecar is disabled or Appearance Memory strength is Off.')
+    }
+    await sendState(userId, payload.chatId)
+    const fieldResult = typeof completed === 'object' ? completed : null
+    spindle.sendToFrontend({
+      type: 'relay_notice',
+      level: fieldResult?.status === 'unknown' ? 'warning' : 'success',
+      message: fieldResult?.status === 'unknown'
+        ? `No established ${labels[field]} was found for ${character.canonicalCharacterName}; the existing value was kept.`
+        : `${labels[field]} refreshed for ${character.canonicalCharacterName}.`,
+    }, userId)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    await mutateState(payload.chatId, userId, state => {
+      state.continuityVault.appearanceSidecar.lastError = message
+      appendStateLog(state, { severity: 'warning', stage: 'appearance-sidecar', eventType: 'appearance_sidecar_field_refresh_failed', chatId: payload.chatId, message: `Appearance Sidecar field refresh failed: ${message}`, details: { characterId: payload.characterId, field } })
+    })
+    await sendState(userId, payload.chatId)
+    spindle.sendToFrontend({ type: 'relay_notice', level: 'error', message: `Could not refresh ${field ? labels[field] : 'Appearance Memory'}: ${message}` }, userId)
   }
 }
 

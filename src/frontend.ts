@@ -5003,6 +5003,30 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const outfitField = textareaInput('Current Outfit · clear this when clothing is unknown or changed', currentOutfitTags, value => { currentOutfitTags = value })
     const negativeField = textareaInput('Negative Identity Tags', negativeTags, value => { negativeTags = value })
     const refsField = textareaInput('Reference Asset IDs · comma-separated', referenceIds, value => { referenceIds = value })
+    const hasUnsavedAppearanceEdits = () => booruTags !== (existing?.booruTags || '')
+      || currentOutfitTags !== (existing?.currentOutfitTags || '')
+      || negativeTags !== (existing?.negativeIdentityTags || '')
+      || referenceIds !== (existing?.referenceAssetIds || []).join(', ')
+    const addSidecarRefresh = (fieldElement: HTMLElement, appearanceField: 'stable-appearance' | 'current-outfit' | 'negative-identity-tags', label: string) => {
+      const row = document.createElement('div')
+      row.className = 'dg-actions dg-appearance-field-actions'
+      const rerun = button('Rerun Sidecar', () => {
+        if (!activeChatId) return
+        if (hasUnsavedAppearanceEdits()) {
+          showToast('warning', 'Save your Appearance Memory edits before rerunning the Sidecar so they are not discarded.')
+          return
+        }
+        showToast('info', `Refreshing ${label} for ${character.canonicalCharacterName}…`)
+        ctx.sendToBackend({ type: 'continuity_action', chatId: activeChatId, action: 'rerun_appearance_field', characterId: character.canonicalCharacterId, appearanceField })
+      }, !activeChatId, 'subtle')
+      rerun.title = `Rerun the configured Appearance Sidecar for ${label} only.`
+      rerun.setAttribute('aria-label', `Rerun Appearance Sidecar for ${label}`)
+      row.appendChild(rerun)
+      fieldElement.appendChild(row)
+    }
+    addSidecarRefresh(tagsField, 'stable-appearance', 'Stable Appearance')
+    addSidecarRefresh(outfitField, 'current-outfit', 'Current Outfit')
+    addSidecarRefresh(negativeField, 'negative-identity-tags', 'Negative Identity Tags')
     const actions = document.createElement('div'); actions.className = 'dg-actions'
     actions.append(
       button('Save Appearance Memory', () => {
