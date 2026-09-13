@@ -40,11 +40,50 @@ storage.set('config.json', {
   surfacePreferencesInitialized: true,
 })
 assert(promptInterceptor, 'backend did not register the Story Model prompt interceptor')
-const inlineIntercepted = await promptInterceptor!([{ role: 'user', content: 'Continue the scene.' }], { chatId: 'chat-inline', userId: 'user-1' })
+const inlineIntercepted = await promptInterceptor!([{ role: 'user', content: 'Gabrielle sits at the workshop soldering bench amid CRTs and cables while Cerys stands between his knees. Gabrielle holds Cerys\'s wrist beside a holographic memory projection under indigo light.' }], { chatId: 'chat-inline', userId: 'user-1' })
 const inlineMessages = Array.isArray(inlineIntercepted) ? inlineIntercepted : inlineIntercepted.messages
-const inlinePrompt = JSON.stringify(inlineMessages)
+const inlinePrompt = inlineMessages.map((message: any) => String(message?.content || '')).join('\n\n')
 assert(inlinePrompt.includes('REVERIE RELAY — INLINE PROTOCOL'), 'Inline Protocol mode was selected but its real prompt was not injected')
 assert(inlinePrompt.includes('<mode>inline-protocol</mode>') && inlinePrompt.includes('<request_illustrations>true</request_illustrations>'), 'Inline Protocol injection lost its live runtime directive')
+for (const contract of [
+  'The subject of the illustration is the story moment',
+  'Emotional importance does not automatically justify a close-up',
+  'If the environment, hands, body relationship, or important prop would be lost in a close-up, widen the camera',
+  'Do not use cast=\"char+user\" merely because two people are visible',
+  'Prefer a meaningfully different scale, angle, or visual center',
+  'Relay will not perform a second creative composition pass',
+]) {
+  assert(inlinePrompt.includes(contract), `resolved Inline Story Model prompt missing cinematic/cast contract: ${contract}`)
+}
+for (const castValue of ['cast=\"char\"', 'cast=\"user\"', 'cast=\"char+user\"', 'cast=\"none\"']) {
+  assert(inlinePrompt.includes(castValue), `resolved Inline Story Model prompt missing bound-identity cast semantics: ${castValue}`)
+}
+assert(inlinePrompt.includes('cast=\"char+user\" includes BOTH active bound identities'), 'Inline char+user semantics must mean both bound identities, not two arbitrary people')
+assert(inlinePrompt.includes('Close-ups remain valid when the scene genuinely calls for them') && /face|eyes|expression|gaze/.test(inlinePrompt), 'Inline cinematic guidance must select close/face detail intentionally rather than banning it')
+assert.equal(connectionReads, 0, 'Inline prompt injection must not invoke planner, composer, parser, or provider connections')
+
+const inlineDefinition = protocols.PROMPT_REGISTRY_DEFINITIONS.find((row: any) => row.id === 'story.inline-protocol')
+assert(inlineDefinition, 'story.inline-protocol registry definition is missing')
+assert.equal(inlineDefinition.version, 2, 'story.inline-protocol registry version must be 2')
+const stockInlineV1 = `REVERIE RELAY — INLINE PROTOCOL
+
+Write the completed image-ready request directly at its narrative location. Use the canonical grammar exactly:
+
+<reverie-illustration request="generate" slot="short-stable-slot" aspect="4:3" cast="char" alt="Accessible description"><visual_prompt>Complete scene-specific visual prompt.</visual_prompt></reverie-illustration>
+
+This is a one-pass protocol. Do not emit a planning note, a parser task, an acknowledgement, or a second completion request. When Auto Generate is enabled Relay dispatches the exact inline request after it is parsed; when Auto Generate is disabled it remains a manual lazy slot. Preserve the authored scene, cast, action, setting, and framing. Use cast="none" for object or environment shots.`
+const migratedStockInline = backend.normalizeProseIllustratorSettings({
+  promptRegistry: { 'story.inline-protocol': stockInlineV1 },
+  promptRegistryVersions: { 'story.inline-protocol': 1 },
+})
+assert.equal(migratedStockInline.promptRegistry['story.inline-protocol'], inlineDefinition.defaultTemplate, 'exact stock Inline v1 must migrate to the v2 default')
+assert.equal(migratedStockInline.promptRegistryVersions['story.inline-protocol'], 2, 'migrated stock Inline prompt must record registry version 2')
+const customInline = `${stockInlineV1}\n\nCUSTOM USER CAMERA LAW: hold the authored diagonal.`
+const preservedCustomInline = backend.normalizeProseIllustratorSettings({
+  promptRegistry: { 'story.inline-protocol': customInline },
+  promptRegistryVersions: { 'story.inline-protocol': 1 },
+})
+assert.equal(preservedCustomInline.promptRegistry['story.inline-protocol'], customInline, 'custom Inline registry text must survive normalization unchanged')
 
 const definitions = protocols.PROMPT_REGISTRY_DEFINITIONS.filter((row: any) => row.id.startsWith('story.framing.'))
 assert.deepEqual(definitions.map((row: any) => row.id), [

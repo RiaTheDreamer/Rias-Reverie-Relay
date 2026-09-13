@@ -220,11 +220,17 @@ export type PromptProfileId =
   | 'character-portrait'
   | 'selfie'
   | 'social-candid'
+  | 'cinematic-scene'
   | 'object-prop'
   | 'environment-location'
   | 'evidence-surveillance'
   | 'high-resolution-modifier'
   | string
+
+export type RequestClassification =
+  | 'character portrait' | 'person-focused candid' | 'group photo' | 'narrative-scene' | 'object photo'
+  | 'location/interior' | 'food' | 'meme' | 'document' | 'screenshot/article/ui' | 'evidence photo'
+  | 'scenery' | 'abstract/non-character' | 'selfie'
 
 export type PromptPresetProfile = {
   id: PromptProfileId
@@ -1087,6 +1093,10 @@ export type PromptPipeline = {
   regenerationIntent?: RegenerationIntent
   diagnostic?: SlotDiagnostic
   includedContinuityFacts?: ContinuityFact[]
+  rawContinuityFactCount?: number
+  projectedContinuityFactCount?: number
+  projectedContinuityNegativePrompt?: string
+  continuityProjectionNotes?: string[]
   excludedContinuityFacts?: ContinuityDecision[]
   attachedReferenceAssetIds?: string[]
   continuityConflicts?: string[]

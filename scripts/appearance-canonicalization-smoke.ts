@@ -1,6 +1,7 @@
 // @ts-nocheck -- local, mocked Appearance Memory canonicalization regression gate.
 import {
   addAppearanceFact,
+  addAppearanceFacts,
   appearanceMemoryView,
   formatSelectedAppearanceFacts,
   emptyContinuityVault,
@@ -261,7 +262,7 @@ const backendMessages = [{ id: 'm1', role: 'assistant', content: 'Prime Beta wai
     backendRequests.push(structuredClone(request))
     const system = String(request?.messages?.[0]?.content || '')
     const user = String(request?.messages?.[1]?.content || '')
-    if (system.includes('Appearance Sidecar') && user.includes('"requestedField":"stable-appearance"')) return { content: JSON.stringify({ fieldResult: { subject: 'Prime Beta', field: 'stable-appearance', status: 'known', tags: ['messy lavender hair', 'glasses'] } }) }
+    if (system.includes('Appearance Sidecar') && user.includes('"requestedField":"stable-appearance"')) return { content: JSON.stringify({ fieldResult: { subject: 'Prime Beta', field: 'stable-appearance', status: 'known', tags: ['messy lavender hair', 'glasses', 'closed_eyes', 'direct_gaze', 'smiling', 'standing', 'close-up'] } }) }
     if (system.includes('Appearance Sidecar') && user.includes('"requestedField":"current-outfit"')) return { content: JSON.stringify({ fieldResult: { subject: 'Prime Beta', field: 'current-outfit', status: 'known', tags: ['green jacket', 'black jeans'] } }) }
     if (system.includes('Appearance Sidecar') && user.includes('"requestedField":"negative-identity-tags"')) return { content: JSON.stringify({ fieldResult: { subject: 'Prime Beta', field: 'negative-identity-tags', status: 'known', tags: ['blonde hair', 'blue eyes'] } }) }
     if (system.includes('Appearance Sidecar')) return { content: JSON.stringify({ observations: [{ subject: { name: 'Prime Beta', aliases: [], role: 'persona', trustworthy: true }, confidence: .98, facts: [{ layer: 'wardrobe', category: 'current-outfit', value: 'red dress', provenance: 'current-assistant-message' }] }] }) }
@@ -288,6 +289,7 @@ assert(appearanceMemoryView(independentOutfitState.continuityVault, persona.cano
 await backend.runAppearanceSidecar({ chatId: 'prompt-once', messageId: 'manual-stable', swipeId: 0, content: '', userId: 'offline', mode: 'reconcile', reason: 'manual-stable-appearance-refresh', focusCharacter: { id: persona.canonicalCharacterId, name: 'Prime Beta' }, refreshField: 'stable-appearance' })
 let refreshedState = backendState.get('states/prompt-once.json') as any
 assert(['messy_hair', 'lavender_hair', 'glasses'].every(tag => has(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).stableAppearance, tag)), 'Stable Appearance rerun must replace only the selected field')
+assert(!/(?:closed_eyes|direct_gaze|smiling|standing|close_up)/.test(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).stableAppearance), 'Stable Appearance rerun must discard eye state, gaze, expression, pose, and camera tags')
 assert(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).currentOutfit === 'red_dress', 'Stable Appearance rerun must preserve Current Outfit')
 await backend.runAppearanceSidecar({ chatId: 'prompt-once', messageId: 'manual-outfit', swipeId: 0, content: '', userId: 'offline', mode: 'reconcile', reason: 'manual-current-outfit-refresh', focusCharacter: { id: persona.canonicalCharacterId, name: 'Prime Beta' }, refreshField: 'current-outfit' })
 refreshedState = backendState.get('states/prompt-once.json') as any
@@ -304,5 +306,27 @@ assert(!parserPrompt.includes('Relay Appearance Memory'), 'Sidecar fallback subj
 for (const tag of ['glasses', 'lavender_hair', 'messy_hair']) {
   assert((parserPrompt.match(new RegExp(tag, 'g')) || []).length === 1, `provider-bound parser prompt should contain ${tag} once through clean Sidecar fallback: ${parserPrompt}`)
 }
+
+const sleepingVault = emptyContinuityVault('sleeping-prompt')
+sleepingVault.strength = 'strong'
+const sleepingPersona = registerCanonicalCharacter(sleepingVault, { name: 'Prime Beta', canonicalCharacterId: 'persona-beta', sourceType: 'native-visual-preset', userConfirmed: true })
+for (const [category, value] of [
+  ['eye-color', 'brown_eyes'], ['other', 'long_eyelashes'], ['hair-color', 'black_hair'], ['hair-length', 'long_hair'],
+  ['body-build', 'slim_build'], ['height', 'tall'], ['mole', 'beauty_mark_under_eye'],
+] as const) addAppearanceFact(sleepingVault, { layer: 'visual-identity', characterId: sleepingPersona.canonicalCharacterId, category, value, sourceType: 'manual', userConfirmed: true })
+addAppearanceFacts(sleepingVault, { layer: 'wardrobe', characterId: sleepingPersona.canonicalCharacterId, category: 'current-outfit', value: 'hoodie, jeans, sneakers', sourceType: 'manual', userConfirmed: true, currentWardrobe: true, semanticAuthority: 'explicit-user' })
+backendState.set('states/sleeping-prompt.json', { chatId: 'sleeping-prompt', continuityVault: sleepingVault, slots: {}, logs: [] })
+const sleepingPrepared = await backend.parseSlotPrompt({
+  requestId: 'sleeping-projection', chatId: 'sleeping-prompt', messageId: 'm1', swipeId: 0,
+  target: 'prose.illustration', slots: ['illustration'], count: 1,
+  originalSceneBrief: 'Prime Beta is asleep on the sofa, hair across the pillow, eyes closed.',
+  originalRequestXml: '', alt: 'Sleeping on the sofa', caption: '', aspect: '4:3', cast: 'user', promptSource: 'visual_prompt', originalNegativePrompt: '',
+  prosePromptComposition: { perspectiveMode: 'scene-snapshot', peoplePolicy: 'required', expectedPeopleCount: 1, namedSubjects: ['Prime Beta'] } as any,
+}, 'illustration', backendMessages as any, 0, config, 'offline', {})
+assert(!/(?:brown_eyes|long_eyelashes|\btall\b|sneakers)/.test(sleepingPrepared.prompt), `sleeping positive prompt must not re-append hidden or contradictory Vault facts: ${sleepingPrepared.prompt}`)
+assert(/black_hair/.test(sleepingPrepared.prompt), 'sleeping positive prompt may retain visible projected hair continuity')
+assert(/open_eyes/.test(sleepingPrepared.negativePrompt) && /direct_gaze/.test(sleepingPrepared.negativePrompt), 'sleeping negative prompt must guard closed-eye state')
+assert((sleepingPrepared.promptPipeline.rawContinuityFactCount || 0) > (sleepingPrepared.promptPipeline.projectedContinuityFactCount || 0), 'prompt diagnostics must distinguish broad Vault selection from projected generation facts')
+assert((sleepingPrepared.promptPipeline.projectedContinuityFactCount || 0) <= 6, 'strong generation projection must cap continuity at six facts per visible subject')
 
 console.log('Appearance canonicalization smoke passed.')

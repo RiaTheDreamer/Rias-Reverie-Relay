@@ -4,6 +4,7 @@ import path from 'node:path'
 import {
   NARRATIVE_DLC_FOLDER,
   NARRATIVE_DLC_NAMESPACE,
+  NARRATIVE_DLC_VERSION,
   buildNarrativeUtilityPrompt,
   inspectNarrativeRegex,
   narrativeRegexCreateInput,
@@ -83,6 +84,9 @@ assert(api.rows.some(row => row.script_id === 'ria_plot_sparks_og_sparkle_tabs_b
 const phoneRepair = api.rows.find(row => row.script_id === 'rrcp_repair_missing_optional_wallpaper_v462')
 const phoneShell = api.rows.find(row => row.script_id === 'rrpp_proto_shell_v31')
 assert(phoneRepair && phoneShell && phoneRepair.sort_order < phoneShell.sort_order, 'missing-wallpaper repair must install before the Character Phone shell renderer')
+for (const migrationId of ['rrcp_migrate_photo_v461', 'rrcp_migrate_app_v461', 'rrcp_migrate_shell_present_v461', 'rrcp_migrate_shell_default_v461']) {
+  assert(api.rows.some(row => row.script_id === migrationId), `Character Phone legacy migration script missing: ${migrationId}`)
+}
 
 const retiredRegexLabels = ['Character File', 'Cast Arrival', 'Unified Archive', 'Place File', 'Knowledge Veil', 'Beyond the Frame', 'Parallel Current', 'Scene Compass', 'World Texture', 'Unwalked Path']
 const acceptedRegexLabels = ['Character Dossier', 'Cast Introduction', 'Archive Entry', 'Location File', 'Backstage Secrets', 'Off-Stage', 'Parallel Scene', 'Scene Shift', 'Setting the Scene', 'In Another Life']
@@ -138,6 +142,7 @@ const removed = await removeNarrativeRegex(api as any, 'plain-button')
 assert(removed.status === 'removed' && api.rows.length === 0, 'remove must delete exactly the Relay-owned Narrative install')
 
 const utility = buildNarrativeUtilityPrompt()
+assert(NARRATIVE_DLC_VERSION === '6.3-final', 'Character Phone gallery contract must ship as Narrative Utility pack 6.3-final')
 assert(utility.utilityNames.length === 13, 'all 13 Narrative Utilities must be selected by default')
 assert(utility.utilityNames.join('|') === narrativeUtilityNames().join('|'), 'Utility injection order must match the source bundle')
 for (const item of narrativeUtilityItems()) {
@@ -148,6 +153,38 @@ for (const oldName of Object.keys(NARRATIVE_UTILITY_DISPLAY_NAMES)) {
   assert(!utility.content.includes(oldName), `combined Narrative prompt retained retired model-facing name: ${oldName}`)
 }
 assert(utility.content.includes('<reverie_narrative_utility') && utility.content.includes('contract="narrative"'), 'Narrative Utility wrapper must use the Narrative contract name')
+const plotSparksUtility = buildNarrativeUtilityPrompt(['Chaos Hooks'])
+assert(plotSparksUtility.utilityNames.join('|') === 'Chaos Hooks', 'Plot Sparks must retain Chaos Hooks as its internal selection/migration key')
+assert(plotSparksUtility.content.includes('Plot Sparks') && !plotSparksUtility.content.includes('Chaos Hooks'), 'model-facing Plot Sparks Utility must use the public name without leaking its compatibility name')
+for (const contract of [
+  'seven possible NEXT BRANCHES growing directly from the current scene',
+  'Every Plot Spark MUST preserve the current scene as its launch point',
+  'This can happen next because',
+  'current location unless the next action naturally exits it',
+  'current time',
+  'current knowledge boundaries',
+  'current emotional state',
+  'current object state',
+  'original Hook Ledger owns the absolute end of the response',
+]) {
+  assert(plotSparksUtility.content.includes(contract), `model-facing Plot Sparks continuation contract missing: ${contract}`)
+}
+for (const removed of [
+  'At least FIVE of seven',
+  'at least 6 distinct causal domains',
+  'No more than TWO',
+  'new causal source',
+  'approach from another layer of reality',
+]) {
+  assert(!plotSparksUtility.content.includes(removed), `retired anti-continuation Plot Sparks rule leaked into runtime prompt: ${removed}`)
+}
+for (const token of ['<chaos_payload', '<chaos_hook', '<hook_text>', '<hook_media>', '<reverie-illustration', 'detonation', 'heartknife', 'wrongness', 'crash-in', 'matchstrike', 'reputation-fire', 'wildcard-collision']) {
+  assert(plotSparksUtility.content.includes(token), `Plot Sparks legacy renderer/image contract changed: ${token}`)
+}
+for (const exactCount of ['Exactly seven <chaos_hook> blocks exist', 'Exactly seven NON-EMPTY <hook_media> blocks exist', 'Exactly seven <reverie-illustration> blocks exist']) {
+  assert(plotSparksUtility.content.includes(exactCount), `Plot Sparks must retain its seven-image structural requirement: ${exactCount}`)
+}
+assert(plotSparksUtility.content.indexOf('<chaos_payload>') < plotSparksUtility.content.indexOf('original <payload> Hook Ledger LAST'), 'Plot Sparks must remain before the original absolute-final Hook Ledger')
 const subset = buildNarrativeUtilityPrompt(['Scene Compass', 'Character Phone'])
 assert(subset.utilityNames.join('|') === 'Character Phone|Scene Compass', 'selected Utility prompt must preserve source order and contain only enabled contracts')
 assert(subset.content.includes(applyNarrativeDisplayNames(narrativeUtilityItems()[0].loomContent)) && subset.content.includes(applyNarrativeDisplayNames(narrativeUtilityItems()[3].loomContent)), 'selected Utility prompt omitted enabled complete contracts')
@@ -193,6 +230,20 @@ const inlinePhone = renderNarrativeRegex(missingWallpaperPhone, 'inline', 'phone
 assert(inlinePhone.includes('<div class="rrcp-wrap rrcp-presentation-inline"><div class="rrcp-shell">') && !inlinePhone.includes('class="rrcp-launch-toggle"'), 'Inline Character Phone must remain directly open without a launcher')
 assert(inlinePhone.includes('.rrcp-wallpaper>.reverie-artifact-media') && inlinePhone.includes('height:100%!important') && inlinePhone.includes('object-fit:cover!important'), 'Character Phone wallpaper media must cover the complete fixed phone screen')
 assert(!/\.rrcp-photo-media[^}]+object-fit:cover/i.test(inlinePhone), 'Phone wallpaper sizing must not force ordinary app photos to crop')
+const galleryPhotos = ['Workbench candid', 'Saved relationship moment', 'Practical reference'].map((title, index) => `[cp_photo][cp_title]${title}[/cp_title][cp_meta]Today · Workshop[/cp_meta][cp_media]<image_request id="phone-gallery-${index + 1}" target="custom.artifact-media" slot="phone-gallery-${index + 1}" aspect="4:3"><scene_brief>${title}, grounded in current continuity.</scene_brief></image_request>[/cp_media][/cp_photo]`).join('')
+const galleryApps = `[cp_app][cp_slot]1[/cp_slot][cp_name]Photos[/cp_name][cp_icon]◇[/cp_icon][cp_tone]photos[/cp_tone][cp_badge]0[/cp_badge][cp_content]${galleryPhotos}[/cp_content][/cp_app]${Array.from({ length: 7 }, (_, index) => `[cp_app][cp_slot]${index + 2}[/cp_slot][cp_name]App ${index + 2}[/cp_name][cp_icon]◇[/cp_icon][cp_tone]blue[/cp_tone][cp_badge]0[/cp_badge][cp_content][cp_row][cp_glyph]◇[/cp_glyph][cp_title]Row ${index + 2}[/cp_title][cp_meta]Meta[/cp_meta][cp_text]Text[/cp_text][/cp_row][/cp_content][/cp_app]`).join('')}`
+const galleryPhone = `[character_phone][cp_presentation]sparkling[/cp_presentation][cp_owner]Han Minjae[/cp_owner][cp_subtitle]Recent camera roll[/cp_subtitle][cp_time]09:47[/cp_time][cp_day]Monday[/cp_day][cp_battery]63[/cp_battery][cp_wallpaper][/cp_wallpaper][cp_apps]${galleryApps}[/cp_apps][/character_phone]`
+for (const variant of ['sparkle-button', 'plain-button', 'inline'] as const) {
+  const renderedGallery = renderNarrativeRegex(galleryPhone, variant, `phone-gallery-${variant}`)
+  assert((renderedGallery.match(/class="rrcp-photo"/g) || []).length === 3, `${variant}: Character Phone must preserve and render all three cp_photo entries`)
+  assert((renderedGallery.match(/class="rrcp-photo-media"/g) || []).length === 3, `${variant}: every rendered gallery entry must retain its media container`)
+  const captions = ['Workbench candid', 'Saved relationship moment', 'Practical reference'].map(caption => renderedGallery.indexOf(caption))
+  assert(captions.every(index => index >= 0) && captions[0] < captions[1] && captions[1] < captions[2], `${variant}: Character Phone gallery order changed`)
+}
+const legacyApps = Array.from({ length: 8 }, (_, index) => `[phone_app][slot]${index + 1}[/slot][name]Legacy ${index + 1}[/name][icon]◇[/icon][tone]blue[/tone][badge]0[/badge][content][pp_row][glyph]◇[/glyph][title]Legacy row ${index + 1}[/title][meta]Meta[/meta][pp_text]Text[/pp_text][/pp_row][/content][/phone_app]`).join('')
+const legacyPhone = `[private_phone][presentation]inline[/presentation][owner]Legacy Owner[/owner][subtitle]Migrated phone[/subtitle][time]09:47[/time][day]Monday[/day][battery]63[/battery][wallpaper][/wallpaper][apps]${legacyApps}[/apps][/private_phone]`
+const renderedLegacyPhone = renderNarrativeRegex(legacyPhone, 'inline', 'phone-legacy-migration')
+assert((renderedLegacyPhone.match(/class="rrcp-entry /g) || []).length === 8 && !/\[\/?(?:private_phone|phone_app|pp_row)\b/i.test(renderedLegacyPhone), 'legacy private_phone, phone_app, generic field, and pp_* migration must still render all eight apps')
 const hybridPhone = missingWallpaperPhone
   .replace(/\[cp_icon\]◇\[\/cp_icon\]/g, '[cp_icon]<svg viewBox="0 0 24 24"><path d="M2 2h20v20H2z"/></svg></cp_icon>')
   .replace(/\[cp_glyph\]◇\[\/cp_glyph\]/g, '[cp_glyph]<svg viewBox="0 0 24 24"><path d="M12 2v20"/></svg></cp_glyph>')

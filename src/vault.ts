@@ -61,6 +61,32 @@ export type AppearanceSelection = {
   subjectCharacterIds: string[]
 }
 
+export type ProjectedAppearanceSelection = {
+  included: AppearanceVaultFact[]
+  excluded: ContinuityDecision[]
+  negativeTags: string[]
+  notes: string[]
+}
+
+type SceneVisibilityAnalysis = {
+  sleeping: boolean
+  eyesClosed: boolean
+  backTurned: boolean
+  faceObscured: boolean
+  faceVisible: boolean
+  upperVisible: boolean
+  handsVisible: boolean
+  fullBody: boolean
+  lowerBodyVisible: boolean
+  crowdLike: boolean
+  closeUp: boolean
+  mediumShot: boolean
+  wideShot: boolean
+  comparativeBlocking: boolean
+  explicitMarkVisibility: boolean
+  coveredSkin: boolean
+}
+
 /**
  * The editor and Illustrator both read this projection.  `characterSheets`
  * retains compatibility-only presentation data (alternate looks, negatives,
@@ -1129,6 +1155,167 @@ export function selectContinuityForSubjects(
   return { included: snapshot, excluded, attachedReferenceAssetIds, conflicts, strength, subjectCharacterIds: resolvedCharacters }
 }
 
+function analyzeSceneVisibility(sceneBrief: string, framingMode = '', expectedPeopleCount = 0): SceneVisibilityAnalysis {
+  const scene = `${sceneBrief} ${framingMode}`.replace(/[_-]+/g, ' ').toLocaleLowerCase()
+  const sleeping = /\b(?:sleeping|asleep|napping|napped|passed out|resting|dozing|dozed off)\b/.test(scene)
+  const eyesClosed = sleeping || /\b(?:eyes? closed|closed eyes?|eyelids? shut|shut eyes?)\b/.test(scene)
+  const backTurned = /\b(?:back turned|seen from behind|rear view|back facing|facing away|turned away|from behind)\b/.test(scene)
+  const faceOutOfFrame = /\b(?:face out of frame|head out of frame|cropped above the neck|faceless crop)\b/.test(scene)
+  const faceObscured = faceOutOfFrame || /\b(?:obscured face|face obscured|hidden face|face hidden|buried (?:her |his |their )?(?:face )?in (?:a |the )?pillow|hood shadow|face covered|blanket (?:fully )?(?:covers|covering) (?:her |his |their )?(?:face|head))\b/.test(scene)
+  const closeUp = /\b(?:tight close up|extreme close up|close up|closeup|portrait|bust|head and shoulders|headshot)\b/.test(scene)
+  const mediumShot = /\b(?:medium shot|medium close|waist up|upper body|shoulders|two shot)\b/.test(scene)
+  const fullBody = /\b(?:full body|head to toe|whole body|feet visible|standing across (?:the )?room|crossing (?:the )?\w+ floor|walking|running)\b/.test(scene)
+  const lowerBodyVisible = fullBody || /\b(?:waist down|lower body|legs? visible|feet|footwear|shoes?|sneakers?|boots?|socks?)\b/.test(scene)
+  const wideShot = /\b(?:wide shot|long shot|establishing shot|across the room|hallway|classroom|doorway|room visible|environment visible)\b/.test(scene)
+  const handsVisible = /\b(?:hand|hands|holding|reaching|touching|grip|fingers? visible|gesture|grasping)\b/.test(scene)
+  const crowdLike = expectedPeopleCount > 2 && /\b(?:crowd|team|group|ensemble|everyone)\b/.test(scene)
+  const comparativeBlocking = /\b(?:height difference|taller than|shorter than|towering over|standing beside|side by side|head to toe)\b/.test(scene)
+  const explicitMarkVisibility = /\b(?:tattoo|scar|birthmark|mole|freckles|bare skin|exposed skin|sleeveless|shirtless|topless|bare arms?|bare legs?)\b/.test(scene)
+  const coveredSkin = /\b(?:covered by|wrapped in|under (?:a |the )?blanket|long sleeves?|heavy coat|hooded coat|fully clothed)\b/.test(scene)
+  const upperVisible = fullBody || mediumShot || closeUp || wideShot || (!faceOutOfFrame && !/\b(?:lower body only|legs only|feet only)\b/.test(scene))
+  return {
+    sleeping,
+    eyesClosed,
+    backTurned,
+    faceObscured,
+    faceVisible: !backTurned && !faceObscured,
+    upperVisible,
+    handsVisible,
+    fullBody,
+    lowerBodyVisible,
+    crowdLike,
+    closeUp,
+    mediumShot: mediumShot || (!closeUp && !fullBody && !wideShot),
+    wideShot,
+    comparativeBlocking,
+    explicitMarkVisibility,
+    coveredSkin,
+  }
+}
+
+function continuityFactRelevantToFrame(
+  fact: AppearanceVaultFact,
+  scene: SceneVisibilityAnalysis,
+): { include: boolean; reason: string; negativeTags?: string[] } {
+  const value = `${fact.category} ${fact.value} ${fact.conflictDomain || ''}`.replace(/[_-]+/g, ' ').toLocaleLowerCase()
+  const eyeColor = fact.category === 'eye-color' || /\b(?:brown|blue|green|gray|grey|hazel|amber|black|violet|pink|red) eyes?\b/.test(value)
+  if (eyeColor && (scene.sleeping || scene.eyesClosed || !scene.faceVisible || scene.faceObscured || scene.backTurned)) {
+    return {
+      include: false,
+      reason: scene.sleeping || scene.eyesClosed ? 'Eye color is not useful while the subject is sleeping or has closed eyes.' : 'Eye color is not visible in this face-obscured or back-turned frame.',
+      negativeTags: scene.sleeping || scene.eyesClosed ? ['open_eyes', 'direct_gaze'] : [],
+    }
+  }
+
+  const subtleFaceDetail = fact.category === 'face-shape' || fact.category === 'mole'
+    || /\b(?:face shape|jawline|mole|beauty mark|facial mark|eyeliner|eyelashes|lashes)\b/.test(value)
+  const eyeEmphasis = /\b(?:eyeliner|eyelashes|lashes)\b/.test(value)
+  if (eyeEmphasis && (scene.sleeping || scene.eyesClosed)) {
+    return { include: false, reason: 'Eye-emphasis detail would contradict the sleeping or closed-eye scene.', negativeTags: ['open_eyes', 'direct_gaze'] }
+  }
+  if (subtleFaceDetail && (!scene.faceVisible || scene.faceObscured)) {
+    return { include: false, reason: 'Subtle face detail is not visible in this face-obscured or back-turned frame.' }
+  }
+
+  const height = fact.category === 'height' || /\b(?:tall|short|height)\b/.test(value)
+  if (height && !scene.fullBody && !scene.comparativeBlocking) {
+    return { include: false, reason: 'Height is not compositionally useful without full-body or comparative blocking.' }
+  }
+
+  const lowerBodyDetail = /\b(?:shoes?|sneakers?|boots?|socks?|stockings?|footwear|jeans|pants|trousers|shorts|skirt|legwear|anklet)\b/.test(value)
+  if (lowerBodyDetail && !scene.lowerBodyVisible && !scene.fullBody) {
+    return { include: false, reason: 'Lower-body wardrobe detail is outside the described frame.' }
+  }
+
+  const handDetail = /\b(?:ring|rings|glove|gloves|finger|fingers|hand|hands|wrist|bracelet|finger injury)\b/.test(value)
+  if (handDetail && !scene.handsVisible && !scene.fullBody) {
+    return { include: false, reason: 'Hand or finger detail is outside the described frame.' }
+  }
+
+  const hair = fact.category === 'hair-color' || fact.category === 'hair-length' || fact.category === 'hair-texture' || /\bhair\b/.test(value)
+  if (hair && scene.faceObscured && !scene.upperVisible) {
+    return { include: false, reason: 'The subject\'s head and hair are outside or fully hidden by the described frame.' }
+  }
+
+  const bodyBuild = fact.category === 'body-build' || /\b(?:build|physique|frame|slim|lean|athletic|muscular|petite|stocky|broad shoulders?)\b/.test(value)
+  if (bodyBuild && scene.closeUp && !scene.mediumShot && !scene.fullBody) {
+    return { include: false, reason: 'Body build is not useful in a tight face close-up.' }
+  }
+
+  const permanentMark = ['scar', 'tattoo', 'birthmark', 'permanent-mark'].includes(fact.category) || /\b(?:scar|tattoo|birthmark|freckles)\b/.test(value)
+  if (permanentMark) {
+    const facialMark = /\b(?:face|facial|eye|eyebrow|brow|cheek|forehead|freckles)\b/.test(value)
+    if (facialMark && (!scene.faceVisible || scene.faceObscured)) return { include: false, reason: 'The facial mark is not visible in this frame.' }
+    if (!facialMark && (!scene.explicitMarkVisibility || scene.coveredSkin)) return { include: false, reason: 'The permanent mark is not established as visible through the current framing and clothing.' }
+  }
+
+  if (fact.layer === 'wardrobe' && !scene.upperVisible && !scene.lowerBodyVisible && !scene.fullBody) {
+    return { include: false, reason: 'The current outfit is outside the described crop.' }
+  }
+
+  return { include: true, reason: 'Fact is visible and compositionally useful in the current frame.' }
+}
+
+function projectedFactPriority(fact: AppearanceVaultFact): number {
+  const value = `${fact.category} ${fact.value}`.replace(/[_-]+/g, ' ').toLocaleLowerCase()
+  if (['hair-color', 'hair-length', 'hair-texture', 'body-build', 'scar', 'tattoo', 'birthmark', 'mole', 'permanent-mark', 'prosthetic'].includes(fact.category)) return 0
+  if (/\b(?:hair|scar|tattoo|birthmark|mole|freckles|prosthetic|glasses)\b/.test(value)) return 0
+  if (fact.layer === 'wardrobe') return 1
+  if (fact.layer === 'current-appearance') return 2
+  return 3
+}
+
+export function projectContinuityForGeneration(
+  vault: ContinuityVaultState,
+  input: {
+    subjectNames: string[]
+    chatId: string
+    sceneBrief: string
+    strength?: ContinuityStrength
+    ignored?: boolean
+    framingMode?: string
+    expectedPeopleCount?: number
+  },
+  now = Date.now(),
+): ProjectedAppearanceSelection {
+  const base = selectContinuityForSubjects(vault, input, now)
+  const scene = analyzeSceneVisibility(input.sceneBrief, input.framingMode, input.expectedPeopleCount)
+  const projectedIncluded: AppearanceVaultFact[] = []
+  const projectedExcluded: ContinuityDecision[] = [...base.excluded]
+  const negativeTags = new Set<string>()
+  const notes: string[] = []
+
+  if (scene.sleeping || scene.eyesClosed) {
+    negativeTags.add('open_eyes')
+    negativeTags.add('direct_gaze')
+    notes.push('Closed-eye scene: eye-color and eye-emphasis continuity are suppressed.')
+  }
+  if (scene.backTurned) notes.push('Back-turned scene: face-only continuity is suppressed.')
+  if (scene.closeUp) notes.push('Close-up scene: height and lower-body continuity are suppressed.')
+
+  for (const fact of base.included) {
+    const decision = continuityFactRelevantToFrame(fact, scene)
+    if (decision.include) projectedIncluded.push(fact)
+    else projectedExcluded.push({ factId: fact.factId, included: false, reason: decision.reason })
+    for (const tag of decision.negativeTags || []) negativeTags.add(tag)
+  }
+
+  const strength = input.strength || vault.strength
+  const perSubjectLimit = strength === 'strong' ? 6 : strength === 'medium' ? 5 : strength === 'low' ? 3 : 0
+  const capped: AppearanceVaultFact[] = []
+  for (const characterId of base.subjectCharacterIds) {
+    const rows = projectedIncluded
+      .filter(fact => fact.canonicalCharacterId === characterId)
+      .sort((left, right) => projectedFactPriority(left) - projectedFactPriority(right) || compareFactPriority(left, right))
+    capped.push(...rows.slice(0, perSubjectLimit))
+    for (const fact of rows.slice(perSubjectLimit)) {
+      projectedExcluded.push({ factId: fact.factId, included: false, reason: `Omitted by ${strength} generation projection limit of ${perSubjectLimit} facts per visible subject.` })
+    }
+  }
+  notes.push(`Projected ${capped.length} of ${base.included.length} broadly selected Appearance Memory facts for this frame.`)
+  return { included: capped, excluded: projectedExcluded, negativeTags: [...negativeTags], notes }
+}
+
 /** Presentation only: semantic category/value storage remains untouched. */
 export function appearanceFactDescriptor(fact: Pick<AppearanceVaultFact, 'category' | 'value'>): string {
   const value = fact.value.trim()
@@ -1167,6 +1354,10 @@ export function formatSelectedAppearanceFacts(facts: AppearanceVaultFact[]): str
     ].filter(Boolean).join('\n'))
   }
   return sections.join('\n')
+}
+
+export function formatProjectedAppearanceFacts(facts: AppearanceVaultFact[]): string {
+  return formatSelectedAppearanceFacts(facts)
 }
 
 export function allAppearanceFacts(vault: ContinuityVaultState): AppearanceVaultFact[] {
@@ -1341,7 +1532,8 @@ export function replaceAppearanceMemoryFieldFromSidecar(
 ): void {
   const character = vault.characters[input.characterId]
   if (!character) throw new Error('Character not found.')
-  const value = serializeCanonicalTagList(input.tags)
+  const tags = input.field === 'stable-appearance' ? filterStableAppearanceRefreshTags(input.tags) : input.tags
+  const value = serializeCanonicalTagList(tags)
   if (input.status === 'known' && !value) throw new Error(`Appearance Sidecar returned no usable ${input.field} tags.`)
   if (input.status === 'unknown') {
     appendHistory(vault, 'appearance-memory-saved', { characterId: input.characterId, details: { source: 'appearance-sidecar-field-refresh', field: input.field, status: input.status, preservedExistingValue: true } }, now)
@@ -1389,6 +1581,17 @@ export function replaceAppearanceMemoryFieldFromSidecar(
   syncCharacterSheetPresentation(vault, input.characterId, now)
   appendHistory(vault, 'appearance-memory-saved', { characterId: input.characterId, details: { source: 'appearance-sidecar-field-refresh', field: input.field, status: input.status } }, now)
   vault.updatedAt = now
+}
+
+export function filterStableAppearanceRefreshTags(tags: string[]): string[] {
+  return tags.map(clean).filter(Boolean).filter(tag => {
+    const value = tag.replace(/[_-]+/g, ' ').toLocaleLowerCase()
+    if (/\b(?:eyes? closed|closed eyes?|open eyes?|looking at (?:the )?viewer|direct gaze|looking away|looking down|looking up)\b/.test(value)) return false
+    if (/\b(?:smiling|crying|tearful|blushing|tense expression|relaxed expression|expression)\b/.test(value)) return false
+    if (/\b(?:lying down|sitting|standing|sleeping|walking|running|reaching|holding|turning|kneeling|pose|posing|action)\b/.test(value)) return false
+    if (/\b(?:camera|shot|close up|closeup|portrait framing|viewpoint|angle|composition|depth of field|bokeh|lens|gaze direction)\b/.test(value)) return false
+    return true
+  })
 }
 
 export function findAppearanceFact(vault: ContinuityVaultState, factId: string): AppearanceVaultFact | undefined {

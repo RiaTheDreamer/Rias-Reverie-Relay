@@ -44,6 +44,17 @@ const resolvedUtility = backend.buildResolvedNarrativeUtilityPrompt({
 })
 assert.equal((resolvedUtility.content.match(/CHARACTER PHONE — ACTIVE APP LAYOUT/g) || []).length, 1, 'the dynamic Character Phone layout must join the real Narrative expansion exactly once')
 assert(resolvedUtility.content.includes('Fill slots 3–8 with exactly 6 distinct context-relevant apps'), 'real Narrative expansion must carry the saved default selection')
+assert(resolvedUtility.content.includes('The Photos app is a real mini gallery, not a single preview tile'), 'model-facing Character Phone Utility must define Photos as a real gallery')
+assert(resolvedUtility.content.includes('at least 2 [cp_photo] blocks') && resolvedUtility.content.includes('Normally emit 2–4 distinct [cp_photo] blocks'), 'model-facing Character Phone Utility must require multiple Photos entries')
+assert(resolvedUtility.content.includes('Each [cp_photo] should normally include its own non-empty [cp_media] block'), 'each gallery item should normally own its image request')
+assert(resolvedUtility.content.includes('Normally use 2–6 generated images total') && !resolvedUtility.content.includes('Normally use 1–4 generated images total'), 'Character Phone image budget must reserve room for a multi-image gallery')
+const photoPriority = resolvedUtility.content.indexOf('1. Photos app gallery images')
+const wallpaperPriority = resolvedUtility.content.indexOf('2. Optional wallpaper image')
+const wardrobePriority = resolvedUtility.content.indexOf('3. Optional Wardrobe media')
+assert(photoPriority >= 0 && photoPriority < wallpaperPriority && wallpaperPriority < wardrobePriority, 'Photos images must outrank wallpaper and Wardrobe media')
+for (const legacyToken of ['old `[private_phone]` wrappers', 'old `[phone_app]` blocks', 'old `pp_*` components']) {
+  assert(resolvedUtility.content.includes(legacyToken), `Character Phone legacy migration contract missing: ${legacyToken}`)
+}
 
 function phoneMarkup(appNames: string[], slots = appNames.map((_, index) => index + 1)): string {
   return appNames.map((name, index) => `[cp_app]\n[cp_slot]${slots[index]}[/cp_slot]\n[cp_name]${name}[/cp_name]\n[/cp_app]`).join('\n')
