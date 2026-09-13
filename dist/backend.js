@@ -57,6 +57,32 @@ var MAX_COUNT = 4;
 var MAX_PROMPT_CHARS = 6000;
 var PROSE_ILLUSTRATION_ASPECTS = new Set(["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9"]);
 var PROSE_ILLUSTRATION_CASTS = new Set(["char", "user", "char+user", "none"]);
+function normalizeProseIllustrationContracts(content) {
+  const repairs = [];
+  const re = /<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi;
+  const markup = content.replace(re, (fullMatch, rawAttrs, body, index) => {
+    if (/<visual_prompt\b/i.test(body))
+      return fullMatch;
+    const singleSceneBrief = body.match(/^(\s*)<scene_brief\s*>([\s\S]*?)<\/scene_brief\s*>(\s*)$/i);
+    if (!singleSceneBrief || !String(singleSceneBrief[2] || "").trim() || /<\/?scene_brief\b/i.test(singleSceneBrief[2]))
+      return fullMatch;
+    const outerOpenEnd = fullMatch.indexOf(">") + 1;
+    const outerCloseStart = fullMatch.toLocaleLowerCase().lastIndexOf("</reverie-illustration");
+    if (outerOpenEnd < 1 || outerCloseStart < outerOpenEnd)
+      return fullMatch;
+    const repairedBody = `${singleSceneBrief[1]}<visual_prompt>${singleSceneBrief[2]}</visual_prompt>${singleSceneBrief[3]}`;
+    const repaired = `${fullMatch.slice(0, outerOpenEnd)}${repairedBody}${fullMatch.slice(outerCloseStart)}`;
+    repairs.push({
+      code: "REPAIRED_PROSE_ILLUSTRATION_PROMPT_TAG",
+      slot: String(parseAttrs(rawAttrs).slot || "").trim(),
+      index,
+      original: fullMatch,
+      repaired
+    });
+    return repaired;
+  });
+  return { markup, repairs };
+}
 function inspectProseIllustrationSchemas(content) {
   const diagnostics = [];
   const re = /<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi;
@@ -191,6 +217,7 @@ function targetApp(target) {
   return "instagram";
 }
 function parseImageRequests(content) {
+  content = normalizeProseIllustrationContracts(content).markup;
   const out = [];
   const phoneRanges = [];
   const phoneRe = /<(?:smart_phone|smartphone)\b([^>]*)>([\s\S]*?)<\/(?:smart_phone|smartphone)>/gi;
@@ -156946,14 +156973,30 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
     }
     const swipeId = Number.isFinite(Number(forcedSwipeId)) ? Number(forcedSwipeId) : Number(message.swipe_id ?? 0);
     const rawStoredContent = getSwipeContent(message, swipeId);
-    const storedContent = normalizeRelaySurfaceContracts(rawStoredContent);
+    const storedProseNormalization = normalizeProseIllustrationContracts(rawStoredContent);
+    const storedContent = normalizeRelaySurfaceContracts(storedProseNormalization.markup);
     if (storedContent !== rawStoredContent)
       await patchSwipeContent(chatId, message, swipeId, storedContent);
     const pending = messageId ? pendingGenerationContent.get(pendingContentKey(chatId, message.id)) : undefined;
-    const capturedContent = normalizeRelaySurfaceContracts(sourceContent || pending?.content || "");
+    const rawCapturedContent = sourceContent || pending?.content || "";
+    const capturedProseNormalization = normalizeProseIllustrationContracts(rawCapturedContent);
+    const capturedContent = normalizeRelaySurfaceContracts(capturedProseNormalization.markup);
     const content = containsRelayRequestMarkup(capturedContent) ? capturedContent : storedContent;
     const storedContainsImageRequest = containsRelayRequestMarkup(storedContent);
     const capturedContainsImageRequest = containsRelayRequestMarkup(capturedContent);
+    const proseContractRepairs = [...storedProseNormalization.repairs, ...capturedProseNormalization.repairs].filter((repair, index, rows2) => rows2.findIndex((candidate) => candidate.slot === repair.slot && candidate.original === repair.original) === index);
+    if (proseContractRepairs.length) {
+      await mutateState(chatId, userId, (state) => appendStateLog(state, {
+        severity: "info",
+        stage: "request-normalization",
+        eventType: "prose_illustration_contract_repaired",
+        chatId,
+        messageId: message.id,
+        swipeId,
+        message: `Repaired ${proseContractRepairs.length} unambiguous prose illustration prompt tag${proseContractRepairs.length === 1 ? "" : "s"} locally.`,
+        details: { repairs: proseContractRepairs.map((repair) => ({ code: repair.code, slot: repair.slot, index: repair.index })) }
+      }));
+    }
     try {
       await ensureAppearanceReadyForTurn({ chatId, messageId: message.id, swipeId, content, userId, nativeSnapshot, reason: "scan-and-generate" });
     } catch (error) {
@@ -157567,7 +157610,8 @@ async function regenerateSlot(key, nativeSnapshot, userId, highResMode) {
   await sendState(userId, chatId);
 }
 function normalizeRelaySurfaceContracts(content) {
-  return normalizeSurfaceDocument(normalizeCharacterProfileContract(content), SHIPPED_SURFACE_SPECS).markup;
+  const proseNormalized = normalizeProseIllustrationContracts(content).markup;
+  return normalizeSurfaceDocument(normalizeCharacterProfileContract(proseNormalized), SHIPPED_SURFACE_SPECS).markup;
 }
 function parseSafeSurfaceImageRequests(content) {
   const safe = normalizeSurfaceDocument(content, SHIPPED_SURFACE_SPECS, (block) => block.diagnostics.length ? " ".repeat(block.original.length) : block.markup);

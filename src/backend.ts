@@ -5,6 +5,7 @@ type LlmMessage = import('lumiverse-spindle-types').LlmMessageDTO
 import {
   parseImageRequests,
   inspectProseIllustrationSchemas,
+  normalizeProseIllustrationContracts,
   parseRouterMarkers,
   mergeMissingSlotRecords,
   selectRescanSwipeRows,
@@ -4136,13 +4137,26 @@ async function scanAndGenerate(
 
     const swipeId = Number.isFinite(Number(forcedSwipeId)) ? Number(forcedSwipeId) : Number(message.swipe_id ?? 0)
     const rawStoredContent = getSwipeContent(message, swipeId)
-    const storedContent = normalizeRelaySurfaceContracts(rawStoredContent)
+    const storedProseNormalization = normalizeProseIllustrationContracts(rawStoredContent)
+    const storedContent = normalizeRelaySurfaceContracts(storedProseNormalization.markup)
     if (storedContent !== rawStoredContent) await patchSwipeContent(chatId, message, swipeId, storedContent)
     const pending = messageId ? pendingGenerationContent.get(pendingContentKey(chatId, message.id)) : undefined
-    const capturedContent = normalizeRelaySurfaceContracts(sourceContent || pending?.content || '')
+    const rawCapturedContent = sourceContent || pending?.content || ''
+    const capturedProseNormalization = normalizeProseIllustrationContracts(rawCapturedContent)
+    const capturedContent = normalizeRelaySurfaceContracts(capturedProseNormalization.markup)
     const content = containsRelayRequestMarkup(capturedContent) ? capturedContent : storedContent
     const storedContainsImageRequest = containsRelayRequestMarkup(storedContent)
     const capturedContainsImageRequest = containsRelayRequestMarkup(capturedContent)
+    const proseContractRepairs = [...storedProseNormalization.repairs, ...capturedProseNormalization.repairs]
+      .filter((repair, index, rows) => rows.findIndex(candidate => candidate.slot === repair.slot && candidate.original === repair.original) === index)
+    if (proseContractRepairs.length) {
+      await mutateState(chatId, userId, state => appendStateLog(state, {
+        severity: 'info', stage: 'request-normalization', eventType: 'prose_illustration_contract_repaired',
+        chatId, messageId: message.id, swipeId,
+        message: `Repaired ${proseContractRepairs.length} unambiguous prose illustration prompt tag${proseContractRepairs.length === 1 ? '' : 's'} locally.`,
+        details: { repairs: proseContractRepairs.map(repair => ({ code: repair.code, slot: repair.slot, index: repair.index })) },
+      }))
+    }
     try {
       // The same assistant turn must update continuity before Relay snapshots its image jobs.
       await ensureAppearanceReadyForTurn({ chatId, messageId: message.id, swipeId, content, userId, nativeSnapshot, reason: 'scan-and-generate' })
@@ -4703,7 +4717,8 @@ async function regenerateSlot(key: string, nativeSnapshot?: NativeSettingsSnapsh
 }
 
 export function normalizeRelaySurfaceContracts(content: string): string {
-  return normalizeSurfaceDocument(normalizeCharacterProfileContract(content), SHIPPED_SURFACE_SPECS).markup
+  const proseNormalized = normalizeProseIllustrationContracts(content).markup
+  return normalizeSurfaceDocument(normalizeCharacterProfileContract(proseNormalized), SHIPPED_SURFACE_SPECS).markup
 }
 
 export function parseSafeSurfaceImageRequests(content: string): ReturnType<typeof parseImageRequests> {
