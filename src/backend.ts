@@ -4,6 +4,7 @@ type LlmMessage = import('lumiverse-spindle-types').LlmMessageDTO
 
 import {
   parseImageRequests,
+  inspectProseIllustrationSchemas,
   parseRouterMarkers,
   mergeMissingSlotRecords,
   selectRescanSwipeRows,
@@ -46,6 +47,7 @@ import {
   type AssetLibraryFilters,
   type AssetLibraryState,
   type AppearanceCharacterSheet,
+  type AppearanceMemoryActionStatus,
   type AppearanceFactCategory,
   type AppearanceSourceType,
   type AppearanceSuggestion,
@@ -100,7 +102,7 @@ import {
 export type { RequestClassification } from './contracts'
 import { canAbortSlotStatus, isGenerationActiveStatus, isSlotLifecycleActive } from './slotLifecycle'
 import { BoundedLruCache } from './boundedCache'
-import { abortableSlotKeys, C5B_CACHE_LIMITS, healthCheck, rememberBoundedMap, summarizeRelayHealth, type RelayHealthCheck } from './c5bReliability'
+import { abortableSlotKeys, C5B_CACHE_LIMITS, cancelMapKeysFromSnapshot, healthCheck, rememberBoundedMap, summarizeRelayHealth, type RelayHealthCheck } from './c5bReliability'
 import { c5aCastRequirements, enforceC5AKnownIdentity, resolveC5ANativeIdentityBinding, type C5ANativeIdentityBinding } from './c5aIdentity'
 import { buildAppearanceSidecarPayload, ingestAppearanceSidecarObservations, normalizeAppearanceFieldRefreshOutput, normalizeAppearanceSidecarOutput, preserveCompleteSidecarContext, type AppearanceFieldRefreshResult, type AppearanceMemoryRefreshField } from './appearanceSidecar'
 import { assertModelContextBudget, invalidateContextSnapshots, measureModelMessages, selectExcerpts, selectLorebookContext, visualSourceSnapshot, type ContextMetrics } from './contextBudget'
@@ -812,7 +814,7 @@ function releaseImageStream(context: ImageGenerationStreamContext, controller: A
   }
 }
 
-function abortImageStream(alias: string): boolean {
+export function abortImageStream(alias: string): boolean {
   const controller = activeImageStreams.get(alias)
   if (!controller) return false
   if (!controller.signal.aborted) controller.abort('Cancelled by user.')
@@ -1759,8 +1761,7 @@ if (typeof registerMessageContentProcessor === 'function') {
 }
 
 const registerInterceptor = (spindle as unknown as { registerInterceptor?: typeof spindle.registerInterceptor }).registerInterceptor
-if (typeof registerInterceptor === 'function') {
-  ;(registerInterceptor as any).call(spindle, async (messages: LlmMessage[], context: any) => {
+const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
     const cleaned = messages.map(sanitizeRelayPromptMessage)
     const chatId = cleanString(context?.chatId || context?.chat_id)
     if (!chatId) return cleaned
@@ -1861,8 +1862,28 @@ if (typeof registerInterceptor === 'function') {
       spindle.log.warn(`[Reverie Relay] Runtime directive fallback: ${error instanceof Error ? error.message : String(error)}`)
       return cleaned
     }
-  }, { priority: 20 })
-} else {
+}
+
+let interceptorDisposer: (() => void) | null = null
+
+export function ensureInterceptorRegistered(): boolean {
+  if (interceptorDisposer) return true
+  if (typeof registerInterceptor !== 'function') return false
+  if (!spindle.permissions.has('interceptor')) return false
+  const dispose = (registerInterceptor as any).call(spindle, relayPromptInterceptor, { priority: 20 })
+  interceptorDisposer = typeof dispose === 'function' ? dispose : () => {}
+  return true
+}
+
+function releaseInterceptorRegistration(): void {
+  const dispose = interceptorDisposer
+  interceptorDisposer = null
+  try { dispose?.() } catch (error) {
+    spindle.log.warn(`[Reverie Relay] Interceptor unregister failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+if (!ensureInterceptorRegistered() && typeof registerInterceptor !== 'function') {
   spindle.log.warn('[Reverie Relay] Lumiverse interceptor API is unavailable; dynamic Surface and Illustrator prompt injection is unavailable.')
 }
 
@@ -1976,6 +1997,10 @@ spindle.on('GENERATION_STOPPED', (payload: any, userId?: string) => {
 
 const runtimePermissionEvents = spindle.permissions as unknown as { onChanged?: (listener: (detail: { extensionId: string; permission: string; granted: boolean; allGranted: string[] }) => void) => unknown } | undefined
 runtimePermissionEvents?.onChanged?.((detail: { extensionId: string; permission: string; granted: boolean; allGranted: string[] }) => {
+  if (detail.permission === 'interceptor') {
+    if (detail.granted) ensureInterceptorRegistered()
+    else releaseInterceptorRegistration()
+  }
   invalidateContextSnapshots()
   renderSnapshotCache.clear()
   renderOutputCache.clear()
@@ -2045,9 +2070,14 @@ spindle.on('MESSAGE_EDITED', (payload: any, userId?: string) => {
   const messageId = cleanString(payload?.messageId || payload?.message_id || payload?.message?.id)
   if (!chatId || !messageId) return
   const mutationKey = `${chatId}:${messageId}`
-  const message = payload?.message as ChatMessage | undefined
+  const eventMessage = payload?.message as ChatMessage | undefined
+  const message = eventMessage ? canonicalEditedMessage(eventMessage) : undefined
+  const extensionOwned = extensionMessageMutations.has(mutationKey)
   if (message?.id) rememberMessageSnapshot(chatId, message)
-  if (!extensionMessageMutations.has(mutationKey) && message && isAssistantMessage(message) && !isOwnMessage(message)) {
+  if (!extensionOwned && message && isAssistantMessage(message) && !isOwnMessage(message)) {
+    const invalidatedCacheEntries = invalidateRenderOutputForMessage(chatId, messageId, userId)
+    const cachedConfig = configCache.get(userConfigCacheKey(userId))?.value
+    if (cachedConfig?.debugLogging) spindle.log.info(`[Reverie Relay:message_edit_render_invalidated] chatId=${chatId} messageId=${messageId} invalidatedCacheEntries=${invalidatedCacheEntries}`)
     const swipeId = activeSwipeId(message)
     const content = getSwipeContent(message, swipeId)
     if (containsRelayRequestMarkup(content)) {
@@ -2061,7 +2091,12 @@ spindle.on('MESSAGE_EDITED', (payload: any, userId?: string) => {
       if (settings.reanalyzeEditedMessages) scheduleProseOpportunityScan({ chatId, messageId, swipeId, userId, sourceContent: content, source: 'message-edited', delayMs: 140 })
     })().catch(error => spindle.log.warn(`[Reverie Relay:message_edited_prose] ${error instanceof Error ? error.message : String(error)}`))
   }
-  void reconcileChatState(chatId, userId, messageId).catch(error => spindle.log.warn(`[Reverie Relay:message_edited] ${error instanceof Error ? error.message : String(error)}`))
+  if (!extensionOwned) {
+    void reconcileChatState(chatId, userId, messageId, message).then(summary => {
+      const cachedConfig = configCache.get(userConfigCacheKey(userId))?.value
+      if (cachedConfig?.debugLogging) spindle.log.info(`[Reverie Relay:message_edit_reconciled] survivingSlots=${summary.valid} orphanedSlots=${summary.orphanedFound} removedSlots=${summary.orphanedRemoved}`)
+    }).catch(error => spindle.log.warn(`[Reverie Relay:message_edited] ${error instanceof Error ? error.message : String(error)}`))
+  }
 })
 
 const acceptedSlotSubmissions = new Set<string>()
@@ -2109,6 +2144,12 @@ spindle.onFrontendMessage((raw: unknown, userId?: string) => {
     const type = payload && typeof payload === 'object' && 'type' in payload ? payload.type : 'unknown'
     const message = error instanceof Error ? error.message : String(error)
     const submission = slotSubmissionDetails(payload)
+    if (payload?.type === 'continuity_action' && payload.action === 'save_character_sheet' && payload.characterId) {
+      sendAppearanceMemoryActionStatus({
+        operation: 'save', chatId: payload.chatId, characterId: payload.characterId,
+        status: 'error', message: `Save failed: ${message}`,
+      }, userId)
+    }
     if (submission) {
       const accepted = acceptedSlotSubmissions.delete(submission.submissionId)
       spindle.sendToFrontend({ type: 'slot_action_feedback', ...submission, status: accepted ? 'failed' : 'rejected', message }, userId)
@@ -3149,6 +3190,12 @@ async function reconcileInstalledNarrativeOnStartup(userId?: string): Promise<vo
   }
 }
 
+export function invalidateRenderOutputForMessage(chatId: string, messageId: string, userId?: string): number {
+  const scope = renderScopeKey(chatId, userId)
+  const messageScope = String(messageId)
+  return renderOutputCache.deleteWhere((_key, value) => value.scope === scope && value.messageId === messageScope)
+}
+
 async function handleFrontendMessage(payload: FrontendMessage, userId?: string): Promise<void> {
   switch (payload.type) {
     case 'list_state':
@@ -3521,6 +3568,8 @@ export function buildFullCompleteDryRunReport(input: {
   adultFidelity: string
   surfaceProtocol: string
   surfaceUtility: { content: string; moduleIds: string[] }
+  narrativeUtility: { content: string; utilityNames: string[] }
+  narrativeInjectionEnabled: boolean
   settings: ProseIllustratorSettings
   nativeSettings?: NativeImageSettings
   runtimeHealth?: Record<string, unknown>
@@ -3586,6 +3635,11 @@ export function buildFullCompleteDryRunReport(input: {
           conflicts: [],
         })),
       },
+      narrativeUtilities: {
+        injectionEnabled: input.narrativeInjectionEnabled,
+        enabledUtilityNames: input.narrativeUtility.utilityNames,
+        enabledUtilities: input.narrativeUtility.content,
+      },
       provider: { connectionId: native.activeImageGenConnectionId || null, model: native.model || null, parameters: cloneRecord(native.parameters) },
       promptPrefixes: { positive: promptPrefix, negative: negativePrefix },
       loraAssembly: { activePresetId: native.activeLoraPresetId || null, effectiveLoras: loraPlan.effectiveLoras, baseTags: loraPlan.baseTags, bypassed: native.bypassActiveLoraPreset === true },
@@ -3616,6 +3670,7 @@ async function handleFullCompleteDryRun(payload: Extract<FrontendMessage, { type
   const messages = chatId ? await spindle.chat.getMessages(chatId).catch(() => []) as LlmMessage[] : []
   const personaPovContext = settings.perspectiveMode === 'persona-pov' && chatId ? await resolvePersonaPovContext(chatId, userId) : undefined
   const surfaceUtility = buildEnabledSurfaceUtility(state.customSurfaces, 'automatic')
+  const narrativeUtility = buildResolvedNarrativeUtilityPrompt(config)
   const report = buildFullCompleteDryRunReport({
     chatId,
     illustratorPrompt: resolveIllustratorStoryPrompt(settings, messages, personaPovContext),
@@ -3623,6 +3678,8 @@ async function handleFullCompleteDryRun(payload: Extract<FrontendMessage, { type
     adultFidelity: registryPrompt(settings, 'story.adult-content-fidelity'),
     surfaceProtocol: registryPrompt(settings, 'story.surface-protocol'),
     surfaceUtility,
+    narrativeUtility,
+    narrativeInjectionEnabled: config.narrativeDlcEnabled,
     settings,
     nativeSettings: nativeSnapshot?.settings || nativeSnapshotFromConfig(config)?.settings || {},
     runtimeHealth: payload.runtimeHealth,
@@ -4110,6 +4167,21 @@ async function scanAndGenerate(
     }
 
     const requests = parseSafeSurfaceImageRequests(content)
+    const invalidProseIllustrations = inspectProseIllustrationSchemas(content)
+    if (invalidProseIllustrations.length) {
+      await mutateState(chatId, userId, state => {
+        for (const diagnostic of invalidProseIllustrations) appendStateLog(state, {
+          severity: 'error', stage: 'request-validation', eventType: 'invalid_prose_illustration_schema',
+          chatId, messageId: message.id, swipeId, requestId: diagnostic.slot || undefined,
+          message: diagnostic.message,
+          details: { sourcePreserved: true, generationDispatched: false, index: diagnostic.index },
+        })
+      })
+      spindle.sendToFrontend({
+        type: 'relay_notice', level: 'warning',
+        message: invalidProseIllustrations[0].message,
+      }, userId)
+    }
     const rawTags = inspectRawImageRequestTags(content)
     logStage(config, 'request_detection', {
       chatId,
@@ -6348,7 +6420,7 @@ async function discardRelayCandidate(chatId: string, batchId: string, candidateK
 async function handleQueueAction(payload: Extract<FrontendMessage, { type: 'queue_action' }>, nativeSnapshot?: NativeSettingsSnapshot, userId?: string): Promise<void> {
   if (payload.action === 'abort_all') {
     const stoppedStreams = abortAllImageStreams()
-    for (const key of abortableOperationSerials.keys()) cancelAbortableOperation(key)
+    cancelMapKeysFromSnapshot(abortableOperationSerials, cancelAbortableOperation)
     await mutateState(payload.chatId, userId, state => {
       state.backgroundQueue.abortRequestedAt = Date.now()
       state.backgroundQueue.updatedAt = Date.now()
@@ -7801,6 +7873,10 @@ async function handleContinuityAction(payload: Extract<FrontendMessage, { type: 
     await handleAppearanceFieldRefresh(payload, userId)
     return
   }
+  const appearanceSave = payload.action === 'save_character_sheet' && payload.characterId
+    ? { operation: 'save' as const, chatId: payload.chatId, characterId: payload.characterId }
+    : null
+  if (appearanceSave) sendAppearanceMemoryActionStatus({ ...appearanceSave, status: 'started', message: 'Saving Appearance Memory…' }, userId)
   let continuityNotice = ''
   let manualCharacterForEnrichment: { id: string; name: string } | null = null
   await mutateState(payload.chatId, userId, state => {
@@ -8136,6 +8212,16 @@ async function handleContinuityAction(payload: Extract<FrontendMessage, { type: 
   })
   if (payload.action === 'set_strength') await setConfig({ vaultStrength: payload.strength || 'off' }, userId)
   await sendState(userId, payload.chatId)
+  if (appearanceSave) {
+    const saved = await getState(payload.chatId, userId)
+    sendAppearanceMemoryActionStatus({
+      ...appearanceSave,
+      status: 'success',
+      message: 'Saved ✓',
+      revision: saved.revision,
+      updatedAt: saved.continuityVault.characterSheets[appearanceSave.characterId]?.updatedAt,
+    }, userId)
+  }
   if (continuityNotice) spindle.sendToFrontend({ type: 'relay_notice', level: 'success', message: continuityNotice }, userId)
   if (manualCharacterForEnrichment) {
     // This starts only after the canonical record has been persisted. No model
@@ -8153,6 +8239,10 @@ async function handleAppearanceFieldRefresh(payload: Extract<FrontendMessage, { 
   }
   try {
     if (!payload.characterId || !field || !labels[field]) throw new Error('Choose an Appearance Memory character and field first.')
+    sendAppearanceMemoryActionStatus({
+      operation: 'rerun-field', chatId: payload.chatId, characterId: payload.characterId, field,
+      status: 'started', message: `Appearance Sidecar analyzing ${labels[field]}…`,
+    }, userId)
     const state = await getState(payload.chatId, userId)
     const character = state.continuityVault.characters[payload.characterId]
     if (!character) throw new Error('The selected Appearance Memory character no longer exists.')
@@ -8176,6 +8266,16 @@ async function handleAppearanceFieldRefresh(payload: Extract<FrontendMessage, { 
     }
     await sendState(userId, payload.chatId)
     const fieldResult = typeof completed === 'object' ? completed : null
+    const latest = await getState(payload.chatId, userId)
+    sendAppearanceMemoryActionStatus({
+      operation: 'rerun-field', chatId: payload.chatId, characterId: payload.characterId, field,
+      status: fieldResult?.status === 'unknown' ? 'unknown' : 'success',
+      message: fieldResult?.status === 'unknown'
+        ? `No established ${labels[field]} found — existing value kept.`
+        : `${labels[field]} updated ✓`,
+      revision: latest.revision,
+      updatedAt: latest.continuityVault.characterSheets[payload.characterId]?.updatedAt,
+    }, userId)
     spindle.sendToFrontend({
       type: 'relay_notice',
       level: fieldResult?.status === 'unknown' ? 'warning' : 'success',
@@ -8190,8 +8290,18 @@ async function handleAppearanceFieldRefresh(payload: Extract<FrontendMessage, { 
       appendStateLog(state, { severity: 'warning', stage: 'appearance-sidecar', eventType: 'appearance_sidecar_field_refresh_failed', chatId: payload.chatId, message: `Appearance Sidecar field refresh failed: ${message}`, details: { characterId: payload.characterId, field } })
     })
     await sendState(userId, payload.chatId)
+    if (payload.characterId && field) {
+      sendAppearanceMemoryActionStatus({
+        operation: 'rerun-field', chatId: payload.chatId, characterId: payload.characterId, field,
+        status: 'error', message: `Refresh failed: ${message}`,
+      }, userId)
+    }
     spindle.sendToFrontend({ type: 'relay_notice', level: 'error', message: `Could not refresh ${field ? labels[field] : 'Appearance Memory'}: ${message}` }, userId)
   }
+}
+
+function sendAppearanceMemoryActionStatus(status: AppearanceMemoryActionStatus, userId?: string): void {
+  spindle.sendToFrontend({ type: 'appearance_memory_action_status', ...status }, userId)
 }
 
 function defaultSurfacePromptCategory(surfaceId: string): SurfacePromptCategory {
@@ -11263,7 +11373,7 @@ export async function getConfig(userId?: string): Promise<RouterConfig> {
   return value
 }
 
-async function setConfig(patch: Partial<RouterConfig>, userId?: string): Promise<RouterConfig> {
+export async function setConfig(patch: Partial<RouterConfig>, userId?: string): Promise<RouterConfig> {
   const key = userConfigCacheKey(userId)
   const previous = configMutationQueues.get(key) || Promise.resolve()
   let release = () => {}
@@ -11748,7 +11858,7 @@ export function normalizeImageGenerationStreamEvent(rawEvent: unknown): {
   }
 }
 
-async function generateWithOptionalStream(
+export async function generateWithOptionalStream(
   finalRequest: Record<string, unknown>,
   plan: ImagePlan,
   userId: string | undefined,
@@ -11761,7 +11871,8 @@ async function generateWithOptionalStream(
     releaseLane = await acquireImageGenerationLane(userId, context, controller)
     if (controller.signal.aborted) throw abortError()
 
-    const input = { ...finalRequest, userId, signal: controller.signal }
+    const standardInput = { ...finalRequest, userId }
+    const streamInput = { ...standardInput, signal: controller.signal }
     const api = spindle.imageGen as unknown as {
       generate: (input: Record<string, unknown>) => Promise<any>
       generateStream?: (input: Record<string, unknown>) => AsyncIterable<any>
@@ -11771,7 +11882,8 @@ async function generateWithOptionalStream(
     sendImageStreamEvent(userId, context, { event: 'started', streaming: canStream, statusText: canStream ? 'Connecting to live preview…' : 'Starting generation…' })
 
     if (!canStream || !api.generateStream) {
-      const result = await api.generate(input)
+      if (controller.signal.aborted) throw abortError()
+      const result = await api.generate(standardInput)
       if (controller.signal.aborted) throw abortError()
       const finalPreview = streamImageValue(result)
       if (finalPreview) sendImageStreamEvent(userId, context, { event: 'preview', previewImageDataUrl: finalPreview, streaming: false, statusText: 'Final preview ready.' })
@@ -11780,7 +11892,9 @@ async function generateWithOptionalStream(
     }
 
     let result: any = null
-    for await (const rawEvent of api.generateStream(input)) {
+    let streamFailure: unknown
+    try {
+      for await (const rawEvent of api.generateStream(streamInput)) {
       if (controller.signal.aborted) throw abortError()
       const normalizedEvent = normalizeImageGenerationStreamEvent(rawEvent)
       if (!normalizedEvent) continue
@@ -11807,7 +11921,7 @@ async function generateWithOptionalStream(
         })
       }
 
-      if (['done', 'complete', 'completed', 'finished', 'result'].includes(type)) {
+      if (['done', 'complete', 'completed', 'finished', 'result'].includes(type) && normalizedEvent.result) {
         result = normalizedEvent.result
         const finalPreview = previewImageDataUrl || streamImageValue(result)
         if (finalPreview) {
@@ -11822,10 +11936,17 @@ async function generateWithOptionalStream(
           })
         }
       }
+      }
+    } catch (error) {
+      if (isAbortError(error) || controller.signal.aborted) throw error
+      streamFailure = error
     }
     if (!result) {
-      sendImageStreamEvent(userId, context, { event: 'status', streaming: false, statusText: 'Live preview ended early. Finishing through the standard ImageGen call…' })
-      result = await api.generate(input)
+      if (streamFailure) spindle.log.warn(`[ReverieRelay:image_stream_fallback] ${streamFailure instanceof Error ? streamFailure.message : String(streamFailure)}`)
+      sendImageStreamEvent(userId, context, { event: 'status', streaming: false, statusText: 'Live preview unavailable. Finishing through standard ImageGen…' })
+      if (controller.signal.aborted) throw abortError()
+      result = await api.generate(standardInput)
+      if (controller.signal.aborted) throw abortError()
       const finalPreview = streamImageValue(result)
       if (finalPreview) sendImageStreamEvent(userId, context, { event: 'preview', previewImageDataUrl: finalPreview, streaming: false, statusText: 'Final preview ready.' })
     }
@@ -12989,6 +13110,19 @@ function isAssistantMessage(message: ChatMessage): boolean {
 function getSwipeContent(message: ChatMessage, swipeId: number): string {
   if (Array.isArray(message.swipes) && message.swipes[swipeId] !== undefined) return message.swipes[swipeId]
   return message.content
+}
+
+/** Lumiverse treats message.content as the canonical active swipe during a
+ * committed edit. Normalize the event snapshot so a briefly stale swipes array
+ * cannot make reconciliation inspect the pre-edit source. */
+export function canonicalEditedMessage(message: ChatMessage): ChatMessage {
+  const next = cloneMessageSnapshot(message)
+  const swipeId = activeSwipeId(next)
+  if (Array.isArray(next.swipes) && typeof next.content === 'string') {
+    next.swipes = [...next.swipes]
+    next.swipes[swipeId] = next.content
+  }
+  return next
 }
 
 async function patchSwipeContent(chatId: string, message: ChatMessage, swipeId: number, content: string): Promise<void> {

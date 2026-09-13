@@ -23,6 +23,34 @@ const lacksProse = (text: string) => {
 const sidecar = (observations: any[]) => normalizeAppearanceSidecarOutput(JSON.stringify({ observations }))
 assert(normalizeAppearanceFieldRefreshOutput(JSON.stringify({ fieldResult: { subject: 'Vela', field: 'negative-identity-tags', status: 'known', tags: ['blonde hair'] } }), 'negative-identity-tags').tags[0] === 'blonde hair', 'manual field refresh schema must accept a valid scoped result')
 
+// Manual editor fields are authoritative replacements across sheet switching.
+const switchVault = emptyContinuityVault('appearance-switch-sheets')
+const switchA = registerCanonicalCharacter(switchVault, { name: 'Switch A', sourceType: 'manual', userConfirmed: true })
+const switchB = registerCanonicalCharacter(switchVault, { name: 'Switch B', sourceType: 'manual', userConfirmed: true })
+ingestAppearanceSidecarObservations(switchVault, sidecar([{
+  subject: { name: 'Switch A', aliases: [], role: 'npc', trustworthy: true }, confidence: .95,
+  facts: [
+    { layer: 'visual-identity', category: 'eye-color', value: 'brown eyes', provenance: 'chat-history' },
+    { layer: 'visual-identity', category: 'hair-length', value: 'long hair', provenance: 'chat-history' },
+    { layer: 'visual-identity', category: 'body-build', value: 'slim build', provenance: 'chat-history' },
+    { layer: 'wardrobe', category: 'current-outfit', value: 'old coat', provenance: 'current-assistant-message' },
+  ],
+}]), { chatId: switchVault.chatId, messageId: 'old-sidecar', swipeId: 0, activeCharacter: null, activePersona: null })
+saveManualAppearanceMemory(switchVault, {
+  characterId: switchA.canonicalCharacterId,
+  stableAppearance: 'black hair, green eyes, athletic build',
+  currentOutfit: 'new jacket',
+  negativeIdentityTags: 'brown eyes, slim build',
+  referenceAssetIds: ['kept-reference'],
+})
+void switchVault.characterSheets[switchB.canonicalCharacterId]
+const switchedBack = switchVault.characterSheets[switchA.canonicalCharacterId]
+assert(switchedBack.booruTags === 'black_hair, green_eyes, athletic_build', `switching sheets resurrected stale stable facts: ${switchedBack.booruTags}`)
+assert(!/(brown_eyes|long_hair|slim_build)/.test(switchedBack.booruTags), 'old Sidecar stable facts remained active after manual replacement')
+assert(switchedBack.currentOutfitTags === 'new_jacket', 'manual Current Outfit did not survive sheet switch')
+assert(switchedBack.negativeIdentityTags === 'brown_eyes, slim_build', 'negative identity tags did not survive sheet switch')
+assert(JSON.stringify(switchedBack.referenceAssetIds) === JSON.stringify(['kept-reference']), 'removed reference IDs were unioned back into the editor')
+
 // Host persona names/aliases and Sidecar observations share the existing sheet.
 const personaVault = emptyContinuityVault('persona-alias-migration')
 const namedPersona = registerCanonicalCharacter(personaVault, { name: 'Vela', aliases: ['Vela North'], sourceType: 'manual', userConfirmed: true })
@@ -111,8 +139,8 @@ npcStableView = appearanceMemoryView(npcVault, npcStable.canonicalCharacterId)
 assert(has(npcStableView.stableAppearance, 'black_hair') && !has(npcStableView.stableAppearance, 'bronze_hair'), 'lighting descriptions must not overwrite stable hair identity')
 
 // Current Outfit is transient state, not a fallback rendering of saved
-// wardrobe. Explicit clears persist, and newer current-turn Sidecar evidence
-// advances it without deleting the saved wardrobe library.
+// wardrobe. Explicit clears persist, and automatic Sidecar evidence cannot
+// override an explicit user-owned base field.
 const outfitVault = emptyContinuityVault('appearance-outfit-lifecycle')
 const outfitSubject = registerCanonicalCharacter(outfitVault, { name: 'Outfit Alpha', sourceType: 'manual', userConfirmed: true })
 addAppearanceFact(outfitVault, { layer: 'wardrobe', characterId: outfitSubject.canonicalCharacterId, category: 'saved-outfit', value: 'formal black shirt', sourceType: 'manual', userConfirmed: true })
@@ -126,7 +154,7 @@ ingestAppearanceSidecarObservations(outfitVault, sidecar([{
   subject: { name: 'Outfit Alpha', aliases: [], role: 'character', trustworthy: true }, confidence: .98,
   facts: [{ layer: 'wardrobe', category: 'current-outfit', value: 'white sleep shirt, black shorts', provenance: 'current-assistant-message' }],
 }]), { chatId: outfitVault.chatId, messageId: 'outfit-change-1', swipeId: 0, activeCharacter: { id: outfitSubject.canonicalCharacterId, name: 'Outfit Alpha', aliases: [] }, activePersona: null })
-assert(appearanceMemoryView(outfitVault, outfitSubject.canonicalCharacterId).currentOutfit === 'white_sleep_shirt, black_shorts', 'current-turn Sidecar evidence must independently replace the previous Current Outfit')
+assert(appearanceMemoryView(outfitVault, outfitSubject.canonicalCharacterId).currentOutfit === 'training_uniform', 'automatic Sidecar evidence must not replace explicit manual Current Outfit authority')
 assert(Object.values(outfitVault.wardrobe).some(fact => fact.category === 'saved-outfit' && fact.status === 'active'), 'Sidecar Current Outfit updates must not delete saved wardrobe')
 const knownOutfitBeforeUnknownRefresh = appearanceMemoryView(outfitVault, outfitSubject.canonicalCharacterId).currentOutfit
 replaceAppearanceMemoryFieldFromSidecar(outfitVault, { characterId: outfitSubject.canonicalCharacterId, field: 'current-outfit', status: 'unknown', tags: [] })
@@ -239,9 +267,12 @@ assert(!/wet_hair|hair_drying|standing|sitting|running/.test(serialized), `seria
 // but the same Appearance Memory must not be appended a second time.
 const backendState = new Map()
 const backendRequests: any[] = []
+const backendEvents: any[] = []
+let backendFrontendHandler: ((payload: any, userId?: string) => void) | undefined
+let fieldRefreshMode: 'known' | 'unknown' | 'error' = 'known'
 const backendMessages = [{ id: 'm1', role: 'assistant', content: 'Prime Beta waits in the room.', swipes: [], metadata: {} }]
 ;(globalThis as any).spindle = {
-  registerMessageContentProcessor() {}, registerInterceptor() {}, registerMacro() {}, on() {}, onFrontendMessage() {}, sendToFrontend() {},
+  registerMessageContentProcessor() {}, registerInterceptor() {}, registerMacro() {}, on() {}, onFrontendMessage(handler: any) { backendFrontendHandler = handler }, sendToFrontend(payload: any) { backendEvents.push(payload) },
   permissions: { has: () => true },
   userStorage: {
     async getJson(path: string, { fallback }: any) {
@@ -262,13 +293,18 @@ const backendMessages = [{ id: 'm1', role: 'assistant', content: 'Prime Beta wai
     backendRequests.push(structuredClone(request))
     const system = String(request?.messages?.[0]?.content || '')
     const user = String(request?.messages?.[1]?.content || '')
-    if (system.includes('Appearance Sidecar') && user.includes('"requestedField":"stable-appearance"')) return { content: JSON.stringify({ fieldResult: { subject: 'Prime Beta', field: 'stable-appearance', status: 'known', tags: ['messy lavender hair', 'glasses', 'closed_eyes', 'direct_gaze', 'smiling', 'standing', 'close-up'] } }) }
+    if (system.includes('Appearance Sidecar') && user.includes('"requestedField":"stable-appearance"')) {
+      if (fieldRefreshMode === 'error') throw new Error('mock Sidecar failure')
+      if (fieldRefreshMode === 'unknown') return { content: JSON.stringify({ fieldResult: { subject: 'Prime Beta', field: 'stable-appearance', status: 'unknown', tags: [] } }) }
+      return { content: JSON.stringify({ fieldResult: { subject: 'Prime Beta', field: 'stable-appearance', status: 'known', tags: ['messy lavender hair', 'glasses', 'closed_eyes', 'direct_gaze', 'smiling', 'standing', 'close-up'] } }) }
+    }
     if (system.includes('Appearance Sidecar') && user.includes('"requestedField":"current-outfit"')) return { content: JSON.stringify({ fieldResult: { subject: 'Prime Beta', field: 'current-outfit', status: 'known', tags: ['green jacket', 'black jeans'] } }) }
     if (system.includes('Appearance Sidecar') && user.includes('"requestedField":"negative-identity-tags"')) return { content: JSON.stringify({ fieldResult: { subject: 'Prime Beta', field: 'negative-identity-tags', status: 'known', tags: ['blonde hair', 'blue eyes'] } }) }
     if (system.includes('Appearance Sidecar')) return { content: JSON.stringify({ observations: [{ subject: { name: 'Prime Beta', aliases: [], role: 'persona', trustworthy: true }, confidence: .98, facts: [{ layer: 'wardrobe', category: 'current-outfit', value: 'red dress', provenance: 'current-assistant-message' }] }] }) }
     return { content: JSON.stringify({ prompt: 'Prime Beta with black hair, winged eyeliner, and long eyelashes.', negativeAdditions: '' }) }
   } },
-  imageGen: new Proxy({}, { get() { throw new Error('Image generation is forbidden in this smoke') } }),
+  imageGen: { async listConnections() { return [] }, async getProviders() { return [] }, async generate() { throw new Error('Image generation is forbidden in this smoke') } },
+  images: { async list() { return [] } },
   log: { info() {}, warn() {}, error() {} },
   variables: { global: { async set() {} }, chat: { async set() {} } },
 }
@@ -283,14 +319,18 @@ addAppearanceFact(backendVault, { layer: 'visual-identity', characterId: persona
 saveManualAppearanceMemory(backendVault, { characterId: persona.canonicalCharacterId, stableAppearance: appearanceMemoryView(backendVault, persona.canonicalCharacterId).stableAppearance, currentOutfit: 'blue hoodie' })
 backendState.set('states/prompt-once.json', { chatId: 'prompt-once', continuityVault: backendVault, slots: {}, logs: [] })
 const config = await backend.getConfig('offline')
+backendFrontendHandler!({ type: 'continuity_action', chatId: 'prompt-once', action: 'save_character_sheet', characterId: persona.canonicalCharacterId, booruTags: 'black hair, winged eyeliner, long eyelashes', currentOutfitTags: 'blue hoodie', negativeIdentityTags: 'blonde hair', referenceAssetIds: ['saved-reference'] }, 'offline')
+for (let attempt = 0; attempt < 100 && !backendEvents.some(event => event.type === 'appearance_memory_action_status' && event.operation === 'save' && event.status === 'success'); attempt += 1) await new Promise(resolve => setTimeout(resolve, 1))
+assert(backendEvents.some(event => event.type === 'appearance_memory_action_status' && event.operation === 'save' && event.status === 'started'), 'save lifecycle must emit started')
+assert(backendEvents.some(event => event.type === 'appearance_memory_action_status' && event.operation === 'save' && event.status === 'success'), `save lifecycle must acknowledge canonical persistence: ${JSON.stringify(backendEvents.slice(-8))}`)
 await backend.runAppearanceSidecar({ chatId: 'prompt-once', messageId: 'ordinary-turn', swipeId: 0, content: 'Prime Beta changes into a red dress.', userId: 'offline', reason: 'generation-ended' })
 const independentOutfitState = backendState.get('states/prompt-once.json') as any
-assert(appearanceMemoryView(independentOutfitState.continuityVault, persona.canonicalCharacterId).currentOutfit === 'red_dress', 'Appearance Sidecar must update Current Outfit on an ordinary completed turn without an image request')
+assert(appearanceMemoryView(independentOutfitState.continuityVault, persona.canonicalCharacterId).currentOutfit === 'blue_hoodie', 'automatic Appearance Sidecar must not clobber manual Current Outfit authority')
 await backend.runAppearanceSidecar({ chatId: 'prompt-once', messageId: 'manual-stable', swipeId: 0, content: '', userId: 'offline', mode: 'reconcile', reason: 'manual-stable-appearance-refresh', focusCharacter: { id: persona.canonicalCharacterId, name: 'Prime Beta' }, refreshField: 'stable-appearance' })
 let refreshedState = backendState.get('states/prompt-once.json') as any
 assert(['messy_hair', 'lavender_hair', 'glasses'].every(tag => has(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).stableAppearance, tag)), 'Stable Appearance rerun must replace only the selected field')
 assert(!/(?:closed_eyes|direct_gaze|smiling|standing|close_up)/.test(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).stableAppearance), 'Stable Appearance rerun must discard eye state, gaze, expression, pose, and camera tags')
-assert(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).currentOutfit === 'red_dress', 'Stable Appearance rerun must preserve Current Outfit')
+assert(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).currentOutfit === 'blue_hoodie', 'Stable Appearance rerun must preserve Current Outfit')
 await backend.runAppearanceSidecar({ chatId: 'prompt-once', messageId: 'manual-outfit', swipeId: 0, content: '', userId: 'offline', mode: 'reconcile', reason: 'manual-current-outfit-refresh', focusCharacter: { id: persona.canonicalCharacterId, name: 'Prime Beta' }, refreshField: 'current-outfit' })
 refreshedState = backendState.get('states/prompt-once.json') as any
 assert(['green_jacket', 'jeans'].every(tag => has(appearanceMemoryView(refreshedState.continuityVault, persona.canonicalCharacterId).currentOutfit, tag)), 'Current Outfit rerun must replace only the selected field')
@@ -328,5 +368,23 @@ assert(/black_hair/.test(sleepingPrepared.prompt), 'sleeping positive prompt may
 assert(/open_eyes/.test(sleepingPrepared.negativePrompt) && /direct_gaze/.test(sleepingPrepared.negativePrompt), 'sleeping negative prompt must guard closed-eye state')
 assert((sleepingPrepared.promptPipeline.rawContinuityFactCount || 0) > (sleepingPrepared.promptPipeline.projectedContinuityFactCount || 0), 'prompt diagnostics must distinguish broad Vault selection from projected generation facts')
 assert((sleepingPrepared.promptPipeline.projectedContinuityFactCount || 0) <= 6, 'strong generation projection must cap continuity at six facts per visible subject')
+
+const lifecycleStart = backendEvents.length
+backendFrontendHandler!({ type: 'continuity_action', chatId: 'prompt-once', action: 'rerun_appearance_field', characterId: persona.canonicalCharacterId, appearanceField: 'stable-appearance' }, 'offline')
+for (let attempt = 0; attempt < 200 && !backendEvents.slice(lifecycleStart).some(event => event.type === 'appearance_memory_action_status' && event.operation === 'rerun-field' && event.status === 'success'); attempt += 1) await new Promise(resolve => setTimeout(resolve, 1))
+const lifecycleEvents = backendEvents.slice(lifecycleStart).filter(event => event.type === 'appearance_memory_action_status' && event.operation === 'rerun-field')
+assert(lifecycleEvents.some(event => event.status === 'started') && lifecycleEvents.some(event => event.status === 'success'), 'explicit field rerun lifecycle must emit started then success')
+const stableBeforeUnknown = appearanceMemoryView((backendState.get('states/prompt-once.json') as any).continuityVault, persona.canonicalCharacterId).stableAppearance
+fieldRefreshMode = 'unknown'
+const unknownStart = backendEvents.length
+backendFrontendHandler!({ type: 'continuity_action', chatId: 'prompt-once', action: 'rerun_appearance_field', characterId: persona.canonicalCharacterId, appearanceField: 'stable-appearance' }, 'offline')
+for (let attempt = 0; attempt < 200 && !backendEvents.slice(unknownStart).some(event => event.type === 'appearance_memory_action_status' && event.status === 'unknown'); attempt += 1) await new Promise(resolve => setTimeout(resolve, 1))
+assert(backendEvents.slice(unknownStart).some(event => event.type === 'appearance_memory_action_status' && event.status === 'unknown' && /existing value kept/i.test(event.message)), 'unknown rerun must emit warning lifecycle without false success')
+assert(appearanceMemoryView((backendState.get('states/prompt-once.json') as any).continuityVault, persona.canonicalCharacterId).stableAppearance === stableBeforeUnknown, 'unknown rerun must preserve the existing field')
+fieldRefreshMode = 'error'
+const errorStart = backendEvents.length
+backendFrontendHandler!({ type: 'continuity_action', chatId: 'prompt-once', action: 'rerun_appearance_field', characterId: persona.canonicalCharacterId, appearanceField: 'stable-appearance' }, 'offline')
+for (let attempt = 0; attempt < 200 && !backendEvents.slice(errorStart).some(event => event.type === 'appearance_memory_action_status' && event.status === 'error'); attempt += 1) await new Promise(resolve => setTimeout(resolve, 1))
+assert(backendEvents.slice(errorStart).some(event => event.type === 'appearance_memory_action_status' && event.status === 'error'), 'failed rerun must emit error lifecycle and release the field UI')
 
 console.log('Appearance canonicalization smoke passed.')

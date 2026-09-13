@@ -1,6 +1,7 @@
 import type { SpindleFrontendContext } from 'lumiverse-spindle-types'
 import type {
   AppearanceCharacterSheet,
+  AppearanceMemoryActionStatus,
   AppearanceFactCategory,
   AppearanceSuggestion,
   AppearanceVaultFact,
@@ -59,15 +60,15 @@ import { NARRATIVE_UTILITY_OVERVIEWS, SURFACE_UTILITY_OVERVIEWS, settingHelp } f
 import { bracketExampleFromXml } from './bracketSurfaceAuthoring'
 import { narrativeUtilityDisplayName } from './narrativeRegexAssets'
 
-const COPYABLE_IMAGE_REQUEST_TEMPLATE = `<image_request
-  id="unique-image-request-id"
-  target="prose.illustration"
+const COPYABLE_IMAGE_REQUEST_TEMPLATE = `<reverie-illustration
+  request="generate"
   slot="unique-image-request-id"
   aspect="4:3"
+  cast="none"
   alt="Accessible description of the finished image"
 >
-  <scene_brief>Describe the exact visible moment, subjects, established appearance and clothing, action, environment, lighting, camera, framing, and composition. Do not request readable interface text.</scene_brief>
-</image_request>`
+  <visual_prompt>Describe the exact visible moment, subjects, established appearance and clothing, action, environment, lighting, camera, framing, and composition. Do not request readable interface text.</visual_prompt>
+</reverie-illustration>`
 
 const COPYABLE_TRACKER_IMAGE_PATTERN = `<tracker_card>
   <tracker_media>
@@ -229,6 +230,7 @@ type BackendMessage =
   | { type: 'self_test_result'; checks: RelayHealthCheck[]; frontendBuildId: string; backend: BackendBuildInfo; buildMatch: boolean }
   | { type: 'rescan_result'; summary: ChatRescanSummary; automatic: boolean; alreadyRunning?: boolean }
   | { type: 'relay_notice'; level: 'info' | 'success' | 'warning'; message: string; batchId?: string }
+  | ({ type: 'appearance_memory_action_status' } & AppearanceMemoryActionStatus)
   | { type: 'prose_opportunities_ready'; chatId: string; messageId: string; swipeId: number; opportunities: ProseIllustrationOpportunity[]; source: string }
   | { type: 'model_placed_requests_missing'; chatId: string; messageId: string; runtimeDirective: string }
   | { type: 'prompt_registry_preview'; chatId: string; prompt: string; registryIds: string[] }
@@ -319,6 +321,7 @@ export function setup(ctx: SpindleFrontendContext) {
   let recordByKey = new Map<string, SlotRecord>()
   const slotActionFeedback = new SlotActionFeedbackCoordinator()
   const pendingSurfacePromptPreviews = new Map<string, { setValue: (value: string) => void }>()
+  const appearanceActionStatuses = new Map<string, AppearanceMemoryActionStatus & { receivedAt: number }>()
   const optimisticSlotActions = new Map<string, { status: SlotRecord['status']; statusText: string; intent?: RegenerationIntent; basedOnUpdatedAt: number }>()
   const activeSwipeByMessage = new Map<string, number>()
   const openedSlotPreviewKeys = new Set<string>()
@@ -843,6 +846,11 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-build-warning { color: var(--dgir-danger); font-weight: 800; }
     .dg-router-panel .dg-sidecar-indicator { display: flex; align-items: center; gap: 8px; padding: 9px; border: 1px solid var(--dgir-border-bright); border-radius: var(--dgir-radius-md); background: color-mix(in srgb, var(--dgir-accent-soft) 62%, var(--dgir-surface-soft)); color: var(--dgir-text); font-size: 12px; font-weight: 750; }
     .dg-router-panel .dg-sidecar-indicator::before { content: ''; flex: 0 0 14px; width: 14px; height: 14px; border: 2px solid color-mix(in srgb, var(--dgir-accent) 32%, transparent); border-top-color: var(--dgir-accent); border-radius: 50%; animation: dg-relay-orbit .85s linear infinite; }
+    .dg-router-panel .dg-appearance-action-status { min-height: 18px; display: inline-flex; align-items: center; gap: 6px; color: var(--dgir-text-muted); font-size: 11px; font-weight: 750; }
+    .dg-router-panel .dg-appearance-action-status.is-running::before { content: ''; width: 12px; height: 12px; border: 2px solid color-mix(in srgb, var(--dgir-accent) 30%, transparent); border-top-color: var(--dgir-accent); border-radius: 50%; animation: dg-relay-orbit .85s linear infinite; }
+    .dg-router-panel .dg-appearance-action-status.is-success { color: var(--dgir-success); }
+    .dg-router-panel .dg-appearance-action-status.is-unknown { color: var(--dgir-warning); }
+    .dg-router-panel .dg-appearance-action-status.is-error { color: var(--dgir-danger); }
     .dg-router-panel .dg-lab-tabs { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 9px; scrollbar-width: thin; }
     .dg-router-panel .dg-lab-tab { flex: 1 0 72px; min-height: 29px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-md); background: rgba(0,0,0,.12); color: var(--dgir-text-muted); font: 800 11px/1 var(--lumiverse-font-family, system-ui, sans-serif); cursor: pointer; }
     .dg-router-panel .dg-lab-tab-active { color: var(--dgir-accent-text); border-color: var(--dgir-border-bright); background: var(--dgir-accent-soft); box-shadow: inset 0 0 12px var(--dgir-accent-soft); }
@@ -1468,6 +1476,40 @@ export function setup(ctx: SpindleFrontendContext) {
             }))
           }
         }
+      }
+      return
+    }
+    if (message.type === 'appearance_memory_action_status') {
+      const key = message.operation === 'save'
+        ? `${message.characterId}:save`
+        : `${message.characterId}:${message.field || 'unknown'}`
+      appearanceActionStatuses.set(key, { ...message, receivedAt: Date.now() })
+      const terminal = message.status !== 'started'
+      // Save-start must not remount the editor and destroy unsaved textarea
+      // contents. Its clicked button is updated in place; terminal state arrives
+      // only after the backend's authoritative state broadcast.
+      if (message.operation !== 'save' || message.status === 'success') renderPanel()
+      if (message.operation === 'save' && message.status !== 'success') {
+        const saveButton = document.querySelector<HTMLButtonElement>(`[data-appearance-save-character="${CSS.escape(message.characterId)}"]`)
+        if (saveButton) { saveButton.disabled = message.status === 'started'; saveButton.textContent = message.status === 'started' ? 'Saving…' : 'Save Appearance Memory' }
+        const inline = document.querySelector<HTMLElement>(`[data-appearance-save-status="${CSS.escape(message.characterId)}"]`)
+        if (inline) {
+          inline.className = `dg-appearance-action-status is-${message.status === 'started' ? 'running' : message.status}`
+          inline.textContent = message.message
+        }
+      }
+      if (terminal) {
+        window.setTimeout(() => {
+          const current = appearanceActionStatuses.get(key)
+          if (current && current.receivedAt + 3_500 <= Date.now()) {
+            appearanceActionStatuses.delete(key)
+            if (message.operation !== 'save' || message.status === 'success') renderPanel()
+            else {
+              const inline = document.querySelector<HTMLElement>(`[data-appearance-save-status="${CSS.escape(message.characterId)}"]`)
+              if (inline) inline.textContent = ''
+            }
+          }
+        }, 3_600)
       }
       return
     }
@@ -5010,29 +5052,54 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const addSidecarRefresh = (fieldElement: HTMLElement, appearanceField: 'stable-appearance' | 'current-outfit' | 'negative-identity-tags', label: string) => {
       const row = document.createElement('div')
       row.className = 'dg-actions dg-appearance-field-actions'
-      const rerun = button('Rerun Sidecar', () => {
+      const statusKey = `${character.canonicalCharacterId}:${appearanceField}`
+      const fieldStatus = appearanceActionStatuses.get(statusKey)
+      const running = fieldStatus?.status === 'started'
+      const rerun = button(running ? 'Rerunning…' : 'Rerun Sidecar', () => {
         if (!activeChatId) return
         if (hasUnsavedAppearanceEdits()) {
           showToast('warning', 'Save your Appearance Memory edits before rerunning the Sidecar so they are not discarded.')
           return
         }
-        showToast('info', `Refreshing ${label} for ${character.canonicalCharacterName}…`)
+        appearanceActionStatuses.set(statusKey, {
+          operation: 'rerun-field', chatId: activeChatId, characterId: character.canonicalCharacterId,
+          field: appearanceField, status: 'started', message: `Appearance Sidecar analyzing ${label}…`, receivedAt: Date.now(),
+        })
         ctx.sendToBackend({ type: 'continuity_action', chatId: activeChatId, action: 'rerun_appearance_field', characterId: character.canonicalCharacterId, appearanceField })
-      }, !activeChatId, 'subtle')
+        renderPanel()
+      }, !activeChatId || running, 'subtle')
       rerun.title = `Rerun the configured Appearance Sidecar for ${label} only.`
       rerun.setAttribute('aria-label', `Rerun Appearance Sidecar for ${label}`)
       row.appendChild(rerun)
+      if (fieldStatus) {
+        const inline = document.createElement('span')
+        inline.className = `dg-appearance-action-status is-${fieldStatus.status === 'started' ? 'running' : fieldStatus.status}`
+        inline.textContent = fieldStatus.message
+        inline.setAttribute('role', 'status')
+        row.appendChild(inline)
+      }
       fieldElement.appendChild(row)
     }
     addSidecarRefresh(tagsField, 'stable-appearance', 'Stable Appearance')
     addSidecarRefresh(outfitField, 'current-outfit', 'Current Outfit')
     addSidecarRefresh(negativeField, 'negative-identity-tags', 'Negative Identity Tags')
     const actions = document.createElement('div'); actions.className = 'dg-actions'
+    const saveStatusKey = `${character.canonicalCharacterId}:save`
+    const saveStatus = appearanceActionStatuses.get(saveStatusKey)
+    const saving = saveStatus?.status === 'started'
+    const saveButton = button(saving ? 'Saving…' : saveStatus?.status === 'success' ? 'Saved ✓' : 'Save Appearance Memory', () => {
+      if (!activeChatId) return
+      appearanceActionStatuses.set(saveStatusKey, {
+        operation: 'save', chatId: activeChatId, characterId: character.canonicalCharacterId,
+        status: 'started', message: 'Saving Appearance Memory…', receivedAt: Date.now(),
+      })
+      saveButton.disabled = true
+      saveButton.textContent = 'Saving…'
+      ctx.sendToBackend({ type: 'continuity_action', chatId: activeChatId, action: 'save_character_sheet', characterId: character.canonicalCharacterId, booruTags, currentOutfitTags, negativeIdentityTags: negativeTags, referenceAssetIds: referenceIds.split(',').map(value => value.trim()).filter(Boolean) })
+    }, !activeChatId || saving, 'primary')
+    saveButton.dataset.appearanceSaveCharacter = character.canonicalCharacterId
     actions.append(
-      button('Save Appearance Memory', () => {
-        if (!activeChatId) return
-        ctx.sendToBackend({ type: 'continuity_action', chatId: activeChatId, action: 'save_character_sheet', characterId: character.canonicalCharacterId, booruTags, currentOutfitTags, negativeIdentityTags: negativeTags, referenceAssetIds: referenceIds.split(',').map(value => value.trim()).filter(Boolean) })
-      }, !activeChatId, 'primary'),
+      saveButton,
       button('Edit Aliases', () => {
         if (!activeChatId) return
         const next = window.prompt(`Aliases for ${character.canonicalCharacterName} · comma-separated`, character.aliases.join(', '))
@@ -5051,6 +5118,12 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
         ctx.sendToBackend({ type: 'continuity_action', chatId: activeChatId, action: 'delete_character', characterId: character.canonicalCharacterId })
       }, !activeChatId, 'danger'),
     )
+    const saveInline = document.createElement('span')
+    saveInline.dataset.appearanceSaveStatus = character.canonicalCharacterId
+    saveInline.className = `dg-appearance-action-status${saveStatus ? ` is-${saveStatus.status === 'started' ? 'running' : saveStatus.status}` : ''}`
+    saveInline.textContent = saveStatus?.message || ''
+    saveInline.setAttribute('role', 'status')
+    actions.appendChild(saveInline)
     wrap.append(head, source, tagsField, outfitField, negativeField, refsField, actions)
     if (existing?.alternateLooks.length) {
       const looks = document.createElement('div'); looks.className = 'dg-history-track'

@@ -97,6 +97,15 @@ export function abortableSlotKeys<T extends { key: string; status: string }>(rec
   return records.filter(record => canAbort(record.status)).map(record => record.key)
 }
 
+/** Snapshot keys before cancellation because cancellation deliberately touches
+ * bounded-map insertion order. Iterating the live Map while re-inserting the
+ * current key would visit it forever. */
+export function cancelMapKeysFromSnapshot<T>(map: Map<string, T>, cancel: (key: string) => void): number {
+  const keys = [...map.keys()]
+  for (const key of keys) cancel(key)
+  return keys.length
+}
+
 export function normalizeShippedSurfaceMarkup(markup: string, specs: SurfaceNormalizationSpec[]): SurfaceNormalizationResult {
   return normalizeSurfaceDocument(String(markup || ''), specs)
 }

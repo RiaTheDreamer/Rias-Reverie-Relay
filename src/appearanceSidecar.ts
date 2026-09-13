@@ -214,6 +214,11 @@ export function ingestAppearanceSidecarObservations(
     for (const fact of observation.facts) {
       // Native prompts are generation anchors, never a source to chop into facts.
       if (fact.provenance === 'native-character-preset' || fact.provenance === 'native-persona-preset') continue
+      const manualStableAuthority = fact.layer === 'visual-identity' && Object.values(vault.visualIdentity).some(existing =>
+        existing.canonicalCharacterId === canonical!.canonicalCharacterId && existing.status === 'active' && existing.userConfirmed)
+      const manualCurrentOutfitAuthority = fact.layer === 'wardrobe' && fact.category === 'current-outfit' && Object.values(vault.wardrobe).some(existing =>
+        existing.canonicalCharacterId === canonical!.canonicalCharacterId && existing.status === 'active' && existing.currentWardrobe && existing.userConfirmed)
+      if (manualStableAuthority || manualCurrentOutfitAuthority) continue
       try {
         const savedFacts = addAppearanceFacts(vault, {
           layer: fact.layer, characterId: canonical.canonicalCharacterId, category: fact.category, value: fact.value,
@@ -222,7 +227,7 @@ export function ingestAppearanceSidecarObservations(
           sourceReference: { sourceType: 'appearance-sidecar', sourceReference: `sidecar:${fact.provenance}`, chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId },
           chatId: input.chatId, sourceMessageId: input.messageId, sourceSwipeId: input.swipeId,
           currentWardrobe: fact.layer === 'wardrobe' && fact.category === 'current-outfit',
-          replaceUserConfirmedCurrentWardrobe: fact.layer === 'wardrobe' && fact.category === 'current-outfit' && fact.provenance === 'current-assistant-message',
+          replaceUserConfirmedCurrentWardrobe: false,
         })
         acceptedFacts += savedFacts.length
       } catch {

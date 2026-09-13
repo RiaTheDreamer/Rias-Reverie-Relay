@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { NARRATIVE_UTILITY_OVERVIEWS, SETTING_HELP, SURFACE_UTILITY_OVERVIEWS } from '../src/uxCopy'
 import { R45_ACTIVE_SURFACE_IDS } from '../src/r45UtilityContracts'
+import { imageProviderSupportsStreaming } from '../src/imageStreaming'
 
 const assert = (condition: unknown, message = 'assertion failed') => { if (!condition) throw new Error(message) }
 const equal = (actual: unknown, expected: unknown, message = 'values differ') => assert(actual === expected, `${message}: expected ${String(expected)}, got ${String(actual)}`)
@@ -12,8 +13,8 @@ const imageStreaming = read('src/imageStreaming.ts')
 const pkg = JSON.parse(read('package.json'))
 const manifest = JSON.parse(read('spindle.json'))
 
-equal(pkg.version, '0.2.3')
-equal(manifest.version, '0.2.3')
+equal(pkg.version, '0.2.4')
+equal(manifest.version, '0.2.4')
 equal(manifest.identifier, 'reverie_relay', 'public extension identifier')
 assert(!('previous_identifiers' in manifest), 'manifest must not advertise unsupported identifier aliases')
 equal(manifest.github, 'https://github.com/RiaTheDreamer/Rias-Reverie-Relay', 'public repository recovery URL')
@@ -101,9 +102,11 @@ assert(backend.includes('/API/ListModels'))
 assert(backend.includes("subtype: 'LoRA'"))
 assert(backend.includes('withLoraDiscoveryTimeout'), 'fallback LoRA discovery may not spin forever')
 assert(backend.includes('extractProviderLoraCatalog'))
-assert(backend.includes('imageProviderSupportsStreaming(plan.provider') && imageStreaming.includes('(?:novel[-_ ]?ai|nai)'), 'NovelAI must bypass unsupported WebSocket preview streaming')
-assert(imageStreaming.includes("['http', 'request-response', 'request_response', 'rest'].includes(transport)"), 'request-response-only providers must use standard ImageGen generation')
+assert(backend.includes('imageProviderSupportsStreaming(plan.provider'), 'stream routing must consult the selected provider capability record')
+assert(!imageProviderSupportsStreaming('novelai', { id: 'novelai', name: 'NovelAI', capabilities: {} }, true), 'provider names must not opt request/response providers into WebSocket streaming')
+assert(imageProviderSupportsStreaming('provider', { id: 'provider', capabilities: { websocketPreviewStreaming: { previews: true, status: true } } }, true), 'explicit host capabilities must opt supported providers into WebSocket streaming')
+assert(!/novel|providerId\.includes|provider\.name/i.test(imageStreaming.replace(/ImageStreamingProviderInfo/g, '')), 'stream routing must not guess capabilities from provider names or IDs')
 assert(frontend.includes('Provider LoRA Catalog'))
 assert(frontend.includes('Advanced: add exact LoRA filename'))
 
-console.log('0.2.3 UX, macro, modal, Surface overview, and LoRA discovery smoke ok')
+console.log('0.2.4 UX, macro, modal, Surface overview, and LoRA discovery smoke ok')
