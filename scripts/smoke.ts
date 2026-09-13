@@ -316,6 +316,8 @@ assert(artifactMarkup.includes('data-reverie-artifact-media="true"') && artifact
 const quality = await import('../src/backend')
 const registrySettings = quality.defaultProseIllustratorSettings()
 assert(registrySettings.promptRegistry['sidecar.composer.request'].includes('camera location, height, angle, and shot size') && registrySettings.promptRegistry['sidecar.composer.request'].includes('Direct lens gaze is allowed only when the authoritative scene establishes interaction'), 'expected the runtime Sidecar composer prompt to put concrete Scene-Led composition before appearance detail')
+assert(registrySettings.promptRegistry['sidecar.composer.request'].includes('Appearance Memory is a reference library, not a checklist') && registrySettings.promptRegistry['sidecar.composer.request'].includes('sleeping, closed eyes, a hidden face, or back-turned framing'), 'expected Sidecar composer to treat Appearance Memory as frame-visible reference material')
+assert(registrySettings.promptRegistry['sidecar.appearance.field-refresh'].includes('exclude open/closed eye state, gaze direction, expression, pose, action, camera, composition'), 'expected stable Appearance refresh contract to reject transient scene state')
 const resolvedStoryPrompt = quality.resolveIllustratorStoryPrompt(registrySettings, [{ role: 'assistant', content: 'Prior response' } as any])
 assert(resolvedStoryPrompt.includes('[REVERIE RELAY — MODEL-PLACED ILLUSTRATION PROTOCOL]'), 'expected final Story Model prompt to use the registered Model-Placed workflow')
 assert(resolvedStoryPrompt.includes('SCENE SNAPSHOT FRAMING'), 'expected selected framing module in final Story Model prompt')
@@ -377,11 +379,12 @@ const duoIllustrationJob = {
     expectedPeopleCount: 2,
     namedSubjects: ['Alpha', 'Character B'],
     peoplePolicy: 'allowed' as const,
+    perspectiveMode: 'scene-snapshot' as const,
   } as any,
 }
 const duoClassification = quality.classifyImageRequest(duoIllustrationJob)
 const duoPolicy = quality.targetHumanPolicy(duoIllustrationJob, duoClassification)
-assert(duoClassification === 'group photo', 'expected explicit Sidecar people evidence to outrank bedroom/location vocabulary')
+assert(duoClassification === 'narrative-scene', 'expected human prose illustration to classify as a narrative scene instead of a social photo')
 assert(duoPolicy.allowHumanPrompt && duoPolicy.allowHumanContext, 'expected a named duo illustration to keep human and appearance context')
 const repairedDuoNegative = quality.removeConflictingHumanNegatives('bad anatomy, people, person, human, face, portrait, eyes, expression, hands, body, extra limbs')
 assert(repairedDuoNegative.negative.includes('bad anatomy') && repairedDuoNegative.negative.includes('extra limbs'), 'expected anatomy negatives to survive human-conflict repair')
@@ -593,6 +596,30 @@ assert(!/detailed face|detailed eyes|glossy hair/i.test(cleanedProfilePrompt.pro
 assert(cleanedProfilePrompt.decision.removedPositiveFragments.length >= 3, 'expected removed portrait fragments to be recorded')
 assert(!/no\s+unless explicitly requested/i.test(cleanedProfilePrompt.prompt), 'expected object profile additions not to leave an orphaned negative fragment')
 
+const confrontationJob = {
+  ...duoIllustrationJob,
+  requestId: 'hallway-confrontation',
+  originalSceneBrief: 'A tense hallway confrontation between Alpha and Character B after class.',
+  composedPositivePrompt: 'Medium-wide shot of Alpha and Character B arguing beside classroom doors.',
+}
+const confrontationProfile = quality.resolvePromptProfileDecision(confrontationJob, {
+  ...qualityTestConfig(),
+  defaultGenerationProfile: { ...qualityTestConfig().defaultGenerationProfile, defaultPromptProfileId: 'auto' },
+} as any)
+assert(confrontationProfile.automaticClassification === 'narrative-scene', 'expected prose confrontation classification to resolve as narrative-scene')
+assert(confrontationProfile.selectedProfileId === 'cinematic-scene', 'expected Scene Snapshot prose confrontation to use cinematic-scene')
+const socialHumanProfile = quality.resolvePromptProfileDecision({
+  ...duoIllustrationJob,
+  target: 'smartphone.message-image' as const,
+  originalSceneBrief: 'A casual photo of Alpha and Character B together after class.',
+  caption: 'Shared in their chat.',
+  alt: 'Casual after-class photo.',
+}, {
+  ...qualityTestConfig(),
+  defaultGenerationProfile: { ...qualityTestConfig().defaultGenerationProfile, defaultPromptProfileId: 'auto' },
+} as any)
+assert(socialHumanProfile.selectedProfileId === 'social-candid', `expected human Smartphone attachment to retain social-candid routing, got ${socialHumanProfile.selectedProfileId} for ${socialHumanProfile.automaticClassification}`)
+
 const directSurfaceBaseTags = 'semi-realistic, anime realism, manhwa style, painterly, soft shading, delicate facial features, cinematic composition, warm lighting, golden hour, sunlight, backlighting, rim lighting, soft glow, volumetric lighting, dust particles, depth of field, bokeh, shallow depth of field, detailed hair, glossy hair, natural skin texture, soft blush, highly detailed, masterpiece, best quality'
 const screenshotBaseTags = quality.filterBaseTagsForTarget(directSurfaceBaseTags, {
   originalSceneBrief: 'A direct digital screenshot of a KakaoTalk conversation interface with blue and white chat bubbles.',
@@ -707,7 +734,7 @@ assert(manifest.permissions?.includes('interceptor') && manifest.permissions?.in
 
 const versionMatch = buildSource.match(/EXTENSION_VERSION = '([^']+)'/)
 const buildIdMatch = buildSource.match(/BUILD_ID = '([^']+)'/)
-assert(versionMatch?.[1] === manifest.version && /^\d{8}-0\.2\.2$/i.test(buildIdMatch?.[1] || ''), 'expected shared current release identity')
+assert(versionMatch?.[1] === manifest.version && /^\d{8}-0\.2\.3$/i.test(buildIdMatch?.[1] || ''), 'expected shared current release identity')
 assert(backendSource.includes('STATE_SCHEMA_VERSION = 34'), 'expected state schema 34')
 
 assert(frontendSource.includes("type SuiteSection = 'relay' | 'illustrator' | 'surfaces' | 'memory' | 'archive' | 'settings'"), 'expected six-part Surface Suite navigation')

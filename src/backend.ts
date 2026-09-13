@@ -78,6 +78,7 @@ import {
   type PromptPresetProfile,
   type PromptProfileDecision,
   type PromptProfileId,
+  type RequestClassification,
   type PersonaPovContext,
   type ProseIllustrationAnchor,
   type ProseIllustrationOpportunity,
@@ -96,6 +97,7 @@ import {
   type VersionTreeNode,
   type VisualAssetReference,
 } from './contracts'
+export type { RequestClassification } from './contracts'
 import { canAbortSlotStatus, isGenerationActiveStatus, isSlotLifecycleActive } from './slotLifecycle'
 import { BoundedLruCache } from './boundedCache'
 import { abortableSlotKeys, C5B_CACHE_LIMITS, healthCheck, rememberBoundedMap, summarizeRelayHealth, type RelayHealthCheck } from './c5bReliability'
@@ -136,6 +138,7 @@ import {
   expireCurrentAppearance,
   extractAppearanceTraitPhrases,
   findAppearanceFact,
+  formatProjectedAppearanceFacts,
   formatSelectedAppearanceFacts,
   appearanceFactDescriptor,
   isValidCanonicalCharacterName,
@@ -143,6 +146,7 @@ import {
   mergeCharacters,
   moveAppearanceFact,
   normalizeContinuityVault,
+  projectContinuityForGeneration,
   registerCanonicalCharacter,
   rejectSuggestion,
   replaceAppearanceMemoryFieldFromSidecar,
@@ -584,6 +588,10 @@ type ParserContextResult = {
   visualSubjects: VisualSubjectPrompt[]
   subjectNegativePrompt: string
   includedContinuityFacts: ContinuityFact[]
+  projectedContinuityFacts: ContinuityFact[]
+  projectedContinuityFactsForPromptAppend: ContinuityFact[]
+  projectedContinuityNegativePrompt: string
+  projectedContinuityNotes: string[]
   excludedContinuityFacts: ContinuityDecision[]
   attachedReferenceAssetIds: string[]
   continuityConflicts: string[]
@@ -600,11 +608,6 @@ type VisualSubjectPrompt = {
   prompt: string
   negativePrompt: string
 }
-
-export type RequestClassification =
-  | 'character portrait' | 'person-focused candid' | 'group photo' | 'object photo'
-  | 'location/interior' | 'food' | 'meme' | 'document' | 'screenshot/article/ui' | 'evidence photo'
-  | 'scenery' | 'abstract/non-character' | 'selfie'
 
 type TargetHumanPolicy = {
   targetClass: 'character' | 'group' | 'object' | 'location' | 'document' | 'screenshot/article/ui'
@@ -687,6 +690,14 @@ export const BUILT_IN_PROMPT_PROFILES: PromptPresetProfile[] = [
     contextPolicy: 'auto', framingGuidance: 'Preserve candid/social intent and target-specific camera behavior.',
     characterContextPolicy: 'auto', continuityStrength: 'medium', defaultAspectBehavior: 'request',
     promptCleanupRules: ['avoid-studio-override'], compatibleTargets: ['twitter.media', 'instagram.single', 'instagram.carousel', 'smartphone.message-image', 'kakao.image'],
+  },
+  {
+    id: 'cinematic-scene', name: 'Cinematic Scene', builtIn: true,
+    promptAdditions: 'cinematic narrative still, environment-first composition, medium or wide story framing by default, off-center blocking, visible spatial geography, foreground-midground-background depth, natural body orientation, in-world attention targets, candid scene timing',
+    negativeAdditions: 'stiff posed portrait, glamour pose, studio portrait, centered promotional composition, direct camera gaze unless scene-supported, fashion shoot vibe',
+    contextPolicy: 'auto', framingGuidance: 'Treat the frame as an observed story moment, not a social photo.',
+    characterContextPolicy: 'auto', continuityStrength: 'medium', defaultAspectBehavior: 'request',
+    promptCleanupRules: ['avoid-studio-override'], compatibleTargets: ['prose.illustration', 'custom.artifact-media'],
   },
   {
     id: 'object-prop', name: 'Object / Prop', builtIn: true,
@@ -2515,7 +2526,7 @@ function normalizeProseOpportunities(
       mood: cleanString(raw.mood),
       importantProps: stringList(raw.importantProps).slice(0, 12),
       recommendedProfileId: cleanString(raw.recommendedProfileId) || cleanString(raw.promptProfileId) || settings.defaultPromptProfileId,
-      recommendedAspectRatio: resolveAdaptiveAspect(cleanString(raw.recommendedAspectRatio) || cleanString(raw.aspectRatio) || settings.defaultAspectRatio, `${cleanString(raw.sceneSummary)} ${cleanString(raw.composition)} ${selectedExcerpt}`, limited.kept.length),
+      recommendedAspectRatio: resolveAdaptiveAspect(cleanString(raw.recommendedAspectRatio) || cleanString(raw.aspectRatio) || settings.defaultAspectRatio, `${cleanString(raw.sceneSummary)} ${cleanString(raw.composition)} ${selectedExcerpt}`, limited.kept.length, settings.perspectiveMode),
       visualPlan: cleanParameters(raw.visualPlan),
       continuityFactIds: stringList(raw.continuityFactIds).slice(0, 16),
       referenceAssetIds: stringList(raw.referenceAssetIds).slice(0, 16),
@@ -2616,13 +2627,13 @@ function effectiveFramingPrompt(settings: ProseIllustratorSettings): string {
   return registered
 }
 
-function resolveAdaptiveAspect(policy: string, scene: string, peopleCount = 0): string {
+function resolveAdaptiveAspect(policy: string, scene: string, peopleCount = 0, framingMode = ''): string {
   if (policy && policy !== 'adaptive') return policy
   const value = cleanString(scene).toLocaleLowerCase()
-  if (/\b(?:phone|story|full[- ]body|standing portrait|vertical|tower|tall building)\b/.test(value)) return peopleCount > 1 ? '4:5' : '3:4'
+  if (/\b(?:phone|social media story|full[- ]body|standing portrait|vertical|tower|tall building)\b/.test(value)) return peopleCount > 1 ? '4:5' : '3:4'
   if (/\b(?:panorama|landscape|horizon|wide shot|cityscape|road|vehicle interior)\b/.test(value)) return '16:9'
   if (/\b(?:icon|avatar|album|object close-up|food|product)\b/.test(value) && peopleCount < 2) return '1:1'
-  return peopleCount > 2 ? '16:9' : peopleCount === 1 ? '3:4' : '4:3'
+  return peopleCount > 2 ? '16:9' : framingMode === 'solo-scene' && peopleCount === 1 ? '3:4' : '4:3'
 }
 
 function characterOnlyConstraint(settings: ProseIllustratorSettings): string {
@@ -2649,9 +2660,20 @@ function selectProseContinuityFacts(
   chatId: string,
   settings: ProseIllustratorSettings,
   namedSubjects: string[] = [],
+  projection?: { sceneBrief: string; expectedPeopleCount?: number },
 ): ContinuityFact[] {
   if (!settings.appearanceMemoryEnabled || settings.continuityStrength === 'off' || state.continuityVault.strength === 'off') return []
   expireCurrentAppearance(state.continuityVault)
+  if (projection) {
+    return projectContinuityForGeneration(state.continuityVault, {
+      subjectNames: namedSubjects,
+      chatId,
+      sceneBrief: projection.sceneBrief,
+      strength: settings.continuityStrength,
+      framingMode: settings.perspectiveMode,
+      expectedPeopleCount: projection.expectedPeopleCount,
+    }).included
+  }
   return selectContinuityForSubjects(state.continuityVault, {
     subjectNames: namedSubjects,
     chatId,
@@ -6844,7 +6866,10 @@ export async function buildProsePromptComposerMessages(
 ): Promise<Array<{ role: 'system' | 'user' | 'assistant'; content: string }>> {
   await ensureCanonicalSubjectsForGeneration(chatId, [], userId)
   const state = await getState(chatId, userId)
-  const facts = selectProseContinuityFacts(state, chatId, settings, opportunity.namedSubjects || [])
+  const facts = selectProseContinuityFacts(state, chatId, settings, opportunity.namedSubjects || [], {
+    sceneBrief: [opportunity.sceneSummary, opportunity.selectedExcerpt].map(cleanString).filter(Boolean).join(' '),
+    expectedPeopleCount: opportunity.expectedPeopleCount,
+  })
   const references = selectProseReferenceAssets(state, chatId, settings, false)
   const locationReferences = selectProseReferenceAssets(state, chatId, settings, true)
   const personaPovContext = settings.perspectiveMode === 'persona-pov' ? await resolvePersonaPovContext(chatId, userId) : undefined
@@ -6860,7 +6885,7 @@ export async function buildProsePromptComposerMessages(
     },
     characterOnlyConstraint: characterOnlyConstraint(settings),
     personaPovContext,
-    appearanceMemory: settings.appearanceMemoryEnabled ? formatSelectedAppearanceFacts(facts) : '',
+    appearanceMemory: settings.appearanceMemoryEnabled ? formatProjectedAppearanceFacts(facts) : '',
     references, locationReferences, opportunity, activeMessage: compact(content, 5000),
   })
 }
@@ -6923,7 +6948,7 @@ function planFromOpportunity(
     caption: settings.showCaptions ? opportunity.title : '',
     altText: opportunity.title || 'Scene illustration',
     promptProfileId: opportunity.recommendedProfileId || settings.defaultPromptProfileId,
-    aspectRatio: resolveAdaptiveAspect(opportunity.recommendedAspectRatio || settings.defaultAspectRatio, composition.sceneBrief || opportunity.sceneSummary, composition.expectedPeopleCount),
+    aspectRatio: resolveAdaptiveAspect(opportunity.recommendedAspectRatio || settings.defaultAspectRatio, composition.sceneBrief || opportunity.sceneSummary, composition.expectedPeopleCount, settings.perspectiveMode),
     peoplePolicy: composition.peoplePolicy,
     expectedPeopleCount: composition.expectedPeopleCount,
     namedSubjects: composition.namedSubjects,
@@ -7153,7 +7178,7 @@ function normalizeProsePlan(
     caption: settings.showCaptions ? cleanString(raw.caption) : '',
     altText: cleanString(raw.altText) || 'Scene illustration',
     promptProfileId: cleanString(raw.promptProfileId) || settings.defaultPromptProfileId,
-    aspectRatio: resolveAdaptiveAspect(cleanString(raw.aspectRatio) || settings.defaultAspectRatio, cleanString(raw.sceneBrief) || selectedExcerpt, expectedPeopleCount),
+    aspectRatio: resolveAdaptiveAspect(cleanString(raw.aspectRatio) || settings.defaultAspectRatio, cleanString(raw.sceneBrief) || selectedExcerpt, expectedPeopleCount, settings.perspectiveMode),
     peoplePolicy: ['required', 'allowed', 'forbidden'].includes(peoplePolicyRaw) ? peoplePolicyRaw as ProseIllustrationPlan['peoplePolicy'] : 'allowed',
     expectedPeopleCount,
     namedSubjects,
@@ -8623,9 +8648,11 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
   const rawRegistryVersions = cleanParameters(raw.promptRegistryVersions)
   const promptRegistry: Record<string, string> = { ...DEFAULT_PROMPT_REGISTRY }
   const supersededDefaults: Record<string, string[]> = {
+    'story.inline-protocol': ['751:58ec8abc'],
     'sidecar.appearance.system': ['949:be700edb'],
     'sidecar.appearance.request': ['1303:3e03e978'],
-    'sidecar.composer.request': ['417:efc17757', '1230:866f8aaa', '1521:19bf99cf'],
+    'sidecar.composer.request': ['417:efc17757', '1230:866f8aaa', '1521:19bf99cf', '1126:39abad5f'],
+    'sidecar.appearance.field-refresh': ['1079:dce646d7'],
     'sidecar.parser.request': ['209:1016af91', '883:c2956739'],
     'sidecar.parser.repair': ['193:1d11cac7'],
     'story.framing.scene-snapshot': ['1775:c849c434'],
@@ -9241,7 +9268,7 @@ async function buildAuthoritativeVisualPrompt(
     identityPrompt = enforceVisualSubjectIdentity(identityPrompt, context.visualSubjects, job.target === 'prose.illustration')
     if (!context.visualSubjects.length && context.characterContext) identityPrompt = `${identityPrompt}, ${context.characterContext}`
     if (!context.visualSubjects.length && context.personaContext) identityPrompt = `${identityPrompt}, ${context.personaContext}`
-    if (context.includedContinuityFacts.length) identityPrompt += `, Appearance Memory continuity: ${formatSelectedAppearanceFacts(context.includedContinuityFacts)}`
+    if (context.projectedContinuityFactsForPromptAppend.length) identityPrompt += `, Appearance Memory continuity: ${formatProjectedAppearanceFacts(context.projectedContinuityFactsForPromptAppend)}`
   }
   const profiled = applyPromptProfileToPositivePrompt(identityPrompt, profileBase)
   const identityCorrection = enforceC5AKnownIdentity(profiled.prompt, context.identityBindings)
@@ -9299,7 +9326,11 @@ async function buildAuthoritativeVisualPrompt(
     rejectedParserNegativeAdditions: [],
     promptProfile: profiled.decision,
     regenerationIntent: job.regenerationIntent,
-    includedContinuityFacts: context.includedContinuityFacts,
+    includedContinuityFacts: context.projectedContinuityFacts,
+    rawContinuityFactCount: context.includedContinuityFacts.length,
+    projectedContinuityFactCount: context.projectedContinuityFacts.length,
+    projectedContinuityNegativePrompt: context.projectedContinuityNegativePrompt,
+    continuityProjectionNotes: context.projectedContinuityNotes,
     excludedContinuityFacts: context.excludedContinuityFacts,
     attachedReferenceAssetIds: context.attachedReferenceAssetIds,
     continuityConflicts: context.continuityConflicts,
@@ -9350,8 +9381,8 @@ export async function parseSlotPrompt(
     const identityPrompt = humanPolicy.allowHumanPrompt
       ? enforceVisualSubjectIdentity(safeComposedPrompt, context.visualSubjects, job.target === 'prose.illustration')
       : safeComposedPrompt
-    const continuityText = humanPolicy.allowHumanPrompt && context.includedContinuityFacts.length
-      ? `, Appearance Memory continuity: ${formatSelectedAppearanceFacts(context.includedContinuityFacts)}`
+    const continuityText = humanPolicy.allowHumanPrompt && context.projectedContinuityFactsForPromptAppend.length
+      ? `, Appearance Memory continuity: ${formatProjectedAppearanceFacts(context.projectedContinuityFactsForPromptAppend)}`
       : ''
     const profiled = applyPromptProfileToPositivePrompt(`${identityPrompt}${continuityText}`, profile)
     const identityCorrection = enforceC5AKnownIdentity(profiled.prompt, context.identityBindings)
@@ -9416,7 +9447,11 @@ export async function parseSlotPrompt(
       rejectedParserNegativeAdditions: [],
       promptProfile: profiled.decision,
       regenerationIntent: job.regenerationIntent,
-      includedContinuityFacts: context.includedContinuityFacts,
+      includedContinuityFacts: context.projectedContinuityFacts,
+      rawContinuityFactCount: context.includedContinuityFacts.length,
+      projectedContinuityFactCount: context.projectedContinuityFacts.length,
+      projectedContinuityNegativePrompt: context.projectedContinuityNegativePrompt,
+      continuityProjectionNotes: context.projectedContinuityNotes,
       excludedContinuityFacts: context.excludedContinuityFacts,
       attachedReferenceAssetIds: [...new Set([...(job.prosePromptComposition?.referenceAssetIdsUsed || []), ...context.attachedReferenceAssetIds])],
       continuityConflicts: context.continuityConflicts,
@@ -9544,7 +9579,11 @@ export async function parseSlotPrompt(
         rejectedParserNegativeAdditions: disciplined.rejected,
         promptProfile: profiled.decision,
         regenerationIntent: job.regenerationIntent,
-        includedContinuityFacts: context.includedContinuityFacts,
+        includedContinuityFacts: context.projectedContinuityFacts,
+        rawContinuityFactCount: context.includedContinuityFacts.length,
+        projectedContinuityFactCount: context.projectedContinuityFacts.length,
+        projectedContinuityNegativePrompt: context.projectedContinuityNegativePrompt,
+        continuityProjectionNotes: context.projectedContinuityNotes,
         excludedContinuityFacts: context.excludedContinuityFacts,
         attachedReferenceAssetIds: context.attachedReferenceAssetIds,
         continuityConflicts: context.continuityConflicts,
@@ -10707,10 +10746,17 @@ async function buildParserContext(
   const identityFallbacks: string[] = []
   const sidecarFallbackSubjectKeys = new Set<string>()
   const identityKey = (value: unknown) => cleanString(value).toLocaleLowerCase().replace(/[\s_-]+/g, '')
+  const continuityFramingMode = job.prosePromptComposition?.perspectiveMode
+    || (job.target === 'prose.illustration' ? proseSettingsForChat(state, job.chatId).perspectiveMode : '')
+  const continuityExpectedPeopleCount = Math.max(
+    Number(job.prosePromptComposition?.expectedPeopleCount || 0),
+    job.cast === 'char+user' ? 2 : job.cast === 'char' || job.cast === 'user' ? 1 : 0,
+  )
   const continuityPromptFor = (name: string): string => {
     if (!name) return ''
-    const selected = selectContinuityForSubjects(state.continuityVault, {
+    const selected = projectContinuityForGeneration(state.continuityVault, {
       subjectNames: [name], chatId: job.chatId, sceneBrief: job.originalSceneBrief, strength: state.continuityVault.strength,
+      framingMode: continuityFramingMode, expectedPeopleCount: continuityExpectedPeopleCount,
     }).included
     return selected.map(appearanceFactDescriptor).filter(Boolean).join(', ')
   }
@@ -10774,7 +10820,7 @@ async function buildParserContext(
     : matchedSubjects
   await ensureCanonicalSubjectsForGeneration(job.chatId, visualSubjects, _userId)
   const namedSubjectContext = formatVisualSubjectPrompts(visualSubjects)
-  const subjectNegativePrompt = visualSubjects.map(subject => subject.negativePrompt).filter(Boolean).join(', ')
+  const visualSubjectNegativePrompt = visualSubjects.map(subject => subject.negativePrompt).filter(Boolean).join(', ')
   const character = characterPrompt
   const persona = personaPrompt
   const effectiveIncludeCharacters = includeCharacter && Boolean(characterPrompt || castRequirements.character)
@@ -10804,13 +10850,14 @@ async function buildParserContext(
   if (recent) blocks.push(`Nearest relevant visual continuity only:\n${recent}`)
   const continuity = humanPolicy.allowHumanContext
     ? selectContinuityForJob(state, job, classification, visualSubjects.map(subject => subject.name))
-    : { included: [], excluded: [], attachedReferenceAssetIds: [], conflicts: [], strength: state.continuityVault.strength }
-  const continuityIncludedOnce = continuity.included.filter(fact => {
+    : { included: [], projectedIncluded: [], excluded: [], projectedExcluded: [], projectedNegativePrompt: '', projectionNotes: [], attachedReferenceAssetIds: [], conflicts: [], strength: state.continuityVault.strength }
+  const projectedContinuityIncludedOnce = continuity.projectedIncluded.filter(fact => {
     if (!sidecarFallbackSubjectKeys.size) return true
     return !sidecarFallbackSubjectKeys.has(identityKey(fact.canonicalCharacterId)) && !sidecarFallbackSubjectKeys.has(identityKey(fact.canonicalCharacterName))
   })
-  if (continuityIncludedOnce.length) {
-    blocks.push(`Relay Appearance Memory (${continuity.strength}; canonical identity, wardrobe, and current scene state; authoritative current scene wins):\n${formatSelectedAppearanceFacts(continuityIncludedOnce)}`)
+  const subjectNegativePrompt = [visualSubjectNegativePrompt, continuity.projectedNegativePrompt].filter(Boolean).join(', ')
+  if (projectedContinuityIncludedOnce.length) {
+    blocks.push(`Relay Appearance Memory (${continuity.strength}; frame-visible projected identity, wardrobe, and current scene state):\n${formatProjectedAppearanceFacts(projectedContinuityIncludedOnce)}`)
   }
   if (continuity.attachedReferenceAssetIds.length) blocks.push(`Relay reference asset IDs:\n${continuity.attachedReferenceAssetIds.join(', ')}`)
   if (state.continuityVault.deliberateBreaks[slotKey({ ...job, slot: job.slots[0] || 'image' })]) {
@@ -10839,7 +10886,7 @@ async function buildParserContext(
 
   return {
     context: blocks.join('\n\n---\n\n'), rawTemplate, resolvedTemplate,
-    contextMetrics: { tier: 'routine', expansionReason: '', historyMessages: recent ? (recent.match(/^(?:user|assistant):/gm) || []).length : 0, characterChars: characterCard.length, personaChars: personaCard.length, appearanceMemoryChars: formatSelectedAppearanceFacts(continuityIncludedOnce).length, ...(lorebookContextMetrics.get(job.chatId) || {}) },
+    contextMetrics: { tier: 'routine', expansionReason: '', historyMessages: recent ? (recent.match(/^(?:user|assistant):/gm) || []).length : 0, characterChars: characterCard.length, personaChars: personaCard.length, appearanceMemoryChars: formatProjectedAppearanceFacts(continuity.projectedIncluded).length, ...(lorebookContextMetrics.get(job.chatId) || {}) },
     characterContext: effectiveIncludeCharacters ? character : '', personaContext: effectiveIncludePersona ? persona : '', unresolvedMacros,
     classification, nativeIncludeCharacters, nativeIncludePersona, effectiveIncludeCharacters, effectiveIncludePersona,
     gatingReason: [
@@ -10847,8 +10894,12 @@ async function buildParserContext(
       !humanPolicy.allowHumanContext ? `${humanPolicy.targetClass} target suppressed character/persona/recent-human context` : '',
     ].filter(Boolean).join('; '),
     sanitizedRecentContext: [parentContext, recent].filter(Boolean).join('\n\n'), visualSubjects, subjectNegativePrompt,
-    includedContinuityFacts: continuityIncludedOnce,
-    excludedContinuityFacts: continuity.excluded,
+    includedContinuityFacts: continuity.included,
+    projectedContinuityFacts: continuity.projectedIncluded,
+    projectedContinuityFactsForPromptAppend: projectedContinuityIncludedOnce,
+    projectedContinuityNegativePrompt: continuity.projectedNegativePrompt,
+    projectedContinuityNotes: continuity.projectionNotes,
+    excludedContinuityFacts: continuity.projectedExcluded,
     attachedReferenceAssetIds: continuity.attachedReferenceAssetIds,
     continuityConflicts: continuity.conflicts,
     continuityStrength: continuity.strength,
@@ -11069,8 +11120,8 @@ function buildParserFallbackPrompt(
   if (humanPolicy.allowHumanPrompt && !context.visualSubjects.length && context.personaContext) {
     identityPrompt = `${context.personaContext}, ${identityPrompt}`
   }
-  if (humanPolicy.allowHumanPrompt && context.includedContinuityFacts.length) {
-    identityPrompt += `, Appearance Memory continuity: ${formatSelectedAppearanceFacts(context.includedContinuityFacts)}`
+  if (humanPolicy.allowHumanPrompt && context.projectedContinuityFactsForPromptAppend.length) {
+    identityPrompt += `, Appearance Memory continuity: ${formatProjectedAppearanceFacts(context.projectedContinuityFactsForPromptAppend)}`
   }
   const profiled = applyPromptProfileToPositivePrompt(identityPrompt, profileBase)
   const identityCorrection = enforceC5AKnownIdentity(profiled.prompt, context.identityBindings)
@@ -11134,7 +11185,11 @@ function buildParserFallbackPrompt(
     rejectedParserNegativeAdditions: [],
     promptProfile: profiled.decision,
     regenerationIntent: job.regenerationIntent,
-    includedContinuityFacts: context.includedContinuityFacts,
+    includedContinuityFacts: context.projectedContinuityFacts,
+    rawContinuityFactCount: context.includedContinuityFacts.length,
+    projectedContinuityFactCount: context.projectedContinuityFacts.length,
+    projectedContinuityNegativePrompt: context.projectedContinuityNegativePrompt,
+    continuityProjectionNotes: context.projectedContinuityNotes,
     excludedContinuityFacts: context.excludedContinuityFacts,
     attachedReferenceAssetIds: context.attachedReferenceAssetIds,
     continuityConflicts: context.continuityConflicts,
@@ -12484,7 +12539,11 @@ function updateContinuityFromAcceptedAsset(state: StateFile, record: SlotRecord,
 
 function selectContinuityForJob(state: StateFile, job: RouterJob, _classification: RequestClassification, resolvedSubjectNames: string[] = []): {
   included: ContinuityFact[]
+  projectedIncluded: ContinuityFact[]
   excluded: ContinuityDecision[]
+  projectedExcluded: ContinuityDecision[]
+  projectedNegativePrompt: string
+  projectionNotes: string[]
   attachedReferenceAssetIds: string[]
   conflicts: string[]
   strength: ContinuityStrength
@@ -12493,25 +12552,45 @@ function selectContinuityForJob(state: StateFile, job: RouterJob, _classificatio
   const key = slotKey({ ...job, slot: job.slots[0] || 'image' })
   if (vault.strength === 'off' || vault.ignoredForSlotKeys.includes(key)) {
     return {
-      included: [],
+      included: [], projectedIncluded: [],
       excluded: allAppearanceFacts(vault).map(fact => ({ factId: fact.factId, included: false, reason: vault.strength === 'off' ? 'Appearance Memory is off.' : 'Appearance Memory is ignored for this slot.' })),
+      projectedExcluded: allAppearanceFacts(vault).map(fact => ({ factId: fact.factId, included: false, reason: vault.strength === 'off' ? 'Appearance Memory is off.' : 'Appearance Memory is ignored for this slot.' })),
+      projectedNegativePrompt: '', projectionNotes: [],
       attachedReferenceAssetIds: [], conflicts: [], strength: vault.strength,
     }
   }
   expireCurrentAppearance(vault)
   if (hasExplicitNoHumanIntent(job) || job.prosePromptComposition?.peoplePolicy === 'forbidden') {
     return {
-      included: [],
+      included: [], projectedIncluded: [],
       excluded: allAppearanceFacts(vault).map(fact => ({ factId: fact.factId, included: false, reason: 'Authoritative scene explicitly forbids visible people.' })),
+      projectedExcluded: allAppearanceFacts(vault).map(fact => ({ factId: fact.factId, included: false, reason: 'Authoritative scene explicitly forbids visible people.' })),
+      projectedNegativePrompt: '', projectionNotes: [],
       attachedReferenceAssetIds: [], conflicts: [], strength: vault.strength,
     }
   }
   const proseSubjects = job.prosePromptComposition?.namedSubjects || []
   const sceneSubjects = extractCharacterCandidates(`${job.originalSceneBrief} ${job.caption || ''} ${job.alt || ''}`)
   const subjects = [...new Set([...resolvedSubjectNames, ...proseSubjects, ...sceneSubjects].map(cleanString).filter(Boolean))]
-  const selection = selectContinuityForSubjects(vault, { subjectNames: subjects, chatId: job.chatId, sceneBrief: job.originalSceneBrief, strength: vault.strength })
-  const attachedReferenceAssetIds = [...new Set(selection.included.flatMap(fact => fact.referenceAssetIds))]
-  return { ...selection, attachedReferenceAssetIds, strength: vault.strength }
+  const sceneBrief = [job.originalSceneBrief, job.prosePromptComposition?.sceneBrief, job.prosePromptComposition?.framing, job.caption, job.alt].map(cleanString).filter(Boolean).join(' ')
+  const framingMode = job.prosePromptComposition?.perspectiveMode
+    || (job.target === 'prose.illustration' ? proseSettingsForChat(state, job.chatId).perspectiveMode : '')
+  const expectedPeopleCount = Math.max(
+    Number(job.prosePromptComposition?.expectedPeopleCount || 0),
+    job.cast === 'char+user' ? 2 : job.cast === 'char' || job.cast === 'user' ? 1 : 0,
+  )
+  const selection = selectContinuityForSubjects(vault, { subjectNames: subjects, chatId: job.chatId, sceneBrief, strength: vault.strength })
+  const projected = projectContinuityForGeneration(vault, { subjectNames: subjects, chatId: job.chatId, sceneBrief, strength: vault.strength, framingMode, expectedPeopleCount })
+  const attachedReferenceAssetIds = [...new Set(projected.included.flatMap(fact => fact.referenceAssetIds))]
+  return {
+    ...selection,
+    projectedIncluded: projected.included,
+    projectedExcluded: projected.excluded,
+    projectedNegativePrompt: projected.negativeTags.join(', '),
+    projectionNotes: projected.notes,
+    attachedReferenceAssetIds,
+    strength: vault.strength,
+  }
 }
 
 function appendStateLog(state: StateFile, entry: Omit<RouterLogEntry, 'id' | 'timestamp' | 'extensionVersion' | 'backendBuildId'>): void {
@@ -13547,6 +13626,23 @@ export function hasExplicitNoHumanIntent(job: Pick<RouterJob, 'originalSceneBrie
   return /\b(?:no people(?: visible)?|no person(?:s)?(?: visible)?|without (?:any )?(?:people|persons|humans|characters)|empty (?:room|lounge|office|hallway|classroom|studio|interior|building|street|scene)|unoccupied|vacant|environment only|location only|object only|no message)\b/i.test(authoritative)
 }
 
+function hasExplicitSocialPhotoIntent(authoritative: string): boolean {
+  return /\b(?:selfie|portrait|headshot|profile photo|character profile|character sheet|social post|social media post|posted (?:image|photo|picture)|instagram post|twitter post|photo taken by someone|picture taken by someone|posed photo|promotional photo)\b/i.test(authoritative)
+}
+
+function proseUsesNarrativeSceneProfile(
+  job: Pick<RouterJob, 'target' | 'cast' | 'prosePromptComposition'>,
+  authoritative: string,
+): boolean {
+  if (job.target !== 'prose.illustration' || hasExplicitSocialPhotoIntent(authoritative)) return false
+  const framingMode = job.prosePromptComposition?.perspectiveMode || 'scene-snapshot'
+  if (!['scene-snapshot', 'sequence', 'emotional-beat', 'persona-pov'].includes(framingMode)) return false
+  if (job.cast === 'char' || job.cast === 'user' || job.cast === 'char+user') return true
+  if (Number(job.prosePromptComposition?.expectedPeopleCount || 0) > 0 || (job.prosePromptComposition?.namedSubjects || []).length > 0) return true
+  return /\b(?:person|people|woman|man|girl|boy|character|face|couple|duo|arguing|confronting|embrace|kissing|speaking|standing|walking|sitting|lying|sleeping|asleep)\b/i.test(authoritative)
+    || /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+(?:argued|confronted|stood|walked|sat|slept|was asleep|looked|held|reached|turned)\b/.test(authoritative)
+}
+
 export function classifyImageRequest(job: Pick<RouterJob, 'originalSceneBrief' | 'caption' | 'alt' | 'target' | 'prosePromptComposition' | 'composedPositivePrompt' | 'cast'>): RequestClassification {
   const composition = job.prosePromptComposition
   const namedSubjects = (composition?.namedSubjects || []).map(cleanString).filter(Boolean)
@@ -13567,6 +13663,8 @@ export function classifyImageRequest(job: Pick<RouterJob, 'originalSceneBrief' |
     if (/\b(object|device|phone|package|sign|prop|tool|equipment|table|chair|marker|tape|surface|close-up|closeup|cup)\b/.test(noHumanText)) return 'object photo'
     return 'abstract/non-character'
   }
+
+  if (proseUsesNarrativeSceneProfile(job, authoritative)) return 'narrative-scene'
 
   if (job.cast === 'char+user') return 'group photo'
   if (job.cast === 'char' || job.cast === 'user') return /\b(?:portrait|headshot|profile)\b/i.test(authoritative) ? 'character portrait' : 'person-focused candid'
@@ -13593,7 +13691,7 @@ export function classifyImageRequest(job: Pick<RouterJob, 'originalSceneBrief' |
   if (explicitObject && !explicitPerson && !explicitEvidenceIntent) return 'object photo'
   if (/\b(evidence|proof|damage|broken|failing|failure|misses?|not catching|inspection|marker|close-up of|closeup of)\b/.test(text)) return 'evidence photo'
   if (/\b(group|team|crowd|friends|everyone|people together|two people|three people|couple|duo|embrace|kissing)\b/.test(text)) return 'group photo'
-  if (/\b(portrait|headshot|profile photo|character sheet)\b/.test(text)) return 'character portrait'
+  if (/\b(portrait|headshot|profile photo|character[ -]profile|character sheet)\b/.test(text)) return 'character portrait'
   if (explicitObject && !explicitPerson) return 'object photo'
   if (explicitPerson) return /\b(two|three|couple|duo|people|together|embrace|kissing)\b/i.test(authoritative) ? 'group photo' : 'person-focused candid'
   if (/\b(room|studio|interior|office|kitchen|bedroom|hallway|venue|building|location|floor|stage|cafe|restaurant|lounge|classroom)\b/.test(text)) return 'location/interior'
@@ -13603,7 +13701,7 @@ export function classifyImageRequest(job: Pick<RouterJob, 'originalSceneBrief' |
 }
 
 export function requestHasVisibleFace(classification: RequestClassification): boolean {
-  return classification === 'character portrait' || classification === 'person-focused candid' || classification === 'group photo' || classification === 'selfie'
+  return classification === 'character portrait' || classification === 'person-focused candid' || classification === 'group photo' || classification === 'narrative-scene' || classification === 'selfie'
 }
 
 export function targetHumanPolicy(
@@ -13619,6 +13717,8 @@ export function targetHumanPolicy(
   const explicitHeldObject = /\b(?:phone|object|device|camera|paper|document)\s+(?:being\s+)?(?:held|held by|in hand|in someone's hand)|\bholding\s+(?:a\s+)?(?:phone|object|device|camera|paper|document)\b/i.test(text)
   const targetClass: TargetHumanPolicy['targetClass'] =
     classification === 'group photo' ? 'group'
+      : classification === 'narrative-scene'
+        ? (job.cast === 'char+user' || Number(job.prosePromptComposition?.expectedPeopleCount || 0) > 1 ? 'group' : 'character')
       : requestHasVisibleFace(classification) ? 'character'
         : classification === 'location/interior' || classification === 'scenery' ? 'location'
           : classification === 'document' ? 'document'
@@ -13763,7 +13863,7 @@ export function effectiveGenerationProfile(config: RouterConfig, chatId: string)
 }
 
 export function resolvePromptProfileDecision(
-  job: Pick<RouterJob, 'chatId' | 'target' | 'originalSceneBrief' | 'caption' | 'alt' | 'promptProfileId'>,
+  job: Pick<RouterJob, 'chatId' | 'target' | 'originalSceneBrief' | 'caption' | 'alt' | 'promptProfileId' | 'prosePromptComposition'>,
   config: RouterConfig,
 ): PromptProfileDecision {
   const chatProfile = effectiveGenerationProfile(config, job.chatId)
@@ -13797,6 +13897,7 @@ export function autoPromptProfileId(
 ): PromptProfileId {
   const text = `${job.originalSceneBrief} ${job.caption || ''} ${job.alt || ''}`
   if (/\bselfie\b/i.test(text)) return 'selfie'
+  if (classification === 'narrative-scene') return 'cinematic-scene'
   if (job.target === 'prose.illustration' && (classification === 'group photo' || classification === 'person-focused candid' || classification === 'character portrait')) return 'social-candid'
   if (classification === 'object photo' || classification === 'food' || classification === 'document' || classification === 'screenshot/article/ui') return 'object-prop'
   if (classification === 'location/interior' || classification === 'scenery') return 'environment-location'

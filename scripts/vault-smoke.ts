@@ -1,6 +1,7 @@
 import {
   acceptSuggestion,
   addAppearanceFact,
+  addAppearanceFacts,
   addAppearanceSuggestion,
   applyMigrationPreview,
   buildMigrationPreview,
@@ -11,6 +12,7 @@ import {
   isValidCanonicalCharacterName,
   mergeAppearanceFacts,
   normalizeContinuityVault,
+  projectContinuityForGeneration,
   registerCanonicalCharacter,
   resolveCanonicalCharacter,
   selectContinuityForSubjects,
@@ -195,6 +197,73 @@ const swipeZeroVault = normalizeContinuityVault({
 }, 'chat-zero', 16)
 assert(Object.values(swipeZeroVault.currentAppearance).some(fact => fact.sourceReference.swipeId === 0), 'source-reference swipe index zero should survive normalization')
 assert(Object.values(swipeZeroVault.currentAppearance).some(fact => fact.sourceSwipeId === 0), 'current-state swipe index zero should survive normalization')
+
+// Generation projection keeps the Vault broad while exposing only facts useful
+// to the current frame.
+type ProjectionFact = { layer: 'visual-identity' | 'wardrobe'; category: any; value: string }
+const projectFixture = (id: string, facts: ProjectionFact[], sceneBrief: string) => {
+  const projectionVault = emptyContinuityVault(id)
+  projectionVault.strength = 'strong'
+  const subject = registerCanonicalCharacter(projectionVault, { name: 'Projection Alpha', sourceType: 'manual', userConfirmed: true })
+  for (const fact of facts.filter(candidate => candidate.layer === 'visual-identity')) addAppearanceFact(projectionVault, {
+    ...fact,
+    characterId: subject.canonicalCharacterId,
+    sourceType: 'manual',
+    userConfirmed: true,
+    semanticAuthority: 'explicit-user',
+  })
+  const wardrobe = facts.filter(candidate => candidate.layer === 'wardrobe')
+  if (wardrobe.length) addAppearanceFacts(projectionVault, {
+    layer: 'wardrobe', category: 'current-outfit', value: wardrobe.map(fact => fact.value).join(', '),
+    characterId: subject.canonicalCharacterId, sourceType: 'manual', userConfirmed: true, currentWardrobe: true, semanticAuthority: 'explicit-user',
+  })
+  return projectContinuityForGeneration(projectionVault, {
+    subjectNames: [subject.canonicalCharacterName], chatId: id, sceneBrief, strength: 'strong', framingMode: 'scene-snapshot', expectedPeopleCount: 1,
+  })
+}
+const projectedValues = (selection: ReturnType<typeof projectContinuityForGeneration>) => selection.included.map(fact => fact.value)
+
+const sleepingProjection = projectFixture('projection-sleeping', [
+  { layer: 'visual-identity', category: 'eye-color', value: 'brown_eyes' },
+  { layer: 'visual-identity', category: 'other', value: 'long_eyelashes' },
+  { layer: 'visual-identity', category: 'hair-color', value: 'black_hair' },
+], 'Projection Alpha is asleep on a couch, hair across the pillow, eyes closed.')
+assert(!projectedValues(sleepingProjection).includes('brown_eyes'), 'sleeping projection must suppress eye color')
+assert(!projectedValues(sleepingProjection).includes('long_eyelashes'), 'sleeping projection must suppress eye-emphasis details')
+assert(projectedValues(sleepingProjection).includes('black_hair'), 'sleeping projection may retain visible hair')
+assert(sleepingProjection.negativeTags.includes('open_eyes') && sleepingProjection.negativeTags.includes('direct_gaze'), 'sleeping projection must guard against open eyes and direct gaze')
+
+const backTurnedProjection = projectFixture('projection-back', [
+  { layer: 'visual-identity', category: 'mole', value: 'beauty_mark_under_eye' },
+  { layer: 'visual-identity', category: 'eye-color', value: 'brown_eyes' },
+  { layer: 'visual-identity', category: 'hair-color', value: 'black_hair' },
+  { layer: 'visual-identity', category: 'body-build', value: 'slim_build' },
+], 'Medium shot of Projection Alpha seen from behind at a doorway, back turned.')
+assert(!projectedValues(backTurnedProjection).some(value => /beauty_mark|mole/.test(value)), 'back-turned projection must suppress facial marks')
+assert(!projectedValues(backTurnedProjection).includes('brown_eyes'), 'back-turned projection must suppress eye color')
+assert(projectedValues(backTurnedProjection).includes('black_hair') && projectedValues(backTurnedProjection).includes('slim_build'), 'back-turned medium framing may retain hair and build')
+
+const closeUpProjection = projectFixture('projection-closeup', [
+  { layer: 'visual-identity', category: 'height', value: 'tall' },
+  { layer: 'visual-identity', category: 'eye-color', value: 'brown_eyes' },
+  { layer: 'visual-identity', category: 'hair-color', value: 'black_hair' },
+  { layer: 'wardrobe', category: 'current-outfit', value: 'hoodie' },
+  { layer: 'wardrobe', category: 'current-outfit', value: 'sneakers' },
+], 'Tight close-up of Projection Alpha\'s face in dim light.')
+assert(!projectedValues(closeUpProjection).some(value => /tall|sneakers|footwear/.test(value)), 'tight close-up must suppress height and footwear')
+assert(projectedValues(closeUpProjection).includes('brown_eyes') && projectedValues(closeUpProjection).includes('black_hair'), 'tight face close-up may retain visible eye and hair traits')
+
+const fullBodyProjection = projectFixture('projection-fullbody', [
+  { layer: 'visual-identity', category: 'height', value: 'tall' },
+  { layer: 'visual-identity', category: 'body-build', value: 'lean_build' },
+  { layer: 'visual-identity', category: 'hair-color', value: 'black_hair' },
+  { layer: 'wardrobe', category: 'current-outfit', value: 'hoodie' },
+  { layer: 'wardrobe', category: 'current-outfit', value: 'jeans' },
+  { layer: 'wardrobe', category: 'current-outfit', value: 'sneakers' },
+], 'Full-body shot of Projection Alpha crossing the gym floor.')
+for (const value of ['tall', 'lean_build', 'black_hair', 'hoodie', 'jeans', 'sneakers']) {
+  assert(projectedValues(fullBodyProjection).includes(value), `full-body projection should retain ${value}`)
+}
 
 // 15-16 are source-level integration checks handled by the normal/lifecycle smoke suites.
 console.log('vault smoke ok')

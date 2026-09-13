@@ -31,7 +31,7 @@ export const DEFAULT_SIDECAR_PROMPTS = {
   'sidecar.appearance.request': `Return {"observations":[...]} only. Each observation has subject:{name,aliases,role:"character"|"persona"|"npc",trustworthy}, confidence, and facts:[{layer:"visual-identity"|"wardrobe"|"current-appearance",category,value,conflictDomain?,provenance:"chat-history"|"current-assistant-message"|"character-card"|"persona-card"|"lorebook"|"prior-appearance-state"}]. Keep base identity separate from wardrobe and current-scene state. Use direct Character/Persona/lorebook evidence for durable facts, current scene for outfit/temporary state, and preserve user-confirmed memory. Never parse a native preset into facts. For unusual or category="other" facts, provide conflictDomain only when the fact semantically replaces values in one Sidecar-owned domain; use a bounded lowercase slug or one colon-qualified slug such as "skin-color", "tail", "wing-state", "horns", "limb-state", or "species-trait:complexion". Do not invent a domain from Relay rules: you decide it from supplied context. For an NPC, trustworthy=true is allowed for a named recurring participant with concrete identity evidence OR a named NPC strongly established by activated structured/lorebook context with concrete identity and appearance. Do not return style, camera, pose, location, or generic scene facts.\n\n<runtime_payload>\n{{runtime_payload}}\n</runtime_payload>`,
   'sidecar.appearance.field-refresh': `Refresh only the requested Appearance Memory field for focusCharacter. Return {"fieldResult":{"subject":"exact focusCharacter name","field":"stable-appearance"|"current-outfit"|"negative-identity-tags","status":"known"|"unknown","tags":["tag or concise visual fragment",...]}} only.
 
-For stable-appearance, include durable face, body, hair, eyes, and permanent identifying features; exclude clothing, pose, expression, camera, and scene details. For current-outfit, include only clothing and worn accessories established for the current/latest scene; use status="unknown" when the current outfit is not established. For negative-identity-tags, derive concise image-negative tags that prevent contradictions with the subject's established stable identity; never negate the desired identity itself, clothing, pose, style, quality, or scene. Use status="unknown" rather than inventing unsupported identity. Treat this as an explicit user-requested refresh of one field and do not return or modify either of the other fields.
+For stable-appearance, include durable hair, eye color, face, body, and permanent identifying features; exclude open/closed eye state, gaze direction, expression, pose, action, camera, composition, and scene details. For current-outfit, include only clothing and worn accessories established for the current/latest scene; use status="unknown" when the current outfit is not established. For negative-identity-tags, derive concise image-negative tags that prevent contradictions with the subject's established stable identity; never negate the desired identity itself, clothing, pose, style, quality, or scene. Use status="unknown" rather than inventing unsupported identity. Treat this as an explicit user-requested refresh of one field and do not return or modify either of the other fields.
 
 <runtime_payload>
 {{runtime_payload}}
@@ -52,6 +52,8 @@ Treat the selected framing prompt as a required camera-and-blocking contract, no
 5. depth planes, environment, props, and light.
 
 Every visible person must have a scene-supported action and attention target. Direct lens gaze is allowed only when the authoritative scene establishes interaction with the viewer, in-world camera, or Persona POV.
+
+Appearance Memory is a reference library, not a checklist. Select only identity facts that are visible and compositionally useful in the current frame. Do not force invisible traits into positivePrompt. When the scene states or strongly implies sleeping, closed eyes, a hidden face, or back-turned framing, preserve that state and omit eye-emphasis details that would contradict it.
 
 Do not compose a centered glamour portrait, generic attractive expression, vacant stare, or model pose unless the scene explicitly requires it. Do not put instructions, alternate shot menus, or negated unwanted poses in positivePrompt. Use negativePrompt only for relevant defects compatible with the scene.
 
@@ -326,11 +328,106 @@ Write the narrative response as ordinary prose. Do not emit prose-illustration t
  * prompt-completion pass for these requests. */
 export const REVERIE_INLINE_PROTOCOL = `REVERIE RELAY — INLINE PROTOCOL
 
-Write the completed image-ready request directly at its narrative location. Use the canonical grammar exactly:
+INLINE IS ONE-PASS FULL MODEL AUTHORING.
+
+The Story Model owns the visual beat selection, request placement, visible cast, camera position, shot size, blocking, action, contact, environment, depth, relevant gaze and expression, and the final <visual_prompt>. Relay will not perform a second creative composition pass. The <visual_prompt> must already be an intentional, finished, image-ready composition.
+
+Do not ask Relay, a planner, a Sidecar Composer, or a parser to finish, expand, interpret, repair, or choose the angle. Relay only scans and routes the canonical request, applies deterministic identity/settings continuity, and dispatches or exposes the authored request according to runtime settings.
+
+CANONICAL FORMAT
 
 <reverie-illustration request="generate" slot="short-stable-slot" aspect="4:3" cast="char" alt="Accessible description"><visual_prompt>Complete scene-specific visual prompt.</visual_prompt></reverie-illustration>
 
-This is a one-pass protocol. Do not emit a planning note, a parser task, an acknowledgement, or a second completion request. When Auto Generate is enabled Relay dispatches the exact inline request after it is parsed; when Auto Generate is disabled it remains a manual lazy slot. Preserve the authored scene, cast, action, setting, and framing. Use cast="none" for object or environment shots.`
+Place the completed request exactly where the illustration belongs in the narrative. Do not emit a planning note, parser task, acknowledgement, or second completion request. When Auto Generate is enabled Relay dispatches the exact inline request after deterministic parsing; when Auto Generate is disabled it remains a manual lazy slot.
+
+SCENE-FIRST COMPOSITION
+
+The subject of the illustration is the story moment, not automatically the characters' faces.
+
+Before writing <visual_prompt>, identify what makes this beat visually interesting: physical action, body interaction, hands or contact, spatial distance, environment or architecture, a prop or machine, an object being manipulated, movement, environmental transformation, a projection or screen, foreground/background contrast, a reveal, silhouette, lighting change, or facial reaction.
+
+Facial reaction is one possible visual center, not the default. Emotional importance does not automatically justify a close-up. Romantic tension does not automatically justify a two-shot of faces. Dialogue does not automatically justify a portrait. Two visible people do not make the image a posed couple photo.
+
+SHOT-SELECTION GRAMMAR
+
+Choose the shot according to what must remain readable.
+
+WIDE / MEDIUM-WIDE
+Use when environment or spatial geography matters; subjects interact through space; machinery, architecture, or projection is important; body movement or multiple depth planes matter; the scene contains a visual reveal; or action needs context.
+
+MEDIUM
+Use when physical interaction matters; hands or contact must remain visible; seated/standing blocking matters; or body language matters more than facial microdetail.
+
+CLOSE
+Use only when a facial microreaction is itself the primary visual event, a small intimate detail cannot be read otherwise, the prose explicitly makes the face/eyes/mouth the visual center, or the scene deliberately calls for close framing.
+
+DETAIL / INSERT
+Use when hand contact, a device, wound, object, controls, soldering, phone, letter, weapon, jewelry, or another specific physical detail is the actual visual beat.
+
+Do not choose a close shot merely because the scene is emotionally intense. If the environment, hands, body relationship, or important prop would be lost in a close-up, widen the camera.
+
+For Scene Snapshot-style Inline illustrations, prefer medium-wide or medium framing, then wide framing, before close-up unless the visible beat supplies a scene-specific reason. A close-up is an exception selected because the visible beat requires it, not the automatic expression of importance. Close-ups remain valid when the scene genuinely calls for them.
+
+ENVIRONMENT RETENTION
+
+If the prose establishes a visually meaningful location, retain enough of it to identify the scene. Do not turn a location-rich event into an anonymous blurred backdrop merely because people are present. Keep at least one or two concrete environmental anchors visually legible when the setting matters: a workshop's bench, CRTs, cables, tools, projection equipment, or industrial light; a gym's floor, markings, hoops, bleachers, equipment, or room scale; a bedroom's bed, window, bedside objects, light source, or relevant clutter; a hallway's doors, lockers, windows, stairwell, depth lines, or established foot traffic.
+
+COMPOSITION ORDER
+
+Build <visual_prompt> in this conceptual order:
+1. camera, shot size, and angle;
+2. environment and major depth planes;
+3. visible subject count;
+4. physical positions and blocking;
+5. body orientation;
+6. action and movement;
+7. hands, contact, and object ownership;
+8. important props;
+9. lighting;
+10. gaze and expression only where visibly important.
+
+Do not lead with eyes, eyelashes, lips, a pretty or handsome face, delicate facial features, gaze, or expression unless that feature is genuinely the subject of the shot. Preserve foreground, midground, and background relationships when the beat depends on depth.
+
+SCENE-SPECIFIC APPEARANCE
+
+Do not manually dump stable identity catalogues into <visual_prompt>. Relay supplies stable identity continuity downstream. Focus on scene-specific visible information: current clothing, scene-specific expression, current gaze target, temporary hair state, injury, sweat, tears, closed eyes, current transformation, or another unusual present state.
+
+Permanent eye color, eyelashes, lip shape, face shape, jaw shape, beauty claims, body catalogues, and other stable traits should not be repeated merely because they exist. Include a stable feature only when it is specifically relevant to the current scene or truly owns the selected close/detail composition.
+
+FACE DETAIL BUDGET
+
+For wide and medium-wide shots, facial detail is low priority: expression may be brief and gaze may have a target, but stable eye, lash, lip, and face-shape detail should generally be omitted. For medium shots, include expression or gaze only as needed. For close shots, facial detail may become prominent because it is visible and compositionally relevant.
+
+Do not let several face descriptors outweigh blocking, action, environment, contact, or props.
+
+MULTIPLE INLINE ILLUSTRATIONS
+
+When authoring multiple Inline requests in one response, treat them as coverage from the same film sequence. Avoid repeating the same shot size, two-shot, face-to-face composition, camera side, or centered framing. Review the other Inline requests already authored in the same response. Prefer a meaningfully different scale, angle, or visual center when another valid composition would tell the beat better. A wide establishing frame, medium action frame, insert/detail, and emotionally justified close frame are possible coverage—not a mandatory order.
+
+CAST SEMANTICS — BOUND IDENTITIES ONLY
+
+The cast attribute refers only to the active bound Character and active bound Persona. Determine cast from which bound identities are actually visible, not from person count.
+
+cast="char" includes the active bound Character.
+cast="user" includes the active bound Persona.
+cast="char+user" includes BOTH active bound identities.
+cast="none" includes neither active bound identity.
+
+Named NPCs and additional named characters are written explicitly in <visual_prompt>. Their presence does not automatically require cast="user". Do not use cast="char+user" merely because two people are visible.
+
+Example: active Character Gabrielle, active Persona Arin, visible scene Gabrielle plus Cerys. Use cast="char" and name Cerys explicitly in <visual_prompt>. Using cast="char+user" would silently add Arin and is wrong.
+
+Example: active Character Gabrielle, active Persona Cerys, visible scene Gabrielle plus Cerys. Use cast="char+user" because both bound identities are visible.
+
+For object or environment compositions with neither bound identity visible, use cast="none".
+
+ASPECT AND MEDIA
+
+Keep 4:3 as the general story default. Prefer 16:9 or 3:2 for environmental, multi-plane, spatial, or ensemble compositions. Use 3:4 only when a genuinely vertical composition benefits. Do not select portrait orientation merely because people are visible, and do not let close character framing silently force portrait orientation. Respect the runtime aspect policy and supported aspect list.
+
+SLOT AND OUTPUT
+
+Give every request a short lowercase slug-safe stable slot. Each selected illustration appears once at its intended narrative position. Emit the raw complete <reverie-illustration> element as part of the story response and continue the surrounding prose naturally. The <visual_prompt> is consumed by Reverie Relay and is not reader-facing prose.`
 
 export const REVERIE_CHARACTER_ONLY_FRAMING_PROMPT = DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS['solo-scene']
 
@@ -544,7 +641,7 @@ Output the bracket Surface adjacent to the relevant character entrance. Keep onl
 
 export const PROMPT_REGISTRY_DEFINITIONS: PromptRegistryDefinition[] = [
   { id: 'story.model-placed', displayName: 'Model-Placed Illustrator', description: 'Canonical Story Model illustration contract.', category: 'story-model', defaultTemplate: REVERIE_ILLUSTRATION_PROTOCOL, version: 2, requiredTokens: ['<reverie-illustration', '<visual_prompt>', 'cast="none"'] },
-  { id: 'story.inline-protocol', displayName: 'Inline Protocol Illustrator', description: 'One-pass Story Model request and placement contract.', category: 'story-model', defaultTemplate: REVERIE_INLINE_PROTOCOL, version: 1, requiredTokens: ['<reverie-illustration', 'request="generate"', '<visual_prompt>'] },
+  { id: 'story.inline-protocol', displayName: 'Inline Protocol Illustrator', description: 'One-pass Story Model request and placement contract.', category: 'story-model', defaultTemplate: REVERIE_INLINE_PROTOCOL, version: 2, requiredTokens: ['<reverie-illustration', 'request="generate"', '<visual_prompt>'] },
   { id: 'story.relay-planned', displayName: 'Relay-Planned Illustrator', description: 'Story Model behavior while Relay plans visual beats.', category: 'story-model', defaultTemplate: REVERIE_RELAY_PLANNED_PROTOCOL, version: 2 },
   { id: 'story.surface-protocol', displayName: 'Shared Surface Protocol', description: 'Shared semantic surface authorship rules.', category: 'story-model', defaultTemplate: REVERIE_SURFACE_PROTOCOL, version: 3, requiredTokens: ['AUTHORSHIP', '<image_request>'] },
   { id: 'story.artifact-media', displayName: 'Artifact Media', description: 'Inline artifact image request contract.', category: 'story-model', defaultTemplate: REVERIE_ARTIFACT_MEDIA_PROTOCOL, version: 2, requiredTokens: ['target="custom.artifact-media"'] },
@@ -565,7 +662,7 @@ export const PROMPT_REGISTRY_DEFINITIONS: PromptRegistryDefinition[] = [
     description: 'Editable Sidecar workflow prompt.',
     category: 'sidecars' as const,
     defaultTemplate,
-    version: id === 'sidecar.composer.request' ? 4 : id === 'sidecar.parser.request' ? 3 : id === 'sidecar.parser.repair' ? 2 : id.startsWith('sidecar.appearance.') ? 2 : 1,
+    version: id === 'sidecar.composer.request' ? 5 : id === 'sidecar.parser.request' ? 3 : id === 'sidecar.parser.repair' ? 2 : id === 'sidecar.appearance.field-refresh' ? 3 : id.startsWith('sidecar.appearance.') ? 2 : 1,
   })),
 ]
 

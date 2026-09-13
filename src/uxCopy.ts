@@ -49,9 +49,9 @@ export const SURFACE_UTILITY_OVERVIEWS: Readonly<Record<string, string>> = {
 }
 
 export const NARRATIVE_UTILITY_OVERVIEWS: Readonly<Record<string, string>> = {
-  'Character Phone': 'Builds a story-aware character phone with apps, messages, records, and contextual media.',
+  'Character Phone': 'Builds a story-aware character phone with apps, messages, records, and a real multi-image Photos gallery.',
   'Dramatic Cutaway': 'Shows a cinematic parallel beat or interruption without losing the main scene viewpoint.',
-  'Plot Sparks': 'Offers optional complications and pressure points the story can naturally act on next.',
+  'Plot Sparks': 'Offers seven optional branches that grow naturally from the current scene, from likely complications to stranger-but-grounded turns.',
   'Scene Shift': 'Summarizes the present scene, active direction, tension, and immediate story anchors.',
   'Parallel Scene': 'Tracks meaningful off-screen developments in a horizontally browsable current.',
   'Cast Introduction': 'Introduces a newly relevant recurring character with scene-safe identity information.',
