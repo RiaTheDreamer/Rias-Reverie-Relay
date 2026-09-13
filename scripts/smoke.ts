@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import {
   parseImageRequests,
   inspectProseIllustrationSchemas,
+  normalizeProseIllustrationContracts,
   parseRouterMarkers,
   mergeMissingSlotRecords,
   replaceImageUrlAfterSlotComment,
@@ -45,8 +46,15 @@ const modelPlaced = parseImageRequests(`<reverie-illustration request="generate"
 assert(modelPlaced?.promptSource === 'visual_prompt' && modelPlaced.cast === 'char+user', 'expected canonical Model-Placed visual_prompt and cast metadata')
 assert(modelPlaced.prompt.startsWith('2people'), 'expected visual_prompt body to remain authoritative')
 const malformedHybrid = '<reverie-illustration request="generate" slot="legacy-scene" aspect="4:3" cast="char"><scene_brief>Character A walking through Location A at dusk.</scene_brief></reverie-illustration>'
-assert(parseImageRequests(malformedHybrid).length === 0, 'malformed prose illustration must not dispatch')
 assert(inspectProseIllustrationSchemas(malformedHybrid)[0]?.message.includes('expected <visual_prompt>, received <scene_brief>'), 'malformed hybrid must report the schema collision')
+const repairedHybrid = normalizeProseIllustrationContracts(malformedHybrid)
+assert(repairedHybrid.repairs.length === 1, 'one unambiguous scene_brief child must receive deterministic Local Repair')
+assert(repairedHybrid.markup.includes('<visual_prompt>Character A walking through Location A at dusk.</visual_prompt>'), 'Local Repair must preserve the authored prompt while canonicalizing only the child name')
+const repairedHybridRequest = parseImageRequests(malformedHybrid)[0]
+assert(repairedHybridRequest?.prompt === 'Character A walking through Location A at dusk.' && repairedHybridRequest.promptSource === 'visual_prompt', 'repaired prose illustration must dispatch through the authoritative visual_prompt lane')
+const ambiguousHybrid = '<reverie-illustration request="generate" slot="ambiguous-scene" aspect="4:3" cast="char"><scene_brief>First prompt.</scene_brief><scene_brief>Second prompt.</scene_brief></reverie-illustration>'
+assert(normalizeProseIllustrationContracts(ambiguousHybrid).repairs.length === 0, 'ambiguous prose illustration bodies must fail closed')
+assert(parseImageRequests(ambiguousHybrid).length === 0, 'ambiguous prose illustration bodies must not dispatch')
 const noCast = parseImageRequests('<reverie-illustration request="generate" slot="object-scene" aspect="4:3" cast="none"><visual_prompt>cracked smartphone lying face-up on a woven rug, empty bedroom</visual_prompt></reverie-illustration>')[0]
 assert(noCast?.cast === 'none', 'expected cast none to survive request parsing')
 const narrativeIllustration = parseImageRequests('<dramatic_parallel><div class="dp-media"><reverie-illustration request="generate" slot="cutaway-1" aspect="16:9" cast="none"><visual_prompt>empty western street under hard noon light</visual_prompt></reverie-illustration></div></dramatic_parallel>')[0]

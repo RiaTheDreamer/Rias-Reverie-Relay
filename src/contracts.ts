@@ -1500,6 +1500,45 @@ export type ProseIllustrationSchemaDiagnostic = {
   fullMatch: string
 }
 
+export type ProseIllustrationContractRepair = {
+  code: 'REPAIRED_PROSE_ILLUSTRATION_PROMPT_TAG'
+  slot: string
+  index: number
+  original: string
+  repaired: string
+}
+
+/**
+ * Repairs only the one deterministic child-name collision the Story Model can
+ * borrow from Surface image_request grammar. The wrapper, authored prompt,
+ * placement, and attributes remain byte-for-byte unchanged. Anything with a
+ * mixed or ambiguous body is deliberately left for strict validation.
+ */
+export function normalizeProseIllustrationContracts(content: string): { markup: string; repairs: ProseIllustrationContractRepair[] } {
+  const repairs: ProseIllustrationContractRepair[] = []
+  const re = /<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi
+  const markup = content.replace(re, (fullMatch, rawAttrs: string, body: string, index: number) => {
+    if (/<visual_prompt\b/i.test(body)) return fullMatch
+    const singleSceneBrief = body.match(/^(\s*)<scene_brief\s*>([\s\S]*?)<\/scene_brief\s*>(\s*)$/i)
+    if (!singleSceneBrief || !String(singleSceneBrief[2] || '').trim() || /<\/?scene_brief\b/i.test(singleSceneBrief[2])) return fullMatch
+
+    const outerOpenEnd = fullMatch.indexOf('>') + 1
+    const outerCloseStart = fullMatch.toLocaleLowerCase().lastIndexOf('</reverie-illustration')
+    if (outerOpenEnd < 1 || outerCloseStart < outerOpenEnd) return fullMatch
+    const repairedBody = `${singleSceneBrief[1]}<visual_prompt>${singleSceneBrief[2]}</visual_prompt>${singleSceneBrief[3]}`
+    const repaired = `${fullMatch.slice(0, outerOpenEnd)}${repairedBody}${fullMatch.slice(outerCloseStart)}`
+    repairs.push({
+      code: 'REPAIRED_PROSE_ILLUSTRATION_PROMPT_TAG',
+      slot: String(parseAttrs(rawAttrs).slot || '').trim(),
+      index,
+      original: fullMatch,
+      repaired,
+    })
+    return repaired
+  })
+  return { markup, repairs }
+}
+
 export function inspectProseIllustrationSchemas(content: string): ProseIllustrationSchemaDiagnostic[] {
   const diagnostics: ProseIllustrationSchemaDiagnostic[] = []
   const re = /<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi
@@ -1628,6 +1667,7 @@ export function targetApp(target: ImageTarget): SlotRecord['targetApp'] {
 }
 
 export function parseImageRequests(content: string): ImageRequest[] {
+  content = normalizeProseIllustrationContracts(content).markup
   const out: ImageRequest[] = []
   const phoneRanges: Array<{ start: number; end: number; bodyStart: number; time: string }> = []
   const phoneRe = /<(?:smart_phone|smartphone)\b([^>]*)>([\s\S]*?)<\/(?:smart_phone|smartphone)>/gi
