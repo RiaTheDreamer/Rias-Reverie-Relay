@@ -1442,7 +1442,10 @@ export function syncCharacterSheetPresentation(vault: ContinuityVaultState, char
     booruTags: view.stableAppearance,
     currentOutfitTags: view.currentOutfit,
     negativeIdentityTags: existing?.negativeIdentityTags || '',
-    referenceAssetIds: unique([...(existing?.referenceAssetIds || []), ...(sourceFact?.referenceAssetIds || [])]),
+    // Once a sheet exists its editor-owned reference list is authoritative.
+    // Historical fact provenance may retain older IDs internally, but presentation
+    // must not union deleted IDs back into the user's field.
+    referenceAssetIds: existing ? [...existing.referenceAssetIds] : unique(sourceFact?.referenceAssetIds || []),
     alternateLooks: existing?.alternateLooks || [],
     activeAlternateLookId: existing?.activeAlternateLookId,
     sourceSentence: existing?.sourceSentence || (sourceFact?.sourceType === 'appearance-sidecar' ? 'Appearance Sidecar-maintained canonical memory.' : 'Canonical Appearance Memory.'),
@@ -1471,9 +1474,21 @@ export function saveManualAppearanceMemory(
 ): void {
   const character = vault.characters[input.characterId]
   if (!character) throw new Error('Character not found.')
-  for (const fact of allAppearanceFacts(vault)) {
-    if (fact.canonicalCharacterId !== input.characterId || fact.sourceReference.sourceReference !== 'appearance-editor') continue
-    removeAppearanceFact(vault, fact.factId, now)
+  // Stable Appearance is one complete editor-owned field, not an additive
+  // suggestion. Preserve provenance/history while removing every older active
+  // canonical value from presentation authority.
+  for (const fact of Object.values(vault.visualIdentity)) {
+    if (fact.canonicalCharacterId !== input.characterId || fact.status !== 'active') continue
+    fact.status = 'superseded'
+    fact.updatedAt = now
+  }
+  // Current Outfit has the same replacement semantics, including an explicit
+  // empty save. Saved/default wardrobe remains historical but is not current.
+  for (const fact of Object.values(vault.wardrobe)) {
+    if (fact.canonicalCharacterId !== input.characterId || (fact.category !== 'current-outfit' && !fact.currentWardrobe)) continue
+    if (fact.status === 'active') fact.status = 'superseded'
+    fact.currentWardrobe = false
+    fact.updatedAt = now
   }
   if (clean(input.stableAppearance)) {
     addAppearanceFacts(vault, {
@@ -1491,13 +1506,6 @@ export function saveManualAppearanceMemory(
       confidence: 1, pinned: true, userConfirmed: true, currentWardrobe: true, referenceAssetIds: input.referenceAssetIds,
       semanticAuthority: 'explicit-user',
     }, now)
-  } else {
-    for (const fact of Object.values(vault.wardrobe)) {
-      if (fact.canonicalCharacterId !== input.characterId || (fact.category !== 'current-outfit' && !fact.currentWardrobe)) continue
-      fact.status = 'inactive'
-      fact.currentWardrobe = false
-      fact.updatedAt = now
-    }
   }
   const existing = vault.characterSheets[input.characterId]
   if (existing || Object.values(vault.visualIdentity).some(fact => fact.canonicalCharacterId === input.characterId)) {

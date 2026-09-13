@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import {
   parseImageRequests,
+  inspectProseIllustrationSchemas,
   parseRouterMarkers,
   mergeMissingSlotRecords,
   replaceImageUrlAfterSlotComment,
@@ -43,15 +44,16 @@ const requests = parseImageRequests(content)
 const modelPlaced = parseImageRequests(`<reverie-illustration request="generate" slot="scene-bridge-01" aspect="4:3" cast="char+user" alt="Two people together"><visual_prompt>2people, Character A and Persona A sitting together, tense eye contact, late afternoon light</visual_prompt></reverie-illustration>`)[0]
 assert(modelPlaced?.promptSource === 'visual_prompt' && modelPlaced.cast === 'char+user', 'expected canonical Model-Placed visual_prompt and cast metadata')
 assert(modelPlaced.prompt.startsWith('2people'), 'expected visual_prompt body to remain authoritative')
-const legacyModelPlaced = parseImageRequests('<reverie-illustration request="generate" slot="legacy-scene" aspect="4:3">Character A walking through Location A at dusk.</reverie-illustration>')[0]
-assert(legacyModelPlaced?.promptSource === 'legacy-body' && legacyModelPlaced.prompt.includes('walking through Location A'), 'expected direct-body prose illustration compatibility')
-const noCast = parseImageRequests('<reverie-illustration request="generate" slot="object-scene" cast="none"><visual_prompt>cracked smartphone lying face-up on a woven rug, empty bedroom</visual_prompt></reverie-illustration>')[0]
+const malformedHybrid = '<reverie-illustration request="generate" slot="legacy-scene" aspect="4:3" cast="char"><scene_brief>Character A walking through Location A at dusk.</scene_brief></reverie-illustration>'
+assert(parseImageRequests(malformedHybrid).length === 0, 'malformed prose illustration must not dispatch')
+assert(inspectProseIllustrationSchemas(malformedHybrid)[0]?.message.includes('expected <visual_prompt>, received <scene_brief>'), 'malformed hybrid must report the schema collision')
+const noCast = parseImageRequests('<reverie-illustration request="generate" slot="object-scene" aspect="4:3" cast="none"><visual_prompt>cracked smartphone lying face-up on a woven rug, empty bedroom</visual_prompt></reverie-illustration>')[0]
 assert(noCast?.cast === 'none', 'expected cast none to survive request parsing')
 const narrativeIllustration = parseImageRequests('<dramatic_parallel><div class="dp-media"><reverie-illustration request="generate" slot="cutaway-1" aspect="16:9" cast="none"><visual_prompt>empty western street under hard noon light</visual_prompt></reverie-illustration></div></dramatic_parallel>')[0]
 assert(narrativeIllustration?.target === 'custom.artifact-media', 'Narrative-owned illustration must resolve inside its artifact-media owner')
 assert(narrativeIllustration?.promptSource === 'structured', 'Narrative-owned illustration must use the shared parser path')
 assert(narrativeIllustration?.slot === 'cutaway-1', 'Narrative-owned illustration must preserve its exact owner slot')
-const bracketNarrativeIllustration = parseImageRequests('[SCENE|Gym|17:10|Tense]<scene-media><reverie-illustration request="generate" slot="scene-card-1"><visual_prompt>players crossing a gym floor</visual_prompt></reverie-illustration></scene-media>[/SCENE]')[0]
+const bracketNarrativeIllustration = parseImageRequests('[SCENE|Gym|17:10|Tense]<scene-media><reverie-illustration request="generate" slot="scene-card-1" aspect="16:9" cast="none"><visual_prompt>players crossing a gym floor</visual_prompt></reverie-illustration></scene-media>[/SCENE]')[0]
 assert(bracketNarrativeIllustration?.target === 'custom.artifact-media' && bracketNarrativeIllustration.promptSource === 'structured', 'bracket Narrative owner must normalize to artifact media')
 assert(modelPlaced?.target === 'prose.illustration' && modelPlaced.promptSource === 'visual_prompt', 'standalone Prose Illustrator must retain its dedicated authoritative path')
 const intentRequests = parseImageRequests(`<tw_post><image_request id="meme-1" target="twitter.media" intent="meme">A deliberately cheap reaction meme.</image_request></tw_post><image_request id="unknown-1" target="twitter.media" intent="banana-catastrophe">Normal candid.</image_request>`)
@@ -284,8 +286,8 @@ for (const [target, wrapper] of customSurfaceMatrix) {
 }
 
 
-const explicitIllustrationRequests = parseImageRequests(`<reverie-illustration request="generate" slot="prose-beat-1" aspect="4:3" alt="A quiet hallway beat">
-A quiet institutional hallway after the hearing, empty chairs, morning light.
+const explicitIllustrationRequests = parseImageRequests(`<reverie-illustration request="generate" slot="prose-beat-1" aspect="4:3" cast="none" alt="A quiet hallway beat">
+<visual_prompt>A quiet institutional hallway after the hearing, empty chairs, morning light.</visual_prompt>
 </reverie-illustration>`)
 assert(explicitIllustrationRequests.length === 1, 'expected one explicit Reverie illustration request')
 assert(explicitIllustrationRequests[0].id === 'prose-beat-1' && explicitIllustrationRequests[0].target === 'prose.illustration', 'expected explicit illustration tag to map to a stable prose slot')
@@ -734,7 +736,7 @@ assert(manifest.permissions?.includes('interceptor') && manifest.permissions?.in
 
 const versionMatch = buildSource.match(/EXTENSION_VERSION = '([^']+)'/)
 const buildIdMatch = buildSource.match(/BUILD_ID = '([^']+)'/)
-assert(versionMatch?.[1] === manifest.version && /^\d{8}-0\.2\.3$/i.test(buildIdMatch?.[1] || ''), 'expected shared current release identity')
+assert(versionMatch?.[1] === manifest.version && /^\d{8}-0\.2\.4$/i.test(buildIdMatch?.[1] || ''), 'expected shared current release identity')
 assert(backendSource.includes('STATE_SCHEMA_VERSION = 34'), 'expected state schema 34')
 
 assert(frontendSource.includes("type SuiteSection = 'relay' | 'illustrator' | 'surfaces' | 'memory' | 'archive' | 'settings'"), 'expected six-part Surface Suite navigation')
@@ -796,6 +798,11 @@ assert(frontendSource.includes('Slot Version History') && frontendSource.include
 
 assert(frontendSource.includes('Appearance Sidecar') && frontendSource.includes('Stable Appearance') && frontendSource.includes('Current Outfit') && !frontendSource.includes('Scan Selected Character'), 'expected automatic editable Appearance Memory controls without manual scanning')
 assert(frontendSource.includes("addSidecarRefresh(tagsField, 'stable-appearance'") && frontendSource.includes("addSidecarRefresh(outfitField, 'current-outfit'") && frontendSource.includes("addSidecarRefresh(negativeField, 'negative-identity-tags'"), 'expected a scoped Appearance Sidecar rerun button for all three editable identity fields')
+assert(frontendSource.includes('appearance_memory_action_status') && frontendSource.includes('appearanceActionStatuses') && frontendSource.includes('Appearance Sidecar analyzing'), 'expected persistent field-level Appearance lifecycle UI')
+assert(frontendSource.includes("saving ? 'Saving…'") && frontendSource.includes("'Saved ✓'") && frontendSource.includes('appearanceSaveStatus'), 'expected acknowledged Appearance Save lifecycle UI')
+assert(backendSource.includes('sendAppearanceMemoryActionStatus') && backendSource.includes("status: 'started'") && backendSource.includes("status: 'success'"), 'expected backend Appearance lifecycle messages')
+assert(backendSource.includes('invalidateRenderOutputForMessage') && backendSource.includes('canonicalEditedMessage') && backendSource.includes('if (!extensionOwned)'), 'expected external MESSAGE_EDITED replay with scoped cache invalidation and owned-patch guard')
+assert(backendSource.includes('ensureInterceptorRegistered') && backendSource.includes("detail.permission === 'interceptor'"), 'expected deferred idempotent interceptor registration on permission changes')
 assert(backendSource.includes('continuityVault') && backendSource.includes('selectContinuityForJob') && backendSource.includes('continuity_action'), 'expected backend visual continuity state')
 const vaultUrl = new URL('../src/vault.ts', import.meta.url)
 const vaultSource = await readFile(vaultUrl, 'utf8')

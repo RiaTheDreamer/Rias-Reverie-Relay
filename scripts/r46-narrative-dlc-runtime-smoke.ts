@@ -153,6 +153,12 @@ for (const oldName of Object.keys(NARRATIVE_UTILITY_DISPLAY_NAMES)) {
   assert(!utility.content.includes(oldName), `combined Narrative prompt retained retired model-facing name: ${oldName}`)
 }
 assert(utility.content.includes('<reverie_narrative_utility') && utility.content.includes('contract="narrative"'), 'Narrative Utility wrapper must use the Narrative contract name')
+const archiveUtility = buildNarrativeUtilityPrompt(['Unified Archive Generator'])
+for (const contract of ['<archive-media>', 'aspect="1:1"', 'aspect="4:3"', 'aspect="16:9"', 'VISUAL SUBJECT ONLY', 'Legacy Archive payloads may omit <archive-media>']) {
+  assert(archiveUtility.content.includes(contract), `Archive media Utility contract missing: ${contract}`)
+}
+assert(archiveUtility.content.includes('</archive-head>\n<archive-media>') && archiveUtility.content.includes('</archive-media>\n<archive-stats>'), 'new Archive Utility output must place media between head and stats')
+assert(!archiveUtility.content.includes('Archive cards are intentionally image-free'), 'retired image-free Archive rule leaked into the runtime Utility prompt')
 const plotSparksUtility = buildNarrativeUtilityPrompt(['Chaos Hooks'])
 assert(plotSparksUtility.utilityNames.join('|') === 'Chaos Hooks', 'Plot Sparks must retain Chaos Hooks as its internal selection/migration key')
 assert(plotSparksUtility.content.includes('Plot Sparks') && !plotSparksUtility.content.includes('Chaos Hooks'), 'model-facing Plot Sparks Utility must use the public name without leaking its compatibility name')
@@ -196,7 +202,7 @@ const dramaticRendered = renderNarrativeRegex(dramaticFixture, 'sparkle-button',
 assert(dramaticRendered.includes('dg-dramatic-cutaway') && !dramaticRendered.includes('<dramatic_parallel>'), 'approved Dramatic Cutaway renderer must execute in the shared Narrative adapter')
 assert(dramaticRendered.includes('data-reverie-narrative-media-compat="1"'), 'Dramatic Cutaway must install the shared resolved-media compatibility sizing')
 assert(dramaticRendered.includes('data-reverie-narrative-block-spacing="1"') && dramaticRendered.includes('margin-bottom:clamp(24px,4.5vw,34px)!important'), 'Narrative launcher roots must retain a readable gutter from surrounding prose')
-for (const owner of ['dg-dramatic-media', 'r65-media', 'rv6-media', 'ru-media', 'ru-portrait', 'ru-secret-media', 'ru-thread-media', 'rrcp-media', 'rrcp-photo-media', 'rrcp-wallpaper']) {
+for (const owner of ['dg-dramatic-media', 'r65-media', 'rv6-media', 'ru-media', 'ru-portrait', 'ru-secret-media', 'ru-thread-media', 'ra66-archive-media', 'rrcp-media', 'rrcp-photo-media', 'rrcp-wallpaper']) {
   assert(dramaticRendered.includes(owner), `${owner}: shared Narrative media compatibility coverage is missing`)
 }
 const dramaticRequest = parseImageRequests(dramaticFixture)[0]
@@ -256,6 +262,40 @@ assert(!/\[\/?cp_(?:app|slot|name|icon|tone|badge|content|row|glyph)\b/i.test(re
 const canonicalArchive = '<dossier_ui category="SECRET"><archive-head><icon>🤫</icon><name>Canonical Secret</name><state>PARTIAL</state><relation>A ↔ B</relation><role>Hidden act</role></archive-head><archive-stats><archive-stat><label>Exposure</label><value>75</value></archive-stat><archive-stat><label>Certainty</label><value>40</value></archive-stat><archive-stat><label>Consequence</label><value>90</value></archive-stat></archive-stats><archive-details><archive-row label="The Hidden Truth">Truth.</archive-row><archive-row label="Known By">A.</archive-row><archive-row label="Hidden From">B.</archive-row><archive-row label="Near-Slips">One clue.</archive-row><archive-row label="Impact If Revealed">Trust changes.</archive-row><archive-row label="Current Status">SLIPPING</archive-row></archive-details><archive-export>[SECRET: Canonical Secret]\nCURRENT STATUS: SLIPPING</archive-export></dossier_ui>'
 assert(normalizeNarrativeMarkupForRendering(canonicalArchive) === canonicalArchive, 'canonical Archive Entry payloads must remain byte-for-byte unchanged')
 
+for (const variant of ['sparkle-button', 'plain-button', 'inline'] as const) {
+  const renderedLegacyArchive = renderNarrativeRegex(canonicalArchive, variant, `archive-legacy-${variant}`)
+  assert(renderedLegacyArchive.includes('class="ra66-archive-media" data-archive-media></div>') && renderedLegacyArchive.includes('.ra66-archive-media:empty{display:none}'), `${variant}: legacy text-only Archive must render without a media gap`)
+  assert(renderedLegacyArchive.includes('data-archive-category="SECRET"') && renderedLegacyArchive.includes('class="ra66-export" readonly'), `${variant}: legacy Archive category/export behavior changed`)
+  assert(!renderedLegacyArchive.includes('<dossier_ui'), `${variant}: legacy Archive without media did not render`)
+}
+
+const archiveCategories = ['CHARACTER', 'LOCATION', 'ITEM', 'FACTION', 'EVENT', 'RELATIONSHIP', 'SECRET'] as const
+const archiveAspect = { CHARACTER: '1:1', LOCATION: '16:9', ITEM: '4:3', FACTION: '16:9', EVENT: '16:9', RELATIONSHIP: '16:9', SECRET: '16:9' } as const
+const archiveFixture = (category: typeof archiveCategories[number]) => `<dossier_ui category="${category}"><archive-head><icon>◇</icon><name>${category} Record</name><state>UNLOCKED</state><relation>Established relation</relation><role>Established role</role></archive-head><archive-media><image_request id="archive-${category.toLowerCase()}-test" target="custom.artifact-media" slot="archive-${category.toLowerCase()}-test" aspect="${archiveAspect[category]}" alt="${category} archive visual"><scene_brief>One established ${category.toLowerCase()} visual subject. No UI or readable text.</scene_brief></image_request></archive-media><archive-stats><archive-stat><label>First</label><value>25</value></archive-stat><archive-stat><label>Second</label><value>50</value></archive-stat><archive-stat><label>Third</label><value>75</value></archive-stat></archive-stats><archive-details><archive-row label="Identity">Established detail.</archive-row></archive-details><archive-export>[${category}: Record]\nIdentity: Established detail.</archive-export></dossier_ui>`
+for (const variant of ['sparkle-button', 'plain-button', 'inline'] as const) {
+  for (const category of archiveCategories) {
+    const renderedArchive = renderNarrativeRegex(archiveFixture(category), variant, `archive-${variant}-${category.toLowerCase()}`)
+    assert(renderedArchive.includes(`data-archive-category="${category}"`), `${variant}/${category}: canonical category signal did not survive Archive rendering`)
+    assert(renderedArchive.includes('class="ra66-archive-media" data-archive-media>') && renderedArchive.includes(`id="archive-${category.toLowerCase()}-test"`), `${variant}/${category}: shared Archive media seam did not preserve the image request`)
+    assert(renderedArchive.includes(`[data-archive-category="${category}"] .ra66-archive-media`), `${variant}/${category}: category-specific Archive media selector is unavailable`)
+    assert(renderedArchive.includes('data-reverie-narrative-media-compat="1"') && !renderedArchive.includes('<dossier_ui'), `${variant}/${category}: Archive media did not activate the shared hydration compatibility path`)
+  }
+  const representativeArchive = renderNarrativeRegex(archiveFixture('CHARACTER') + archiveFixture('LOCATION') + archiveFixture('ITEM'), variant, `archive-representative-${variant}`)
+  assert((representativeArchive.match(/class="ra66-archive-media"/g) || []).length === 3, `${variant}: representative Character, Location, and Item media did not all render`)
+  assert(representativeArchive.includes('grid-template-columns:minmax(160px,200px)') && representativeArchive.includes('[data-archive-category="ITEM"] .ra66-archive-media img{object-fit:contain}'), `${variant}: Character portrait split or Item contain selector is unavailable`)
+  assert(representativeArchive.includes('@media(max-width:600px)') && representativeArchive.includes('[data-archive-category="CHARACTER"] .ra66-upper:has(.ra66-archive-media:not(:empty)){display:block}'), `${variant}: narrow-screen Character stacking rule is unavailable`)
+}
+const resolvedArchiveRequest = parseImageRequests(archiveFixture('ITEM'))[0]
+assert(resolvedArchiveRequest?.target === 'custom.artifact-media' && resolvedArchiveRequest.aspect === '4:3', 'Archive Item fixture must use the parsed shared artifact-media lane')
+const resolvedArchiveMedia = renderResolvedMarkup({
+  chatId: 'chat-archive', messageId: 'message-archive', swipeId: 0,
+  requestId: resolvedArchiveRequest.id, target: resolvedArchiveRequest.target, slots: [resolvedArchiveRequest.slot],
+  count: 1, alt: 'Archive item image', originalSceneBrief: resolvedArchiveRequest.prompt,
+}, [{ slot: resolvedArchiveRequest.slot, imageId: 'archive-item-image', imageUrl: '/api/v1/image-gen/results/archive-item-image' }])
+const hydratedArchive = renderNarrativeRegex(archiveFixture('ITEM').replace(resolvedArchiveRequest.fullMatch, resolvedArchiveMedia), 'inline', 'archive-item-hydrated')
+assert(hydratedArchive.includes('class="reverie-artifact-media"') && hydratedArchive.includes('/api/v1/image-gen/results/archive-item-image'), 'hydrated Archive image must survive inside the rendered media owner')
+assert(hydratedArchive.includes('.ra66-archive-media{min-width:0!important;max-width:100%!important;overflow:hidden!important}') && hydratedArchive.includes('object-fit:contain!important'), 'hydrated Archive media compatibility must prevent overflow and preserve the Item contain path')
+
 const flatArchive = `<dossier_ui category="SECRET">
 🤫
 The Textbook Lie
@@ -277,6 +317,7 @@ CURRENT STATUS: SLIPPING
 </dossier_ui>`
 const normalizedFlatArchive = normalizeNarrativeMarkupForRendering(flatArchive)
 assert(normalizedFlatArchive.includes('<archive-head>') && normalizedFlatArchive.includes('<state>PARTIAL</state>') && normalizedFlatArchive.includes('<archive-row label="The Hidden Truth">'), 'flat SECRET Archive drift must normalize into the canonical structured contract')
+assert(!normalizedFlatArchive.includes('<archive-media>'), 'flat legacy Archive normalization must not fabricate archive-media')
 const renderedFlatArchive = renderNarrativeRegex(flatArchive, 'sparkle-button', 'flat-archive')
 assert(renderedFlatArchive.includes('class="ra66"') && renderedFlatArchive.includes('The Textbook Lie') && renderedFlatArchive.includes('The Hidden Truth') && !renderedFlatArchive.includes('<dossier_ui'), 'normalized flat Archive Entry must render through the approved Dossier presentation')
 

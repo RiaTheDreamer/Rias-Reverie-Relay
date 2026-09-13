@@ -868,6 +868,17 @@ export type AppearanceCharacterSheet = {
   updatedAt: number
 }
 
+export type AppearanceMemoryActionStatus = {
+  operation: 'save' | 'rerun-field'
+  chatId: string
+  characterId: string
+  field?: 'stable-appearance' | 'current-outfit' | 'negative-identity-tags'
+  status: 'started' | 'success' | 'unknown' | 'error'
+  message: string
+  revision?: number
+  updatedAt?: number
+}
+
 export type AppearanceHistoryEntry = {
   historyId: string
   action: string
@@ -1478,6 +1489,43 @@ const TARGETS = new Set<ImageTarget>([
 ])
 const MAX_COUNT = 4
 const MAX_PROMPT_CHARS = 6000
+const PROSE_ILLUSTRATION_ASPECTS = new Set(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9'])
+const PROSE_ILLUSTRATION_CASTS = new Set(['char', 'user', 'char+user', 'none'])
+
+export type ProseIllustrationSchemaDiagnostic = {
+  code: 'INVALID_PROSE_ILLUSTRATION_SCHEMA'
+  message: string
+  slot: string
+  index: number
+  fullMatch: string
+}
+
+export function inspectProseIllustrationSchemas(content: string): ProseIllustrationSchemaDiagnostic[] {
+  const diagnostics: ProseIllustrationSchemaDiagnostic[] = []
+  const re = /<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi
+  let match: RegExpExecArray | null
+  while ((match = re.exec(content)) !== null) {
+    const attrs = parseAttrs(match[1] || '')
+    const body = match[2] || ''
+    const slot = String(attrs.slot || '').trim()
+    const visualPrompts = [...body.matchAll(/<visual_prompt\b[^>]*>([\s\S]*?)<\/visual_prompt>/gi)]
+    const failures: string[] = []
+    if (String(attrs.request || '').trim().toLocaleLowerCase() !== 'generate') failures.push('request must equal "generate"')
+    if (!slot || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(slot)) failures.push('slot must be a short stable identifier')
+    if (!PROSE_ILLUSTRATION_ASPECTS.has(String(attrs.aspect || '').trim())) failures.push('aspect must be a supported ratio')
+    if (!PROSE_ILLUSTRATION_CASTS.has(String(attrs.cast || '').trim().toLocaleLowerCase())) failures.push('cast must be char, user, char+user, or none')
+    if (/<scene_brief\b/i.test(body)) failures.push('expected <visual_prompt>, received <scene_brief>')
+    if (visualPrompts.length !== 1 || !String(visualPrompts[0]?.[1] || '').trim()) failures.push('expected exactly one non-empty <visual_prompt>')
+    if (failures.length) diagnostics.push({
+      code: 'INVALID_PROSE_ILLUSTRATION_SCHEMA',
+      message: `INVALID_PROSE_ILLUSTRATION_SCHEMA: ${failures.join('; ')}`,
+      slot,
+      index: match.index,
+      fullMatch: match[0],
+    })
+  }
+  return diagnostics
+}
 
 const NARRATIVE_MEDIA_CONTEXTS: ReadonlyArray<{ open: RegExp; close: RegExp }> = [
   { open: /<dramatic_parallel\b[^>]*>/gi, close: /<\/dramatic_parallel\s*>/gi },
@@ -1591,6 +1639,7 @@ export function parseImageRequests(content: string): ImageRequest[] {
   }
 
   const re = /<(image_request|reverie-illustration)\b([^>]*)>([\s\S]*?)<\/\1>/gi
+  const invalidProseSpans = new Set(inspectProseIllustrationSchemas(content).map(diagnostic => `${diagnostic.index}:${diagnostic.fullMatch.length}`))
   let match: RegExpExecArray | null
 
   while ((match = re.exec(content)) !== null) {
@@ -1598,9 +1647,8 @@ export function parseImageRequests(content: string): ImageRequest[] {
     const attrs = parseAttrs(match[2])
     const body = match[3].trim()
     const isIllustrationProtocol = tagName === 'reverie-illustration'
+    if (isIllustrationProtocol && invalidProseSpans.has(`${match.index}:${match[0].length}`)) continue
     const narrativeOwned = isNarrativeOwnedImageRequest(content, match.index)
-    if (isIllustrationProtocol && String(attrs.request || '').toLocaleLowerCase() !== 'generate') continue
-
     const id = (attrs.id || attrs.request_id || (isIllustrationProtocol ? attrs.slot : ''))?.trim()
     const authoredTarget = (isIllustrationProtocol ? 'prose.illustration' : attrs.target?.trim()) as ImageTarget | undefined
     const target = (narrativeOwned && authoredTarget === 'prose.illustration'
@@ -1610,7 +1658,7 @@ export function parseImageRequests(content: string): ImageRequest[] {
 
     const visualPrompt = isIllustrationProtocol ? firstTagText(body, 'visual_prompt')?.trim() : ''
     const structuredPrompt = firstTagText(body, 'scene_brief') || firstTagText(body, 'prompt')
-    const prompt = visualPrompt || structuredPrompt || stripKnownTags(body)
+    const prompt = (isIllustrationProtocol ? visualPrompt : structuredPrompt || stripKnownTags(body)) || ''
     if (!prompt.trim()) continue
     const rawCast = String(attrs.cast || '').trim().toLocaleLowerCase()
     const cast = isIllustrationProtocol && ['char', 'user', 'char+user', 'none'].includes(rawCast)
@@ -1646,7 +1694,7 @@ export function parseImageRequests(content: string): ImageRequest[] {
       promptSource: isIllustrationProtocol && narrativeOwned
         ? 'structured'
         : isIllustrationProtocol
-        ? visualPrompt ? 'visual_prompt' : 'legacy-body'
+        ? 'visual_prompt'
         : 'structured',
       negative: firstTagText(body, 'negative')?.trim(),
       slot: (attrs.slot?.trim() || (isIllustrationProtocol ? 'illustration' : undefined)),
