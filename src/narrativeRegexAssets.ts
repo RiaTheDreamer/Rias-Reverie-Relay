@@ -109,7 +109,6 @@ export const NARRATIVE_BLOCK_SPACING_STYLE = `<style data-reverie-narrative-bloc
 
 const safeMessageId = (value: string): string => String(value || 'narrative').replace(/[^A-Za-z0-9_-]+/g, '-') || 'narrative'
 const NARRATIVE_MARKUP = /\[(?:SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i
-const NARRATIVE_FAILED_MEDIA = /<image_request_error\b|<!--\s*(?:reverie-relay|dreamglass):image-error\b/i
 
 export const NARRATIVE_UTILITY_PACK = utilityPack as NarrativeUtilityPack
 export const NARRATIVE_REGEX_VARIANTS: NarrativeRegexVariant[] = ['sparkle-button', 'plain-button', 'inline']
@@ -266,6 +265,13 @@ function normalizeFlatArchiveDossiers(markup: string): string {
 
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
   return normalizeFlatArchiveDossiers(String(markup || ''))
+    .replace(/<(character_phone|private_phone)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi, (_full, root: string, body: string) => {
+      // A second observed phone drift uses an XML root around otherwise
+      // canonical bracket fields. Convert only a complete, known phone root;
+      // arbitrary XML and incomplete streaming fragments remain untouched.
+      const repairedBody = body.replace(/<\/(cp_[A-Za-z][A-Za-z0-9_]*)>/gi, '[/$1]')
+      return `[${root}]${repairedBody}[/${root}]`
+    })
     .replace(/(\[(character_phone|private_phone)\b[^\]]*\])([\s\S]*?)\[\/\2\]/gi, (_full, opening: string, root: string, body: string) => {
       // Story models occasionally open Character Phone fields with bracket
       // grammar and close only the SVG-bearing fields as XML. The app-module
@@ -334,13 +340,12 @@ export function containsNarrativeRegexMarkup(markup: string): boolean {
   return NARRATIVE_MARKUP.test(String(markup || ''))
 }
 
-/** Regex Rendered normally leaves Narrative presentation to Lumiverse. A
- * failed media write-back can make an older host Regex pack stop matching an
- * otherwise valid Narrative block, though. In that narrow case Relay uses its
- * bundled adapter as a containment fallback so semantic markup cannot leak
- * into story prose. */
-export function shouldRelayRenderNarrativeMarkup(markup: string, rendererMode: string): boolean {
-  return rendererMode !== 'legacy-regex' || NARRATIVE_FAILED_MEDIA.test(String(markup || ''))
+/** Narrative Utilities ship with Relay and must not depend on Lumiverse's
+ * separately hydrated Regex registry. Relay consumes their semantic markup in
+ * every display mode; once transformed, host Regex scripts have no source root
+ * left to match, so this remains single-owner rather than a double render. */
+export function shouldRelayRenderNarrativeMarkup(_markup: string, _rendererMode: string): boolean {
+  return true
 }
 
 export type NarrativeLorebookKind = 'cast-introduction' | 'character-dossier' | 'location-file'

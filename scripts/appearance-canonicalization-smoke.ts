@@ -277,7 +277,7 @@ const backendMessages = [{ id: 'm1', role: 'assistant', content: 'Prime Beta wai
   userStorage: {
     async getJson(path: string, { fallback }: any) {
       if (backendState.has(path)) return structuredClone(backendState.get(path))
-      if (path === 'config.json') return { ...fallback, enabled: true, parserConnectionId: 'offline', parserModel: 'offline', includeCharacterInfo: false, includePersonaInfo: true, proseIllustratorSettings: { ...fallback.proseIllustratorSettings, appearanceMemoryEnabled: true, continuityStrength: 'strong' } }
+      if (path === 'config.json') return { enabled: true, parserConnectionId: 'offline', parserModel: 'offline', includeCharacterInfo: false, includePersonaInfo: true, proseIllustratorSettings: { appearanceMemoryEnabled: true, continuityStrength: 'strong' } }
       return structuredClone(fallback)
     },
     async setJson(path: string, value: any) { backendState.set(path, structuredClone(value)) },

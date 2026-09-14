@@ -258,6 +258,27 @@ assert(!/<\/cp_(?:icon|glyph)>/i.test(normalizedHybridPhone) && normalizedHybrid
 const renderedHybridPhone = renderNarrativeRegex(hybridPhone, 'inline', 'phone-hybrid-svg-closers')
 assert((renderedHybridPhone.match(/class="rrcp-entry /g) || []).length === 8, 'mixed SVG field closers must not prevent any Character Phone app from rendering')
 assert(!/\[\/?cp_(?:app|slot|name|icon|tone|badge|content|row|glyph)\b/i.test(renderedHybridPhone), 'mixed SVG field closers must not leak raw Character Phone scaffolding')
+const xmlRootHybridPhone = hybridPhone
+  .replace(/^\[character_phone\]/, '<character_phone>')
+  .replace(/\[\/character_phone\]$/, '</character_phone>')
+const normalizedXmlRootPhone = normalizeNarrativeMarkupForRendering(xmlRootHybridPhone)
+assert(normalizedXmlRootPhone.startsWith('[character_phone]') && normalizedXmlRootPhone.endsWith('[/character_phone]'), 'complete XML Character Phone roots must normalize to the canonical bracket root')
+assert(!/<\/?character_phone\b|<\/cp_(?:icon|glyph)>/i.test(normalizedXmlRootPhone), 'XML-root Character Phone normalization must consume the observed hybrid root and field closers')
+const renderedXmlRootPhone = renderNarrativeRegex(xmlRootHybridPhone, 'inline', 'phone-xml-root-hybrid')
+assert((renderedXmlRootPhone.match(/class="rrcp-entry /g) || []).length === 8 && !/<\/?character_phone\b|\[\/?cp_/i.test(renderedXmlRootPhone), 'captured XML-root Character Phone drift must render all eight apps without raw scaffold')
+assert(normalizeNarrativeMarkupForRendering('<character_phone>[cp_owner]streaming') === '<character_phone>[cp_owner]streaming', 'incomplete streaming phone roots must remain untouched')
+const mixedResolvedPlot = `<chaos_payload id="captured-terrace" lifecycle="Unused Plot Sparks dissolve after this response.">${plotVectors.map((vector, index) => {
+  const key = String.fromCharCode(97 + index)
+  const media = index < 2
+    ? `<img src="/api/v1/image-gen/results/spark-${key}" class="reverie-artifact-media" data-reverie-artifact-media="true">`
+    : `<reverie-illustration request="generate" slot="chaos-${key}" aspect="16:9" cast="none" alt="Spark ${key}"><visual_prompt>Grounded continuation ${key}.</visual_prompt></reverie-illustration>`
+  return `<chaos_hook key="${key}" vector="${vector}"><hook_text>Captured continuation ${key}.</hook_text><hook_media>${media}</hook_media></chaos_hook>`
+}).join('')}</chaos_payload>`
+const capturedCombined = `${xmlRootHybridPhone}\n${dramaticFixture.replace(dramaticRequest.fullMatch, resolvedDramaticMedia)}\n${mixedResolvedPlot}`
+const capturedCombinedRendered = renderNarrativeRegex(capturedCombined, 'inline', 'captured-combined-regression')
+assert(!/<\/?(?:character_phone|dramatic_parallel|chaos_payload|chaos_hook)\b|\[\/?cp_/i.test(capturedCombinedRendered), 'captured Phone, Dramatic Cutaway, and Plot Sparks response must not leak semantic roots or phone scaffold')
+assert(capturedCombinedRendered.includes('rrcp-wrap') && capturedCombinedRendered.includes('dg-dramatic-cutaway') && capturedCombinedRendered.includes('ch-og'), 'captured mixed response must render Phone, Dramatic Cutaway, and Plot Sparks together')
+assert(capturedCombinedRendered.includes('/api/v1/image-gen/results/spark-a') && capturedCombinedRendered.includes('<reverie-illustration request="generate" slot="chaos-g"'), 'Plot Sparks must retain both already-resolved and still-pending media inside its rendered lanes')
 
 const canonicalArchive = '<dossier_ui category="SECRET"><archive-head><icon>🤫</icon><name>Canonical Secret</name><state>PARTIAL</state><relation>A ↔ B</relation><role>Hidden act</role></archive-head><archive-stats><archive-stat><label>Exposure</label><value>75</value></archive-stat><archive-stat><label>Certainty</label><value>40</value></archive-stat><archive-stat><label>Consequence</label><value>90</value></archive-stat></archive-stats><archive-details><archive-row label="The Hidden Truth">Truth.</archive-row><archive-row label="Known By">A.</archive-row><archive-row label="Hidden From">B.</archive-row><archive-row label="Near-Slips">One clue.</archive-row><archive-row label="Impact If Revealed">Trust changes.</archive-row><archive-row label="Current Status">SLIPPING</archive-row></archive-details><archive-export>[SECRET: Canonical Secret]\nCURRENT STATUS: SLIPPING</archive-export></dossier_ui>'
 assert(normalizeNarrativeMarkupForRendering(canonicalArchive) === canonicalArchive, 'canonical Archive Entry payloads must remain byte-for-byte unchanged')
@@ -326,8 +347,8 @@ const failedParallelFixture = `[PARALLEL|Campus and beyond|complication]
 - Second independent thread <parallel-media><!-- reverie-relay:image-error requestId="parallel-2" slot="thread_2" --><image_request_error id="parallel-2" target="custom.artifact-media" slot="thread_2" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error></parallel-media>
 - Third independent thread <parallel-media><!-- reverie-relay:image-error requestId="parallel-3" slot="thread_3" --><image_request_error id="parallel-3" target="custom.artifact-media" slot="thread_3" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error></parallel-media>
 [/PARALLEL]`
-assert(!shouldRelayRenderNarrativeMarkup(failedParallelFixture.replace(/<!--\s*(?:reverie-relay|dreamglass):image-error\b[\s\S]*?-->\s*<image_request_error\b[\s\S]*?<\/image_request_error>/gi, ''), 'legacy-regex'), 'healthy Regex Rendered Narrative markup must remain host-owned')
-assert(shouldRelayRenderNarrativeMarkup(failedParallelFixture, 'legacy-regex'), 'failed Narrative media must enable the bounded Relay containment fallback in Regex Rendered mode')
+assert(shouldRelayRenderNarrativeMarkup(failedParallelFixture.replace(/<!--\s*(?:reverie-relay|dreamglass):image-error\b[\s\S]*?-->\s*<image_request_error\b[\s\S]*?<\/image_request_error>/gi, ''), 'legacy-regex'), 'Regex Rendered Narrative markup must use Relay bundled rendering without waiting for host Regex hydration')
+assert(shouldRelayRenderNarrativeMarkup(failedParallelFixture, 'legacy-regex'), 'failed Narrative media must remain Relay-owned in Regex Rendered mode')
 const failedParallelNative = renderNativeSurfaceMarkup(failedParallelFixture, { definitions: {}, activePresetIds: {}, collectionPresets: {}, rendererMode: 'legacy-regex', defaultShellMode: 'sparkling', colorMode: 'realistic' } as any, { chatId: 'failed-parallel', messageId: 'failed-parallel', swipeId: 0 }).content
 const failedParallelRendered = renderNarrativeRegex(failedParallelNative, 'sparkle-button', 'failed-parallel', { chatId: 'failed-parallel', swipeId: 0 })
 assert(!failedParallelRendered.includes('[PARALLEL|') && !failedParallelRendered.includes('[/PARALLEL]'), 'failed media must not expose raw Parallel syntax after the Relay containment fallback')
@@ -370,7 +391,7 @@ const narrativeLorebook = fs.readFileSync(path.join(root, 'src/narrativeLorebook
 assert(backend.includes('const automaticNarrative = routerConfig.narrativeDlcEnabled') && backend.includes('buildResolvedNarrativeUtilityPrompt(routerConfig)'), 'Story Model interceptor must resolve Narrative Utilities through the runtime source path')
 assert(backend.includes('await reconcileInstalledNarrativeOnStartup(userId)') && backend.includes("const inspected = await inspectNarrativeRegex(spindle.regex_scripts, variant, userId)") && backend.includes("await reconcileNarrativeRegex(spindle.regex_scripts, variant, userId)"), 'already-enabled Narrative installs must reconcile their owned Regex source once after an extension update')
 assert(backend.includes("name: 'reverie_narrative'") && backend.includes('NARRATIVE_MACRO_MARKER'), 'placed Narrative macro path must be registered and expanded')
-assert(backend.includes('renderNarrativeRegex(renderedContent, snapshot.narrativeVariant') && backend.includes('shouldRelayRenderNarrativeMarkup(source, renderContext.rendererMode)'), 'Relay/Hybrid must execute the isolated Narrative renderer and failed legacy Regex markup must use the bounded containment fallback')
+assert(backend.includes('renderNarrativeRegex(renderedContent, snapshot.narrativeVariant') && backend.includes('shouldRelayRenderNarrativeMarkup(source, renderContext.rendererMode)'), 'all renderer modes must execute the isolated bundled Narrative renderer without depending on host Regex hydration')
 assert(backend.includes("type: 'export_narrative_lorebook'") && narrativeLorebook.includes('reverie_relay_lorebook_chat_id') && narrativeLorebook.includes('chat_world_book_ids'), 'Lorebook export must create a chat-owned archive and preserve existing chat bindings')
 assert(narrativeLorebook.includes('reverie_relay_source_message_id') && narrativeLorebook.includes('reverie_relay_source_swipe_id'), 'Lorebook entries must retain source message/swipe provenance')
 assert(narrativeLorebook.includes('reverie_relay_surface_occurrence') && narrativeLorebook.includes('reverie_relay_source_fingerprint') && narrativeLorebook.includes('reverie_relay_version'), 'Lorebook entries must retain exact Surface provenance and Relay schema metadata')

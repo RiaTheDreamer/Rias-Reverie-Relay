@@ -1243,6 +1243,7 @@ export function setup(ctx: SpindleFrontendContext) {
         backendBuild = message.build
         schemaVersion = message.schemaVersion
         renderPanel()
+        if (!nativeSettingsLastSyncedAt) void syncNativeSettings(true).catch(() => null)
         window.setTimeout(maybeOpenQuickStartOverview, 80)
         scheduleBindInlineImages()
         renderRelayOrb()
@@ -1942,7 +1943,10 @@ export function setup(ctx: SpindleFrontendContext) {
   })
   lifecycle.track(stopMediaObserver, 'observer')
 
-  void refreshState(true)
+  // Load Relay's persisted state before any write-capable native-settings sync.
+  // Cold extension restarts can expose host settings before userStorage has
+  // hydrated; syncing first allowed a fallback config to be saved as defaults.
+  void refreshState(false)
   renderPanel()
   renderRelayOrb()
 

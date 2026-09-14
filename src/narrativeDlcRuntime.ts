@@ -9,6 +9,7 @@ import {
   type NarrativeRegexScript,
   type NarrativeRegexVariant,
 } from './narrativeRegexAssets'
+import { PLOT_SPARK_VECTOR_BY_KEY } from './contracts'
 
 export const NARRATIVE_DLC_FOLDER = 'Reverie Relay · Narrative DLC'
 export const NARRATIVE_DLC_NAMESPACE = 'reverie-relay:narrative-dlc'
@@ -245,9 +246,22 @@ export async function removeNarrativeRegex(api: NarrativeRegexApi, variant: Narr
   return { ...base, message: healthMessage(base) }
 }
 
+const PLOT_SPARK_COMPLETION_LOCK = `PLOT SPARKS STRUCTURAL LOCK — BEFORE ENDING RESPONSE
+
+Mandatory structured contracts outrank prose length. Shorten nonessential prose before dropping required Plot Sparks structure.
+
+Verify exactly seven hooks with each key exactly once and this exact mapping:
+${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key} = ${vector}`).join('\n')}
+
+Every hook_text must be non-empty. Every hook_media must be non-empty and contain one complete canonical raw current <reverie-illustration request="generate"> with a non-empty <visual_prompt>. Plot Sparks D–G and required closing tags may never be silently dropped. Resolved historical images and Relay runtime markup do not count. If any check fails, fix the Plot Sparks block before stopping.`
+
 export function buildNarrativeUtilityPrompt(selectedNames: string[] = narrativeUtilityNames()): { content: string; utilityNames: string[] } {
   const allow = new Set(selectedNames)
-  const items = narrativeUtilityItems().filter(item => allow.has(item.loomName) && String(item.loomContent || '').trim())
+  const items = narrativeUtilityItems()
+    .filter(item => allow.has(item.loomName) && String(item.loomContent || '').trim())
+    .map(item => item.loomName === 'Chaos Hooks'
+      ? { ...item, loomContent: `${item.loomContent}\n\n${PLOT_SPARK_COMPLETION_LOCK}` }
+      : item)
   return {
     content: items.length
       ? `<reverie_narrative_utility contract="narrative" version="${NARRATIVE_DLC_VERSION}" utilities="${items.map(item => applyNarrativeDisplayNames(item.loomName)).join(', ')}">\n${items.map(item => applyNarrativeDisplayNames(item.loomContent)).join('\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n')}\n</reverie_narrative_utility>`

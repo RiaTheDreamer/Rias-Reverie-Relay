@@ -1436,25 +1436,142 @@ export const ROUTER_ERROR_COMMENT = 'reverie-relay:image-error'
 export const LEGACY_ROUTER_COMMENT = 'dreamglass:image'
 export const LEGACY_ROUTER_ERROR_COMMENT = 'dreamglass:image-error'
 
-const RELAY_PROMPT_MARKDOWN_IMAGE_RE = /(?:\n\s*)*!\[reverie-relay\]\(\/api\/v1\/(?:images|image-gen\/results)\/[^)\s]+\)/gi
+const RELAY_PROMPT_MARKDOWN_IMAGE_RE = /(?:\n\s*)*!\[reverie-relay\]\(\s*\/api\/v1\/(?:images|image-gen\/results)\/[^)\s]+(?:\s+["'][^"']*["'])?\s*\)/gi
 const RELAY_OWNERSHIP_MARKER_RE = /<!--\s*(?:reverie-relay|dreamglass):image(?:-error)?\b[\s\S]*?-->/gi
 const RELAY_PROMPT_SCENE_IMAGE_RE = /<scene_image\b[^>]*>[\s\S]*?<\/scene_image>/gi
-const RELAY_PROMPT_OWNED_IMAGE_RE = /<img\b(?=[^>]*\bdata-dgir-(?:key|request-id|image-id)\s*=)[^>]*>/gi
-const RELAY_PROMPT_REQUEST_RE = /<(?:reverie-illustration|image_request|image_request_error)\b[^>]*>[\s\S]*?<\/(?:reverie-illustration|image_request|image_request_error)>/gi
-const LEGACY_DREAMGLASS_REQUEST_RE = /<dreamglass(?:[-_:][a-z0-9_-]+)?\b[^>]*>[\s\S]*?<\/dreamglass(?:[-_:][a-z0-9_-]+)?>/gi
+const RELAY_PROMPT_OWNED_IMAGE_RE = /<img\b(?=[^>]*(?:\bdata-dgir-[\w:-]+\s*=|\bdata-reverie-artifact-media\s*=|\bclass\s*=\s*["'][^"']*\breverie-artifact-media\b|\bsrc\s*=\s*["']\/api\/v1\/(?:images|image-gen\/results)\/))[^>]*\/?\s*>/gi
+const RELAY_PROMPT_REVERIE_REQUEST_RE = /<reverie-illustration\b[^>]*>[\s\S]*?<\/reverie-illustration\s*>/gi
+const RELAY_PROMPT_IMAGE_REQUEST_RE = /<image_request(?:_error)?\b[^>]*(?:\/>|>[\s\S]*?<\/image_request(?:_error)?\s*>)/gi
+const LEGACY_DREAMGLASS_REQUEST_RE = /<dreamglass(?:[-_:][a-z0-9_-]+)?\b[^>]*(?:\/>|>[\s\S]*?<\/dreamglass(?:[-_:][a-z0-9_-]+)?\s*>)/gi
+const RELAY_RUNTIME_RESULT_URL_RE = /\/api\/v1\/(?:images|image-gen\/results)\/[^\s<>)"']+/gi
+const RELAY_RUNTIME_DGIR_TOKEN_RE = /\bdata-dgir-(?:key|request-id|slot|image-id|message-id|swipe-id|custom-target)\s*=/gi
+const RELAY_RUNTIME_ARTIFACT_TOKEN_RE = /\b(?:data-reverie-artifact-media\s*=|class\s*=\s*["'][^"']*\breverie-artifact-media\b)/gi
+
+export const HISTORICAL_RELAY_MEDIA_PLACEHOLDER = '[historical Relay illustration omitted]'
+
+export type RelayPromptHistoryRemovalCounts = {
+  ownershipComments: number
+  relayMarkdownResultImages: number
+  dataDgirImages: number
+  rawHistoricalReverieIllustrationRequests: number
+  rawHistoricalImageRequestBlocks: number
+  legacyDreamglassRequests: number
+}
+
+export type RelayRuntimeArtifactKind = 'ownership-comment' | 'relay-markdown-result' | 'result-url' | 'data-dgir' | 'artifact-media'
+
+export type RelayPromptHistorySanitizationReport = {
+  text: string
+  textLengthBefore: number
+  textLengthAfter: number
+  contentHashBefore: string
+  contentHashAfter: string
+  runtimeArtifactsDetectedBefore: boolean
+  runtimeArtifactsRemainAfter: boolean
+  runtimeArtifactKindsBefore: RelayRuntimeArtifactKind[]
+  runtimeArtifactKindsAfter: RelayRuntimeArtifactKind[]
+  removed: RelayPromptHistoryRemovalCounts
+  firebreakFragmentsRemoved: number
+}
+
+function regexCount(value: string, pattern: RegExp): number {
+  return [...value.matchAll(new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`))].length
+}
+
+export function relayRuntimeArtifactKinds(value: string): RelayRuntimeArtifactKind[] {
+  const text = String(value || '')
+  const kinds: RelayRuntimeArtifactKind[] = []
+  if (regexCount(text, RELAY_OWNERSHIP_MARKER_RE)) kinds.push('ownership-comment')
+  if (regexCount(text, RELAY_PROMPT_MARKDOWN_IMAGE_RE) || /!\[reverie-relay\]\s*\(/i.test(text)) kinds.push('relay-markdown-result')
+  if (regexCount(text, RELAY_RUNTIME_RESULT_URL_RE)) kinds.push('result-url')
+  if (regexCount(text, RELAY_RUNTIME_DGIR_TOKEN_RE) || /\bdata-dgir-/i.test(text)) kinds.push('data-dgir')
+  if (regexCount(text, RELAY_RUNTIME_ARTIFACT_TOKEN_RE) || /\breverie-artifact-media\b/i.test(text)) kinds.push('artifact-media')
+  return kinds
+}
+
+export function containsRelayRuntimeArtifacts(value: string): boolean {
+  return relayRuntimeArtifactKinds(value).length > 0
+}
+
+function replaceWithHistoricalMediaPlaceholder(value: string, pattern: RegExp): string {
+  return value.replace(pattern, HISTORICAL_RELAY_MEDIA_PLACEHOLDER)
+}
+
+function collapseHistoricalMediaPlaceholders(value: string): string {
+  const escaped = HISTORICAL_RELAY_MEDIA_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return value
+    .replace(new RegExp(`(?:\\s*${escaped}){2,}`, 'g'), `\n${HISTORICAL_RELAY_MEDIA_PLACEHOLDER}`)
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+}
+
+/** Sanitizes one historical Story Model message and returns privacy-safe metrics.
+ * The post-pass is deliberately fail-closed: Relay runtime transport syntax is
+ * never useful model context, even when it arrives in a form the primary
+ * category patterns did not recognize.
+ */
+export function sanitizeRelayPromptHistoryTextWithReport(value: string): RelayPromptHistorySanitizationReport {
+  const before = String(value || '')
+  const kindsBefore = relayRuntimeArtifactKinds(before)
+  const removed: RelayPromptHistoryRemovalCounts = {
+    ownershipComments: regexCount(before, RELAY_OWNERSHIP_MARKER_RE),
+    relayMarkdownResultImages: regexCount(before, RELAY_PROMPT_MARKDOWN_IMAGE_RE),
+    dataDgirImages: regexCount(before, RELAY_PROMPT_OWNED_IMAGE_RE),
+    rawHistoricalReverieIllustrationRequests: regexCount(before, RELAY_PROMPT_REVERIE_REQUEST_RE),
+    rawHistoricalImageRequestBlocks: regexCount(before, RELAY_PROMPT_IMAGE_REQUEST_RE),
+    legacyDreamglassRequests: regexCount(before, LEGACY_DREAMGLASS_REQUEST_RE),
+  }
+  let text = before
+  text = replaceWithHistoricalMediaPlaceholder(text, RELAY_PROMPT_SCENE_IMAGE_RE)
+  text = replaceWithHistoricalMediaPlaceholder(text, RELAY_PROMPT_OWNED_IMAGE_RE)
+  text = replaceWithHistoricalMediaPlaceholder(text, RELAY_PROMPT_MARKDOWN_IMAGE_RE)
+  text = replaceWithHistoricalMediaPlaceholder(text, RELAY_OWNERSHIP_MARKER_RE)
+  text = replaceWithHistoricalMediaPlaceholder(text, RELAY_PROMPT_REVERIE_REQUEST_RE)
+  text = replaceWithHistoricalMediaPlaceholder(text, RELAY_PROMPT_IMAGE_REQUEST_RE)
+  text = replaceWithHistoricalMediaPlaceholder(text, LEGACY_DREAMGLASS_REQUEST_RE)
+
+  let firebreakFragmentsRemoved = 0
+  const firebreakPatterns = [
+    RELAY_PROMPT_OWNED_IMAGE_RE,
+    RELAY_PROMPT_MARKDOWN_IMAGE_RE,
+    RELAY_OWNERSHIP_MARKER_RE,
+    RELAY_RUNTIME_RESULT_URL_RE,
+  ]
+  for (const pattern of firebreakPatterns) {
+    const count = regexCount(text, pattern)
+    if (!count) continue
+    firebreakFragmentsRemoved += count
+    text = replaceWithHistoricalMediaPlaceholder(text, pattern)
+  }
+  // A malformed fragment may expose transport attributes outside an <img>.
+  // Remove only the contaminated line, preserving surrounding ordinary prose.
+  text = text.replace(/^.*(?:data-dgir-|data-reverie-artifact-media|reverie-artifact-media).*$/gim, () => {
+    firebreakFragmentsRemoved += 1
+    return HISTORICAL_RELAY_MEDIA_PLACEHOLDER
+  })
+  text = collapseHistoricalMediaPlaceholders(text)
+  const kindsAfter = relayRuntimeArtifactKinds(text)
+  return {
+    text,
+    textLengthBefore: before.length,
+    textLengthAfter: text.length,
+    contentHashBefore: contentFingerprint(before),
+    contentHashAfter: contentFingerprint(text),
+    runtimeArtifactsDetectedBefore: kindsBefore.length > 0,
+    runtimeArtifactsRemainAfter: kindsAfter.length > 0,
+    runtimeArtifactKindsBefore: kindsBefore,
+    runtimeArtifactKindsAfter: kindsAfter,
+    removed,
+    firebreakFragmentsRemoved,
+  }
+}
 
 /** Removes Relay-owned runtime artifacts and historical request blocks from text
  * sent back to the story model. Current request syntax is supplied only by the
  * active Reverie utility, preventing old saved requests from being imitated.
  */
 export function sanitizeRelayPromptHistoryText(value: string): string {
-  return String(value || '')
-    .replace(RELAY_PROMPT_MARKDOWN_IMAGE_RE, '')
-    .replace(RELAY_OWNERSHIP_MARKER_RE, '')
-    .replace(RELAY_PROMPT_SCENE_IMAGE_RE, '')
-    .replace(RELAY_PROMPT_OWNED_IMAGE_RE, '')
-    .replace(RELAY_PROMPT_REQUEST_RE, '')
-    .replace(LEGACY_DREAMGLASS_REQUEST_RE, '')
+  return sanitizeRelayPromptHistoryTextWithReport(value).text
 }
 
 export function contentFingerprint(content: string): string {
@@ -1498,6 +1615,137 @@ export type ProseIllustrationSchemaDiagnostic = {
   slot: string
   index: number
   fullMatch: string
+}
+
+export const PLOT_SPARK_VECTOR_BY_KEY = {
+  a: 'detonation',
+  b: 'heartknife',
+  c: 'wrongness',
+  d: 'crash-in',
+  e: 'matchstrike',
+  f: 'reputation-fire',
+  g: 'wildcard-collision',
+} as const
+
+export type PlotSparkKey = keyof typeof PLOT_SPARK_VECTOR_BY_KEY
+
+export type StoryOutputContractInspection = {
+  inline: {
+    expectedIllustrations: number | null
+    actualCanonicalIllustrations: number
+    countMode: 'fixed' | 'minimum' | 'unknown'
+    valid: boolean
+  }
+  plotSparks: {
+    payloadCount: number
+    hookCount: number
+    keysSeen: string[]
+    vectorsSeen: string[]
+    missingKeys: PlotSparkKey[]
+    duplicateKeys: string[]
+    vectorMismatches: Array<{ key: string; expected: string; actual: string }>
+    missingMedia: string[]
+    valid: boolean
+  }
+  modelAuthoredRuntimeArtifacts: {
+    detected: boolean
+    artifactKinds: RelayRuntimeArtifactKind[]
+    count: number
+  }
+  valid: boolean
+}
+
+function readMarkupAttribute(source: string, name: string): string {
+  const match = source.match(new RegExp(`\\b${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, 'i'))
+  return match?.[2]?.trim() || ''
+}
+
+function runtimeArtifactOccurrenceCount(value: string): number {
+  return regexCount(value, RELAY_OWNERSHIP_MARKER_RE)
+    + regexCount(value, RELAY_PROMPT_MARKDOWN_IMAGE_RE)
+    + regexCount(value, RELAY_PROMPT_OWNED_IMAGE_RE)
+    + regexCount(value, RELAY_RUNTIME_RESULT_URL_RE)
+}
+
+function removePlotSparkPayloads(value: string): string {
+  return value.replace(/<chaos_payload\b[^>]*>[\s\S]*?<\/chaos_payload\s*>/gi, '')
+}
+
+/** Deterministic diagnostics for freshly authored Story Model output. This is
+ * intentionally observational: it never invents missing prose, hooks, media,
+ * or visual prompts.
+ */
+export function inspectStoryModelOutputContracts(
+  value: string,
+  options: { expectedInlineIllustrations?: number | null; inlineCountMode?: 'fixed' | 'minimum' | 'unknown'; expectPlotSparks?: boolean } = {},
+): StoryOutputContractInspection {
+  const text = String(value || '')
+  const inlineSource = removePlotSparkPayloads(text)
+  const canonicalInline = [...inlineSource.matchAll(/<reverie-illustration\b[^>]*\brequest\s*=\s*["']generate["'][^>]*>[\s\S]*?<visual_prompt\b[^>]*>\s*[^<\s][\s\S]*?<\/visual_prompt\s*>[\s\S]*?<\/reverie-illustration\s*>/gi)]
+  const expected = Number.isFinite(Number(options.expectedInlineIllustrations)) ? Math.max(0, Number(options.expectedInlineIllustrations)) : null
+  const countMode = options.inlineCountMode || 'unknown'
+  const inlineValid = expected === null
+    ? true
+    : countMode === 'minimum'
+      ? canonicalInline.length >= expected
+      : canonicalInline.length === expected
+
+  const payloads = [...text.matchAll(/<chaos_payload\b[^>]*>[\s\S]*?<\/chaos_payload\s*>/gi)]
+  const hooks = payloads.flatMap(payload => [...payload[0].matchAll(/<chaos_hook\b([^>]*)>([\s\S]*?)<\/chaos_hook\s*>/gi)])
+  const keysSeen: string[] = []
+  const vectorsSeen: string[] = []
+  const missingMedia: string[] = []
+  const vectorMismatches: Array<{ key: string; expected: string; actual: string }> = []
+  for (let index = 0; index < hooks.length; index += 1) {
+    const attrs = hooks[index][1] || ''
+    const body = hooks[index][2] || ''
+    const key = readMarkupAttribute(attrs, 'key').toLocaleLowerCase()
+    const vector = readMarkupAttribute(attrs, 'vector').toLocaleLowerCase()
+    keysSeen.push(key)
+    vectorsSeen.push(vector)
+    const expectedVector = PLOT_SPARK_VECTOR_BY_KEY[key as PlotSparkKey]
+    if (expectedVector && vector !== expectedVector) vectorMismatches.push({ key, expected: expectedVector, actual: vector })
+    const hookText = body.match(/<hook_text\b[^>]*>([\s\S]*?)<\/hook_text\s*>/i)?.[1]?.trim() || ''
+    const hookMedia = body.match(/<hook_media\b[^>]*>([\s\S]*?)<\/hook_media\s*>/i)?.[1] || ''
+    const canonicalMedia = /<reverie-illustration\b[^>]*\brequest\s*=\s*["']generate["'][^>]*>[\s\S]*?<visual_prompt\b[^>]*>\s*[^<\s][\s\S]*?<\/visual_prompt\s*>[\s\S]*?<\/reverie-illustration\s*>/i.test(hookMedia)
+    if (!hookText || !canonicalMedia) missingMedia.push(key || `hook-${index + 1}`)
+  }
+  const requiredKeys = Object.keys(PLOT_SPARK_VECTOR_BY_KEY) as PlotSparkKey[]
+  const missingKeys = requiredKeys.filter(key => !keysSeen.includes(key))
+  const duplicateKeys = [...new Set(keysSeen.filter((key, index) => key && keysSeen.indexOf(key) !== index))]
+  const plotValid = (!options.expectPlotSparks && payloads.length === 0) || (
+    payloads.length === 1
+    && hooks.length === requiredKeys.length
+    && missingKeys.length === 0
+    && duplicateKeys.length === 0
+    && vectorMismatches.length === 0
+    && missingMedia.length === 0
+  )
+  const artifactKinds = relayRuntimeArtifactKinds(text)
+  const runtimeArtifacts = {
+    detected: artifactKinds.length > 0,
+    artifactKinds,
+    count: runtimeArtifactOccurrenceCount(text),
+  }
+  return {
+    inline: { expectedIllustrations: expected, actualCanonicalIllustrations: canonicalInline.length, countMode, valid: inlineValid },
+    plotSparks: { payloadCount: payloads.length, hookCount: hooks.length, keysSeen, vectorsSeen, missingKeys, duplicateKeys, vectorMismatches, missingMedia, valid: plotValid },
+    modelAuthoredRuntimeArtifacts: runtimeArtifacts,
+    valid: inlineValid && plotValid && !runtimeArtifacts.detected,
+  }
+}
+
+export function isRelayRuntimeMarkerTrusted(input: {
+  kind: 'resolved' | 'failed'
+  imageId: string
+  imageUrl: string
+  existingRecord?: Pick<SlotRecord, 'imageId' | 'imageUrl'> | null
+  assets?: Array<Pick<VisualAssetReference, 'imageId' | 'imageUrl'>>
+}): boolean {
+  const record = input.existingRecord
+  if (record && (input.kind === 'failed' || record.imageId === input.imageId || record.imageUrl === input.imageUrl)) return true
+  if (input.kind !== 'resolved' || !input.imageId) return false
+  return (input.assets || []).some(asset => asset.imageId === input.imageId && asset.imageUrl === input.imageUrl)
 }
 
 export type ProseIllustrationContractRepair = {
