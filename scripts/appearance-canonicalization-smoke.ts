@@ -145,7 +145,7 @@ const outfitVault = emptyContinuityVault('appearance-outfit-lifecycle')
 const outfitSubject = registerCanonicalCharacter(outfitVault, { name: 'Outfit Alpha', sourceType: 'manual', userConfirmed: true })
 addAppearanceFact(outfitVault, { layer: 'wardrobe', characterId: outfitSubject.canonicalCharacterId, category: 'saved-outfit', value: 'formal black shirt', sourceType: 'manual', userConfirmed: true })
 saveManualAppearanceMemory(outfitVault, { characterId: outfitSubject.canonicalCharacterId, stableAppearance: '', currentOutfit: 'grey hoodie, jeans' })
-assert(appearanceMemoryView(outfitVault, outfitSubject.canonicalCharacterId).currentOutfit === 'gray_hoodie, jeans', 'manual Current Outfit must save independently from saved wardrobe')
+assert(appearanceMemoryView(outfitVault, outfitSubject.canonicalCharacterId).currentOutfit === 'grey_hoodie, jeans', 'manual Current Outfit must save independently from saved wardrobe')
 saveManualAppearanceMemory(outfitVault, { characterId: outfitSubject.canonicalCharacterId, stableAppearance: '', currentOutfit: '' })
 assert(appearanceMemoryView(outfitVault, outfitSubject.canonicalCharacterId).currentOutfit === '', 'manually clearing Current Outfit must persist as empty')
 assert(Object.values(outfitVault.wardrobe).some(fact => fact.category === 'saved-outfit' && fact.status === 'active'), 'clearing Current Outfit must preserve saved wardrobe')
@@ -191,18 +191,89 @@ assert(migratedView.stableAppearance === 'winged_eyeliner, long_eyelashes', `mig
 
 saveManualAppearanceMemory(migrated, { characterId: 'subject', stableAppearance: 'hazel eyes, soft medium brown with warm golden undertones hair', currentOutfit: 'practice jersey', negativeIdentityTags: 'blue eyes, red hair' })
 const manualView = appearanceMemoryView(migrated, 'subject')
-assert(has(manualView.stableAppearance, 'hazel_eyes') && has(manualView.stableAppearance, 'medium_brown_hair') && manualView.currentOutfit === 'practice_jersey', 'manual Appearance editor must share canonical tag persistence')
+assert(manualView.stableAppearance === 'hazel_eyes, soft_medium_brown_with_warm_golden_undertones_hair' && manualView.currentOutfit === 'practice_jersey', 'manual Appearance editor must normalize without rewriting user-authored tag atoms')
 assert(migrated.characterSheets.subject.negativeIdentityTags === 'blue_eyes, red_hair', 'negative identity tags should serialize as canonical tags')
 
-// Manual comma-separated traits are atomic author intent, not one compound
-// fallback slug. This is the exact class reported by the Appearance editor.
+// Manual comma-separated traits are atomic author intent. Known vocabulary,
+// custom vocabulary, and compound tags must survive Save without being
+// decomposed into a shorter regenerated sheet.
 saveManualAppearanceMemory(migrated, { characterId: 'subject', stableAppearance: 'messy lavender hair, glasses', currentOutfit: '', negativeIdentityTags: '' })
 const atomicManual = appearanceMemoryView(migrated, 'subject')
-for (const tag of ['messy_hair', 'lavender_hair', 'glasses']) assert(has(atomicManual.stableAppearance, tag), `manual atomic trait missing ${tag}: ${atomicManual.stableAppearance}`)
-assert(!has(atomicManual.stableAppearance, 'messy_lavender_hair_glasses'), `manual list collapsed into a compound tag: ${atomicManual.stableAppearance}`)
+assert(atomicManual.stableAppearance === 'messy_lavender_hair, glasses', `manual tag atoms were rewritten: ${atomicManual.stableAppearance}`)
 const atomicFirstSave = atomicManual.stableAppearance
 saveManualAppearanceMemory(migrated, { characterId: 'subject', stableAppearance: 'messy lavender hair, glasses', currentOutfit: '', negativeIdentityTags: '' })
 assert(appearanceMemoryView(migrated, 'subject').stableAppearance === atomicFirstSave, 'repeated manual atomic save must be idempotent')
+
+const losslessEditorTags = [
+  'slender_46kg_build',
+  'knee_length_hair',
+  'sharp_winged_black_eyeliner_and_wispy_lashes',
+  'blurred_gradient_lips',
+  'long_eyelashes',
+  '165_cm_tall',
+  'custom_iridescent_freckle_constellation',
+  'heterochromia_left_gold_right_teal',
+]
+saveManualAppearanceMemory(migrated, { characterId: 'subject', stableAppearance: losslessEditorTags.join(', '), currentOutfit: 'asymmetric_silk_wrap, custom_moon_clasp', negativeIdentityTags: '' })
+const losslessEditorView = appearanceMemoryView(migrated, 'subject')
+assert(losslessEditorView.stableAppearance === losslessEditorTags.join(', '), `Save shortened or regenerated the user-authored sheet: ${losslessEditorView.stableAppearance}`)
+assert(losslessEditorView.currentOutfit === 'asymmetric_silk_wrap, custom_moon_clasp', `Save shortened or regenerated the user-authored outfit: ${losslessEditorView.currentOutfit}`)
+const beforeInvalidSave = structuredClone(losslessEditorView)
+try {
+  saveManualAppearanceMemory(migrated, { characterId: 'subject', stableAppearance: `valid_tag, ${'x'.repeat(65)}`, currentOutfit: '', negativeIdentityTags: '' })
+  assert(false, 'overlong editor atom must fail closed')
+} catch {}
+assert(appearanceMemoryView(migrated, 'subject').stableAppearance === beforeInvalidSave.stableAppearance, 'failed editor preflight destroyed the last known-good sheet')
+
+// Sidecar reconciliation is character-agnostic and domain-based. Different
+// spellings, word orders, unit spacing, and broad/specific variants collapse
+// without collapsing independent domains such as height and shoulders.
+const semanticSidecarVault = emptyContinuityVault('appearance-sidecar-semantic-families')
+const semanticSubject = { id: 'semantic-subject', name: 'Semantic Gamma', aliases: [] }
+ingestAppearanceSidecarObservations(semanticSidecarVault, sidecar([{
+  subject: { name: semanticSubject.name, aliases: [], role: 'character', trustworthy: true }, confidence: .98,
+  facts: [
+    { layer: 'visual-identity', category: 'eye-color', value: 'dark_eyes', provenance: 'character-card' },
+    { layer: 'visual-identity', category: 'other', value: 'sharp_dark_eyes', provenance: 'chat-history' },
+    { layer: 'visual-identity', category: 'other', value: 'dark_sharp_eyes', provenance: 'chat-history' },
+    { layer: 'visual-identity', category: 'other', value: 'dark eyes tall build', provenance: 'chat-history' },
+    { layer: 'visual-identity', category: 'hair-color', value: 'soft_light_brown hair', provenance: 'character-card' },
+    { layer: 'visual-identity', category: 'hair-color', value: 'brown_hair', provenance: 'chat-history' },
+    { layer: 'visual-identity', category: 'body-build', value: 'petite_build', provenance: 'character-card' },
+    { layer: 'visual-identity', category: 'body-build', value: 'slender_46kg_build', provenance: 'chat-history' },
+    { layer: 'visual-identity', category: 'body-build', value: 'slender_46_kg_frame build', provenance: 'chat-history' },
+    { layer: 'visual-identity', category: 'height', value: 'tall', provenance: 'character-card' },
+    { layer: 'visual-identity', category: 'height', value: '189_cm tall', provenance: 'chat-history' },
+    { layer: 'visual-identity', category: 'body-build', value: 'broad_shoulders build', provenance: 'character-card' },
+  ],
+}, {
+  subject: { name: semanticSubject.name, aliases: [], role: 'character', trustworthy: true }, confidence: .98,
+  facts: [
+    { layer: 'visual-identity', category: 'hair-length', value: 'knee_length_hair', provenance: 'character-card' },
+    { layer: 'visual-identity', category: 'hair-length', value: 'knee length hair', provenance: 'chat-history' },
+    { layer: 'visual-identity', category: 'other', value: 'blurred_gradient_lips', provenance: 'character-card' },
+    { layer: 'visual-identity', category: 'other', value: 'soft_gradient_lips', provenance: 'chat-history' },
+    { layer: 'visual-identity', category: 'other', value: 'sharp_winged_black_eyeliner_and_wispy_lashes', provenance: 'character-card' },
+    { layer: 'visual-identity', category: 'other', value: 'winged_eyeliner', provenance: 'chat-history' },
+    { layer: 'visual-identity', category: 'other', value: 'wispy_lashes', provenance: 'character-card' },
+    { layer: 'visual-identity', category: 'other', value: 'long_eyelashes', provenance: 'chat-history' },
+    { layer: 'visual-identity', category: 'other', value: 'angular_delicate_nose', provenance: 'character-card' },
+    { layer: 'visual-identity', category: 'other', value: 'delicate_angular_nose', provenance: 'chat-history' },
+  ],
+}]), { chatId: semanticSidecarVault.chatId, messageId: 'semantic-families', swipeId: 0, activeCharacter: semanticSubject, activePersona: null })
+const semanticTags = values(appearanceMemoryView(semanticSidecarVault, semanticSubject.id).stableAppearance)
+for (const family of [
+  ['dark_eyes', 'sharp_dark_eyes', 'dark_sharp_eyes'],
+  ['brown_hair'],
+  ['petite_build', 'slender_46kg_build', 'slender_46_kg_frame_build'],
+  ['tall', '189_cm_tall'],
+  ['knee_length_hair'],
+  ['blurred_gradient_lips', 'soft_gradient_lips'],
+  ['winged_eyeliner', 'sharp_winged_black_eyeliner'],
+  ['wispy_lashes', 'long_eyelashes'],
+  ['angular_delicate_nose', 'delicate_angular_nose'],
+]) assert(semanticTags.filter(tag => family.includes(tag)).length === 1, `Sidecar semantic family was not consolidated: ${family.join(' / ')} in ${semanticTags.join(', ')}`)
+assert(semanticTags.includes('broad_shoulders'), `independent shoulder structure was incorrectly merged into body build: ${semanticTags.join(', ')}`)
 
 // Root-cause A/B/G. Same canonical stable value must not remain active merely
 // because older records used different conflict-domain names.

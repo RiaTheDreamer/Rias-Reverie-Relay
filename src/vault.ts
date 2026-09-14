@@ -39,7 +39,7 @@ const ACTION_RE = /\b(?:holding|walking|running|standing|sitting|looking|smiling
 const TEMPORARY_RE = /\b(?:tear(?:s|[- ]streaked)?|flushed|red[- ]rimmed|wet eyes?|bruis(?:e|ed|ing)|blood(?:y|ied)?|dirty|dirt|wet hair|dishevelled|disheveled|bandage(?:d|s)?|injur(?:y|ed)|swollen|scratched|cut lip|temporary|current makeup|smudged makeup|damaged clothing|torn clothing|muddy|sweaty|pale from|cold extremities|expression)\b/i
 const CLOTHING_RE = /\b(?:wearing|dressed|clad|outfit|uniform|jersey|hoodie|shirt|blouse|sweater|sweatshirt|jacket|coat|dress|sundress|skirt|pants|trousers|jeans|shorts|shoes|boots|socks|hospital gown|stage outfit|school uniform|practice uniform|practice jersey|work attire|accessor(?:y|ies)|earrings?|necklace|bracelet|glasses|hat|scarf)\b/i
 const STABLE_RE = /\b(?:natural hair|hair color|black hair|dark hair|jet[- ]black hair|raven[- ]black hair|brown hair|medium brown hair|blonde hair|white hair|red hair|long hair|very long hair|medium[- ]length hair|waist[- ]length hair|knee[- ]length hair|short hair|shoulder[- ]length hair|wavy hair|straight hair|curly hair|eye color|brown eyes|blue eyes|green eyes|grey eyes|gray eyes|hazel eyes|face shape|jawline|body build|athletic build|slim|lean|stocky|broad|petite|height|tall|short|winged eyeliner|eyelashes?|lashes|beauty mark|scar|tattoo|birthmark|mole|freckles|prosthetic|permanent)\b/i
-const EYE_COLOR_RE = /\b(?:brown|blue|green|grey|gray|hazel|amber|black|violet|pink|red)[_ -]eyes?\b/i
+const EYE_COLOR_RE = /\b(?:dark|brown|blue|green|grey|gray|hazel|amber|black|violet|pink|red)[_ -]eyes?\b/i
 const HAIR_COLOR_RE = /\b(?:jet[- ]black|raven[- ]black|black|medium[- ]brown|brown|blonde|blond|white|silver|red|auburn|pink|blue|green|purple|brunette)[_ -]hair\b/i
 const HAIR_LENGTH_RE = /\b(?:very long|long|shoulder[- ]length|medium[- ]length|short|cropped|waist[- ]length|knee[- ]length) hair\b/i
 const HAIR_TEXTURE_RE = /\b(?:straight|wavy|curly|coily|messy|silky|thick|fine) hair\b/i
@@ -160,7 +160,7 @@ const HAIR_COLOR_TAGS: Array<[RegExp, string]> = [
   [/\b(?:jet[- ]black|raven[- ]black|black)\s+hair\b|\bblack_hair\b/i, 'black_hair'],
   [/\bdark\s+hair\b|\bdark_hair\b/i, 'dark_hair'],
   [/\b(?:soft\s+)?medium\s+brown(?:\s+with\s+warm\s+golden\s+undertones)?\s+hair\b|\bmedium_brown_hair\b/i, 'medium_brown_hair'],
-  [/\bbrown\s+hair\b|\bbrunette\s+hair\b|\bbrown_hair\b/i, 'brown_hair'],
+  [/\b(?:(?:soft|light)\s+){0,2}brown\s+hair\b|\bbrunette\s+hair\b|\bbrown_hair\b/i, 'brown_hair'],
   [/\bauburn\s+hair\b|\bauburn_hair\b/i, 'auburn_hair'],
   [/\bblond(?:e)?\s+hair\b|\bblonde_hair\b/i, 'blonde_hair'],
   [/\bwhite\s+hair\b|\bwhite_hair\b/i, 'white_hair'],
@@ -174,6 +174,7 @@ const HAIR_COLOR_TAGS: Array<[RegExp, string]> = [
 ]
 
 const EYE_COLOR_TAGS: Array<[RegExp, string]> = [
+  [/\b(?:sharp\s+dark|dark\s+sharp|dark)\s+eyes?\b|\b(?:sharp_dark|dark_sharp|dark)_eyes\b/i, 'dark_eyes'],
   [/\bbrown\s+eyes?\b|\bbrown_eyes\b/i, 'brown_eyes'],
   [/\bblue\s+eyes?\b|\bblue_eyes\b/i, 'blue_eyes'],
   [/\bgreen\s+eyes?\b|\bgreen_eyes\b/i, 'green_eyes'],
@@ -253,11 +254,46 @@ function splitAppearanceSegments(value: string): string[] {
     .replace(/\bwearing\s+/gi, '')
     .replace(/\bdressed\s+in\s+/gi, '')
     .replace(/\bclad\s+in\s+/gi, '')
-  const parts = text.split(/[,;\n]+|\s+\band\b\s+/i).map(clean).filter(Boolean)
+  const parts = text.split(/[,;\n]+|\s+\band\b\s+|_and_/i).map(clean).filter(Boolean)
   // Once the author supplied an explicit list boundary, the list items are the
   // semantic units. Re-processing the complete sentence allows a later
   // fallback to mint compound tags such as hair_glasses.
   return unique(parts.length > 1 ? parts : [text])
+}
+
+function explicitEditorRows(value: string, layer: AppearanceVaultLayer, category: AppearanceFactCategory): CanonicalAppearanceRow[] {
+  const rows: CanonicalAppearanceRow[] = []
+  for (const segment of clean(value).split(/[,;\n]+/).map(clean).filter(Boolean)) {
+    const tag = canonicalTag(segment)
+    if (!tag || tag.length > 64) throw new Error('Appearance editor tags must normalize to 1-64 characters each.')
+    const inferredCategory = layer === 'visual-identity' ? stableCategory(tagText(tag)) : category
+    addCanonicalRow(rows, {
+      layer,
+      category: isCategoryAllowedForLayer(layer, inferredCategory) ? inferredCategory : category,
+      value: tag,
+      // Editor list items are user-authored atoms. Domain inference is useful
+      // for Sidecar reconciliation, but must never merge two distinct tags the
+      // user explicitly chose to keep in the field.
+      conflictDomain: `editor:tag-${hash(tag)}`,
+    })
+  }
+  return rows
+}
+
+function semanticTagFingerprint(value: string): string {
+  const normalized = normalizeValue(value)
+    .replace(/\b(\d+)\s+(cm|mm|kg|lb|lbs)\b/g, '$1$2')
+  const synonyms: Record<string, string> = {
+    blurred: 'soft', grey: 'gray', lashes: 'eyelash', eyelashes: 'eyelash',
+    physique: 'build', frame: 'build', frames: 'build',
+  }
+  return unique(normalized.split(' ').filter(Boolean).map(token => synonyms[token] || token)).sort().join('-')
+}
+
+function semanticFactSpecificity(value: string): number {
+  const fingerprint = semanticTagFingerprint(value)
+  const tokens = fingerprint.split('-').filter(token => token && !['hair', 'eye', 'eyes', 'build', 'body'].includes(token))
+  return new Set(tokens).size * 100 + fingerprint.length
 }
 
 function serializeCanonicalTagList(value: unknown): string {
@@ -308,6 +344,10 @@ function canonicalRowsForSegment(segment: string, requestedLayer?: AppearanceVau
     for (const [pattern, tag] of EYE_COLOR_TAGS) {
       if (pattern.test(segment) || pattern.test(text)) addCanonicalRow(rows, { layer: 'visual-identity', category: 'eye-color', value: tag, conflictDomain: 'eye-color' })
     }
+    const metricHeight = text.match(/\b\d{2,3}\s*cm(?:\s+tall)?\b/i)?.[0]
+    const imperialHeight = text.match(/\b\d(?:\.\d+)?\s*(?:ft|feet|foot)(?:\s*\d{1,2}\s*(?:in|inches?))?(?:\s+tall)?\b/i)?.[0]
+    const height = metricHeight || imperialHeight
+    if (height) addCanonicalRow(rows, { layer: 'visual-identity', category: 'height', value: canonicalTag(height), conflictDomain: 'height' })
     for (const [pattern, tag] of HAIR_LENGTH_TAGS) {
       if (pattern.test(segment) || pattern.test(text)) addCanonicalRow(rows, { layer: 'visual-identity', category: 'hair-length', value: tag, conflictDomain: `hair-length:${domainTag(tag)}` })
     }
@@ -358,14 +398,17 @@ function canonicalRowsForSegment(segment: string, requestedLayer?: AppearanceVau
 function canonicalizeAppearanceFactInput(input: AddAppearanceFactInput): CanonicalAppearanceRow[] {
   if (input.layer === 'current-appearance' && isSceneActionOnlyAppearanceValue(input.value, input.category)) return []
   const rows: CanonicalAppearanceRow[] = []
-  for (const segment of splitAppearanceSegments(input.value)) {
-    for (const row of canonicalRowsForSegment(segment, input.layer, input.category)) addCanonicalRow(rows, {
+  const segments = splitAppearanceSegments(input.value)
+  const analyzedSegments = segments.map(segment => ({ segment, rows: canonicalRowsForSegment(segment, input.layer, input.category) }))
+  const hasRecognizedSegment = analyzedSegments.some(segment => segment.rows.length > 0)
+  for (const { segment, rows: segmentRows } of analyzedSegments) {
+    for (const row of segmentRows) addCanonicalRow(rows, {
       ...row,
-      conflictDomain: clean(input.conflictDomain) || row.conflictDomain,
+      conflictDomain: segments.length === 1 ? clean(input.conflictDomain) || row.conflictDomain : row.conflictDomain,
     })
-  }
-  if (!rows.length) {
-    const tag = canonicalTag(input.value)
+    if (segmentRows.length) continue
+    if (input.semanticAuthority === 'legacy-migration' && hasRecognizedSegment) continue
+    const tag = canonicalTag(segment)
     const tagLooksCanonical = /^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(tag) && tag.length <= 64
     if (tagLooksCanonical) {
       const text = tag.replace(/_/g, ' ')
@@ -375,7 +418,7 @@ function canonicalizeAppearanceFactInput(input: AddAppearanceFactInput): Canonic
           layer: input.layer,
           category: isCategoryAllowedForLayer(input.layer, input.category) ? input.category : (classification.category || input.category),
           value: tag,
-          conflictDomain: clean(input.conflictDomain) || undefined,
+          conflictDomain: segments.length === 1 ? clean(input.conflictDomain) || undefined : undefined,
         })
       }
     }
@@ -837,9 +880,13 @@ function addCanonicalAppearanceFact(
 export function addAppearanceFacts(vault: ContinuityVaultState, input: AddAppearanceFactInput, now = Date.now()): AppearanceVaultFact[] {
   const rows = canonicalizeAppearanceFactInput(input)
   if (!rows.length) throw new Error('Appearance value could not be normalized into canonical appearance tags.')
+  return addCanonicalAppearanceRows(vault, input, rows, now)
+}
+
+function addCanonicalAppearanceRows(vault: ContinuityVaultState, input: AddAppearanceFactInput, rows: CanonicalAppearanceRow[], now: number, preserveInputOrder = false): AppearanceVaultFact[] {
   const currentWardrobeBatch = input.layer === 'wardrobe' && input.currentWardrobe && rows.some(row => row.layer === 'wardrobe')
   const saved: AppearanceVaultFact[] = []
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
     saved.push(addCanonicalAppearanceFact(vault, {
       ...input,
       layer: row.layer,
@@ -847,7 +894,7 @@ export function addAppearanceFacts(vault: ContinuityVaultState, input: AddAppear
       value: row.value,
       conflictDomain: row.conflictDomain || input.conflictDomain,
       currentWardrobe: row.layer === 'wardrobe' ? input.currentWardrobe : undefined,
-    }, now, { deferCurrentWardrobeSupersede: currentWardrobeBatch }))
+    }, preserveInputOrder ? now - index : now, { deferCurrentWardrobeSupersede: currentWardrobeBatch }))
   }
   if (currentWardrobeBatch) {
     supersedeCurrentWardrobeSet(vault, input.characterId, new Set(saved.filter(fact => fact.layer === 'wardrobe').map(fact => fact.factId)), now, Boolean(input.userConfirmed || input.replaceUserConfirmedCurrentWardrobe))
@@ -1374,7 +1421,7 @@ export function dedupeResolvedAppearanceFacts(facts: AppearanceVaultFact[]): App
     if (fact.status !== 'active' || (fact.layer === 'current-appearance' && fact.active === false)) continue
     if (fact.layer === 'current-appearance' && isSceneActionOnlyAppearanceValue(fact.value, fact.category)) continue
     const key = fact.layer === 'visual-identity'
-      ? `${fact.canonicalCharacterId}:${fact.layer}:${normalizeValue(fact.value)}`
+      ? `${fact.canonicalCharacterId}:${fact.layer}:${conflictCategory(fact.category, fact.value, fact.conflictDomain)}`
       : fact.layer === 'current-appearance'
         ? `${fact.canonicalCharacterId}:${fact.layer}:${currentAppearanceDomain(fact)}`
         : `${fact.canonicalCharacterId}:${fact.layer}:${conflictCategory(fact.category, fact.value, fact.conflictDomain)}`
@@ -1384,7 +1431,7 @@ export function dedupeResolvedAppearanceFacts(facts: AppearanceVaultFact[]): App
   }
   return [...groups.values()].map(rows => rows.sort((left, right) => {
     if (left.layer === 'current-appearance' || right.layer === 'current-appearance') return right.updatedAt - left.updatedAt || compareFactPriority(left, right)
-    return compareFactPriority(left, right)
+    return compareSemanticFacts(left, right)
   })[0])
 }
 
@@ -1397,7 +1444,7 @@ export function appearanceMemoryView(vault: ContinuityVaultState, characterId: s
     const byConflict = new Map<string, AppearanceVaultFact>()
     for (const fact of rows) {
       const key = fact.layer === 'visual-identity'
-        ? `${fact.layer}:${normalizeValue(fact.value)}`
+        ? `${fact.layer}:${conflictCategory(fact.category, fact.value, fact.conflictDomain)}`
         : fact.layer === 'current-appearance'
           ? `${fact.layer}:${currentAppearanceDomain(fact)}`
           : `${fact.layer}:${conflictCategory(fact.category, fact.value, fact.conflictDomain)}`
@@ -1414,7 +1461,7 @@ export function appearanceMemoryView(vault: ContinuityVaultState, characterId: s
   const facts = [...stable, ...wardrobe, ...current]
   return {
     characterId,
-    stableAppearance: stable.map(appearanceFactDescriptor).join(', '),
+    stableAppearance: stable.map(fact => fact.value).join(', '),
     currentOutfit: currentOutfit.join(', '),
     currentState: current.map(appearanceFactDescriptor).join(', '),
     hasFacts: facts.length > 0,
@@ -1474,6 +1521,25 @@ export function saveManualAppearanceMemory(
 ): void {
   const character = vault.characters[input.characterId]
   if (!character) throw new Error('Character not found.')
+  const stableInput: AddAppearanceFactInput = {
+    layer: 'visual-identity', characterId: input.characterId,
+    category: 'other', value: input.stableAppearance,
+    sourceType: 'manual', sourceReference: { sourceType: 'manual', sourceReference: 'appearance-editor', chatId: input.chatId || vault.chatId },
+    confidence: 1, pinned: true, userConfirmed: true, referenceAssetIds: input.referenceAssetIds,
+    semanticAuthority: 'explicit-user',
+  }
+  const outfitInput: AddAppearanceFactInput = {
+    layer: 'wardrobe', characterId: input.characterId, category: 'current-outfit', value: input.currentOutfit,
+    sourceType: 'manual', sourceReference: { sourceType: 'manual', sourceReference: 'appearance-editor', chatId: input.chatId || vault.chatId },
+    confidence: 1, pinned: true, userConfirmed: true, currentWardrobe: true, referenceAssetIds: input.referenceAssetIds,
+    semanticAuthority: 'explicit-user',
+  }
+  // Preflight the complete editor-owned replacement. Invalid input must not
+  // supersede the last known-good sheet before its replacement exists.
+  const stableRows = clean(input.stableAppearance) ? explicitEditorRows(input.stableAppearance, 'visual-identity', 'other') : []
+  const outfitRows = clean(input.currentOutfit) ? explicitEditorRows(input.currentOutfit, 'wardrobe', 'current-outfit') : []
+  if (clean(input.stableAppearance) && !stableRows.length) throw new Error('Stable Appearance could not be normalized into canonical appearance tags.')
+  if (clean(input.currentOutfit) && !outfitRows.length) throw new Error('Current Outfit could not be normalized into canonical appearance tags.')
   // Stable Appearance is one complete editor-owned field, not an additive
   // suggestion. Preserve provenance/history while removing every older active
   // canonical value from presentation authority.
@@ -1490,23 +1556,8 @@ export function saveManualAppearanceMemory(
     fact.currentWardrobe = false
     fact.updatedAt = now
   }
-  if (clean(input.stableAppearance)) {
-    addAppearanceFacts(vault, {
-      layer: 'visual-identity', characterId: input.characterId,
-      category: 'other', value: input.stableAppearance,
-      sourceType: 'manual', sourceReference: { sourceType: 'manual', sourceReference: 'appearance-editor', chatId: input.chatId || vault.chatId },
-      confidence: 1, pinned: true, userConfirmed: true, referenceAssetIds: input.referenceAssetIds,
-      semanticAuthority: 'explicit-user',
-    }, now)
-  }
-  if (clean(input.currentOutfit)) {
-    addAppearanceFacts(vault, {
-      layer: 'wardrobe', characterId: input.characterId, category: 'current-outfit', value: input.currentOutfit,
-      sourceType: 'manual', sourceReference: { sourceType: 'manual', sourceReference: 'appearance-editor', chatId: input.chatId || vault.chatId },
-      confidence: 1, pinned: true, userConfirmed: true, currentWardrobe: true, referenceAssetIds: input.referenceAssetIds,
-      semanticAuthority: 'explicit-user',
-    }, now)
-  }
+  if (stableRows.length) addCanonicalAppearanceRows(vault, stableInput, stableRows, now, true)
+  if (outfitRows.length) addCanonicalAppearanceRows(vault, outfitInput, outfitRows, now, true)
   const existing = vault.characterSheets[input.characterId]
   if (existing || Object.values(vault.visualIdentity).some(fact => fact.canonicalCharacterId === input.characterId)) {
     vault.characterSheets[input.characterId] = {
@@ -2227,7 +2278,7 @@ function supersedeAppearanceConflicts(vault: ContinuityVaultState, layer: Appear
   if (competing.length < 2) return
   // A newly ingested equally-ranked Sidecar observation is the later semantic
   // statement for that domain, even when mocked/fast clocks share a millisecond.
-  const winner = [...competing].sort((left, right) => compareFacts(left, right)
+  const winner = [...competing].sort((left, right) => (layer === 'current-appearance' ? compareFacts(left, right) : compareSemanticFacts(left, right))
     || Number(right.factId === replacementId) - Number(left.factId === replacementId))[0]
   for (const fact of competing) {
     if (fact.factId === winner.factId) continue
@@ -2267,14 +2318,14 @@ function canonicalizeResolvedAppearanceState(vault: ContinuityVaultState, now = 
   const stableGroups = new Map<string, AppearanceVaultFact[]>()
   for (const fact of Object.values(vault.visualIdentity)) {
     if (fact.status !== 'active') continue
-    const key = `${fact.canonicalCharacterId}:${normalizeValue(fact.value)}`
+    const key = `${fact.canonicalCharacterId}:${conflictCategory(fact.category, fact.value, fact.conflictDomain)}`
     const rows = stableGroups.get(key) || []
     rows.push(fact)
     stableGroups.set(key, rows)
   }
   for (const facts of stableGroups.values()) {
     if (facts.length < 2) continue
-    const winner = [...facts].sort(compareFacts)[0]
+    const winner = [...facts].sort(compareSemanticFacts)[0]
     for (const fact of facts) {
       if (fact.factId === winner.factId) continue
       winner.referenceAssetIds = unique([...winner.referenceAssetIds, ...fact.referenceAssetIds])
@@ -2333,13 +2384,25 @@ function conflictCategory(category: AppearanceFactCategory, value = '', conflict
   if (['temporary-hair', 'temporary-makeup', 'temporary-injury', 'temporary-clothing-state', 'temporary-accessory', 'temporary-expression'].includes(category)) {
     return currentAppearanceDomain({ category, value, conflictDomain })
   }
-  if (isValidConflictDomain(clean(conflictDomain))) return `sidecar:${clean(conflictDomain)}`
-  if (['hair-color'].includes(category)) return 'hair-color'
-  if (['hair-length', 'hairstyle'].includes(category)) return 'hair-shape'
-  if (category === 'eye-color') return 'eye-color'
+  const suppliedDomain = clean(conflictDomain)
+  if (/^editor:tag-[a-z0-9-]+$/.test(suppliedDomain)) return suppliedDomain
+  const text = normalizeValue(value)
+  if (category === 'hair-color' || HAIR_COLOR_RE.test(text)) return 'hair-color'
+  if (category === 'hair-length' || HAIR_LENGTH_RE.test(text)) return 'hair-length'
+  if (category === 'hair-texture' || HAIR_TEXTURE_RE.test(text)) return 'hair-texture'
+  if (category === 'hairstyle') return 'hairstyle'
+  if (category === 'eye-color' || /\b(?:dark|brown|blue|green|grey|gray|hazel|amber|black|violet|pink|red)\s+eyes?\b/i.test(text)) return 'eye-color'
+  if (category === 'height' || /\b(?:\d{2,3}\s*cm|\d(?:\.\d+)?\s*(?:ft|feet|foot)|tall|short)\b/i.test(text)) return 'height'
+  if (/\b(?:broad\s+shoulders?|broad\s+shouldered|shoulder\s+width)\b/i.test(text)) return 'body-shoulders'
+  if (category === 'body-build' || /\b(?:body\s+build|build|frame|physique|athletic|muscular|slender|slim|lean|petite|stocky)\b/i.test(text)) return 'body-build'
+  if (category === 'face-shape') return 'face-shape'
+  if (/\b(?:eyeliner|eye\s+liner)\b/i.test(text)) return 'makeup:eyeliner'
+  if (/\b(?:lip|lips|lipstick)\b/i.test(text)) return `makeup:lips:${semanticTagFingerprint(value).replace(/(?:^|-)lip(?:s|stick)?(?:-|$)/g, '-').replace(/^-|-$/g, '')}`
+  if (/\b(?:eyelashes|lashes)\b/i.test(text)) return 'feature:eyelashes'
+  if (isValidConflictDomain(suppliedDomain)) return `sidecar:${suppliedDomain}`
   if (category === 'current-outfit') return `outfit:${normalizeValue(value) || 'current'}`
   if (['base-attire', 'saved-outfit', 'uniform', 'work-attire'].includes(category)) return 'outfit'
-  return category === 'other' ? `other:${normalizeValue(value) || 'generic'}` : category
+  return category === 'other' ? `other:${semanticTagFingerprint(value) || 'generic'}` : category
 }
 
 function isValidConflictDomain(value: string): boolean {
@@ -2409,12 +2472,21 @@ function migrationCounts(items: VaultMigrationItem[]): Record<VaultMigrationDisp
   return counts
 }
 
-function compareFacts(a: AppearanceVaultFact, b: AppearanceVaultFact): number {
+function compareFactAuthority(a: AppearanceVaultFact, b: AppearanceVaultFact): number {
   const directIdentity = (fact: AppearanceVaultFact) => fact.layer === 'visual-identity' && /character-card|persona-card|lorebook/.test(fact.sourceReference.sourceReference || '') ? 1 : 0
   return Number(b.userConfirmed) - Number(a.userConfirmed)
     || Number(b.pinned) - Number(a.pinned)
     || directIdentity(b) - directIdentity(a)
     || b.confidence - a.confidence
+}
+
+function compareFacts(a: AppearanceVaultFact, b: AppearanceVaultFact): number {
+  return compareFactAuthority(a, b) || b.updatedAt - a.updatedAt
+}
+
+function compareSemanticFacts(a: AppearanceVaultFact, b: AppearanceVaultFact): number {
+  return compareFactAuthority(a, b)
+    || semanticFactSpecificity(b.value) - semanticFactSpecificity(a.value)
     || b.updatedAt - a.updatedAt
 }
 
