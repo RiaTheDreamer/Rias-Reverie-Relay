@@ -31,6 +31,7 @@ import {
   normalizeImageIntent,
   sanitizeRelayPromptHistoryText,
   sanitizeRelayPromptHistoryTextWithReport,
+  sanitizeRelayRuntimePromptText,
   containsRelayRuntimeArtifacts,
   relayRuntimeArtifactKinds,
   inspectStoryModelOutputContracts,
@@ -361,23 +362,25 @@ type PromptHistoryMessageMetric = {
 
 function sanitizeRelayPromptMessageWithMetrics(message: LlmMessage): { message: LlmMessage; metric: PromptHistoryMessageMetric } {
   const role = cleanString((message as any)?.role).toLocaleLowerCase()
-  const checked = role === 'assistant'
+  const assistantHistory = role === 'assistant'
   const textParts = typeof message.content === 'string'
     ? [message.content]
     : message.content.filter(part => part.type === 'text' && typeof part.text === 'string').map(part => (part as any).text as string)
+  const checked = textParts.length > 0
   const before = textParts.join('\n')
-  const reports = checked ? textParts.map(sanitizeRelayPromptHistoryTextWithReport) : []
+  const reports = assistantHistory ? textParts.map(sanitizeRelayPromptHistoryTextWithReport) : []
   let reportIndex = 0
-  const sanitized = !checked
-    ? message
-    : typeof message.content === 'string'
-      ? { ...message, content: reports[0]?.text || '' } as LlmMessage
-      : {
-        ...message,
-        content: message.content.map(part => part.type === 'text' && typeof part.text === 'string'
-          ? { ...part, text: reports[reportIndex++]?.text || '' }
-          : part),
-      } as LlmMessage
+  const sanitizeText = (text: string): string => assistantHistory
+    ? reports[reportIndex++]?.text || ''
+    : sanitizeRelayRuntimePromptText(text)
+  const sanitized = typeof message.content === 'string'
+    ? { ...message, content: sanitizeText(message.content) } as LlmMessage
+    : {
+      ...message,
+      content: message.content.map(part => part.type === 'text' && typeof part.text === 'string'
+        ? { ...part, text: sanitizeText(part.text) }
+        : part),
+    } as LlmMessage
   const afterParts = typeof sanitized.content === 'string'
     ? [sanitized.content]
     : sanitized.content.filter(part => part.type === 'text' && typeof part.text === 'string').map(part => (part as any).text as string)
@@ -388,8 +391,8 @@ function sanitizeRelayPromptMessageWithMetrics(message: LlmMessage): { message: 
     metric: {
       role: role || 'unknown', checked,
       textLengthBefore: before.length, textLengthAfter: after.length,
-      runtimeArtifactsDetectedBefore: checked && reports.some(report => report.runtimeArtifactsDetectedBefore),
-      runtimeArtifactsRemainAfter: checked && reports.some(report => report.runtimeArtifactsRemainAfter),
+      runtimeArtifactsDetectedBefore: checked && containsRelayRuntimeArtifacts(before),
+      runtimeArtifactsRemainAfter: checked && containsRelayRuntimeArtifacts(after),
       removed: {
         ownershipComments: sum('ownershipComments'),
         relayMarkdownResultImages: sum('relayMarkdownResultImages'),
@@ -1890,7 +1893,7 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
     await mutateState(chatId, context?.userId, state => {
       appendStateLog(state, {
         severity: runtimeArtifactsAfter ? 'warning' : 'debug', stage: 'prompt-history-sanitized', eventType: 'prompt_history_sanitized', chatId,
-        message: runtimeArtifactsAfter ? 'Relay prompt-history firebreak removed a surviving runtime artifact.' : 'Relay sanitized historical assistant media before Story Model generation.',
+        message: runtimeArtifactsAfter ? 'Relay prompt-history firebreak found a surviving runtime artifact.' : 'Relay sanitized model-facing historical media before Story Model generation.',
         details: {
           messagesChecked: checked.length,
           messagesChanged,
@@ -2452,7 +2455,7 @@ async function handleGenerationEnded(payload: any, userId?: string): Promise<voi
     generationType: cleanString(payload.generationType),
     delayMs: 20,
   })
-  if (payload.generationType === 'continue' || payload.generationType === 'impersonate') return
+  if (!shouldScanCompletedGeneration(payload.generationType)) return
 
   const latest = await getConfig(userId)
   if (!latest.enabled) return
@@ -3147,7 +3150,7 @@ async function flushAssistantScan(scheduled: Omit<NonNullable<ReturnType<typeof 
   if (!message || !isAssistantMessage(message) || isOwnMessage(message)) return
   const swipeId = Number.isFinite(Number(scheduled.swipeId)) ? Number(scheduled.swipeId) : activeSwipeId(message)
   const storedContent = getSwipeContent(message, swipeId)
-  const sourceContent = containsRelayRequestMarkup(scheduled.sourceContent) ? scheduled.sourceContent : storedContent
+  const sourceContent = selectCompletedRequestContent(storedContent, String(scheduled.sourceContent || ''))
   await mutateState(scheduled.chatId, scheduled.userId, state => appendStateLog(state, {
     severity: 'info', stage: 'assistant-message-finalized', eventType: 'assistant_message_finalized', chatId: scheduled.chatId,
     messageId: scheduled.messageId, swipeId, message: 'Assistant message reached deterministic Relay discovery.',
@@ -3963,6 +3966,22 @@ function snapshotFromPayload(payload: {
 
 function containsRelayRequestMarkup(value: unknown): boolean {
   return typeof value === 'string' && /<(?:image_request|reverie-illustration)\b/i.test(value)
+}
+
+/** Continued generations can report only the newly appended fragment while the
+ * stored assistant message already contains the complete response. Prefer the
+ * source with the most complete parseable request inventory so one partial tag
+ * cannot hide every request in the authoritative message. */
+export function selectCompletedRequestContent(storedContent: string, capturedContent: string): string {
+  const storedRequests = parseSafeSurfaceImageRequests(storedContent)
+  const capturedRequests = parseSafeSurfaceImageRequests(capturedContent)
+  if (capturedRequests.length > storedRequests.length) return capturedContent
+  if (storedRequests.length > 0) return storedContent
+  return containsRelayRequestMarkup(capturedContent) ? capturedContent : storedContent
+}
+
+export function shouldScanCompletedGeneration(generationType: unknown): boolean {
+  return cleanString(generationType).toLocaleLowerCase() !== 'impersonate'
 }
 
 function pendingContentKey(chatId: string, messageId: string): string {
@@ -8786,11 +8805,12 @@ export function buildIllustratorRuntimeDirective(settings: ProseIllustratorSetti
   const minimum = requestIllustrations
     ? (countMode === 'range' ? Math.max(1, Math.min(target, settings.minimumImages || 1)) : target)
     : 0
+  const utilityCountScope = 'Count only Scene Snapshot-style Inline <reverie-illustration> requests owned by the Illustrator protocol. Exclude every media request required inside an invoked Surface or Narrative Utility from this count; that Utility owns its own structure and count.'
   const illustrationInstruction = !requestIllustrations
-    ? 'Do not emit a Reverie Relay illustration request for this response.'
+    ? `Do not emit a Scene Snapshot-style Inline Reverie Relay illustration request for this response. ${utilityCountScope}`
     : countMode === 'range'
-      ? `You MUST emit from ${minimum} through ${target} Reverie Relay illustration requests, inclusive.`
-      : `You MUST emit exactly ${target} Reverie Relay illustration request${target === 1 ? '' : 's'}.`
+      ? `You MUST emit from ${minimum} through ${target} Scene Snapshot-style Inline Reverie Relay illustration requests, inclusive. ${utilityCountScope}`
+      : `You MUST emit exactly ${target} Scene Snapshot-style Inline Reverie Relay illustration request${target === 1 ? '' : 's'}. ${utilityCountScope}`
   const subjects = selectedCharacterOnlySubjects(settings)
   return expandPromptTemplate(registryPrompt(settings, 'story.runtime-directives'), {
     mode,

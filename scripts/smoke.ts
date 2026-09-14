@@ -744,7 +744,7 @@ assert(manifest.permissions?.includes('interceptor') && manifest.permissions?.in
 
 const versionMatch = buildSource.match(/EXTENSION_VERSION = '([^']+)'/)
 const buildIdMatch = buildSource.match(/BUILD_ID = '([^']+)'/)
-assert(versionMatch?.[1] === manifest.version && /^\d{8}-0\.2\.4$/i.test(buildIdMatch?.[1] || ''), 'expected shared current release identity')
+assert(versionMatch?.[1] === manifest.version && /^\d{8}-0\.2\.5$/i.test(buildIdMatch?.[1] || ''), 'expected shared current release identity')
 assert(backendSource.includes('STATE_SCHEMA_VERSION = 34'), 'expected state schema 34')
 
 assert(frontendSource.includes("type SuiteSection = 'relay' | 'illustrator' | 'surfaces' | 'memory' | 'archive' | 'settings'"), 'expected six-part Surface Suite navigation')
