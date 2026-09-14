@@ -67,6 +67,18 @@ assert.equal(coldConfig.autoGenerate, false)
 assert.equal(configWrites, 0)
 storage.set('config.json', {})
 
+// Continue completions are assistant-message updates, not user impersonation.
+// Relay must scan them and prefer the complete stored request inventory over a
+// shorter generation-event fragment.
+assert.equal(backend.shouldScanCompletedGeneration('continue'), true)
+assert.equal(backend.shouldScanCompletedGeneration('normal'), true)
+assert.equal(backend.shouldScanCompletedGeneration('impersonate'), false)
+const request = (id: string) => `<image_request id="${id}" target="custom.artifact-media" slot="${id}" aspect="16:9" alt="${id}"><scene_brief>${id} prompt.</scene_brief></image_request>`
+const storedCompletedResponse = `Opening prose.\n${Array.from({ length: 19 }, (_, index) => request(`scene-${index + 1}`)).join('\nMiddle prose.\n')}`
+const capturedContinuationFragment = `Middle prose.\n${request('scene-19')}`
+assert.equal(backend.selectCompletedRequestContent(storedCompletedResponse, capturedContinuationFragment), storedCompletedResponse)
+assert.equal(backend.selectCompletedRequestContent('Opening prose.', capturedContinuationFragment), capturedContinuationFragment)
+
 // Deferred registration: enabling before permission must recover without reload,
 // remain idempotent, and recover again after revoke/re-grant.
 assert.equal(interceptorRegistrations, 0)
@@ -97,6 +109,7 @@ const modelPlaced = assembledText(await interceptor!(baseMessages, { chatId: 'dr
 assert(modelPlaced.includes('[REVERIE RELAY — MODEL-PLACED ILLUSTRATION PROTOCOL]'))
 assert(modelPlaced.includes('<visual_prompt>'))
 assert(modelPlaced.includes('<mode>model-placed</mode>'))
+assert(modelPlaced.includes('Exclude every media request required inside an invoked Surface or Narrative Utility from this count'), 'Illustrator count must not conflict with self-contained Narrative/Surface media requirements')
 assertUtilitiesInjected(modelPlaced, 'initial permission grant')
 
 await backend.setConfig({ proseIllustratorSettings: { ...backend.defaultProseIllustratorSettings(), mode: 'inline-protocol' } }, 'u1')
@@ -104,6 +117,7 @@ const inline = assembledText(await interceptor!(baseMessages, { chatId: 'inline-
 assert(inline.includes('REVERIE RELAY — INLINE PROTOCOL'))
 assert(inline.includes('<visual_prompt>'))
 assert(inline.includes('<mode>inline-protocol</mode>'))
+assert(inline.includes('Count only Scene Snapshot-style Inline &lt;reverie-illustration&gt; requests owned by the Illustrator protocol'))
 assert.notEqual(inline, modelPlaced)
 const inlineWorkflow = inline.slice(inline.indexOf('REVERIE RELAY — INLINE PROTOCOL'), inline.indexOf('<reverie_illustrator_runtime>'))
 assert(!/<reverie-illustration[\s\S]*?<scene_brief>/i.test(inlineWorkflow))
@@ -126,6 +140,19 @@ const duplicatedCompiledPrompt = assembledText(await interceptor!([
 assert.equal((duplicatedCompiledPrompt.match(/<reverie_surface_utility\b/gi) || []).length, 1)
 assert.equal((duplicatedCompiledPrompt.match(/<reverie_narrative_utility\b/gi) || []).length, 1)
 assert.equal((duplicatedCompiledPrompt.match(/INLINE PROTOCOL/gi) || []).length, 1)
+
+// Lumiverse can repeat hydrated historical output in system context. Runtime
+// ownership and result transport must be removed regardless of role, while the
+// current authoring request contract remains model-visible.
+const currentAuthoringContract = '<reverie-illustration request="generate" slot="current-example" aspect="4:3" cast="char" alt="Current example"><visual_prompt>Current scene.</visual_prompt></reverie-illustration>'
+const hydratedRuntime = '<!-- reverie-relay:image chatId="old-chat" messageId="old-message" swipeId="0" requestId="old-request" slot="old-slot" -->\n![reverie-relay](/api/v1/image-gen/results/old-image)\n<img src="/api/v1/image-gen/results/old-image" data-dgir-key="old-chat:old-message:0:old-request:old-slot" data-dgir-request-id="old-request" data-dgir-image-id="old-image">'
+const contaminatedSystem = assembledText(await interceptor!([
+  { role: 'system', content: `Keep this authoring contract:\n${currentAuthoringContract}\nRemove this resolved history:\n${hydratedRuntime}` },
+  { role: 'assistant', content: `Historical request:\n${currentAuthoringContract}\n${hydratedRuntime}` },
+], { chatId: 'system-history-firebreak', userId: 'u1', isDryRun: true }))
+assert(contaminatedSystem.includes(currentAuthoringContract), 'system-context sanitation must preserve the current authoring request contract')
+assert.equal(contaminatedSystem.split(currentAuthoringContract).length - 1, 1, 'historical assistant requests must still be removed')
+assert(!/reverie-relay:image|!\[reverie-relay\]|\/api\/v1\/(?:images|image-gen\/results)\/old-image|data-dgir-/i.test(contaminatedSystem), 'resolved Relay runtime artifacts must be removed from every model-facing role')
 
 interceptorPermission = false
 permissionChanged!({ extensionId: 'reverie_relay', permission: 'interceptor', granted: false, allGranted: [] })
@@ -230,4 +257,4 @@ assert.deepEqual(cancelledKeys.sort(), ['one', 'two'])
 assert.equal(serials.size, 2)
 assert.equal(cancelMapKeysFromSnapshot(new Map(), () => { throw new Error('empty map callback') }), 0)
 
-console.log('Runtime contract smoke passed: complete Surface/Narrative Utility injection and Full Dry Run reporting, clone-safe standard ImageGen, opt-in streaming, bounded fallback/abort, snapshot Abort All, and deferred interceptor recovery.')
+console.log('Runtime contract smoke passed: continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, clone-safe standard ImageGen, opt-in streaming, bounded fallback/abort, snapshot Abort All, and deferred interceptor recovery.')

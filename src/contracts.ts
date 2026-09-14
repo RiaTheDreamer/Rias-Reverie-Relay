@@ -1566,6 +1566,25 @@ export function sanitizeRelayPromptHistoryTextWithReport(value: string): RelayPr
   }
 }
 
+/** Removes only Relay-owned resolved-media transport from model-facing text.
+ * Unlike the historical assistant scrub below, this deliberately preserves raw
+ * request examples so current system authoring contracts and user input survive.
+ */
+export function sanitizeRelayRuntimePromptText(value: string): string {
+  let text = String(value || '')
+  for (const pattern of [
+    RELAY_PROMPT_SCENE_IMAGE_RE,
+    RELAY_PROMPT_OWNED_IMAGE_RE,
+    RELAY_PROMPT_MARKDOWN_IMAGE_RE,
+    RELAY_OWNERSHIP_MARKER_RE,
+    RELAY_RUNTIME_RESULT_URL_RE,
+  ]) {
+    text = replaceWithHistoricalMediaPlaceholder(text, pattern)
+  }
+  text = text.replace(/^.*(?:data-dgir-|data-reverie-artifact-media|reverie-artifact-media).*$/gim, HISTORICAL_RELAY_MEDIA_PLACEHOLDER)
+  return collapseHistoricalMediaPlaceholders(text)
+}
+
 /** Removes Relay-owned runtime artifacts and historical request blocks from text
  * sent back to the story model. Current request syntax is supplied only by the
  * active Reverie utility, preventing old saved requests from being imitated.
