@@ -13,7 +13,8 @@ export type AppearanceSidecarFact = {
   layer: AppearanceVaultLayer
   category: AppearanceFactCategory
   value: string
-  /** Opaque semantic replacement key selected by the Sidecar, never inferred by Relay. */
+  /** Optional semantic replacement hint. Relay still consolidates recognized
+   * appearance families so equivalent Sidecar spellings cannot accumulate. */
   conflictDomain?: string
   provenance: string
 }
