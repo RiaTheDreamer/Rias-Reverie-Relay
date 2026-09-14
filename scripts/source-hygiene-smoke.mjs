@@ -2,12 +2,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const root = path.resolve(process.argv[2] || process.cwd())
-const excluded = new Set(['.git', 'node_modules', 'artifacts', 'authority-source'])
+const excluded = new Set(['.git', '.cptr', '.push-git', 'node_modules', 'artifacts', 'authority-source', 'output', 'tmp'])
 const textExtensions = new Set(['.ts', '.mjs', '.js', '.json', '.md', '.txt', '.jsonl', '.ps1', '.buildmeta', '.gitignore'])
 const files = []
 function walk(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (excluded.has(entry.name)) continue
+    if (excluded.has(entry.name) || entry.name.startsWith('.release-integration-')) continue
     const full = path.join(directory, entry.name)
     if (entry.isDirectory()) walk(full)
     else if (textExtensions.has(path.extname(entry.name)) || entry.name === '.buildmeta' || entry.name === '.gitignore') files.push(full)

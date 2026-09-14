@@ -30,6 +30,11 @@ import {
   targetApp,
   normalizeImageIntent,
   sanitizeRelayPromptHistoryText,
+  sanitizeRelayPromptHistoryTextWithReport,
+  containsRelayRuntimeArtifacts,
+  relayRuntimeArtifactKinds,
+  inspectStoryModelOutputContracts,
+  isRelayRuntimeMarkerTrusted,
   isSpecialImageIntent,
   type ImageIntent,
   type ImageTarget,
@@ -331,16 +336,71 @@ function narrativeVariantForSurfaceShellMode(shellMode: SurfaceShellMode): Narra
 }
 
 function sanitizeRelayPromptMessage(message: LlmMessage): LlmMessage {
-  if (typeof message.content === 'string') {
-    return { ...message, content: sanitizeRelayPromptHistoryText(message.content) }
+  return sanitizeRelayPromptMessageWithMetrics(message).message
+}
+
+type PromptHistoryMessageMetric = {
+  role: string
+  checked: boolean
+  textLengthBefore: number
+  textLengthAfter: number
+  runtimeArtifactsDetectedBefore: boolean
+  runtimeArtifactsRemainAfter: boolean
+  removed: {
+    ownershipComments: number
+    relayMarkdownResultImages: number
+    dataDgirImages: number
+    rawHistoricalReverieIllustrationRequests: number
+    rawHistoricalImageRequestBlocks: number
+    legacyDreamglassRequests: number
   }
+  firebreakFragmentsRemoved: number
+  contentHashBefore: string
+  contentHashAfter: string
+}
+
+function sanitizeRelayPromptMessageWithMetrics(message: LlmMessage): { message: LlmMessage; metric: PromptHistoryMessageMetric } {
+  const role = cleanString((message as any)?.role).toLocaleLowerCase()
+  const checked = role === 'assistant'
+  const textParts = typeof message.content === 'string'
+    ? [message.content]
+    : message.content.filter(part => part.type === 'text' && typeof part.text === 'string').map(part => (part as any).text as string)
+  const before = textParts.join('\n')
+  const reports = checked ? textParts.map(sanitizeRelayPromptHistoryTextWithReport) : []
+  let reportIndex = 0
+  const sanitized = !checked
+    ? message
+    : typeof message.content === 'string'
+      ? { ...message, content: reports[0]?.text || '' } as LlmMessage
+      : {
+        ...message,
+        content: message.content.map(part => part.type === 'text' && typeof part.text === 'string'
+          ? { ...part, text: reports[reportIndex++]?.text || '' }
+          : part),
+      } as LlmMessage
+  const afterParts = typeof sanitized.content === 'string'
+    ? [sanitized.content]
+    : sanitized.content.filter(part => part.type === 'text' && typeof part.text === 'string').map(part => (part as any).text as string)
+  const after = afterParts.join('\n')
+  const sum = (key: keyof PromptHistoryMessageMetric['removed']) => reports.reduce((total, report) => total + report.removed[key], 0)
   return {
-    ...message,
-    content: message.content.map(part =>
-      part.type === 'text' && typeof part.text === 'string'
-        ? { ...part, text: sanitizeRelayPromptHistoryText(part.text) }
-        : part,
-    ),
+    message: sanitized,
+    metric: {
+      role: role || 'unknown', checked,
+      textLengthBefore: before.length, textLengthAfter: after.length,
+      runtimeArtifactsDetectedBefore: checked && reports.some(report => report.runtimeArtifactsDetectedBefore),
+      runtimeArtifactsRemainAfter: checked && reports.some(report => report.runtimeArtifactsRemainAfter),
+      removed: {
+        ownershipComments: sum('ownershipComments'),
+        relayMarkdownResultImages: sum('relayMarkdownResultImages'),
+        dataDgirImages: sum('dataDgirImages'),
+        rawHistoricalReverieIllustrationRequests: sum('rawHistoricalReverieIllustrationRequests'),
+        rawHistoricalImageRequestBlocks: sum('rawHistoricalImageRequestBlocks'),
+        legacyDreamglassRequests: sum('legacyDreamglassRequests'),
+      },
+      firebreakFragmentsRemoved: reports.reduce((total, report) => total + report.firebreakFragmentsRemoved, 0),
+      contentHashBefore: contentFingerprint(before), contentHashAfter: contentFingerprint(after),
+    },
   }
 }
 
@@ -984,6 +1044,7 @@ const renderOutputCache = new BoundedLruCache<{ content: string; scope: string; 
 const CONFIG_CACHE_TTL_MS = 2_500
 const CHAT_CHARACTER_IDENTITY_CACHE_TTL_MS = 5 * 60_000
 const configCache = new BoundedLruCache<{ value: RouterConfig; cachedAt: number }>({ maxEntries: 64 })
+const configStorageHydratedScopes = new Set<string>()
 const chatCharacterIdentityCache = new BoundedLruCache<{ value: { id: string; name: string; aliases: string[]; avatarUrl?: string } | null; cachedAt: number }>({ maxEntries: 128, ttlMs: CHAT_CHARACTER_IDENTITY_CACHE_TTL_MS })
 const surfaceUtilityCache = new Map<string, { content: string; moduleIds: string[] }>()
 const pendingPromptInjectionRecords = new Map<string, {
@@ -1739,10 +1800,8 @@ if (typeof registerMessageContentProcessor === 'function') {
       }
       // Narrative Utilities are not part of the 46 built-in registry. Relay
       // executes their approved, bundled display transformations through this
-      // isolated adapter so Relay/Hybrid modes do not depend on host Regex
-      // enablement. Regex mode normally leaves them for Lumiverse Regex, but
-      // failed media write-back gets a bounded Relay fallback so an older or
-      // stale host Regex pack cannot expose raw Narrative syntax in the story.
+      // isolated adapter in every renderer mode. This keeps a cold or stale
+      // Lumiverse Regex registry from exposing raw Narrative syntax.
       if (narrativeCandidate && shouldRelayRenderNarrativeMarkup(source, renderContext.rendererMode)) {
         const narrativeRendered = renderNarrativeRegex(renderedContent, snapshot.narrativeVariant, context.messageId || 'narrative', { chatId: context.chatId, swipeId: renderSwipeId })
         if (narrativeRendered !== renderedContent) renderedCount += 1
@@ -1762,10 +1821,94 @@ if (typeof registerMessageContentProcessor === 'function') {
 }
 
 const registerInterceptor = (spindle as unknown as { registerInterceptor?: typeof spindle.registerInterceptor }).registerInterceptor
+let storyPromptInterceptions = 0
+let interceptorRegistrationEpoch = 0
+let interceptorRegisteredAt = 0
+const latestPromptInterceptionByChat = new Map<string, { counter: number; timestamp: number }>()
+const consumedPromptInterceptionByChat = new Map<string, number>()
+
+function exactBlockCopies(messages: LlmMessage[], block: string): number {
+  if (!block) return 0
+  return messages.reduce((total, message) => {
+    const content = typeof message.content === 'string' ? message.content : ''
+    return total + Math.max(0, content.split(block).length - 1)
+  }, 0)
+}
+
+function dedupeExactPromptContractCopies(messages: LlmMessage[], blocks: string[]): LlmMessage[] {
+  const seen = new Set<string>()
+  return messages.map(message => {
+    if (typeof message.content !== 'string') return message
+    let content = message.content
+    for (const block of blocks.filter(Boolean)) {
+      let offset = 0
+      while (true) {
+        const index = content.indexOf(block, offset)
+        if (index < 0) break
+        if (!seen.has(block)) {
+          seen.add(block)
+          offset = index + block.length
+        } else {
+          content = `${content.slice(0, index)}${content.slice(index + block.length)}`
+          offset = index
+        }
+      }
+    }
+    return content === message.content ? message : { ...message, content } as LlmMessage
+  })
+}
+
+function dedupePromptContractWrappers(messages: LlmMessage[]): LlmMessage[] {
+  const seen = new Set<string>()
+  const wrapper = /<(reverie_surface_utility|reverie_narrative_utility)\b[^>]*>[\s\S]*?<\/\1>/gi
+  return messages.map(message => {
+    if (typeof message.content !== 'string') return message
+    const content = message.content.replace(wrapper, (block, rawTag: string) => {
+      const tag = rawTag.toLocaleLowerCase()
+      if (seen.has(tag)) return ''
+      seen.add(tag)
+      return block
+    })
+    return content === message.content ? message : { ...message, content } as LlmMessage
+  })
+}
+
 const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
-    const cleaned = messages.map(sanitizeRelayPromptMessage)
+    storyPromptInterceptions += 1
+    const interceptionCounter = storyPromptInterceptions
+    const sanitizedRows = messages.map(sanitizeRelayPromptMessageWithMetrics)
+    const cleaned = sanitizedRows.map(row => row.message)
+    const promptHistoryMetrics = sanitizedRows.map(row => row.metric)
     const chatId = cleanString(context?.chatId || context?.chat_id)
     if (!chatId) return cleaned
+    latestPromptInterceptionByChat.set(chatId, { counter: interceptionCounter, timestamp: Date.now() })
+    const checked = promptHistoryMetrics.filter(metric => metric.checked)
+    const messagesChanged = checked.filter(metric => metric.contentHashBefore !== metric.contentHashAfter).length
+    const runtimeArtifactsBefore = checked.filter(metric => metric.runtimeArtifactsDetectedBefore).length
+    const runtimeArtifactsAfter = checked.filter(metric => metric.runtimeArtifactsRemainAfter).length
+    const historicalRequestsRemoved = checked.reduce((total, metric) => total + metric.removed.rawHistoricalReverieIllustrationRequests + metric.removed.rawHistoricalImageRequestBlocks + metric.removed.legacyDreamglassRequests, 0)
+    await mutateState(chatId, context?.userId, state => {
+      appendStateLog(state, {
+        severity: runtimeArtifactsAfter ? 'warning' : 'debug', stage: 'prompt-history-sanitized', eventType: 'prompt_history_sanitized', chatId,
+        message: runtimeArtifactsAfter ? 'Relay prompt-history firebreak removed a surviving runtime artifact.' : 'Relay sanitized historical assistant media before Story Model generation.',
+        details: {
+          messagesChecked: checked.length,
+          messagesChanged,
+          runtimeArtifactsBefore,
+          runtimeArtifactsAfter,
+          historicalRequestsRemoved,
+          storyPromptInterceptions: interceptionCounter,
+          interceptorRegistrationActive: Boolean(interceptorDisposer),
+          interceptorPermissionGranted: spindle.permissions.has('interceptor'),
+          messageMetrics: promptHistoryMetrics,
+        },
+      })
+      if (runtimeArtifactsAfter) appendStateLog(state, {
+        severity: 'warning', stage: 'prompt-history-firebreak', eventType: 'prompt_history_runtime_artifact_survived', chatId,
+        message: 'A Relay runtime artifact survived primary sanitization and was removed by the fail-closed firebreak.',
+        details: { storyPromptInterceptions: interceptionCounter, affectedMessages: checked.filter(metric => metric.runtimeArtifactsRemainAfter).length },
+      })
+    })
     try {
       const state = await getState(chatId, context?.userId)
       const routerConfig = await getConfig(context?.userId)
@@ -1821,6 +1964,23 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
         }
         return { ...message, content } as LlmMessage
       })
+      const promptContractBlocks = [macroUtility.content, narrativeUtility.content, illustratorPrompt].filter(Boolean)
+      const promptCopiesBefore = {
+        relaySurfaceContractCopies: exactBlockCopies(macroResolvedMessages, macroUtility.content),
+        narrativeContractCopies: exactBlockCopies(macroResolvedMessages, narrativeUtility.content),
+        illustratorContractCopies: exactBlockCopies(macroResolvedMessages, illustratorPrompt),
+      }
+      const dedupedMacroMessages = dedupePromptContractWrappers(dedupeExactPromptContractCopies(macroResolvedMessages, promptContractBlocks))
+      const promptCopiesAfter = {
+        relaySurfaceContractCopies: exactBlockCopies(dedupedMacroMessages, macroUtility.content),
+        narrativeContractCopies: exactBlockCopies(dedupedMacroMessages, narrativeUtility.content),
+        illustratorContractCopies: exactBlockCopies(dedupedMacroMessages, illustratorPrompt),
+      }
+      await mutateState(chatId, context?.userId, next => appendStateLog(next, {
+        severity: 'debug', stage: 'prompt-contract-injection', eventType: 'prompt_contract_injection_inspected', chatId,
+        message: 'Relay inspected the compiled prompt for duplicate current contract copies.',
+        details: { before: promptCopiesBefore, after: promptCopiesAfter, duplicatesRemoved: Object.values(promptCopiesBefore).reduce((sum, count) => sum + Math.max(0, count - 1), 0) },
+      }))
 
       const automaticUtility = studio.utilityInjectionEnabled && !surfaceMacroExpanded
         ? buildEnabledSurfaceUtility(studio, 'automatic')
@@ -1836,9 +1996,9 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
       const combined = [automaticSurfaceProtocol, automaticUtility?.content || '', automaticNarrative, automaticIllustrator, automaticRuntime].filter(Boolean).join('\n\n')
       if (!combined) {
         if (surfaceMacroExpanded) schedulePromptInjectionRecord(chatId, 'macro', 'macro-placement', macroUtility.moduleIds, `Expanded ${macroUtility.moduleIds.length} enabled surface module${macroUtility.moduleIds.length === 1 ? '' : 's'} at the placed macro.`, context?.userId)
-        return macroResolvedMessages
+        return dedupedMacroMessages
       }
-      const inserted = insertPromptDirective(macroResolvedMessages, combined, studio.utilityInjectionPosition || 'after-chat-history')
+      const inserted = insertPromptDirective(dedupedMacroMessages, combined, studio.utilityInjectionPosition || 'after-chat-history')
       const injectedNames = [
         automaticSurfaceProtocol ? 'surface protocol' : '',
         automaticUtility ? `surfaces (${automaticUtility.moduleIds.join(', ') || 'none'})` : '',
@@ -1851,8 +2011,18 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
       } else if (surfaceMacroExpanded) {
         schedulePromptInjectionRecord(chatId, 'macro', 'macro-placement', macroUtility.moduleIds, `Expanded ${macroUtility.moduleIds.length} enabled surface module${macroUtility.moduleIds.length === 1 ? '' : 's'} at the placed macro.`, context?.userId)
       }
+      const finalMessages = dedupePromptContractWrappers(dedupeExactPromptContractCopies(inserted.messages, promptContractBlocks))
+      await mutateState(chatId, context?.userId, next => appendStateLog(next, {
+        severity: 'debug', stage: 'prompt-contract-compiled', eventType: 'prompt_contract_compiled', chatId,
+        message: 'Relay verified current contract copy counts in the final Story Model prompt.',
+        details: {
+          relaySurfaceContractCopies: exactBlockCopies(finalMessages, macroUtility.content),
+          narrativeContractCopies: exactBlockCopies(finalMessages, narrativeUtility.content),
+          illustratorContractCopies: exactBlockCopies(finalMessages, illustratorPrompt),
+        },
+      }))
       return {
-        messages: inserted.messages,
+        messages: finalMessages,
         breakdown: [{
           messageIndex: inserted.index,
           name: 'Reverie Relay Prompt Injection',
@@ -1873,12 +2043,15 @@ export function ensureInterceptorRegistered(): boolean {
   if (!spindle.permissions.has('interceptor')) return false
   const dispose = (registerInterceptor as any).call(spindle, relayPromptInterceptor, { priority: 20 })
   interceptorDisposer = typeof dispose === 'function' ? dispose : () => {}
+  interceptorRegistrationEpoch += 1
+  interceptorRegisteredAt = Date.now()
   return true
 }
 
 function releaseInterceptorRegistration(): void {
   const dispose = interceptorDisposer
   interceptorDisposer = null
+  interceptorRegisteredAt = 0
   try { dispose?.() } catch (error) {
     spindle.log.warn(`[Reverie Relay] Interceptor unregister failed: ${error instanceof Error ? error.message : String(error)}`)
   }
@@ -1975,6 +2148,27 @@ for (const macro of [
 spindle.on('GENERATION_STARTED', (payload: any, userId?: string) => {
   const chatId = cleanString(payload?.chatId || payload?.chat_id)
   if (chatId) activeStreamingSurfaceChats.add(chatId)
+  if (chatId && interceptorDisposer && spindle.permissions.has('interceptor')) {
+    const latest = latestPromptInterceptionByChat.get(chatId)
+    const consumed = consumedPromptInterceptionByChat.get(chatId) || 0
+    if (latest && latest.counter > consumed) {
+      consumedPromptInterceptionByChat.set(chatId, latest.counter)
+    } else {
+      void mutateState(chatId, userId, state => appendStateLog(state, {
+        severity: 'warning', stage: 'prompt-history-interceptor', eventType: 'story_prompt_interception_missing', chatId,
+        message: 'Story Model generation started while Relay expected its prompt-history interceptor, but no new interception was observed.',
+        details: {
+          storyPromptInterceptions,
+          lastChatInterception: latest?.counter || 0,
+          lastConsumedInterception: consumed,
+          interceptorRegistrationActive: true,
+          interceptorPermissionGranted: true,
+          interceptorRegistrationEpoch,
+          interceptorRegisteredAt,
+        },
+      })).catch(error => spindle.log.warn(`[Reverie Relay:story_prompt_interception_missing] ${error instanceof Error ? error.message : String(error)}`))
+    }
+  }
   warmRenderSnapshot(chatId, userId)
   void recordLifecycleEvent('generation-started', payload, userId)
 })
@@ -2186,6 +2380,37 @@ async function handleGenerationEnded(payload: any, userId?: string): Promise<voi
 
   if (payload?.error || !payload?.chatId || !payload?.messageId || !payload?.content) return
   const runtime = latestIllustratorRuntimeByChat.get(cleanString(payload.chatId))
+  const runtimeCountMode = cleanString(runtime?.directive.match(/<count_mode>([^<]+)<\/count_mode>/i)?.[1]).toLocaleLowerCase()
+  const inlineCountMode = runtimeCountMode === 'fixed' ? 'fixed' : runtimeCountMode === 'minimum' ? 'minimum' : 'unknown'
+  const runtimeExpectedTag = inlineCountMode === 'minimum' ? 'minimum_count' : 'target_count'
+  const runtimeExpectedMatch = runtime?.directive.match(new RegExp(`<${runtimeExpectedTag}>(\\d+)<\\/${runtimeExpectedTag}>`, 'i'))
+  const expectedInlineIllustrations = runtimeExpectedMatch ? Number(runtimeExpectedMatch[1]) : null
+  const expectPlotSparks = config.narrativeDlcEnabled && config.narrativeDlcUtilityNames.some(name => name === 'Chaos Hooks' || name === 'Plot Sparks')
+  const outputInspection = inspectStoryModelOutputContracts(payloadContent, { expectedInlineIllustrations, inlineCountMode, expectPlotSparks })
+  if (!outputInspection.valid) {
+    await mutateState(cleanString(payload.chatId), userId, state => {
+      appendStateLog(state, {
+        severity: 'warning', stage: 'story-output-contract', eventType: 'story_output_contract_violation',
+        chatId: cleanString(payload.chatId), messageId: cleanString(payload.messageId), swipeId: Number(payload?.swipeId ?? payload?.swipe_id ?? 0),
+        message: 'The Story Model response did not satisfy the active Relay output contract.',
+        details: outputInspection as unknown as Record<string, unknown>,
+      })
+      if (outputInspection.modelAuthoredRuntimeArtifacts.detected) appendStateLog(state, {
+        severity: 'error', stage: 'story-output-ownership', eventType: 'model_authored_relay_runtime_artifact',
+        chatId: cleanString(payload.chatId), messageId: cleanString(payload.messageId), swipeId: Number(payload?.swipeId ?? payload?.swipe_id ?? 0),
+        message: 'Story Model emitted Relay runtime output instead of canonical authoring syntax. Fake result markup was not accepted as generation ownership.',
+        details: {
+          artifactKinds: outputInspection.modelAuthoredRuntimeArtifacts.artifactKinds,
+          count: outputInspection.modelAuthoredRuntimeArtifacts.count,
+          contentFingerprint: contentFingerprint(payloadContent),
+        },
+      })
+    })
+    if (outputInspection.modelAuthoredRuntimeArtifacts.detected) spindle.sendToFrontend({
+      type: 'relay_notice', level: 'warning',
+      message: 'Story Model emitted Relay runtime output instead of authoring syntax. Relay rejected it as image ownership; regenerate or retry the response.',
+    }, userId)
+  }
   if (runtime && Date.now() - runtime.createdAt < 15 * 60_000 && /<mode>(?:model-placed|inline-protocol)<\/mode>/i.test(runtime.directive) && /<request_illustrations>true<\/request_illustrations>/i.test(runtime.directive) && !/<minimum_count>0<\/minimum_count>/i.test(runtime.directive) && !payloadHasProseIllustration) {
     const state = await getState(cleanString(payload.chatId), userId)
     const settings = proseSettingsForChat(state, cleanString(payload.chatId))
@@ -3176,7 +3401,6 @@ async function exportNarrativeSurfaceToLorebook(payload: Extract<FrontendMessage
 async function reconcileInstalledNarrativeOnStartup(userId?: string): Promise<void> {
   const scope = userId || '__default__'
   if (narrativeStartupReconciledUsers.has(scope)) return
-  narrativeStartupReconciledUsers.add(scope)
   const current = await getConfig(userId)
   if (!current.narrativeDlcEnabled || !current.narrativeDlcLastSync?.installed) return
   const variant = narrativeVariantForSurfaceShellMode(current.surfaceDefaultShellMode)
@@ -3186,6 +3410,7 @@ async function reconcileInstalledNarrativeOnStartup(userId?: string): Promise<vo
       ? inspected
       : await reconcileNarrativeRegex(spindle.regex_scripts, variant, userId)
     await setConfig({ narrativeDlcVariant: variant, narrativeDlcLastSync: health }, userId)
+    narrativeStartupReconciledUsers.add(scope)
   } catch (error) {
     spindle.log.warn(`[Reverie Relay] Installed Narrative Regex startup reconciliation failed: ${error instanceof Error ? error.message : String(error)}`)
   }
@@ -5246,6 +5471,16 @@ async function discardRelayBatch(chatId: string, batchId: string, userId?: strin
   await sendState(userId, chatId)
 }
 
+function hasTrustedRelayMarkerOwnership(state: StateFile, key: string, marker: { kind: 'resolved' | 'failed'; imageId: string; imageUrl: string }): boolean {
+  return isRelayRuntimeMarkerTrusted({
+    kind: marker.kind,
+    imageId: marker.imageId,
+    imageUrl: marker.imageUrl,
+    existingRecord: state.slots[key],
+    assets: Object.values(state.assetLibrary.assets || {}),
+  })
+}
+
 async function rescanChatForSlots(chatId: string, userId?: string, automatic = false, requestedIncludeInactive?: boolean): Promise<void> {
   const startedAt = Date.now()
   const lockKey = `${userId || 'default'}:${chatId}`
@@ -5352,6 +5587,15 @@ async function rescanChatForSlots(chatId: string, userId?: string, automatic = f
           if (marker.kind === 'resolved') summary.resolvedMarkersFound += 1
           else summary.errorMarkersFound += 1
           const key = slotKey({ chatId, messageId: message.id, swipeId, requestId: marker.requestId, slot: marker.slot })
+          if (!hasTrustedRelayMarkerOwnership(stateAtScanStart, key, marker)) {
+            summary.malformedSources += 1
+            malformed.push({
+              messageId: message.id, swipeId, requestId: marker.requestId, slot: marker.slot,
+              message: 'Relay-looking runtime markup had no matching extension-owned state and was rejected as ownership evidence.',
+              details: { artifactKinds: relayRuntimeArtifactKinds(content), contentFingerprint: fingerprint, ownershipTrusted: false },
+            })
+            continue
+          }
           const count = marker.target === 'instagram.carousel' ? Math.max(1, markerCounts.get(`${marker.requestId}:${marker.target}`) || 1) : 1
           const imageAvailable = marker.kind === 'resolved' ? await isStoredImageAvailable(marker.imageId, userId) : false
           const status = marker.kind === 'resolved' ? (imageAvailable ? 'completed' : 'image-unavailable') : 'failed'
@@ -11349,6 +11593,10 @@ function buildParserFallbackPrompt(
 
 async function syncNativeSettings(imageGeneration: NativeImageSettings, userId?: string): Promise<RouterConfig> {
   const current = await getConfig(userId)
+  if (!configStorageHydratedScopes.has(userConfigCacheKey(userId))) {
+    spindle.log.warn('[Reverie Relay] Native settings sync deferred until persisted Relay configuration is available.')
+    return current
+  }
   const patch: Partial<RouterConfig> = {
     nativeImageSettingsSnapshot: cloneRecord(imageGeneration),
     nativeSettingsCapturedAt: Date.now(),
@@ -11382,7 +11630,22 @@ export async function getConfig(userId?: string): Promise<RouterConfig> {
   const cacheKey = userConfigCacheKey(userId)
   const cached = configCache.get(cacheKey)
   if (cached && Date.now() - cached.cachedAt < CONFIG_CACHE_TTL_MS) return cached.value
-  const raw = await spindle.userStorage.getJson<Partial<RouterConfig>>(CONFIG_PATH, { fallback: DEFAULT_CONFIG, userId })
+  const probe = `reverie-relay-config-probe-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  let raw: Partial<RouterConfig> | null = null
+  for (const delayMs of [0, 40, 120, 360, 800]) {
+    if (delayMs) await new Promise<void>(resolve => setTimeout(resolve, delayMs))
+    const candidate = await spindle.userStorage.getJson<Partial<RouterConfig> & { __relayStorageProbe?: string }>(CONFIG_PATH, {
+      fallback: { __relayStorageProbe: probe }, userId,
+    })
+    if (candidate?.__relayStorageProbe !== probe) {
+      raw = candidate || {}
+      configStorageHydratedScopes.add(cacheKey)
+      break
+    }
+  }
+  // A genuinely new install has no config after the bounded readiness window.
+  // Crucially, no default object is written merely because a cold host returned
+  // its fallback before extension storage finished hydrating.
   const value = normalizeConfig(raw || {})
   configCache.set(cacheKey, { value, cachedAt: Date.now() })
   return value
@@ -11400,6 +11663,7 @@ export async function setConfig(patch: Partial<RouterConfig>, userId?: string): 
     const current = await getConfig(userId)
     const next = normalizeConfig({ ...current, ...patch })
     await spindle.userStorage.setJson(CONFIG_PATH, next, { indent: 2, userId })
+    configStorageHydratedScopes.add(key)
     configCache.set(key, { value: next, cachedAt: Date.now() })
     if (renderConfigurationFingerprint(current) !== renderConfigurationFingerprint(next)) {
       invalidateRenderCaches(undefined, userId)

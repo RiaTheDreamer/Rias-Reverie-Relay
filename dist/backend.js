@@ -28,14 +28,98 @@ var ROUTER_COMMENT = "reverie-relay:image";
 var ROUTER_ERROR_COMMENT = "reverie-relay:image-error";
 var LEGACY_ROUTER_COMMENT = "dreamglass:image";
 var LEGACY_ROUTER_ERROR_COMMENT = "dreamglass:image-error";
-var RELAY_PROMPT_MARKDOWN_IMAGE_RE = /(?:\n\s*)*!\[reverie-relay\]\(\/api\/v1\/(?:images|image-gen\/results)\/[^)\s]+\)/gi;
+var RELAY_PROMPT_MARKDOWN_IMAGE_RE = /(?:\n\s*)*!\[reverie-relay\]\(\s*\/api\/v1\/(?:images|image-gen\/results)\/[^)\s]+(?:\s+["'][^"']*["'])?\s*\)/gi;
 var RELAY_OWNERSHIP_MARKER_RE = /<!--\s*(?:reverie-relay|dreamglass):image(?:-error)?\b[\s\S]*?-->/gi;
 var RELAY_PROMPT_SCENE_IMAGE_RE = /<scene_image\b[^>]*>[\s\S]*?<\/scene_image>/gi;
-var RELAY_PROMPT_OWNED_IMAGE_RE = /<img\b(?=[^>]*\bdata-dgir-(?:key|request-id|image-id)\s*=)[^>]*>/gi;
-var RELAY_PROMPT_REQUEST_RE = /<(?:reverie-illustration|image_request|image_request_error)\b[^>]*>[\s\S]*?<\/(?:reverie-illustration|image_request|image_request_error)>/gi;
-var LEGACY_DREAMGLASS_REQUEST_RE = /<dreamglass(?:[-_:][a-z0-9_-]+)?\b[^>]*>[\s\S]*?<\/dreamglass(?:[-_:][a-z0-9_-]+)?>/gi;
-function sanitizeRelayPromptHistoryText(value) {
-  return String(value || "").replace(RELAY_PROMPT_MARKDOWN_IMAGE_RE, "").replace(RELAY_OWNERSHIP_MARKER_RE, "").replace(RELAY_PROMPT_SCENE_IMAGE_RE, "").replace(RELAY_PROMPT_OWNED_IMAGE_RE, "").replace(RELAY_PROMPT_REQUEST_RE, "").replace(LEGACY_DREAMGLASS_REQUEST_RE, "");
+var RELAY_PROMPT_OWNED_IMAGE_RE = /<img\b(?=[^>]*(?:\bdata-dgir-[\w:-]+\s*=|\bdata-reverie-artifact-media\s*=|\bclass\s*=\s*["'][^"']*\breverie-artifact-media\b|\bsrc\s*=\s*["']\/api\/v1\/(?:images|image-gen\/results)\/))[^>]*\/?\s*>/gi;
+var RELAY_PROMPT_REVERIE_REQUEST_RE = /<reverie-illustration\b[^>]*>[\s\S]*?<\/reverie-illustration\s*>/gi;
+var RELAY_PROMPT_IMAGE_REQUEST_RE = /<image_request(?:_error)?\b[^>]*(?:\/>|>[\s\S]*?<\/image_request(?:_error)?\s*>)/gi;
+var LEGACY_DREAMGLASS_REQUEST_RE = /<dreamglass(?:[-_:][a-z0-9_-]+)?\b[^>]*(?:\/>|>[\s\S]*?<\/dreamglass(?:[-_:][a-z0-9_-]+)?\s*>)/gi;
+var RELAY_RUNTIME_RESULT_URL_RE = /\/api\/v1\/(?:images|image-gen\/results)\/[^\s<>)"']+/gi;
+var RELAY_RUNTIME_DGIR_TOKEN_RE = /\bdata-dgir-(?:key|request-id|slot|image-id|message-id|swipe-id|custom-target)\s*=/gi;
+var RELAY_RUNTIME_ARTIFACT_TOKEN_RE = /\b(?:data-reverie-artifact-media\s*=|class\s*=\s*["'][^"']*\breverie-artifact-media\b)/gi;
+var HISTORICAL_RELAY_MEDIA_PLACEHOLDER = "[historical Relay illustration omitted]";
+function regexCount(value, pattern) {
+  return [...value.matchAll(new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`))].length;
+}
+function relayRuntimeArtifactKinds(value) {
+  const text = String(value || "");
+  const kinds = [];
+  if (regexCount(text, RELAY_OWNERSHIP_MARKER_RE))
+    kinds.push("ownership-comment");
+  if (regexCount(text, RELAY_PROMPT_MARKDOWN_IMAGE_RE) || /!\[reverie-relay\]\s*\(/i.test(text))
+    kinds.push("relay-markdown-result");
+  if (regexCount(text, RELAY_RUNTIME_RESULT_URL_RE))
+    kinds.push("result-url");
+  if (regexCount(text, RELAY_RUNTIME_DGIR_TOKEN_RE) || /\bdata-dgir-/i.test(text))
+    kinds.push("data-dgir");
+  if (regexCount(text, RELAY_RUNTIME_ARTIFACT_TOKEN_RE) || /\breverie-artifact-media\b/i.test(text))
+    kinds.push("artifact-media");
+  return kinds;
+}
+function replaceWithHistoricalMediaPlaceholder(value, pattern) {
+  return value.replace(pattern, HISTORICAL_RELAY_MEDIA_PLACEHOLDER);
+}
+function collapseHistoricalMediaPlaceholders(value) {
+  const escaped = HISTORICAL_RELAY_MEDIA_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return value.replace(new RegExp(`(?:\\s*${escaped}){2,}`, "g"), `
+${HISTORICAL_RELAY_MEDIA_PLACEHOLDER}`).replace(/[ \t]+\n/g, `
+`).replace(/\n{3,}/g, `
+
+`);
+}
+function sanitizeRelayPromptHistoryTextWithReport(value) {
+  const before = String(value || "");
+  const kindsBefore = relayRuntimeArtifactKinds(before);
+  const removed = {
+    ownershipComments: regexCount(before, RELAY_OWNERSHIP_MARKER_RE),
+    relayMarkdownResultImages: regexCount(before, RELAY_PROMPT_MARKDOWN_IMAGE_RE),
+    dataDgirImages: regexCount(before, RELAY_PROMPT_OWNED_IMAGE_RE),
+    rawHistoricalReverieIllustrationRequests: regexCount(before, RELAY_PROMPT_REVERIE_REQUEST_RE),
+    rawHistoricalImageRequestBlocks: regexCount(before, RELAY_PROMPT_IMAGE_REQUEST_RE),
+    legacyDreamglassRequests: regexCount(before, LEGACY_DREAMGLASS_REQUEST_RE)
+  };
+  let text = before;
+  text = replaceWithHistoricalMediaPlaceholder(text, RELAY_PROMPT_SCENE_IMAGE_RE);
+  text = replaceWithHistoricalMediaPlaceholder(text, RELAY_PROMPT_OWNED_IMAGE_RE);
+  text = replaceWithHistoricalMediaPlaceholder(text, RELAY_PROMPT_MARKDOWN_IMAGE_RE);
+  text = replaceWithHistoricalMediaPlaceholder(text, RELAY_OWNERSHIP_MARKER_RE);
+  text = replaceWithHistoricalMediaPlaceholder(text, RELAY_PROMPT_REVERIE_REQUEST_RE);
+  text = replaceWithHistoricalMediaPlaceholder(text, RELAY_PROMPT_IMAGE_REQUEST_RE);
+  text = replaceWithHistoricalMediaPlaceholder(text, LEGACY_DREAMGLASS_REQUEST_RE);
+  let firebreakFragmentsRemoved = 0;
+  const firebreakPatterns = [
+    RELAY_PROMPT_OWNED_IMAGE_RE,
+    RELAY_PROMPT_MARKDOWN_IMAGE_RE,
+    RELAY_OWNERSHIP_MARKER_RE,
+    RELAY_RUNTIME_RESULT_URL_RE
+  ];
+  for (const pattern of firebreakPatterns) {
+    const count = regexCount(text, pattern);
+    if (!count)
+      continue;
+    firebreakFragmentsRemoved += count;
+    text = replaceWithHistoricalMediaPlaceholder(text, pattern);
+  }
+  text = text.replace(/^.*(?:data-dgir-|data-reverie-artifact-media|reverie-artifact-media).*$/gim, () => {
+    firebreakFragmentsRemoved += 1;
+    return HISTORICAL_RELAY_MEDIA_PLACEHOLDER;
+  });
+  text = collapseHistoricalMediaPlaceholders(text);
+  const kindsAfter = relayRuntimeArtifactKinds(text);
+  return {
+    text,
+    textLengthBefore: before.length,
+    textLengthAfter: text.length,
+    contentHashBefore: contentFingerprint(before),
+    contentHashAfter: contentFingerprint(text),
+    runtimeArtifactsDetectedBefore: kindsBefore.length > 0,
+    runtimeArtifactsRemainAfter: kindsAfter.length > 0,
+    runtimeArtifactKindsBefore: kindsBefore,
+    runtimeArtifactKindsAfter: kindsAfter,
+    removed,
+    firebreakFragmentsRemoved
+  };
 }
 function contentFingerprint(content) {
   let hash = 2166136261;
@@ -57,6 +141,79 @@ var MAX_COUNT = 4;
 var MAX_PROMPT_CHARS = 6000;
 var PROSE_ILLUSTRATION_ASPECTS = new Set(["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9"]);
 var PROSE_ILLUSTRATION_CASTS = new Set(["char", "user", "char+user", "none"]);
+var PLOT_SPARK_VECTOR_BY_KEY = {
+  a: "detonation",
+  b: "heartknife",
+  c: "wrongness",
+  d: "crash-in",
+  e: "matchstrike",
+  f: "reputation-fire",
+  g: "wildcard-collision"
+};
+function readMarkupAttribute(source, name) {
+  const match = source.match(new RegExp(`\\b${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, "i"));
+  return match?.[2]?.trim() || "";
+}
+function runtimeArtifactOccurrenceCount(value) {
+  return regexCount(value, RELAY_OWNERSHIP_MARKER_RE) + regexCount(value, RELAY_PROMPT_MARKDOWN_IMAGE_RE) + regexCount(value, RELAY_PROMPT_OWNED_IMAGE_RE) + regexCount(value, RELAY_RUNTIME_RESULT_URL_RE);
+}
+function removePlotSparkPayloads(value) {
+  return value.replace(/<chaos_payload\b[^>]*>[\s\S]*?<\/chaos_payload\s*>/gi, "");
+}
+function inspectStoryModelOutputContracts(value, options = {}) {
+  const text = String(value || "");
+  const inlineSource = removePlotSparkPayloads(text);
+  const canonicalInline = [...inlineSource.matchAll(/<reverie-illustration\b[^>]*\brequest\s*=\s*["']generate["'][^>]*>[\s\S]*?<visual_prompt\b[^>]*>\s*[^<\s][\s\S]*?<\/visual_prompt\s*>[\s\S]*?<\/reverie-illustration\s*>/gi)];
+  const expected = Number.isFinite(Number(options.expectedInlineIllustrations)) ? Math.max(0, Number(options.expectedInlineIllustrations)) : null;
+  const countMode = options.inlineCountMode || "unknown";
+  const inlineValid = expected === null ? true : countMode === "minimum" ? canonicalInline.length >= expected : canonicalInline.length === expected;
+  const payloads = [...text.matchAll(/<chaos_payload\b[^>]*>[\s\S]*?<\/chaos_payload\s*>/gi)];
+  const hooks = payloads.flatMap((payload) => [...payload[0].matchAll(/<chaos_hook\b([^>]*)>([\s\S]*?)<\/chaos_hook\s*>/gi)]);
+  const keysSeen = [];
+  const vectorsSeen = [];
+  const missingMedia = [];
+  const vectorMismatches = [];
+  for (let index = 0;index < hooks.length; index += 1) {
+    const attrs = hooks[index][1] || "";
+    const body = hooks[index][2] || "";
+    const key = readMarkupAttribute(attrs, "key").toLocaleLowerCase();
+    const vector = readMarkupAttribute(attrs, "vector").toLocaleLowerCase();
+    keysSeen.push(key);
+    vectorsSeen.push(vector);
+    const expectedVector = PLOT_SPARK_VECTOR_BY_KEY[key];
+    if (expectedVector && vector !== expectedVector)
+      vectorMismatches.push({ key, expected: expectedVector, actual: vector });
+    const hookText = body.match(/<hook_text\b[^>]*>([\s\S]*?)<\/hook_text\s*>/i)?.[1]?.trim() || "";
+    const hookMedia = body.match(/<hook_media\b[^>]*>([\s\S]*?)<\/hook_media\s*>/i)?.[1] || "";
+    const canonicalMedia = /<reverie-illustration\b[^>]*\brequest\s*=\s*["']generate["'][^>]*>[\s\S]*?<visual_prompt\b[^>]*>\s*[^<\s][\s\S]*?<\/visual_prompt\s*>[\s\S]*?<\/reverie-illustration\s*>/i.test(hookMedia);
+    if (!hookText || !canonicalMedia)
+      missingMedia.push(key || `hook-${index + 1}`);
+  }
+  const requiredKeys = Object.keys(PLOT_SPARK_VECTOR_BY_KEY);
+  const missingKeys = requiredKeys.filter((key) => !keysSeen.includes(key));
+  const duplicateKeys = [...new Set(keysSeen.filter((key, index) => key && keysSeen.indexOf(key) !== index))];
+  const plotValid = !options.expectPlotSparks && payloads.length === 0 || payloads.length === 1 && hooks.length === requiredKeys.length && missingKeys.length === 0 && duplicateKeys.length === 0 && vectorMismatches.length === 0 && missingMedia.length === 0;
+  const artifactKinds = relayRuntimeArtifactKinds(text);
+  const runtimeArtifacts = {
+    detected: artifactKinds.length > 0,
+    artifactKinds,
+    count: runtimeArtifactOccurrenceCount(text)
+  };
+  return {
+    inline: { expectedIllustrations: expected, actualCanonicalIllustrations: canonicalInline.length, countMode, valid: inlineValid },
+    plotSparks: { payloadCount: payloads.length, hookCount: hooks.length, keysSeen, vectorsSeen, missingKeys, duplicateKeys, vectorMismatches, missingMedia, valid: plotValid },
+    modelAuthoredRuntimeArtifacts: runtimeArtifacts,
+    valid: inlineValid && plotValid && !runtimeArtifacts.detected
+  };
+}
+function isRelayRuntimeMarkerTrusted(input) {
+  const record = input.existingRecord;
+  if (record && (input.kind === "failed" || record.imageId === input.imageId || record.imageUrl === input.imageUrl))
+    return true;
+  if (input.kind !== "resolved" || !input.imageId)
+    return false;
+  return (input.assets || []).some((asset) => asset.imageId === input.imageId && asset.imageUrl === input.imageUrl);
+}
 function normalizeProseIllustrationContracts(content) {
   const repairs = [];
   const re = /<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi;
@@ -1193,6 +1350,14 @@ For object or environment compositions with neither bound identity visible, use 
 ASPECT AND MEDIA
 
 Keep 4:3 as the general story default. Prefer 16:9 or 3:2 for environmental, multi-plane, spatial, or ensemble compositions. Use 3:4 only when a genuinely vertical composition benefits. Do not select portrait orientation merely because people are visible, and do not let close character framing silently force portrait orientation. Respect the runtime aspect policy and supported aspect list.
+
+MANDATORY COMPLETION LOCK
+
+Mandatory structured contracts outrank prose length. If the response budget becomes tight, shorten nonessential prose and optional utility wording before dropping required structure.
+
+BEFORE ENDING RESPONSE: Count current-turn raw <reverie-illustration> requests belonging to Inline story illustrations. In fixed mode, the count MUST equal target_count. In minimum mode, it MUST meet minimum_count. Resolved historical images do not count. Relay result Markdown, Relay runtime <img> markup, and Surface or Narrative Utility media do not count toward the Inline story-illustration requirement. Never replace a required raw current request with resolved Relay runtime syntax.
+
+Do not silently drop required Inline illustrations, required Utility media, required closing tags, or the final required portion of a structured payload merely because prose became long. Repair the current response before stopping.
 
 SLOT AND OUTPUT
 
@@ -153052,7 +153217,6 @@ var NARRATIVE_BLOCK_SPACING_STYLE = `<style data-reverie-narrative-block-spacing
 </style>`;
 var safeMessageId2 = (value) => String(value || "narrative").replace(/[^A-Za-z0-9_-]+/g, "-") || "narrative";
 var NARRATIVE_MARKUP = /\[(?:SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i;
-var NARRATIVE_FAILED_MEDIA = /<image_request_error\b|<!--\s*(?:reverie-relay|dreamglass):image-error\b/i;
 var NARRATIVE_UTILITY_PACK = Reverie_Narrative_Utilities_v6_3_FINAL_with_Character_Phone_default;
 var NARRATIVE_REGEX_VARIANTS = ["sparkle-button", "plain-button", "inline"];
 var NARRATIVE_UTILITY_DISPLAY_NAMES = {
@@ -153187,7 +153351,10 @@ function normalizeFlatArchiveDossiers(markup) {
   });
 }
 function normalizeNarrativeMarkupForRendering(markup) {
-  return normalizeFlatArchiveDossiers(String(markup || "")).replace(/(\[(character_phone|private_phone)\b[^\]]*\])([\s\S]*?)\[\/\2\]/gi, (_full, opening, root, body) => {
+  return normalizeFlatArchiveDossiers(String(markup || "")).replace(/<(character_phone|private_phone)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi, (_full, root, body) => {
+    const repairedBody = body.replace(/<\/(cp_[A-Za-z][A-Za-z0-9_]*)>/gi, "[/$1]");
+    return `[${root}]${repairedBody}[/${root}]`;
+  }).replace(/(\[(character_phone|private_phone)\b[^\]]*\])([\s\S]*?)\[\/\2\]/gi, (_full, opening, root, body) => {
     const repairedBody = body.replace(/<\/(cp_[A-Za-z][A-Za-z0-9_]*)>/gi, "[/$1]");
     return `${opening}${repairedBody}[/${root}]`;
   }).replace(/(\[cp_battery\]\s*[0-9]{1,3}\s*\[\/cp_battery\])\s*(?=\[cp_apps\])/gi, "$1[cp_wallpaper][/cp_wallpaper]").replace(/<parallel-media>\s*<\/parallel-media>/gi, "<parallel-media></parallel-media>");
@@ -153238,8 +153405,8 @@ function narrativeRegexScripts(variant) {
 function containsNarrativeRegexMarkup(markup) {
   return NARRATIVE_MARKUP.test(String(markup || ""));
 }
-function shouldRelayRenderNarrativeMarkup(markup, rendererMode) {
-  return rendererMode !== "legacy-regex" || NARRATIVE_FAILED_MEDIA.test(String(markup || ""));
+function shouldRelayRenderNarrativeMarkup(_markup, _rendererMode) {
+  return true;
 }
 function narrativeLorebookKind(scriptId) {
   if (scriptId === "reverie_npc_intro_images_v1")
@@ -153506,9 +153673,20 @@ async function removeNarrativeRegex(api, variant, userId) {
   const base = { status: "removed", variant, expected: narrativeRegexScripts(variant).length, installed: 0, healthy: 0, drifted: 0, blocked: 0, updatedAt: Date.now() };
   return { ...base, message: healthMessage(base) };
 }
+var PLOT_SPARK_COMPLETION_LOCK = `PLOT SPARKS STRUCTURAL LOCK \u2014 BEFORE ENDING RESPONSE
+
+Mandatory structured contracts outrank prose length. Shorten nonessential prose before dropping required Plot Sparks structure.
+
+Verify exactly seven hooks with each key exactly once and this exact mapping:
+${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key} = ${vector}`).join(`
+`)}
+
+Every hook_text must be non-empty. Every hook_media must be non-empty and contain one complete canonical raw current <reverie-illustration request="generate"> with a non-empty <visual_prompt>. Plot Sparks D\u2013G and required closing tags may never be silently dropped. Resolved historical images and Relay runtime markup do not count. If any check fails, fix the Plot Sparks block before stopping.`;
 function buildNarrativeUtilityPrompt(selectedNames = narrativeUtilityNames()) {
   const allow = new Set(selectedNames);
-  const items = narrativeUtilityItems().filter((item) => allow.has(item.loomName) && String(item.loomContent || "").trim());
+  const items = narrativeUtilityItems().filter((item) => allow.has(item.loomName) && String(item.loomContent || "").trim()).map((item) => item.loomName === "Chaos Hooks" ? { ...item, loomContent: `${item.loomContent}
+
+${PLOT_SPARK_COMPLETION_LOCK}` } : item);
   return {
     content: items.length ? `<reverie_narrative_utility contract="narrative" version="${NARRATIVE_DLC_VERSION}" utilities="${items.map((item) => applyNarrativeDisplayNames(item.loomName)).join(", ")}">
 ${items.map((item) => applyNarrativeDisplayNames(item.loomContent)).join(`
@@ -153653,13 +153831,43 @@ function narrativeVariantForSurfaceShellMode(shellMode) {
     return "plain-button";
   return "inline";
 }
-function sanitizeRelayPromptMessage(message) {
-  if (typeof message.content === "string") {
-    return { ...message, content: sanitizeRelayPromptHistoryText(message.content) };
-  }
-  return {
+function sanitizeRelayPromptMessageWithMetrics(message) {
+  const role = cleanString(message?.role).toLocaleLowerCase();
+  const checked = role === "assistant";
+  const textParts = typeof message.content === "string" ? [message.content] : message.content.filter((part) => part.type === "text" && typeof part.text === "string").map((part) => part.text);
+  const before = textParts.join(`
+`);
+  const reports = checked ? textParts.map(sanitizeRelayPromptHistoryTextWithReport) : [];
+  let reportIndex = 0;
+  const sanitized = !checked ? message : typeof message.content === "string" ? { ...message, content: reports[0]?.text || "" } : {
     ...message,
-    content: message.content.map((part) => part.type === "text" && typeof part.text === "string" ? { ...part, text: sanitizeRelayPromptHistoryText(part.text) } : part)
+    content: message.content.map((part) => part.type === "text" && typeof part.text === "string" ? { ...part, text: reports[reportIndex++]?.text || "" } : part)
+  };
+  const afterParts = typeof sanitized.content === "string" ? [sanitized.content] : sanitized.content.filter((part) => part.type === "text" && typeof part.text === "string").map((part) => part.text);
+  const after = afterParts.join(`
+`);
+  const sum = (key) => reports.reduce((total, report) => total + report.removed[key], 0);
+  return {
+    message: sanitized,
+    metric: {
+      role: role || "unknown",
+      checked,
+      textLengthBefore: before.length,
+      textLengthAfter: after.length,
+      runtimeArtifactsDetectedBefore: checked && reports.some((report) => report.runtimeArtifactsDetectedBefore),
+      runtimeArtifactsRemainAfter: checked && reports.some((report) => report.runtimeArtifactsRemainAfter),
+      removed: {
+        ownershipComments: sum("ownershipComments"),
+        relayMarkdownResultImages: sum("relayMarkdownResultImages"),
+        dataDgirImages: sum("dataDgirImages"),
+        rawHistoricalReverieIllustrationRequests: sum("rawHistoricalReverieIllustrationRequests"),
+        rawHistoricalImageRequestBlocks: sum("rawHistoricalImageRequestBlocks"),
+        legacyDreamglassRequests: sum("legacyDreamglassRequests")
+      },
+      firebreakFragmentsRemoved: reports.reduce((total, report) => total + report.firebreakFragmentsRemoved, 0),
+      contentHashBefore: contentFingerprint(before),
+      contentHashAfter: contentFingerprint(after)
+    }
   };
 }
 var BUILT_IN_PROMPT_PROFILES = [
@@ -153958,6 +154166,7 @@ var renderOutputCache = new BoundedLruCache({
 var CONFIG_CACHE_TTL_MS = 2500;
 var CHAT_CHARACTER_IDENTITY_CACHE_TTL_MS = 5 * 60000;
 var configCache = new BoundedLruCache({ maxEntries: 64 });
+var configStorageHydratedScopes = new Set;
 var chatCharacterIdentityCache = new BoundedLruCache({ maxEntries: 128, ttlMs: CHAT_CHARACTER_IDENTITY_CACHE_TTL_MS });
 var surfaceUtilityCache = new Map;
 var pendingPromptInjectionRecords = new Map;
@@ -154616,11 +154825,103 @@ if (typeof registerMessageContentProcessor === "function") {
   }, 35);
 }
 var registerInterceptor = spindle.registerInterceptor;
+var storyPromptInterceptions = 0;
+var interceptorRegistrationEpoch = 0;
+var interceptorRegisteredAt = 0;
+var latestPromptInterceptionByChat = new Map;
+var consumedPromptInterceptionByChat = new Map;
+function exactBlockCopies(messages, block) {
+  if (!block)
+    return 0;
+  return messages.reduce((total, message) => {
+    const content = typeof message.content === "string" ? message.content : "";
+    return total + Math.max(0, content.split(block).length - 1);
+  }, 0);
+}
+function dedupeExactPromptContractCopies(messages, blocks) {
+  const seen = new Set;
+  return messages.map((message) => {
+    if (typeof message.content !== "string")
+      return message;
+    let content = message.content;
+    for (const block of blocks.filter(Boolean)) {
+      let offset = 0;
+      while (true) {
+        const index = content.indexOf(block, offset);
+        if (index < 0)
+          break;
+        if (!seen.has(block)) {
+          seen.add(block);
+          offset = index + block.length;
+        } else {
+          content = `${content.slice(0, index)}${content.slice(index + block.length)}`;
+          offset = index;
+        }
+      }
+    }
+    return content === message.content ? message : { ...message, content };
+  });
+}
+function dedupePromptContractWrappers(messages) {
+  const seen = new Set;
+  const wrapper = /<(reverie_surface_utility|reverie_narrative_utility)\b[^>]*>[\s\S]*?<\/\1>/gi;
+  return messages.map((message) => {
+    if (typeof message.content !== "string")
+      return message;
+    const content = message.content.replace(wrapper, (block, rawTag) => {
+      const tag = rawTag.toLocaleLowerCase();
+      if (seen.has(tag))
+        return "";
+      seen.add(tag);
+      return block;
+    });
+    return content === message.content ? message : { ...message, content };
+  });
+}
 var relayPromptInterceptor = async (messages, context) => {
-  const cleaned = messages.map(sanitizeRelayPromptMessage);
+  storyPromptInterceptions += 1;
+  const interceptionCounter = storyPromptInterceptions;
+  const sanitizedRows = messages.map(sanitizeRelayPromptMessageWithMetrics);
+  const cleaned = sanitizedRows.map((row) => row.message);
+  const promptHistoryMetrics = sanitizedRows.map((row) => row.metric);
   const chatId = cleanString(context?.chatId || context?.chat_id);
   if (!chatId)
     return cleaned;
+  latestPromptInterceptionByChat.set(chatId, { counter: interceptionCounter, timestamp: Date.now() });
+  const checked = promptHistoryMetrics.filter((metric) => metric.checked);
+  const messagesChanged = checked.filter((metric) => metric.contentHashBefore !== metric.contentHashAfter).length;
+  const runtimeArtifactsBefore = checked.filter((metric) => metric.runtimeArtifactsDetectedBefore).length;
+  const runtimeArtifactsAfter = checked.filter((metric) => metric.runtimeArtifactsRemainAfter).length;
+  const historicalRequestsRemoved = checked.reduce((total, metric) => total + metric.removed.rawHistoricalReverieIllustrationRequests + metric.removed.rawHistoricalImageRequestBlocks + metric.removed.legacyDreamglassRequests, 0);
+  await mutateState(chatId, context?.userId, (state) => {
+    appendStateLog(state, {
+      severity: runtimeArtifactsAfter ? "warning" : "debug",
+      stage: "prompt-history-sanitized",
+      eventType: "prompt_history_sanitized",
+      chatId,
+      message: runtimeArtifactsAfter ? "Relay prompt-history firebreak removed a surviving runtime artifact." : "Relay sanitized historical assistant media before Story Model generation.",
+      details: {
+        messagesChecked: checked.length,
+        messagesChanged,
+        runtimeArtifactsBefore,
+        runtimeArtifactsAfter,
+        historicalRequestsRemoved,
+        storyPromptInterceptions: interceptionCounter,
+        interceptorRegistrationActive: Boolean(interceptorDisposer),
+        interceptorPermissionGranted: spindle.permissions.has("interceptor"),
+        messageMetrics: promptHistoryMetrics
+      }
+    });
+    if (runtimeArtifactsAfter)
+      appendStateLog(state, {
+        severity: "warning",
+        stage: "prompt-history-firebreak",
+        eventType: "prompt_history_runtime_artifact_survived",
+        chatId,
+        message: "A Relay runtime artifact survived primary sanitization and was removed by the fail-closed firebreak.",
+        details: { storyPromptInterceptions: interceptionCounter, affectedMessages: checked.filter((metric) => metric.runtimeArtifactsRemainAfter).length }
+      });
+  });
   try {
     const state = await getState(chatId, context?.userId);
     const routerConfig = await getConfig(context?.userId);
@@ -154678,6 +154979,26 @@ var relayPromptInterceptor = async (messages, context) => {
       }
       return { ...message, content };
     });
+    const promptContractBlocks = [macroUtility.content, narrativeUtility.content, illustratorPrompt].filter(Boolean);
+    const promptCopiesBefore = {
+      relaySurfaceContractCopies: exactBlockCopies(macroResolvedMessages, macroUtility.content),
+      narrativeContractCopies: exactBlockCopies(macroResolvedMessages, narrativeUtility.content),
+      illustratorContractCopies: exactBlockCopies(macroResolvedMessages, illustratorPrompt)
+    };
+    const dedupedMacroMessages = dedupePromptContractWrappers(dedupeExactPromptContractCopies(macroResolvedMessages, promptContractBlocks));
+    const promptCopiesAfter = {
+      relaySurfaceContractCopies: exactBlockCopies(dedupedMacroMessages, macroUtility.content),
+      narrativeContractCopies: exactBlockCopies(dedupedMacroMessages, narrativeUtility.content),
+      illustratorContractCopies: exactBlockCopies(dedupedMacroMessages, illustratorPrompt)
+    };
+    await mutateState(chatId, context?.userId, (next) => appendStateLog(next, {
+      severity: "debug",
+      stage: "prompt-contract-injection",
+      eventType: "prompt_contract_injection_inspected",
+      chatId,
+      message: "Relay inspected the compiled prompt for duplicate current contract copies.",
+      details: { before: promptCopiesBefore, after: promptCopiesAfter, duplicatesRemoved: Object.values(promptCopiesBefore).reduce((sum, count) => sum + Math.max(0, count - 1), 0) }
+    }));
     const automaticUtility = studio.utilityInjectionEnabled && !surfaceMacroExpanded ? buildEnabledSurfaceUtility(studio, "automatic") : null;
     if (!studio.utilityInjectionEnabled && !surfaceMacroExpanded)
       maybeWarnUtilityNotInjected(chatId, context?.userId);
@@ -154691,9 +155012,9 @@ var relayPromptInterceptor = async (messages, context) => {
     if (!combined) {
       if (surfaceMacroExpanded)
         schedulePromptInjectionRecord(chatId, "macro", "macro-placement", macroUtility.moduleIds, `Expanded ${macroUtility.moduleIds.length} enabled surface module${macroUtility.moduleIds.length === 1 ? "" : "s"} at the placed macro.`, context?.userId);
-      return macroResolvedMessages;
+      return dedupedMacroMessages;
     }
-    const inserted = insertPromptDirective(macroResolvedMessages, combined, studio.utilityInjectionPosition || "after-chat-history");
+    const inserted = insertPromptDirective(dedupedMacroMessages, combined, studio.utilityInjectionPosition || "after-chat-history");
     const injectedNames = [
       automaticSurfaceProtocol ? "surface protocol" : "",
       automaticUtility ? `surfaces (${automaticUtility.moduleIds.join(", ") || "none"})` : "",
@@ -154706,8 +155027,21 @@ var relayPromptInterceptor = async (messages, context) => {
     } else if (surfaceMacroExpanded) {
       schedulePromptInjectionRecord(chatId, "macro", "macro-placement", macroUtility.moduleIds, `Expanded ${macroUtility.moduleIds.length} enabled surface module${macroUtility.moduleIds.length === 1 ? "" : "s"} at the placed macro.`, context?.userId);
     }
+    const finalMessages = dedupePromptContractWrappers(dedupeExactPromptContractCopies(inserted.messages, promptContractBlocks));
+    await mutateState(chatId, context?.userId, (next) => appendStateLog(next, {
+      severity: "debug",
+      stage: "prompt-contract-compiled",
+      eventType: "prompt_contract_compiled",
+      chatId,
+      message: "Relay verified current contract copy counts in the final Story Model prompt.",
+      details: {
+        relaySurfaceContractCopies: exactBlockCopies(finalMessages, macroUtility.content),
+        narrativeContractCopies: exactBlockCopies(finalMessages, narrativeUtility.content),
+        illustratorContractCopies: exactBlockCopies(finalMessages, illustratorPrompt)
+      }
+    }));
     return {
-      messages: inserted.messages,
+      messages: finalMessages,
       breakdown: [{
         messageIndex: inserted.index,
         name: "Reverie Relay Prompt Injection",
@@ -154729,11 +155063,14 @@ function ensureInterceptorRegistered() {
     return false;
   const dispose = registerInterceptor.call(spindle, relayPromptInterceptor, { priority: 20 });
   interceptorDisposer = typeof dispose === "function" ? dispose : () => {};
+  interceptorRegistrationEpoch += 1;
+  interceptorRegisteredAt = Date.now();
   return true;
 }
 function releaseInterceptorRegistration() {
   const dispose = interceptorDisposer;
   interceptorDisposer = null;
+  interceptorRegisteredAt = 0;
   try {
     dispose?.();
   } catch (error) {
@@ -154819,6 +155156,30 @@ spindle.on("GENERATION_STARTED", (payload, userId) => {
   const chatId = cleanString(payload?.chatId || payload?.chat_id);
   if (chatId)
     activeStreamingSurfaceChats.add(chatId);
+  if (chatId && interceptorDisposer && spindle.permissions.has("interceptor")) {
+    const latest = latestPromptInterceptionByChat.get(chatId);
+    const consumed = consumedPromptInterceptionByChat.get(chatId) || 0;
+    if (latest && latest.counter > consumed) {
+      consumedPromptInterceptionByChat.set(chatId, latest.counter);
+    } else {
+      mutateState(chatId, userId, (state) => appendStateLog(state, {
+        severity: "warning",
+        stage: "prompt-history-interceptor",
+        eventType: "story_prompt_interception_missing",
+        chatId,
+        message: "Story Model generation started while Relay expected its prompt-history interceptor, but no new interception was observed.",
+        details: {
+          storyPromptInterceptions,
+          lastChatInterception: latest?.counter || 0,
+          lastConsumedInterception: consumed,
+          interceptorRegistrationActive: true,
+          interceptorPermissionGranted: true,
+          interceptorRegistrationEpoch,
+          interceptorRegisteredAt
+        }
+      })).catch((error) => spindle.log.warn(`[Reverie Relay:story_prompt_interception_missing] ${error instanceof Error ? error.message : String(error)}`));
+    }
+  }
   warmRenderSnapshot(chatId, userId);
   recordLifecycleEvent("generation-started", payload, userId);
 });
@@ -155043,6 +155404,48 @@ async function handleGenerationEnded(payload, userId) {
   if (payload?.error || !payload?.chatId || !payload?.messageId || !payload?.content)
     return;
   const runtime = latestIllustratorRuntimeByChat.get(cleanString(payload.chatId));
+  const runtimeCountMode = cleanString(runtime?.directive.match(/<count_mode>([^<]+)<\/count_mode>/i)?.[1]).toLocaleLowerCase();
+  const inlineCountMode = runtimeCountMode === "fixed" ? "fixed" : runtimeCountMode === "minimum" ? "minimum" : "unknown";
+  const runtimeExpectedTag = inlineCountMode === "minimum" ? "minimum_count" : "target_count";
+  const runtimeExpectedMatch = runtime?.directive.match(new RegExp(`<${runtimeExpectedTag}>(\\d+)<\\/${runtimeExpectedTag}>`, "i"));
+  const expectedInlineIllustrations = runtimeExpectedMatch ? Number(runtimeExpectedMatch[1]) : null;
+  const expectPlotSparks = config.narrativeDlcEnabled && config.narrativeDlcUtilityNames.some((name) => name === "Chaos Hooks" || name === "Plot Sparks");
+  const outputInspection = inspectStoryModelOutputContracts(payloadContent, { expectedInlineIllustrations, inlineCountMode, expectPlotSparks });
+  if (!outputInspection.valid) {
+    await mutateState(cleanString(payload.chatId), userId, (state) => {
+      appendStateLog(state, {
+        severity: "warning",
+        stage: "story-output-contract",
+        eventType: "story_output_contract_violation",
+        chatId: cleanString(payload.chatId),
+        messageId: cleanString(payload.messageId),
+        swipeId: Number(payload?.swipeId ?? payload?.swipe_id ?? 0),
+        message: "The Story Model response did not satisfy the active Relay output contract.",
+        details: outputInspection
+      });
+      if (outputInspection.modelAuthoredRuntimeArtifacts.detected)
+        appendStateLog(state, {
+          severity: "error",
+          stage: "story-output-ownership",
+          eventType: "model_authored_relay_runtime_artifact",
+          chatId: cleanString(payload.chatId),
+          messageId: cleanString(payload.messageId),
+          swipeId: Number(payload?.swipeId ?? payload?.swipe_id ?? 0),
+          message: "Story Model emitted Relay runtime output instead of canonical authoring syntax. Fake result markup was not accepted as generation ownership.",
+          details: {
+            artifactKinds: outputInspection.modelAuthoredRuntimeArtifacts.artifactKinds,
+            count: outputInspection.modelAuthoredRuntimeArtifacts.count,
+            contentFingerprint: contentFingerprint(payloadContent)
+          }
+        });
+    });
+    if (outputInspection.modelAuthoredRuntimeArtifacts.detected)
+      spindle.sendToFrontend({
+        type: "relay_notice",
+        level: "warning",
+        message: "Story Model emitted Relay runtime output instead of authoring syntax. Relay rejected it as image ownership; regenerate or retry the response."
+      }, userId);
+  }
   if (runtime && Date.now() - runtime.createdAt < 15 * 60000 && /<mode>(?:model-placed|inline-protocol)<\/mode>/i.test(runtime.directive) && /<request_illustrations>true<\/request_illustrations>/i.test(runtime.directive) && !/<minimum_count>0<\/minimum_count>/i.test(runtime.directive) && !payloadHasProseIllustration) {
     const state = await getState(cleanString(payload.chatId), userId);
     const settings = proseSettingsForChat(state, cleanString(payload.chatId));
@@ -156063,7 +156466,6 @@ async function reconcileInstalledNarrativeOnStartup(userId) {
   const scope = userId || "__default__";
   if (narrativeStartupReconciledUsers.has(scope))
     return;
-  narrativeStartupReconciledUsers.add(scope);
   const current = await getConfig(userId);
   if (!current.narrativeDlcEnabled || !current.narrativeDlcLastSync?.installed)
     return;
@@ -156072,6 +156474,7 @@ async function reconcileInstalledNarrativeOnStartup(userId) {
     const inspected = await inspectNarrativeRegex(spindle.regex_scripts, variant, userId);
     const health = inspected.status === "healthy" ? inspected : await reconcileNarrativeRegex(spindle.regex_scripts, variant, userId);
     await setConfig({ narrativeDlcVariant: variant, narrativeDlcLastSync: health }, userId);
+    narrativeStartupReconciledUsers.add(scope);
   } catch (error) {
     spindle.log.warn(`[Reverie Relay] Installed Narrative Regex startup reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -158186,6 +158589,15 @@ async function discardRelayBatch(chatId, batchId, userId) {
   });
   await sendState(userId, chatId);
 }
+function hasTrustedRelayMarkerOwnership(state, key, marker) {
+  return isRelayRuntimeMarkerTrusted({
+    kind: marker.kind,
+    imageId: marker.imageId,
+    imageUrl: marker.imageUrl,
+    existingRecord: state.slots[key],
+    assets: Object.values(state.assetLibrary.assets || {})
+  });
+}
 async function rescanChatForSlots(chatId, userId, automatic = false, requestedIncludeInactive) {
   const startedAt = Date.now();
   const lockKey = `${userId || "default"}:${chatId}`;
@@ -158321,6 +158733,18 @@ async function rescanChatForSlots(chatId, userId, automatic = false, requestedIn
           else
             summary.errorMarkersFound += 1;
           const key = slotKey({ chatId, messageId: message.id, swipeId, requestId: marker.requestId, slot: marker.slot });
+          if (!hasTrustedRelayMarkerOwnership(stateAtScanStart, key, marker)) {
+            summary.malformedSources += 1;
+            malformed.push({
+              messageId: message.id,
+              swipeId,
+              requestId: marker.requestId,
+              slot: marker.slot,
+              message: "Relay-looking runtime markup had no matching extension-owned state and was rejected as ownership evidence.",
+              details: { artifactKinds: relayRuntimeArtifactKinds(content), contentFingerprint: fingerprint, ownershipTrusted: false }
+            });
+            continue;
+          }
           const count = marker.target === "instagram.carousel" ? Math.max(1, markerCounts.get(`${marker.requestId}:${marker.target}`) || 1) : 1;
           const imageAvailable = marker.kind === "resolved" ? await isStoredImageAvailable(marker.imageId, userId) : false;
           const status = marker.kind === "resolved" ? imageAvailable ? "completed" : "image-unavailable" : "failed";
@@ -164661,6 +165085,10 @@ function buildParserFallbackPrompt(job, slot, config, context, nativeSettings, c
 }
 async function syncNativeSettings(imageGeneration, userId) {
   const current = await getConfig(userId);
+  if (!configStorageHydratedScopes.has(userConfigCacheKey(userId))) {
+    spindle.log.warn("[Reverie Relay] Native settings sync deferred until persisted Relay configuration is available.");
+    return current;
+  }
   const patch = {
     nativeImageSettingsSnapshot: cloneRecord(imageGeneration),
     nativeSettingsCapturedAt: Date.now(),
@@ -164691,7 +165119,21 @@ async function getConfig(userId) {
   const cached = configCache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < CONFIG_CACHE_TTL_MS)
     return cached.value;
-  const raw = await spindle.userStorage.getJson(CONFIG_PATH, { fallback: DEFAULT_CONFIG, userId });
+  const probe = `reverie-relay-config-probe-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let raw = null;
+  for (const delayMs of [0, 40, 120, 360, 800]) {
+    if (delayMs)
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const candidate = await spindle.userStorage.getJson(CONFIG_PATH, {
+      fallback: { __relayStorageProbe: probe },
+      userId
+    });
+    if (candidate?.__relayStorageProbe !== probe) {
+      raw = candidate || {};
+      configStorageHydratedScopes.add(cacheKey);
+      break;
+    }
+  }
   const value = normalizeConfig(raw || {});
   configCache.set(cacheKey, { value, cachedAt: Date.now() });
   return value;
@@ -164710,6 +165152,7 @@ async function setConfig(patch, userId) {
     const current = await getConfig(userId);
     const next = normalizeConfig({ ...current, ...patch });
     await spindle.userStorage.setJson(CONFIG_PATH, next, { indent: 2, userId });
+    configStorageHydratedScopes.add(key);
     configCache.set(key, { value: next, cachedAt: Date.now() });
     if (renderConfigurationFingerprint(current) !== renderConfigurationFingerprint(next)) {
       invalidateRenderCaches(undefined, userId);

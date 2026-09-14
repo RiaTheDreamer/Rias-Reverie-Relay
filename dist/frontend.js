@@ -614,6 +614,14 @@ ASPECT AND MEDIA
 
 Keep 4:3 as the general story default. Prefer 16:9 or 3:2 for environmental, multi-plane, spatial, or ensemble compositions. Use 3:4 only when a genuinely vertical composition benefits. Do not select portrait orientation merely because people are visible, and do not let close character framing silently force portrait orientation. Respect the runtime aspect policy and supported aspect list.
 
+MANDATORY COMPLETION LOCK
+
+Mandatory structured contracts outrank prose length. If the response budget becomes tight, shorten nonessential prose and optional utility wording before dropping required structure.
+
+BEFORE ENDING RESPONSE: Count current-turn raw <reverie-illustration> requests belonging to Inline story illustrations. In fixed mode, the count MUST equal target_count. In minimum mode, it MUST meet minimum_count. Resolved historical images do not count. Relay result Markdown, Relay runtime <img> markup, and Surface or Narrative Utility media do not count toward the Inline story-illustration requirement. Never replace a required raw current request with resolved Relay runtime syntax.
+
+Do not silently drop required Inline illustrations, required Utility media, required closing tags, or the final required portion of a structured payload merely because prose became long. Repair the current response before stopping.
+
 SLOT AND OUTPUT
 
 Give every request a short lowercase slug-safe stable slot. Each selected illustration appears once at its intended narrative position. Emit the raw complete <reverie-illustration> element as part of the story response and continue the surrounding prose naturally. The <visual_prompt> is consumed by Reverie Relay and is not reader-facing prose.`;
@@ -135376,6 +135384,8 @@ function setup(ctx) {
         backendBuild = message.build;
         schemaVersion = message.schemaVersion;
         renderPanel();
+        if (!nativeSettingsLastSyncedAt)
+          syncNativeSettings(true).catch(() => null);
         window.setTimeout(maybeOpenQuickStartOverview, 80);
         scheduleBindInlineImages();
         renderRelayOrb();
@@ -136138,7 +136148,7 @@ ${message.prompt}`;
     scheduleActiveChatSync();
   });
   lifecycle2.track(stopMediaObserver, "observer");
-  refreshState(true);
+  refreshState(false);
   renderPanel();
   renderRelayOrb();
   async function refreshState(syncNative) {

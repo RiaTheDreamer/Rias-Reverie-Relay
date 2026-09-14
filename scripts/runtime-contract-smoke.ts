@@ -13,6 +13,8 @@ let interceptorDisposals = 0
 const frontendEvents: any[] = []
 const storage = new Map<string, any>()
 const imageApi: any = {}
+let deferredConfigFallbacks = 0
+let configWrites = 0
 
 ;(globalThis as any).spindle = {
   registerMessageContentProcessor() {},
@@ -31,8 +33,14 @@ const imageApi: any = {}
     onChanged(handler: any) { permissionChanged = handler; return () => {} },
   },
   userStorage: {
-    async getJson(path: string, options: any = {}) { return storage.has(path) ? structuredClone(storage.get(path)) : structuredClone(options.fallback || {}) },
-    async setJson(path: string, value: any) { storage.set(path, structuredClone(value)) },
+    async getJson(path: string, options: any = {}) {
+      if (path === 'config.json' && deferredConfigFallbacks > 0) {
+        deferredConfigFallbacks -= 1
+        return structuredClone(options.fallback || {})
+      }
+      return storage.has(path) ? structuredClone(storage.get(path)) : structuredClone(options.fallback || {})
+    },
+    async setJson(path: string, value: any) { if (path === 'config.json') configWrites += 1; storage.set(path, structuredClone(value)) },
     async mkdir() {},
   },
   chat: { async getMessages() { return [] } },
@@ -46,6 +54,18 @@ const imageApi: any = {}
 }
 
 const backend = await import('../src/backend')
+
+// A cold host may briefly return userStorage's fallback even though persisted
+// config exists. Relay must retry the read and must never write defaults during
+// that readiness window.
+storage.set('config.json', { narrativeDlcEnabled: true, surfaceRendererMode: 'legacy-regex', autoGenerate: false })
+deferredConfigFallbacks = 2
+const coldConfig = await backend.getConfig('cold-user')
+assert.equal(coldConfig.narrativeDlcEnabled, true)
+assert.equal(coldConfig.surfaceRendererMode, 'legacy-regex')
+assert.equal(coldConfig.autoGenerate, false)
+assert.equal(configWrites, 0)
+storage.set('config.json', {})
 
 // Deferred registration: enabling before permission must recover without reload,
 // remain idempotent, and recover again after revoke/re-grant.
@@ -88,6 +108,25 @@ assert.notEqual(inline, modelPlaced)
 const inlineWorkflow = inline.slice(inline.indexOf('REVERIE RELAY — INLINE PROTOCOL'), inline.indexOf('<reverie_illustrator_runtime>'))
 assert(!/<reverie-illustration[\s\S]*?<scene_brief>/i.test(inlineWorkflow))
 
+const hydratedHistory = `Story prose remains.\n<!-- reverie-relay:image requestId="history-one" -->\n![reverie-relay](/api/v1/image-gen/results/history-one)\n<hook_media><img class="reverie-artifact-media" data-reverie-artifact-media="true" data-dgir-image-id="history-one" src="/api/v1/image-gen/results/history-one"></hook_media>`
+const sanitizedInterception = assembledText(await interceptor!([
+  { role: 'assistant', content: hydratedHistory },
+  { role: 'user', content: 'Continue the scene.' },
+], { chatId: 'history-firebreak-dry-run', userId: 'u1', isDryRun: true }))
+assert(sanitizedInterception.includes('Story prose remains.'))
+assert(sanitizedInterception.includes('[historical Relay illustration omitted]'))
+assert(!/reverie-relay:image|!\[reverie-relay\]|\/api\/v1\/image-gen\/results\/history-one|data-dgir-|reverie-artifact-media/i.test(sanitizedInterception))
+assert(!/<hook_media>\s*<\/hook_media>/i.test(sanitizedInterception))
+
+const duplicatedCompiledPrompt = assembledText(await interceptor!([
+  { role: 'system', content: inline },
+  { role: 'system', content: inline },
+  { role: 'user', content: 'Continue once.' },
+], { chatId: 'duplicate-contract-dry-run', userId: 'u1', isDryRun: true }))
+assert.equal((duplicatedCompiledPrompt.match(/<reverie_surface_utility\b/gi) || []).length, 1)
+assert.equal((duplicatedCompiledPrompt.match(/<reverie_narrative_utility\b/gi) || []).length, 1)
+assert.equal((duplicatedCompiledPrompt.match(/INLINE PROTOCOL/gi) || []).length, 1)
+
 interceptorPermission = false
 permissionChanged!({ extensionId: 'reverie_relay', permission: 'interceptor', granted: false, allGranted: [] })
 assert.equal(interceptorDisposals, 1)
@@ -96,6 +135,12 @@ permissionChanged!({ extensionId: 'reverie_relay', permission: 'interceptor', gr
 assert.equal(interceptorRegistrations, 2)
 const regranted = assembledText(await interceptor!(baseMessages, { chatId: 'regrant-dry-run', userId: 'u1', isDryRun: true }))
 assertUtilitiesInjected(regranted, 'permission re-grant')
+const regrantedSanitized = assembledText(await interceptor!([
+  { role: 'assistant', content: hydratedHistory },
+  { role: 'user', content: 'Continue after permission re-grant.' },
+], { chatId: 'regrant-history-dry-run', userId: 'u1', isDryRun: true }))
+assert(regrantedSanitized.includes('Story prose remains.'))
+assert(!/reverie-relay:image|data-dgir-|\/api\/v1\/image-gen\/results\/history-one/i.test(regrantedSanitized))
 
 const fullDryRunReport = backend.buildFullCompleteDryRunReport({
   chatId: 'dry-run', illustratorPrompt: '', runtimeDirective: '', adultFidelity: '', surfaceProtocol: '',
