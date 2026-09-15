@@ -93,7 +93,7 @@ for (const [surfaceId, expected] of Object.entries({
 let matrixCases = 0
 for (const presentation of presentations) for (const color of colors) {
   const pack = r45SurfaceAuthorityPack(presentation, color)
-  assert(pack.version === '2.2.1' && pack.relay_product_version === '0.2.7.3', `${presentation}/${color}: authority identity`)
+  assert(pack.version === '2.2.1' && pack.relay_product_version === '0.2.7.4', `${presentation}/${color}: authority identity`)
   assert(pack.scripts.length === 138 && pack.scripts.every(script => script.disabled !== true), `${presentation}/${color}: all 138 scripts enabled`)
   assert(new Set(pack.scripts.map(script => script.script_id)).size === 138, `${presentation}/${color}: unique script IDs`)
   for (const surface of canonical) {
@@ -217,7 +217,8 @@ assert(renderR45SurfaceAuthority(discord.sample, 'inline', 'realistic', 'discord
 const profileXml = '<character_profile><portrait><image_request id="profile-a" target="custom.artifact-media" slot="profile-a" aspect="3:4" alt="Portrait of Character A"><scene_brief>Current portrait of Character A.</scene_brief></image_request></portrait><name>Character A</name><role>Witness</role><hook>Knows the missing detail.</hook><trait>Silver glasses.</trait></character_profile>'
 for (const [status, label] of [['queued', 'Queued'], ['parsing', 'Parsing'], ['generating', 'Generating'], ['placement-pending', 'Inserting'], ['failed', 'Failed']] as const) {
   const result = renderNativeSurfaceMarkup(profileXml, studio, { chatId: 'profile-chat', messageId: 'profile-message', records: [{ requestId: 'profile-a', messageId: 'profile-message', slot: 'profile-a', target: 'custom.artifact-media', requestAspect: '3:4', status, error: status === 'failed' ? 'Mock failure' : undefined }] })
-  assert(result.content.includes(`data-rrn-live-status="${status}"`) && result.content.includes(label), `Character Profile ${status}: visible lifecycle state missing`)
+  const active = status !== 'failed'
+  assert(result.content.includes(`data-rrn-live-status="${status}"`) && (active ? result.content.includes('data-rr-placeholder-effect="glitter"') && !result.content.includes(`<span class="rrl-status">${label}</span>`) : result.content.includes(label)), `Character Profile ${status}: lifecycle presentation missing`)
   assert(result.content.lastIndexOf('cp-portrait') < result.content.lastIndexOf(`data-rrn-live-status="${status}"`), `Character Profile ${status}: lifecycle escaped portrait`)
 }
 const completed = '<character_profile><media><!-- reverie-relay:image chatId="profile-chat" messageId="profile-message" swipeId="0" requestId="profile-a" target="custom.artifact-media" slot="profile-a" --><img src="/mock/profile.png" alt="Portrait" data-reverie-artifact-media="true" data-dgir-key="profile-chat:profile-message:0:profile-a:profile-a" data-dgir-request-id="profile-a" data-dgir-slot="profile-a" data-dgir-image-id="profile-image" data-dgir-message-id="profile-message" data-dgir-swipe-id="0" data-dgir-custom-target="custom.artifact-media"></media><name>Character A</name><role>Witness</role><hook>Knows the missing detail.</hook><trait>Silver glasses.</trait></character_profile>'

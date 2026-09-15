@@ -77,13 +77,11 @@ const phoneRendered = rendered(phone.sampleXml)
 assert((phoneRendered.includes('data-reverie-r45-lifecycle-media="smartphone"') || phoneRendered.includes('data-rrn-native-request="phone-message-1"')) && phoneRendered.includes('class="rrl-media-slot"') && phoneRendered.includes('--reverie-media-aspect:4 / 3'), 'Smartphone pending media must reserve its 4:3 message-image slot inside the Surface')
 
 const nativeSource = readFileSync(new URL('../src/nativeSurfaces.ts', import.meta.url), 'utf8')
-assert(nativeSource.includes('data-reverie-stable-media-slot="1"') && nativeSource.includes('overflow-anchor:none'), 'stable media CSS must ship with Relay media output')
+assert(nativeSource.includes('data-reverie-stable-media-slot="2"') && nativeSource.includes('overflow-anchor:none'), 'stable media CSS must ship with Relay media output')
 assert(!/html\s*,\s*body[\s\S]{0,80}overflow-anchor\s*:\s*none/i.test(nativeSource), 'scroll anchoring must not be globally disabled')
-assert(nativeSource.includes('.rrl-card{display:block;min-height:0;padding:0;border:0') && nativeSource.includes('.rrl-media-skeleton:before{content:""}'), 'reserved media geometry must render without visible card chrome or placeholder copy')
-assert(nativeSource.includes('animation:rrlSparkleFall 3.8s ease-in-out infinite') && nativeSource.includes('@keyframes rrlSparkleFall') && nativeSource.includes('transform:translateY(30%)'), 'reserved media shimmer must fall gently from top to bottom')
-const sparkleField = nativeSource.match(/\.rrl-media-skeleton:after\{background:(.*?)\}\s*<\/style>/s)?.[1] ?? ''
-assert((sparkleField.match(/radial-gradient\(circle at/g) ?? []).length >= 14 && sparkleField.includes('circle at 10% 18%') && sparkleField.includes('circle at 76% 90%'), 'reserved media shimmer must provide a dense varied sparkle field')
-assert(!nativeSource.includes('animation:rrlSkeleton 2.2s') && !nativeSource.includes('transform:translateX(-42%)'), 'reserved media shimmer must not restore the aggressive sideways glint')
+assert(nativeSource.includes('.rrl-card{display:block;min-height:0;padding:0;border:0') && nativeSource.includes('rrl-generation-placeholder'), 'reserved media geometry must render through the textless placeholder shell')
+assert(nativeSource.includes('@keyframes rr-regex-floating-particle') && nativeSource.includes('translate3d(var(--dx),var(--dy),0)'), 'reserved media glitter must use the approved Regex particle motion')
+assert(!nativeSource.includes('animation:rrlSkeleton 2.2s') && !nativeSource.includes('transform:translateX(-42%)') && !nativeSource.includes('@keyframes rrlSparkleFall'), 'reserved media effect must not restore an older glint or shimmer')
 assert(nativeSource.includes('.rrl-card:hover .rrl-actions') && nativeSource.includes('[data-rrn-live-status="failed"] .rrl-actions'), 'media controls must reveal on interaction and terminal failure')
 
 const frontendSource = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')

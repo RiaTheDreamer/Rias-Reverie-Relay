@@ -933,6 +933,11 @@ export type HybridSurfaceOwner = 'relay' | 'regex'
 export type SurfaceUtilityInjectionPosition = 'system-prefix' | 'before-chat-history' | 'before-latest-user' | 'after-latest-user' | 'after-chat-history'
 export type SurfacePromptCategory = 'social-messaging' | 'photography-keepsakes' | 'covers-promotion' | 'evidence-editorial' | 'narrative-visuals' | 'custom'
 export type SurfaceDensity = 'compact' | 'comfortable' | 'spacious'
+export type GenerationPlaceholderEffect = 'spinner' | 'glitter' | 'none' | 'dream-orb'
+
+export function normalizeGenerationPlaceholderEffect(value: unknown): GenerationPlaceholderEffect {
+  return value === 'spinner' || value === 'glitter' || value === 'none' || value === 'dream-orb' ? value : 'glitter'
+}
 
 export type CustomSurfaceDefinition = {
   surfaceId: string
@@ -1363,6 +1368,17 @@ export type SlotGenerationResult = GenerationSnapshot & {
   slot: string
 }
 
+export function placementFailureCanReplaceRecord(
+  record: Pick<SlotRecord, 'status' | 'attemptNumber' | 'imageUrl'>,
+  result: Pick<SlotGenerationResult, 'attemptNumber' | 'imageUrl'>,
+): boolean {
+  const currentAttempt = Number(record.attemptNumber || 0)
+  const failedAttempt = Number(result.attemptNumber || 0)
+  if (currentAttempt && failedAttempt && failedAttempt < currentAttempt) return false
+  if (record.status === 'completed' && record.imageUrl && record.imageUrl !== result.imageUrl) return false
+  return true
+}
+
 export type RelayCandidateStatus = 'preflight' | 'parsing' | 'generating' | 'ready' | 'failed' | 'unavailable' | 'replaced' | 'discarded'
 
 export type RelayCandidate = {
@@ -1768,40 +1784,65 @@ export function isRelayRuntimeMarkerTrusted(input: {
 }
 
 export type ProseIllustrationContractRepair = {
-  code: 'REPAIRED_PROSE_ILLUSTRATION_PROMPT_TAG'
+  code: 'REPAIRED_PROSE_ILLUSTRATION_PROMPT_TAG' | 'NORMALIZED_PROSE_ILLUSTRATION_CAST'
   slot: string
   index: number
   original: string
   repaired: string
 }
 
+export function normalizeProseIllustrationCast(value: unknown): ImageRequest['cast'] | null {
+  if (value === undefined || value === null) return 'none'
+  const normalized = String(value).trim().toLocaleLowerCase()
+  if (!normalized || normalized === 'null') return 'none'
+  if (normalized === 'character') return 'char'
+  if (normalized === 'char_user' || normalized === 'char-user' || normalized === 'user+char' || normalized === 'both') return 'char+user'
+  return PROSE_ILLUSTRATION_CASTS.has(normalized) ? normalized as ImageRequest['cast'] : null
+}
+
 /**
- * Repairs only the one deterministic child-name collision the Story Model can
- * borrow from Surface image_request grammar. The wrapper, authored prompt,
- * placement, and attributes remain byte-for-byte unchanged. Anything with a
- * mixed or ambiguous body is deliberately left for strict validation.
+ * Repairs deterministic Prose Illustration representation drift: the known
+ * child-name collision plus unambiguous cast aliases/defaults. Authored prompt
+ * and placement content remain unchanged; ambiguous values stay invalid for
+ * strict validation.
  */
 export function normalizeProseIllustrationContracts(content: string): { markup: string; repairs: ProseIllustrationContractRepair[] } {
   const repairs: ProseIllustrationContractRepair[] = []
   const re = /<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi
   const markup = content.replace(re, (fullMatch, rawAttrs: string, body: string, index: number) => {
-    if (/<visual_prompt\b/i.test(body)) return fullMatch
+    let repaired = fullMatch
+    const castAttribute = /\bcast\s*=\s*(["'])([\s\S]*?)\1/i.exec(rawAttrs)
+    const canonicalCast = normalizeProseIllustrationCast(castAttribute?.[2])
+    if (canonicalCast && (!castAttribute || castAttribute[2] !== canonicalCast)) {
+      const normalizedAttrs = castAttribute
+        ? rawAttrs.replace(castAttribute[0], `cast="${canonicalCast}"`)
+        : `${rawAttrs.replace(/\s+$/, '')} cast="${canonicalCast}"${/\s$/.test(rawAttrs) ? ' ' : ''}`
+      repaired = repaired.replace(`<reverie-illustration${rawAttrs}>`, `<reverie-illustration${normalizedAttrs}>`)
+      repairs.push({
+        code: 'NORMALIZED_PROSE_ILLUSTRATION_CAST',
+        slot: String(parseAttrs(rawAttrs).slot || '').trim(),
+        index,
+        original: fullMatch,
+        repaired,
+      })
+    }
+    if (/<visual_prompt\b/i.test(body)) return repaired
     const singleSceneBrief = body.match(/^(\s*)<scene_brief\s*>([\s\S]*?)<\/scene_brief\s*>(\s*)$/i)
-    if (!singleSceneBrief || !String(singleSceneBrief[2] || '').trim() || /<\/?scene_brief\b/i.test(singleSceneBrief[2])) return fullMatch
+    if (!singleSceneBrief || !String(singleSceneBrief[2] || '').trim() || /<\/?scene_brief\b/i.test(singleSceneBrief[2])) return repaired
 
-    const outerOpenEnd = fullMatch.indexOf('>') + 1
-    const outerCloseStart = fullMatch.toLocaleLowerCase().lastIndexOf('</reverie-illustration')
-    if (outerOpenEnd < 1 || outerCloseStart < outerOpenEnd) return fullMatch
+    const outerOpenEnd = repaired.indexOf('>') + 1
+    const outerCloseStart = repaired.toLocaleLowerCase().lastIndexOf('</reverie-illustration')
+    if (outerOpenEnd < 1 || outerCloseStart < outerOpenEnd) return repaired
     const repairedBody = `${singleSceneBrief[1]}<visual_prompt>${singleSceneBrief[2]}</visual_prompt>${singleSceneBrief[3]}`
-    const repaired = `${fullMatch.slice(0, outerOpenEnd)}${repairedBody}${fullMatch.slice(outerCloseStart)}`
+    const promptRepaired = `${repaired.slice(0, outerOpenEnd)}${repairedBody}${repaired.slice(outerCloseStart)}`
     repairs.push({
       code: 'REPAIRED_PROSE_ILLUSTRATION_PROMPT_TAG',
       slot: String(parseAttrs(rawAttrs).slot || '').trim(),
       index,
       original: fullMatch,
-      repaired,
+      repaired: promptRepaired,
     })
-    return repaired
+    return promptRepaired
   })
   return { markup, repairs }
 }
@@ -1908,8 +1949,8 @@ export function selectRescanSwipeRows(message: { content: string; swipe_id?: num
   const max = Array.isArray(message.swipes) && message.swipes.length ? message.swipes.length - 1 : Number.MAX_SAFE_INTEGER
   const active = Math.max(0, Math.min(max, Number.isFinite(Number(message.swipe_id)) ? Number(message.swipe_id) : 0))
   if (!Array.isArray(message.swipes) || !message.swipes.length) return [{ swipeId: active, content: String(message.content || ''), inactive: false }]
-  if (!includeInactive) return [{ swipeId: active, content: String(message.swipes[active] || message.content || ''), inactive: false }]
-  return message.swipes.map((content, swipeId) => ({ swipeId, content: String(content || ''), inactive: swipeId !== active }))
+  if (!includeInactive) return [{ swipeId: active, content: String(message.content || message.swipes[active] || ''), inactive: false }]
+  return message.swipes.map((content, swipeId) => ({ swipeId, content: String(swipeId === active ? message.content || content : content || ''), inactive: swipeId !== active }))
 }
 
 export function slotsForRequest(req: ImageRequest): string[] {

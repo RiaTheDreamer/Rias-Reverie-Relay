@@ -20,6 +20,7 @@ import type {
   GenerationProfile,
   GenerationSnapshot,
   GenerationRecipe,
+  GenerationPlaceholderEffect,
   RelayExperienceMode,
   BackgroundQueueState,
   BackgroundQueueItem,
@@ -43,6 +44,7 @@ import type {
   VersionTree,
   VisualAssetReference,
 } from './contracts'
+import { normalizeGenerationPlaceholderEffect } from './contracts'
 import { SlotActionFeedbackCoordinator, type SlotActionFeedback, type SlotActionKind } from './slotActionFeedback'
 import { observeRelayMediaMounts, setMediaText } from './mediaDomStability'
 import { RelayRuntimeLifecycle, type RelayRuntimeHealth } from './runtimeLifecycle'
@@ -134,6 +136,7 @@ type RouterConfig = {
   enabled: boolean
   autoGenerate: boolean
   slotGenerationMode: 'auto-insert' | 'prompt-preview' | 'image-preview'
+  generationPlaceholderEffect: GenerationPlaceholderEffect
   debugLogging: boolean
   highResMode: boolean
   enableRelayOrb: boolean
@@ -2443,6 +2446,7 @@ export function setup(ctx: SpindleFrontendContext) {
       for (const card of requestCards) {
         const owningKey = card.dataset.rrnRecordKey
         if (owningKey && owningKey !== record.key) continue
+        if (active) syncGenerationPlaceholderEffect(card)
         const signature = JSON.stringify([record.key, record.status, stalled, record.imageUrl, record.requestAspect, record.error, stream])
         const media = card.querySelector('.rrl-media-slot')
         const previous = mediaCardUpdates.get(card)
@@ -2614,6 +2618,25 @@ export function setup(ctx: SpindleFrontendContext) {
           })
         }
       }
+    }
+  }
+
+  function syncGenerationPlaceholderEffect(root: ParentNode = document): void {
+    const effect = normalizeGenerationPlaceholderEffect(config?.generationPlaceholderEffect)
+    for (const placeholder of deepQueryAll<HTMLElement>(root, '.rrl-generation-placeholder')) {
+      if (placeholder.dataset.rrPlaceholderEffect === effect) continue
+      placeholder.dataset.rrPlaceholderEffect = effect
+      placeholder.replaceChildren()
+      if (effect === 'none') continue
+      const layer = document.createElement('span')
+      layer.setAttribute('aria-hidden', 'true')
+      if (effect === 'spinner') layer.className = 'rr-spinner'
+      else if (effect === 'dream-orb') layer.className = 'rr-orb'
+      else {
+        layer.className = 'rr-regex-particles'
+        layer.append(...Array.from({ length: 24 }, () => document.createElement('i')))
+      }
+      placeholder.appendChild(layer)
     }
   }
 
@@ -7002,6 +7025,7 @@ ${bracketFixture}`)
       toggleCard('Enabled', '', current.enabled, checked => patchConfig({ enabled: checked })),
       toggleCard('Auto Generate', '', current.autoGenerate, checked => patchConfig({ autoGenerate: checked })),
       selectField('Slot Mode', current.slotGenerationMode || 'auto-insert', [['auto-insert', 'Generate and Insert'], ['prompt-preview', 'Preview Prompt First'], ['image-preview', 'Preview Image Before Insert']], value => patchConfig({ slotGenerationMode: value as RouterConfig['slotGenerationMode'] })),
+      selectField('Generation Placeholder Effect', normalizeGenerationPlaceholderEffect(current.generationPlaceholderEffect), [['glitter', 'Glitter'], ['spinner', 'Spinner'], ['dream-orb', 'Dream Orb'], ['none', 'None']], value => patchConfig({ generationPlaceholderEffect: normalizeGenerationPlaceholderEffect(value) })),
       toggleCard('High-Res / Polished Capture', 'Preserves the requested camera style while prioritizing identity, anatomy, clarity, and rendering polish.', current.highResMode, checked => patchConfig({ highResMode: checked })),
       toggleCard('Save completed images to Character Gallery', 'Links completed Relay Surface and Illustrator images to the active character Gallery when Lumiverse confirms the destination.', current.galleryAutoLink, checked => patchConfig({ galleryAutoLink: checked })),
     )
@@ -8545,6 +8569,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
         }
       }
       invalidateDisplayIfContractChanged(config, customSurfaces)
+      if (patch.generationPlaceholderEffect) syncGenerationPlaceholderEffect()
       applyGlobalInterfaceSettings()
       renderRelayOrb()
       renderPanel()
