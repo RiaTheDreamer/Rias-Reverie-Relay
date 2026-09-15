@@ -1,5 +1,5 @@
 {
-  "version": "0.2.6",
+  "version": "0.2.7",
   "name": "Reverie Relay",
   "identifier": "reverie_relay",
   "author": "Ria",
@@ -22,5 +22,6 @@
   ],
   "entry_backend": "dist/backend.js",
   "entry_frontend": "dist/frontend.js",
+  "interceptorTimeoutMs": 30000,
   "minimum_lumiverse_version": "1.1.6"
 }

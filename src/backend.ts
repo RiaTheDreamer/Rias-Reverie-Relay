@@ -1617,6 +1617,20 @@ function schedulePromptInjectionRecord(
   pendingPromptInjectionRecords.set(scope, next)
 }
 
+type DeferredRouterLogEntry = Omit<RouterLogEntry, 'id' | 'timestamp' | 'extensionVersion' | 'backendBuildId'>
+
+function schedulePromptDiagnostics(chatId: string, userId: string | undefined, entries: DeferredRouterLogEntry[]): void {
+  if (!entries.length) return
+  const pending = entries.map(entry => ({ ...entry }))
+  setTimeout(() => {
+    void mutateState(chatId, userId, state => {
+      for (const entry of pending) appendStateLog(state, entry)
+    }).catch(error => {
+      spindle.log.warn(`[Reverie Relay] Could not persist deferred prompt diagnostics for ${chatId}: ${error instanceof Error ? error.message : String(error)}`)
+    })
+  }, 0)
+}
+
 function insertPromptDirective(messages: LlmMessage[], directive: string, position: SurfaceUtilityInjectionPosition): { messages: LlmMessage[]; index: number } {
   const next = [...messages]
   let index = next.length
@@ -1909,6 +1923,7 @@ function dedupePromptContractWrappers(messages: LlmMessage[]): LlmMessage[] {
 }
 
 const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
+    const interceptorStartedAt = Date.now()
     storyPromptInterceptions += 1
     const interceptionCounter = storyPromptInterceptions
     const sanitizedRows = messages.map(sanitizeRelayPromptMessageWithMetrics)
@@ -1916,33 +1931,36 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
     const promptHistoryMetrics = sanitizedRows.map(row => row.metric)
     const chatId = cleanString(context?.chatId || context?.chat_id)
     if (!chatId) return cleaned
+    const deferredDiagnostics: DeferredRouterLogEntry[] = []
+    const finish = <T>(result: T): T => {
+      schedulePromptDiagnostics(chatId, context?.userId, deferredDiagnostics)
+      return result
+    }
     latestPromptInterceptionByChat.set(chatId, { counter: interceptionCounter, timestamp: Date.now() })
     const checked = promptHistoryMetrics.filter(metric => metric.checked)
     const messagesChanged = checked.filter(metric => metric.contentHashBefore !== metric.contentHashAfter).length
     const runtimeArtifactsBefore = checked.filter(metric => metric.runtimeArtifactsDetectedBefore).length
     const runtimeArtifactsAfter = checked.filter(metric => metric.runtimeArtifactsRemainAfter).length
     const historicalRequestsRemoved = checked.reduce((total, metric) => total + metric.removed.rawHistoricalReverieIllustrationRequests + metric.removed.rawHistoricalImageRequestBlocks + metric.removed.legacyDreamglassRequests, 0)
-    await mutateState(chatId, context?.userId, state => {
-      appendStateLog(state, {
-        severity: runtimeArtifactsAfter ? 'warning' : 'debug', stage: 'prompt-history-sanitized', eventType: 'prompt_history_sanitized', chatId,
-        message: runtimeArtifactsAfter ? 'Relay prompt-history firebreak found a surviving runtime artifact.' : 'Relay sanitized model-facing historical media before Story Model generation.',
-        details: {
-          messagesChecked: checked.length,
-          messagesChanged,
-          runtimeArtifactsBefore,
-          runtimeArtifactsAfter,
-          historicalRequestsRemoved,
-          storyPromptInterceptions: interceptionCounter,
-          interceptorRegistrationActive: Boolean(interceptorDisposer),
-          interceptorPermissionGranted: spindle.permissions.has('interceptor'),
-          messageMetrics: promptHistoryMetrics,
-        },
-      })
-      if (runtimeArtifactsAfter) appendStateLog(state, {
-        severity: 'warning', stage: 'prompt-history-firebreak', eventType: 'prompt_history_runtime_artifact_survived', chatId,
-        message: 'A Relay runtime artifact survived primary sanitization and was removed by the fail-closed firebreak.',
-        details: { storyPromptInterceptions: interceptionCounter, affectedMessages: checked.filter(metric => metric.runtimeArtifactsRemainAfter).length },
-      })
+    deferredDiagnostics.push({
+      severity: runtimeArtifactsAfter ? 'warning' : 'debug', stage: 'prompt-history-sanitized', eventType: 'prompt_history_sanitized', chatId,
+      message: runtimeArtifactsAfter ? 'Relay prompt-history firebreak found a surviving runtime artifact.' : 'Relay sanitized model-facing historical media before Story Model generation.',
+      details: {
+        messagesChecked: checked.length,
+        messagesChanged,
+        runtimeArtifactsBefore,
+        runtimeArtifactsAfter,
+        historicalRequestsRemoved,
+        storyPromptInterceptions: interceptionCounter,
+        interceptorRegistrationActive: Boolean(interceptorDisposer),
+        interceptorPermissionGranted: spindle.permissions.has('interceptor'),
+        messageMetrics: promptHistoryMetrics,
+      },
+    })
+    if (runtimeArtifactsAfter) deferredDiagnostics.push({
+      severity: 'warning', stage: 'prompt-history-firebreak', eventType: 'prompt_history_runtime_artifact_survived', chatId,
+      message: 'A Relay runtime artifact survived primary sanitization and was removed by the fail-closed firebreak.',
+      details: { storyPromptInterceptions: interceptionCounter, affectedMessages: checked.filter(metric => metric.runtimeArtifactsRemainAfter).length },
     })
     try {
       const state = await getState(chatId, context?.userId)
@@ -2011,11 +2029,11 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
         narrativeContractCopies: exactBlockCopies(dedupedMacroMessages, narrativeUtility.content),
         illustratorContractCopies: exactBlockCopies(dedupedMacroMessages, illustratorPrompt),
       }
-      await mutateState(chatId, context?.userId, next => appendStateLog(next, {
+      deferredDiagnostics.push({
         severity: 'debug', stage: 'prompt-contract-injection', eventType: 'prompt_contract_injection_inspected', chatId,
         message: 'Relay inspected the compiled prompt for duplicate current contract copies.',
         details: { before: promptCopiesBefore, after: promptCopiesAfter, duplicatesRemoved: Object.values(promptCopiesBefore).reduce((sum, count) => sum + Math.max(0, count - 1), 0) },
-      }))
+      })
 
       const automaticUtility = studio.utilityInjectionEnabled && !surfaceMacroExpanded
         ? buildEnabledSurfaceUtility(studio, 'automatic')
@@ -2031,7 +2049,7 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
       const combined = [automaticSurfaceProtocol, automaticUtility?.content || '', automaticNarrative, automaticIllustrator, automaticRuntime].filter(Boolean).join('\n\n')
       if (!combined) {
         if (surfaceMacroExpanded) schedulePromptInjectionRecord(chatId, 'macro', 'macro-placement', macroUtility.moduleIds, `Expanded ${macroUtility.moduleIds.length} enabled surface module${macroUtility.moduleIds.length === 1 ? '' : 's'} at the placed macro.`, context?.userId)
-        return dedupedMacroMessages
+        return finish(dedupedMacroMessages)
       }
       const inserted = insertPromptDirective(dedupedMacroMessages, combined, studio.utilityInjectionPosition || 'after-chat-history')
       const injectedNames = [
@@ -2047,26 +2065,27 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
         schedulePromptInjectionRecord(chatId, 'macro', 'macro-placement', macroUtility.moduleIds, `Expanded ${macroUtility.moduleIds.length} enabled surface module${macroUtility.moduleIds.length === 1 ? '' : 's'} at the placed macro.`, context?.userId)
       }
       const finalMessages = dedupePromptContractWrappers(dedupeExactPromptContractCopies(inserted.messages, promptContractBlocks))
-      await mutateState(chatId, context?.userId, next => appendStateLog(next, {
+      deferredDiagnostics.push({
         severity: 'debug', stage: 'prompt-contract-compiled', eventType: 'prompt_contract_compiled', chatId,
         message: 'Relay verified current contract copy counts in the final Story Model prompt.',
+        durationMs: Date.now() - interceptorStartedAt,
         details: {
           relaySurfaceContractCopies: exactBlockCopies(finalMessages, macroUtility.content),
           narrativeContractCopies: exactBlockCopies(finalMessages, narrativeUtility.content),
           illustratorContractCopies: exactBlockCopies(finalMessages, illustratorPrompt),
         },
-      }))
-      return {
+      })
+      return finish({
         messages: finalMessages,
         breakdown: [{
           messageIndex: inserted.index,
           name: 'Reverie Relay Prompt Injection',
           description: `Injected ${injectedNames || 'macro-expanded modules'} at ${studio.utilityInjectionPosition || 'after-chat-history'}.`,
         }],
-      }
+      })
     } catch (error) {
       spindle.log.warn(`[Reverie Relay] Runtime directive fallback: ${error instanceof Error ? error.message : String(error)}`)
-      return cleaned
+      return finish(cleaned)
     }
 }
 

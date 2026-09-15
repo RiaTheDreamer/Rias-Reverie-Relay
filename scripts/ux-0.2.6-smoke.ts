@@ -13,12 +13,10 @@ const imageStreaming = read('src/imageStreaming.ts')
 const pkg = JSON.parse(read('package.json'))
 const manifest = JSON.parse(read('spindle.json'))
 
-equal(pkg.version, '0.2.6')
-equal(manifest.version, '0.2.6')
-const semverPattern = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
-assert(!semverPattern.test('0.2.5.1'), 'release gate must reject four-component versions that prevent Spindle startup')
-assert(semverPattern.test(pkg.version), 'package version must be valid SemVer so the host can install the release')
-assert(semverPattern.test(manifest.version), 'Spindle manifest version must be valid SemVer so the backend can start')
+equal(pkg.version, '0.2.7')
+equal(manifest.version, '0.2.7')
+equal(pkg.version, manifest.version, 'package and manifest versions must match')
+assert(manifest.interceptorTimeoutMs >= 30_000, 'Relay prompt assembly needs an explicit host interceptor budget')
 equal(manifest.identifier, 'reverie_relay', 'public extension identifier')
 assert(!('previous_identifiers' in manifest), 'manifest must not advertise unsupported identifier aliases')
 equal(manifest.github, 'https://github.com/RiaTheDreamer/Rias-Reverie-Relay', 'public repository recovery URL')
@@ -115,4 +113,4 @@ assert(!/novel|providerId\.includes|provider\.name/i.test(imageStreaming.replace
 assert(frontend.includes('Provider LoRA Catalog'))
 assert(frontend.includes('Advanced: add exact LoRA filename'))
 
-console.log('0.2.6 UX, macro, modal, Surface overview, and LoRA discovery smoke ok')
+console.log('0.2.7 UX, macro, modal, Surface overview, and LoRA discovery smoke ok')

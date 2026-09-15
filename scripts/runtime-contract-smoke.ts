@@ -15,6 +15,8 @@ const storage = new Map<string, any>()
 const imageApi: any = {}
 let deferredConfigFallbacks = 0
 let configWrites = 0
+let blockStateWrites = false
+let blockedStateWriteAttempts = 0
 
 ;(globalThis as any).spindle = {
   registerMessageContentProcessor() {},
@@ -40,7 +42,14 @@ let configWrites = 0
       }
       return storage.has(path) ? structuredClone(storage.get(path)) : structuredClone(options.fallback || {})
     },
-    async setJson(path: string, value: any) { if (path === 'config.json') configWrites += 1; storage.set(path, structuredClone(value)) },
+    async setJson(path: string, value: any) {
+      if (path === 'config.json') configWrites += 1
+      if (blockStateWrites && path.startsWith('states/')) {
+        blockedStateWriteAttempts += 1
+        return new Promise(() => {})
+      }
+      storage.set(path, structuredClone(value))
+    },
     async mkdir() {},
   },
   chat: { async getMessages() { return [] } },
@@ -278,4 +287,18 @@ assert.deepEqual(cancelledKeys.sort(), ['one', 'two'])
 assert.equal(serials.size, 2)
 assert.equal(cancelMapKeysFromSnapshot(new Map(), () => { throw new Error('empty map callback') }), 0)
 
-console.log('Runtime contract smoke passed: continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, clone-safe standard ImageGen, stale-result freshness rejection, opt-in streaming, bounded fallback/abort, snapshot Abort All, and deferred interceptor recovery.')
+// Prompt mutation is deadline-critical. Persisting Relay diagnostics may be
+// slow for large chat state files, but Lumiverse must receive the modified
+// messages before those writes complete or it discards the whole interception.
+blockStateWrites = true
+const promptTimeout = Symbol('prompt-timeout')
+const slowStorageResult = await Promise.race([
+  interceptor!(baseMessages, { chatId: 'slow-storage-dry-run', userId: 'u1', isDryRun: true }),
+  new Promise<typeof promptTimeout>(resolve => setTimeout(() => resolve(promptTimeout), 250)),
+])
+assert.notEqual(slowStorageResult, promptTimeout, 'prompt interception awaited diagnostic state persistence')
+assertUtilitiesInjected(assembledText(slowStorageResult), 'slow diagnostic storage')
+await new Promise(resolve => setTimeout(resolve, 10))
+assert(blockedStateWriteAttempts >= 1, 'prompt diagnostics were not scheduled after returning the injection')
+
+console.log('Runtime contract smoke passed: continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, opt-in streaming, bounded fallback/abort, snapshot Abort All, and deferred interceptor recovery.')
