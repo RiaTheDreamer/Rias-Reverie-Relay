@@ -293,6 +293,29 @@ await assert.rejects(cancelledStandard, (error: any) => error?.name === 'AbortEr
 assert.equal('signal' in capturedStandard, false)
 structuredClone(capturedStandard)
 
+// A provider promise or stream iterator that never settles must fail the slot,
+// release the shared generation lane, and allow a later retry to start.
+imageApi.getProviders = async () => [{ id: 'provider', capabilities: {} }]
+imageApi.generate = async () => new Promise(() => {})
+await assert.rejects(
+  backend.generateWithOptionalStream({ prompt: 'hung-standard' }, plan, 'u1', context('hung-standard'), false, 20),
+  (error: any) => error?.name === 'ImageGenerationTimeoutError' && /Retry the slot/.test(error.message),
+)
+imageApi.generate = async () => ({ imageId: 'after-standard-timeout', imageUrl: '/after-standard-timeout' })
+const afterStandardTimeout = await backend.generateWithOptionalStream({ prompt: 'retry-standard' }, plan, 'u1', context('retry-standard'), false, 100)
+assert.equal(afterStandardTimeout.imageId, 'after-standard-timeout', 'standard timeout did not release the generation lane')
+
+imageApi.getProviders = async () => [{ id: 'provider', capabilities: { websocketPreviewStreaming: { previews: true, status: true } } }]
+imageApi.generateStream = async function* () { await new Promise(() => {}); yield { type: 'done', result: { imageId: 'impossible' } } }
+await assert.rejects(
+  backend.generateWithOptionalStream({ prompt: 'hung-stream' }, plan, 'u1', context('hung-stream'), false, 20),
+  (error: any) => error?.name === 'ImageGenerationTimeoutError',
+)
+imageApi.generate = async () => ({ imageId: 'after-stream-timeout', imageUrl: '/after-stream-timeout' })
+const afterStreamTimeout = await backend.generateWithOptionalStream({ prompt: 'retry-stream' }, plan, 'u1', context('retry-stream'), true, 100)
+assert.equal(afterStreamTimeout.imageId, 'after-stream-timeout', 'stream timeout did not release the generation lane')
+assert(frontendEvents.some(event => event?.event === 'error' && event?.statusText === 'Generation timed out.'), 'timeout did not publish a terminal error event')
+
 // Abort All cancellation walks a key snapshot even though each cancellation
 // deletes/reinserts the same key in bounded-map insertion order.
 const serials = new Map([['one', 1], ['two', 1]])
@@ -321,4 +344,4 @@ assertUtilitiesInjected(assembledText(slowStorageResult), 'slow diagnostic stora
 await new Promise(resolve => setTimeout(resolve, 10))
 assert(blockedStateWriteAttempts >= 1, 'prompt diagnostics were not scheduled after returning the injection')
 
-console.log('Runtime contract smoke passed: continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, opt-in streaming, bounded fallback/abort, snapshot Abort All, and deferred interceptor recovery.')
+console.log('Runtime contract smoke passed: continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, opt-in streaming, bounded provider timeout/fallback/abort, snapshot Abort All, and deferred interceptor recovery.')
