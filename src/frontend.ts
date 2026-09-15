@@ -51,6 +51,7 @@ import { C5B_CACHE_LIMITS, normalizeGalleryLinkCache, rememberBoundedMap, summar
 import { BUILD_ID, EXTENSION_VERSION } from './build'
 import { ORB_IMAGE_DESIGNS, ORB_IMAGE_DESIGN_URLS, type OrbImageDesignId } from './orbIconData'
 import { REVERIE_RELAY_SIDEBAR_ICON_URL, REVERIE_RELAY_TAB_ICON_URL } from './brandIconData'
+import { applyKakaoColorBinding } from './kakaoColor'
 import { NATIVE_SURFACE_ROOT_TAGS, renderNativeSurfaceMarkup } from './nativeSurfaces'
 import { hybridSurfaceOwner, shippedSurfaceDefinitions } from './shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
@@ -2412,6 +2413,7 @@ export function setup(ctx: SpindleFrontendContext) {
 
   function bindInlineImages(): void {
     bindNarrativeInteractiveControls()
+    for (const row of deepQueryAll<HTMLElement>(document, '[data-rr-kakao-color]')) applyKakaoColorBinding(row)
     const now = Date.now()
     for (const record of records) {
       const visibleSwipe = activeSwipeByMessage.get(record.messageId)

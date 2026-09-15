@@ -8,6 +8,7 @@ import { completeSurfaceSpecs } from '../src/surfaceXml'
 import { normalizeBracketSurfaceDocument } from '../src/bracketSurfaceBridge'
 import { bracketExampleFromXml } from '../src/bracketSurfaceAuthoring'
 import { containsRenderedRegexSurface, renderRegexSurfaceParity } from '../src/regexSurfaceParity'
+import { applyKakaoColorBinding, sanitizedKakaoColor } from '../src/kakaoColor'
 
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
 
@@ -92,7 +93,7 @@ for (const [surfaceId, expected] of Object.entries({
 let matrixCases = 0
 for (const presentation of presentations) for (const color of colors) {
   const pack = r45SurfaceAuthorityPack(presentation, color)
-  assert(pack.version === '2.2.1' && pack.relay_product_version === '0.2.7', `${presentation}/${color}: authority identity`)
+  assert(pack.version === '2.2.1' && pack.relay_product_version === '0.2.7.1', `${presentation}/${color}: authority identity`)
   assert(pack.scripts.length === 138 && pack.scripts.every(script => script.disabled !== true), `${presentation}/${color}: all 138 scripts enabled`)
   assert(new Set(pack.scripts.map(script => script.script_id)).size === 138, `${presentation}/${color}: unique script IDs`)
   for (const surface of canonical) {
@@ -150,6 +151,17 @@ for (const presentation of presentations) {
 }
 const google = canonical.find(row => row.id === 'google-images')!
 assert(/object-fit\s*:\s*(?:cover|contain)/i.test(renderR45SurfaceAuthority(google.sample, 'inline', 'realistic', 'google')), 'Google Images media-fit contract missing')
+
+const kakao = definitions.find(row => row.baseSurfaceId === 'kakao')!
+for (const rendererMode of ['relay', 'legacy-regex'] as const) {
+  const rendered = renderNativeSurfaceMarkup(kakao.sampleXml, { ...studio, rendererMode }, { chatId: 'kakao-color', messageId: `kakao-${rendererMode}` }).content
+  assert(/\bdata-rr-kakao-color="#[0-9a-f]{3,8}"/i.test(rendered), `Kakao ${rendererMode}: sanitized color data did not survive rendering`)
+}
+const boundStyle = new Map<string, string>()
+assert(applyKakaoColorBinding({ dataset: { rrKakaoColor: '#7a9b73' }, style: { setProperty(name, value) { boundStyle.set(name, value) } } }), 'Kakao binder refused a valid color')
+assert(boundStyle.get('--kk-color') === '#7a9b73', 'Kakao binder did not restore the computed custom property')
+assert(!applyKakaoColorBinding({ dataset: { rrKakaoColor: 'red;display:none' }, style: { setProperty() { throw new Error('unsafe color reached style') } } }), 'Kakao binder accepted an unsafe color')
+assert(sanitizedKakaoColor('oklch(62% .12 320)') === 'oklch(62% .12 320)', 'Kakao color sanitizer rejected a valid functional color')
 
 const strictPhone = `[smart_phone]
 [sender]Cheer Squad[/sender]
