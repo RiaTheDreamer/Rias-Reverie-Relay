@@ -184,6 +184,16 @@ assert.deepEqual(fullDryRunReport.sections.narrativeUtilities, {
 const plan = { provider: 'provider' }
 const context = (generationId: string) => ({ generationId, source: 'relay-slot', slotKey: generationId, requestId: generationId })
 
+// Provider result IDs are not proof of freshness. Relay must recognize both a
+// previously claimed ID and an ImageTable row older than the current RPC.
+assert.equal(backend.inspectProviderImageFreshness({ imageId: 'old', providerStartedAt: 1_700_000_050_000, assetCreatedAt: 1_700_000_040_000 }).stale, true)
+assert.equal(backend.inspectProviderImageFreshness({ imageId: 'claimed', providerStartedAt: 1_700_000_050_000, assetCreatedAt: 1_700_000_050_000, existingRelayClaim: 'slot prior' }).stale, true)
+assert.equal(backend.inspectProviderImageFreshness({ imageId: 'fresh', providerStartedAt: 1_700_000_050_000, assetCreatedAt: 1_700_000_049_000 }).stale, false)
+assert.equal(backend.inspectProviderImageFreshness({ imageId: 'seconds', providerStartedAt: 1_700_000_010_000, assetCreatedAt: 1_700_000_009 }).stale, false)
+assert.equal(backend.claimProviderImageResult('race-id', 'generation-one', 'u1'), '')
+assert.match(backend.claimProviderImageResult('race-id', 'generation-two', 'u1'), /generation-one/)
+assert.equal(backend.claimProviderImageResult('race-id', 'generation-one', 'u2'), '', 'runtime result claims must remain user-scoped')
+
 // Standard payload is clone-safe and omits signal entirely.
 let standardInputs: any[] = []
 imageApi.getProviders = async () => [{ id: 'provider', name: 'Any Provider', capabilities: { parameters: {}, apiKeyRequired: false, modelListStyle: 'static', defaultUrl: '' } }]
@@ -214,6 +224,17 @@ const streamed = await backend.generateWithOptionalStream({ prompt: 'stream' }, 
 assert.equal(streamed.imageId, 'stream-final')
 assert.equal(streamCalls, 1)
 assert.equal(standardInputs.length, 0)
+
+// A stale terminal stream completion gets one request/response retry. The
+// forced-standard path must not open a second stream.
+streamCalls = 0
+standardInputs = []
+imageApi.generateStream = async function* () { streamCalls += 1; yield { type: 'done', result: { imageId: 'stale-stream', imageUrl: '/stale-stream' } } }
+imageApi.generate = async (input: any) => { standardInputs.push(input); return { imageId: 'fresh-standard', imageUrl: '/fresh-standard' } }
+const forcedStandard = await backend.generateWithOptionalStream({ prompt: 'freshness retry' }, plan, 'u1', context('freshness-retry'), true)
+assert.equal(forcedStandard.imageId, 'fresh-standard')
+assert.equal(streamCalls, 0)
+assert.equal(standardInputs.length, 1)
 
 // Intentional stream abort must reject locally and never enter fallback.
 standardInputs = []
@@ -257,4 +278,4 @@ assert.deepEqual(cancelledKeys.sort(), ['one', 'two'])
 assert.equal(serials.size, 2)
 assert.equal(cancelMapKeysFromSnapshot(new Map(), () => { throw new Error('empty map callback') }), 0)
 
-console.log('Runtime contract smoke passed: continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, clone-safe standard ImageGen, opt-in streaming, bounded fallback/abort, snapshot Abort All, and deferred interceptor recovery.')
+console.log('Runtime contract smoke passed: continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, clone-safe standard ImageGen, stale-result freshness rejection, opt-in streaming, bounded fallback/abort, snapshot Abort All, and deferred interceptor recovery.')

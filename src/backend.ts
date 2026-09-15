@@ -863,6 +863,18 @@ type ImageGenerationLane = {
 // prose illustrations, surface media, candidates, and Illustrator cannot interrupt
 // one another.
 const imageGenerationLanes = new Map<string, ImageGenerationLane>()
+const providerImageResultClaims = new Map<string, { generationId: string; claimedAt: number }>()
+
+export function claimProviderImageResult(imageId: string, generationId: string, userId?: string): string {
+  const normalizedId = cleanString(imageId)
+  const normalizedGenerationId = cleanString(generationId)
+  if (!normalizedId || !normalizedGenerationId) return ''
+  const key = `${userId || '__default-user__'}:${normalizedId}`
+  const existing = providerImageResultClaims.get(key)
+  if (existing && existing.generationId !== normalizedGenerationId) return `runtime generation ${existing.generationId}`
+  rememberBoundedMap(providerImageResultClaims, key, { generationId: normalizedGenerationId, claimedAt: Date.now() }, 1_024)
+  return ''
+}
 
 function imageStreamAliases(context: ImageGenerationStreamContext): string[] {
   return [...new Set([context.generationId, context.slotKey, context.requestId].filter((value): value is string => Boolean(value)))]
@@ -894,6 +906,26 @@ function abortAllImageStreams(): number {
 
 function imageGenerationLaneKey(userId?: string): string {
   return userId || '__default-user__'
+}
+
+export function inspectProviderImageFreshness(input: {
+  imageId: string
+  providerStartedAt: number
+  assetCreatedAt?: number | null
+  existingRelayClaim?: string | null
+}): { stale: boolean; reasons: string[] } {
+  const reasons: string[] = []
+  if (input.existingRelayClaim) reasons.push(`image ID was already claimed by ${input.existingRelayClaim}`)
+  const rawCreatedAt = Number(input.assetCreatedAt)
+  const createdAt = Number.isFinite(rawCreatedAt) && rawCreatedAt > 0
+    ? (rawCreatedAt < 10_000_000_000 ? rawCreatedAt * 1000 : rawCreatedAt)
+    : 0
+  // ImageTable timestamps may have only second precision. A two-second margin
+  // avoids rejecting a row persisted immediately before the RPC resolved.
+  if (createdAt && createdAt + 2_000 < input.providerStartedAt) {
+    reasons.push(`persisted asset predates this provider call (${createdAt} < ${input.providerStartedAt})`)
+  }
+  return { stale: Boolean(input.imageId && reasons.length), reasons }
 }
 
 function abortError(message = 'Generation cancelled by user.'): Error {
@@ -10130,6 +10162,24 @@ function removeProviderLoraParameters(parameters: Record<string, unknown>): void
   for (const key of ['loras','loraWeights','lora_weights','loraNames','lora_names','loras_json','lora_strengths']) delete parameters[key]
 }
 
+async function existingRelayImageClaim(chatId: string, imageId: string, userId?: string): Promise<string> {
+  const normalizedId = cleanString(imageId)
+  if (!chatId || !normalizedId) return ''
+  try {
+    const state = await getState(chatId, userId)
+    for (const record of Object.values(state.slots)) {
+      if (cleanString(record.imageId) === normalizedId) return `slot ${record.key}`
+      if (cleanString(record.pendingPlacement?.imageId) === normalizedId) return `pending slot ${record.key}`
+      if ((record.history || []).some(snapshot => cleanString(snapshot.imageId) === normalizedId)) return `history for ${record.key}`
+    }
+    const archived = Object.values(state.assetLibrary.assets || {}).find(asset => cleanString(asset.imageId) === normalizedId)
+    if (archived) return `Relay asset ${archived.assetId}`
+  } catch (error) {
+    spindle.log.warn(`[ReverieRelay:image_freshness] Could not inspect Relay ownership for ${normalizedId}: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  return ''
+}
+
 async function generateImage(chatId: string | undefined, prepared: PreparedPrompt, plan: ImagePlan, userId?: string, streamContext?: ImageGenerationStreamContext, ownerChatId?: string): Promise<{
   imageId: string
   imageUrl: string
@@ -10195,6 +10245,10 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
     add_to_gallery: shouldLinkToGallery,
     gallery_caption: shouldLinkToGallery ? prepared.prompt.slice(0, 240) : undefined,
     generation_origin: source,
+    // Relay needs the bytes to recover safely when a host/provider returns an
+    // old persisted result ID. Do not let an ephemeral result URL become the
+    // only copy of an otherwise successful generation.
+    includeDataUrl: true,
   }
   const resolvedStreamContext = streamContext || (chatId ? {
     chatId,
@@ -10203,7 +10257,8 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
   } : undefined)
   if (!resolvedStreamContext) throw new Error('Image generation requires either a real chat context or an explicit stream context.')
   spindle.log.info(`[ReverieRelay:generation_origin] ${JSON.stringify({ origin: source, chatId: resolvedOwnerChatId || chatId || null, requestId: resolvedStreamContext.requestId || null, generationId: resolvedStreamContext.generationId, connectionId: plan.connectionId, model: plan.model, semanticPromptPresent: isMeaningfulAutomaticPrompt(recipeMergedPrompt, plan.effectiveBaseTags), recipeId: plan.recipeId || null })}`)
-  const result = await generateWithOptionalStream(finalRequest, plan, userId, resolvedStreamContext)
+  let providerStartedAt = Date.now()
+  let result = await generateWithOptionalStream(finalRequest, plan, userId, resolvedStreamContext)
 
   let galleryItemId = cleanString(result.galleryItemId) || undefined
   let galleryLinkStatus: GalleryLinkStatus = cleanString(result.galleryLinkStatus) === 'linked' || result.galleryLinked === true
@@ -10215,6 +10270,7 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
   let imageId = cleanString(result.imageId)
   let imageUrl = cleanString(result.imageUrl) || (imageId ? imageUrlFromId(imageId) : '')
   if (!imageId && imageUrl) imageId = imageIdFromResultUrl(imageUrl)
+  let runtimeResultClaim = claimProviderImageResult(imageId, resolvedStreamContext.generationId, userId)
   let asset = imageId ? await spindle.images.get(imageId, { onlyOwned: true, userId }).catch(() => null) : null
   let visibleUnownedAsset = false
   if (!asset && imageId) {
@@ -10226,7 +10282,60 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
       visibleUnownedAsset = true
     }
   }
-  const persistedDataUrl = cleanString(result.imageDataUrl)
+  const freshnessChatId = cleanString(resolvedOwnerChatId || chatId)
+  let existingRelayClaim = runtimeResultClaim || (imageId && freshnessChatId
+    ? await existingRelayImageClaim(freshnessChatId, imageId, userId)
+    : '')
+  let freshness = inspectProviderImageFreshness({
+    imageId,
+    providerStartedAt,
+    assetCreatedAt: Number((asset as any)?.created_at) || null,
+    existingRelayClaim,
+  })
+  let persistedDataUrl = cleanString(result.imageDataUrl)
+
+  // Some streaming bridges can emit a complete terminal result from an older
+  // session. Do not trust even its data URL: retry once through the independent
+  // request/response transport, then require a genuinely fresh asset.
+  if (freshness.stale) {
+    spindle.log.warn(`[ReverieRelay:image_freshness_retry] Rejected stale provider result ${imageId}: ${freshness.reasons.join('; ')}. Retrying once without streaming.`)
+    providerStartedAt = Date.now()
+    result = await generateWithOptionalStream(finalRequest, plan, userId, {
+      ...resolvedStreamContext,
+      generationId: `${resolvedStreamContext.generationId}:freshness-retry`,
+    }, true)
+    imageId = cleanString(result.imageId)
+    imageUrl = cleanString(result.imageUrl) || (imageId ? imageUrlFromId(imageId) : '')
+    if (!imageId && imageUrl) imageId = imageIdFromResultUrl(imageUrl)
+    runtimeResultClaim = claimProviderImageResult(imageId, `${resolvedStreamContext.generationId}:freshness-retry`, userId)
+    asset = imageId ? await spindle.images.get(imageId, { onlyOwned: true, userId }).catch(() => null) : null
+    visibleUnownedAsset = false
+    if (!asset && imageId) {
+      const anyAsset = await spindle.images.get(imageId, { onlyOwned: false, userId }).catch(() => null)
+      if (anyAsset) { asset = anyAsset; visibleUnownedAsset = true }
+    }
+    existingRelayClaim = runtimeResultClaim || (imageId && freshnessChatId
+      ? await existingRelayImageClaim(freshnessChatId, imageId, userId)
+      : '')
+    freshness = inspectProviderImageFreshness({
+      imageId,
+      providerStartedAt,
+      assetCreatedAt: Number((asset as any)?.created_at) || null,
+      existingRelayClaim,
+    })
+    persistedDataUrl = cleanString(result.imageDataUrl)
+    galleryItemId = cleanString(result.galleryItemId) || undefined
+    galleryLinkStatus = cleanString(result.galleryLinkStatus) === 'linked' || result.galleryLinked === true
+      ? 'linked'
+      : shouldLinkToGallery
+        ? 'failed'
+        : 'skipped'
+    galleryLinkError = cleanString(result.galleryLinkError) || undefined
+  }
+
+  if (freshness.stale) {
+    throw new Error(`ImageGen returned a stale result twice (${freshness.reasons.join('; ')}). Relay refused to reuse the old image.`)
+  }
   if ((!asset || visibleUnownedAsset) && persistedDataUrl) {
     const uploaded = await spindle.images.uploadFromDataUrl(persistedDataUrl, {
       originalFilename: `reverie-relay-${streamContext?.source || 'generation'}-${Date.now()}.png`,
@@ -12162,6 +12271,7 @@ export async function generateWithOptionalStream(
   plan: ImagePlan,
   userId: string | undefined,
   context: ImageGenerationStreamContext,
+  forceStandard = false,
 ): Promise<any> {
   const controller = new AbortController()
   registerImageStream(context, controller)
@@ -12177,7 +12287,7 @@ export async function generateWithOptionalStream(
       generateStream?: (input: Record<string, unknown>) => AsyncIterable<any>
     }
     const providerInfo = await streamProviderInfo(plan.provider, userId)
-    const canStream = imageProviderSupportsStreaming(plan.provider, providerInfo, typeof api.generateStream === 'function')
+    const canStream = !forceStandard && imageProviderSupportsStreaming(plan.provider, providerInfo, typeof api.generateStream === 'function')
     sendImageStreamEvent(userId, context, { event: 'started', streaming: canStream, statusText: canStream ? 'Connecting to live preview…' : 'Starting generation…' })
 
     if (!canStream || !api.generateStream) {
