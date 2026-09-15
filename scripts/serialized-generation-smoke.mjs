@@ -14,7 +14,8 @@ assert(backend.includes('await acquireImageGenerationLane(userId, context, contr
 assert(backend.includes('Queued behind the current image. Relay will start this one next.'), 'queued image status is missing')
 assert(backend.includes("source: job.target === 'prose.illustration' ? 'relay-illustrator' : 'relay-slot'"), 'illustrations and surface images no longer share the generation path')
 assert(backend.includes("source: 'relay-slot' | 'relay-illustrator' | 'relay-candidate'"), 'retained generation stream sources disappeared')
-assert(/if \(!result\) \{\n\s+if \(streamFailure\)[\s\S]*?result = await api\.generate\(standardInput\)/.test(backendLf), 'stream-without-result fallback is missing')
+assert(/if \(!result\) \{\n\s+if \(streamFailure\)[\s\S]*?result = await withImageGenerationDeadline\(\(\) => api\.generate\(standardInput\), controller, timeoutMs\)/.test(backendLf), 'bounded stream-without-result fallback is missing')
+assert(backend.includes('export const IMAGE_GENERATION_TIMEOUT_MS = 5 * 60_000'), 'provider generation timeout is missing')
 assert(frontend.includes('const lastActivityAt = Math.max') && frontend.includes('stream?.updatedAt || 0'), 'queued stream activity does not prevent false stalled cards')
 
 assert(backend.includes('export function proseAnalysisText'), 'mixed prose/surface sanitizer is missing')

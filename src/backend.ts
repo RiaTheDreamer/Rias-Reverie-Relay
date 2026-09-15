@@ -943,6 +943,37 @@ function abortError(message = 'Generation cancelled by user.'): Error {
   return error
 }
 
+export const IMAGE_GENERATION_TIMEOUT_MS = 5 * 60_000
+
+class ImageGenerationTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    const minutes = Math.max(1, Math.round(timeoutMs / 60_000))
+    super(`ImageGen did not finish within ${minutes} minute${minutes === 1 ? '' : 's'}. Retry the slot when the provider is ready.`)
+    this.name = 'ImageGenerationTimeoutError'
+  }
+}
+
+async function withImageGenerationDeadline<T>(
+  operation: () => Promise<T>,
+  controller: AbortController,
+  timeoutMs = IMAGE_GENERATION_TIMEOUT_MS,
+): Promise<T> {
+  const boundedTimeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, Math.floor(timeoutMs)) : IMAGE_GENERATION_TIMEOUT_MS
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new ImageGenerationTimeoutError(boundedTimeoutMs)
+      if (!controller.signal.aborted) controller.abort(error)
+      reject(error)
+    }, boundedTimeoutMs)
+  })
+  try {
+    return await Promise.race([operation(), timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 function releaseImageGenerationLane(key: string): void {
   const lane = imageGenerationLanes.get(key)
   if (!lane) return
@@ -12420,6 +12451,7 @@ export async function generateWithOptionalStream(
   userId: string | undefined,
   context: ImageGenerationStreamContext,
   forceStandard = false,
+  timeoutMs = IMAGE_GENERATION_TIMEOUT_MS,
 ): Promise<any> {
   const controller = new AbortController()
   registerImageStream(context, controller)
@@ -12434,13 +12466,13 @@ export async function generateWithOptionalStream(
       generate: (input: Record<string, unknown>) => Promise<any>
       generateStream?: (input: Record<string, unknown>) => AsyncIterable<any>
     }
-    const providerInfo = await streamProviderInfo(plan.provider, userId)
+    const providerInfo = await withImageGenerationDeadline(() => streamProviderInfo(plan.provider, userId), controller, timeoutMs)
     const canStream = !forceStandard && imageProviderSupportsStreaming(plan.provider, providerInfo, typeof api.generateStream === 'function')
     sendImageStreamEvent(userId, context, { event: 'started', streaming: canStream, statusText: canStream ? 'Connecting to live preview…' : 'Starting generation…' })
 
     if (!canStream || !api.generateStream) {
       if (controller.signal.aborted) throw abortError()
-      const result = await api.generate(standardInput)
+      const result = await withImageGenerationDeadline(() => api.generate(standardInput), controller, timeoutMs)
       if (controller.signal.aborted) throw abortError()
       const finalPreview = streamImageValue(result)
       if (finalPreview) sendImageStreamEvent(userId, context, { event: 'preview', previewImageDataUrl: finalPreview, streaming: false, statusText: 'Final preview ready.' })
@@ -12451,49 +12483,51 @@ export async function generateWithOptionalStream(
     let result: any = null
     let streamFailure: unknown
     try {
-      for await (const rawEvent of api.generateStream(streamInput)) {
-      if (controller.signal.aborted) throw abortError()
-      const normalizedEvent = normalizeImageGenerationStreamEvent(rawEvent)
-      if (!normalizedEvent) continue
-      const { type, previewImageDataUrl, step, totalSteps, nodeId } = normalizedEvent
+      await withImageGenerationDeadline(async () => {
+        for await (const rawEvent of api.generateStream!(streamInput)) {
+          if (controller.signal.aborted) throw abortError()
+          const normalizedEvent = normalizeImageGenerationStreamEvent(rawEvent)
+          if (!normalizedEvent) continue
+          const { type, previewImageDataUrl, step, totalSteps, nodeId } = normalizedEvent
 
-      if (previewImageDataUrl && !['done', 'complete', 'completed', 'finished', 'result'].includes(type)) {
-        sendImageStreamEvent(userId, context, {
-          event: 'preview',
-          streaming: true,
-          statusText: normalizedEvent.statusText || 'Generating live preview…',
-          previewImageDataUrl,
-          step,
-          totalSteps,
-          nodeId,
-        })
-      } else if (['status', 'progress', 'executing', 'execution-status', 'queued'].includes(type)) {
-        sendImageStreamEvent(userId, context, {
-          event: 'status',
-          streaming: true,
-          statusText: normalizedEvent.statusText || 'Generating…',
-          step,
-          totalSteps,
-          nodeId,
-        })
-      }
+          if (previewImageDataUrl && !['done', 'complete', 'completed', 'finished', 'result'].includes(type)) {
+            sendImageStreamEvent(userId, context, {
+              event: 'preview',
+              streaming: true,
+              statusText: normalizedEvent.statusText || 'Generating live preview…',
+              previewImageDataUrl,
+              step,
+              totalSteps,
+              nodeId,
+            })
+          } else if (['status', 'progress', 'executing', 'execution-status', 'queued'].includes(type)) {
+            sendImageStreamEvent(userId, context, {
+              event: 'status',
+              streaming: true,
+              statusText: normalizedEvent.statusText || 'Generating…',
+              step,
+              totalSteps,
+              nodeId,
+            })
+          }
 
-      if (['done', 'complete', 'completed', 'finished', 'result'].includes(type) && normalizedEvent.result) {
-        result = normalizedEvent.result
-        const finalPreview = previewImageDataUrl || streamImageValue(result)
-        if (finalPreview) {
-          sendImageStreamEvent(userId, context, {
-            event: 'preview',
-            streaming: false,
-            statusText: 'Final preview ready.',
-            previewImageDataUrl: finalPreview,
-            step,
-            totalSteps,
-            nodeId,
-          })
+          if (['done', 'complete', 'completed', 'finished', 'result'].includes(type) && normalizedEvent.result) {
+            result = normalizedEvent.result
+            const finalPreview = previewImageDataUrl || streamImageValue(result)
+            if (finalPreview) {
+              sendImageStreamEvent(userId, context, {
+                event: 'preview',
+                streaming: false,
+                statusText: 'Final preview ready.',
+                previewImageDataUrl: finalPreview,
+                step,
+                totalSteps,
+                nodeId,
+              })
+            }
+          }
         }
-      }
-      }
+      }, controller, timeoutMs)
     } catch (error) {
       if (isAbortError(error) || controller.signal.aborted) throw error
       streamFailure = error
@@ -12502,7 +12536,7 @@ export async function generateWithOptionalStream(
       if (streamFailure) spindle.log.warn(`[ReverieRelay:image_stream_fallback] ${streamFailure instanceof Error ? streamFailure.message : String(streamFailure)}`)
       sendImageStreamEvent(userId, context, { event: 'status', streaming: false, statusText: 'Live preview unavailable. Finishing through standard ImageGen…' })
       if (controller.signal.aborted) throw abortError()
-      result = await api.generate(standardInput)
+      result = await withImageGenerationDeadline(() => api.generate(standardInput), controller, timeoutMs)
       if (controller.signal.aborted) throw abortError()
       const finalPreview = streamImageValue(result)
       if (finalPreview) sendImageStreamEvent(userId, context, { event: 'preview', previewImageDataUrl: finalPreview, streaming: false, statusText: 'Final preview ready.' })
@@ -12511,6 +12545,11 @@ export async function generateWithOptionalStream(
     sendImageStreamEvent(userId, context, { event: 'done', streaming: canStream, statusText: 'Generation complete.' })
     return result
   } catch (error) {
+    const timeoutError = controller.signal.reason instanceof ImageGenerationTimeoutError ? controller.signal.reason : null
+    if (timeoutError) {
+      sendImageStreamEvent(userId, context, { event: 'error', streaming: false, statusText: 'Generation timed out.', error: timeoutError.message })
+      throw timeoutError
+    }
     if (isAbortError(error) || controller.signal.aborted) {
       sendImageStreamEvent(userId, context, { event: 'cancelled', streaming: false, statusText: 'Generation stopped.' })
       throw abortError(error instanceof Error ? error.message : 'Generation cancelled by user.')
