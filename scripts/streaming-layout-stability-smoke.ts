@@ -51,8 +51,8 @@ const failed = rendered(request('portrait', '3:4'), [{ requestId: 'portrait', sl
 assertStableSlot(failed, 'portrait', '3:4', 'failed')
 
 const completed = rendered(request('portrait', '3:4'), [{ requestId: 'portrait', slot: 'portrait', target: 'custom.artifact-media', status: 'completed', messageId: 'layout-message', requestAspect: '3:4', imageUrl: '/mock/portrait.jpg', imageId: 'portrait-img' }])
-assertStableSlot(completed, 'portrait', '3:4', 'completed')
-assert(cardFor(completed, 'portrait').includes('/mock/portrait.jpg') && cardFor(completed, 'portrait').includes('class="rrl-resolved"'), 'completed image must replace content inside the stable slot')
+assert(completed.includes('/mock/portrait.jpg') && completed.includes('class="rrl-resolved"'), 'completed image must replace the reservation')
+assert(!completed.includes('data-rrn-native-request="portrait"') && !/Image completed|Regenerate|Reparse|Rescan/.test(completed), 'completed image must unmount lifecycle/status/action UI')
 
 const retrySuccess = rendered(request('retry', '4:5'), [{ requestId: 'retry', slot: 'retry', target: 'custom.artifact-media', status: 'placement-repair-needed', messageId: 'layout-message', requestAspect: '4:5', pendingPlacement: { imageUrl: '/mock/retry.jpg' }, imageId: 'retry-img' }])
 assertStableSlot(retrySuccess, 'retry', '4:5', 'placement-repair-needed')
@@ -62,15 +62,17 @@ const mixed = rendered(`${request('square', '1:1')}\nMiddle prose\n${request('wi
   { requestId: 'wide', slot: 'wide', target: 'custom.artifact-media', status: 'generating', messageId: 'layout-message', requestAspect: '16:9' },
   { requestId: 'tall', slot: 'tall', target: 'custom.artifact-media', status: 'queued', messageId: 'layout-message', requestAspect: '9:16' },
 ])
-for (const [id, ratio, state] of [['square', '1:1', 'completed'], ['wide', '16:9', 'generating'], ['tall', '9:16', 'queued']] as const) assertStableSlot(mixed, id, ratio, state)
+assert(mixed.includes('/mock/square.jpg') && !mixed.includes('data-rrn-native-request="square"'), 'completed mixed slot must render only its final image')
+for (const [id, ratio, state] of [['wide', '16:9', 'generating'], ['tall', '9:16', 'queued']] as const) assertStableSlot(mixed, id, ratio, state)
 
 const terminalSource = `Opening prose remains visible.\n${request('terminal', '4:3')}\nClosing prose remains visible.`
 const terminalPending = rendered(terminalSource, [{ requestId: 'terminal', slot: 'terminal', target: 'custom.artifact-media', status: 'generating', messageId: 'layout-message', requestAspect: '4:3' }])
 const terminalCompleted = rendered(terminalSource, [{ requestId: 'terminal', slot: 'terminal', target: 'custom.artifact-media', status: 'completed', messageId: 'layout-message', requestAspect: '4:3', imageUrl: '/mock/terminal.jpg' }])
 for (const [state, content] of [['pending', terminalPending], ['completed', terminalCompleted]] as const) {
   assert(content.includes('Opening prose remains visible.') && content.includes('Closing prose remains visible.'), `${state}: terminal lifecycle transition removed surrounding prose`)
-  assertStableSlot(content, 'terminal', '4:3', state === 'pending' ? 'generating' : 'completed')
 }
+assertStableSlot(terminalPending, 'terminal', '4:3', 'generating')
+assert(terminalCompleted.includes('/mock/terminal.jpg') && !terminalCompleted.includes('data-rrn-native-request="terminal"'), 'terminal completion must replace its reservation without status UI')
 
 const phone = definitions.find(definition => definition.baseSurfaceId === 'smartphone')!
 const phoneRendered = rendered(phone.sampleXml)
@@ -87,7 +89,7 @@ assert(nativeSource.includes('.rrl-card:hover .rrl-actions') && nativeSource.inc
 const frontendSource = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')
 assert(frontendSource.includes('mediaSlot.dataset.rrnMediaState') && frontendSource.includes('slotImage.hidden = false'), 'frontend must mutate the existing stable media slot when image state changes')
 assert(frontendSource.includes("'[data-rr-kakao-color]'") && frontendSource.includes('applyKakaoColorBinding(row)'), 'frontend must restore sanitized Kakao color properties after host sanitization')
-assert(frontendSource.includes("if (!card.querySelector('.rrl-media-slot')) card.remove()"), 'frontend must not remove stable lifecycle cards when completed images bind')
+assert(frontendSource.includes("!image.closest('[data-rrn-native-request]')") && frontendSource.includes('stripHealthyCompletedLifecycleUi(card)'), 'frontend must strip completed reservation UI and remove the reservation when the authored image binds')
 assert(frontendSource.includes('invalidateDisplayIfContractChanged') && (frontendSource.match(/ctx\.display\?\.invalidate\(\['\*'\]\)/g) || []).length === 1, 'slot-state updates must not wholesale-invalidate and remount every Surface')
 
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')

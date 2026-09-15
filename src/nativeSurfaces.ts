@@ -6,7 +6,7 @@ import type { CustomSurfaceDefinition, CustomSurfaceStudioState, GenerationPlace
 import { hybridSurfaceOwner, SHIPPED_SURFACE_BY_ID, SHIPPED_SURFACE_SPECS, type ShippedSurfaceSpec } from './shippedSurfaceDefinitions'
 import { containsRenderedRegexSurface, renderRegexSurfaceParity, type RegexSurfaceParityMode } from './regexSurfaceParity'
 import { R45_SUPPLEMENTAL_ROOTS } from './r45SurfaceCatalog'
-import { isSlotLifecycleActive } from './slotLifecycle'
+import { isFailureRecoveryStatus, isSlotLifecycleActive } from './slotLifecycle'
 import { sanitizedKakaoColor } from './kakaoColor'
 
 export type NativeSurfaceRenderContext = {
@@ -39,6 +39,8 @@ export type NativeSurfaceRenderContext = {
     caption?: string
     time?: string
     requestAspect?: string
+    updatedAt?: number
+    attemptNumber?: number
   }>
 }
 
@@ -77,11 +79,17 @@ const STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="2">
 </style>`
 
 function lifecycleCardIsland(card: string): string {
-  return lifecycleCardShell(`${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${card}`)
+  return lifecycleCardShell(card)
 }
 
 function lifecycleCardShell(card: string): string {
   return `<div class="rrl-island" data-reverie-lifecycle-card="true">${card}</div>`
+}
+
+export function lifecycleRuntimeCss(): string {
+  return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}`
+    .replace(/<style\b[^>]*>/gi, '')
+    .replace(/<\/style>/gi, '')
 }
 
 
@@ -175,7 +183,16 @@ function matchingRequestRecords(
     .filter(record => !context.messageId || !record.messageId || record.messageId === context.messageId)
     .filter(record => context.swipeId === undefined || record.swipeId === undefined || record.swipeId === context.swipeId)
     .filter(record => !target || !record.target || record.target === target)
-    .sort((left, right) => String(left.slot || '').localeCompare(String(right.slot || ''), undefined, { numeric: true }))
+    .sort((left, right) => (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0)
+      || (Number(right.attemptNumber) || 0) - (Number(left.attemptNumber) || 0)
+      || String(left.slot || '').localeCompare(String(right.slot || ''), undefined, { numeric: true }))
+}
+
+function currentRequestRecord(input: {
+  context: NativeSurfaceRenderContext
+  requestId: string
+}): NonNullable<NativeSurfaceRenderContext['records']>[number] | undefined {
+  return matchingRequestRecords(input.context, input.requestId, '')[0]
 }
 
 function requestRecordAttributes(record: NonNullable<NativeSurfaceRenderContext['records']>[number]): string {
@@ -629,7 +646,6 @@ export function renderNativeSurfaceMarkup(
   // Relay's generic request pass so one instance never gets two render owners.
   const protectedRegexSurfaces = new Map<string, string>()
   let renderedCount = bracketRenderedCount + normalizationFailures.length
-  let standaloneLifecycleCount = 0
   const renderedSurfaceIds: string[] = [...bracketRenderedSurfaceIds, ...normalizationFailures]
 
   // The reviewed Tinder contract deliberately has its own <tinder> wrapper
@@ -679,13 +695,34 @@ export function renderNativeSurfaceMarkup(
     })
   }
 
+  // Relay-Planned prose illustrations reserve their exact authored position
+  // with scene_image while generation is active. This is the real reservation
+  // path, not a parallel Status Card surface.
+  content = content.replace(/<scene_image\b([^>]*)>([\s\S]*?)<\/scene_image>/gi, (full, rawAttrs, body) => {
+    const attrs = parseAttrs(rawAttrs)
+    const pending = /^(?:true|1|pending)$/i.test(attrs.pending || '')
+    const requestId = attrs.requestId || attrs.requestid || attrs.request_id || attrs.planId || attrs.planid || attrs.id || ''
+    if (!pending || !requestId || /<img\b/i.test(body)) return full
+    renderedCount += 1
+    renderedSurfaceIds.push('prose-illustration')
+    return lifecycleCardIsland(renderRequestCard({
+      title: 'Illustration requested',
+      brief: stripMarkup(String(body || '')),
+      requestId,
+      aspect: attrs.aspect || currentRequestRecord({ context: renderContext, requestId })?.requestAspect || '4:3',
+      rootTag: 'scene_image',
+      baseSurfaceId: 'prose-illustration',
+      preset: activePreset(studio, 'prose-illustration'),
+      context: renderContext,
+    }, true))
+  })
+
   content = content.replace(/<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi, (_full, rawAttrs, body) => {
     const attrs = parseAttrs(rawAttrs)
     if ((attrs.request || '').toLowerCase() !== 'generate') return ''
     renderedCount += 1
     renderedSurfaceIds.push('prose-illustration')
-    standaloneLifecycleCount += 1
-    return lifecycleCardShell(renderRequestCard({
+    return lifecycleCardIsland(renderRequestCard({
       title: 'Illustration requested',
       brief: stripMarkup(String(body || '')),
       requestId: attrs.slot || attrs.id || '',
@@ -705,8 +742,7 @@ export function renderNativeSurfaceMarkup(
     if (attrs.target !== 'custom.artifact-media') return full
     renderedCount += 1
     renderedSurfaceIds.push('artifact-media')
-    standaloneLifecycleCount += 1
-    return lifecycleCardShell(renderRequestCard({
+    return lifecycleCardIsland(renderRequestCard({
       title: 'Artifact media requested',
       brief: firstTagText(body, 'scene_brief') || stripMarkup(body),
       requestId: attrs.id || attrs.request_id || '',
@@ -728,8 +764,7 @@ export function renderNativeSurfaceMarkup(
     const baseSurfaceId = baseSurfaceIdForTarget(target)
     renderedCount += 1
     renderedSurfaceIds.push(baseSurfaceId)
-    standaloneLifecycleCount += 1
-    return lifecycleCardShell(renderRequestCard({
+    return lifecycleCardIsland(renderRequestCard({
       title: 'Media requested',
       brief: firstTagText(body, 'scene_brief') || firstTagText(body, 'prompt') || stripMarkup(body),
       requestId: attrs.id || attrs.request_id || '',
@@ -750,8 +785,7 @@ export function renderNativeSurfaceMarkup(
     const baseSurfaceId = baseSurfaceIdForTarget(target)
     renderedCount += 1
     renderedSurfaceIds.push(baseSurfaceId)
-    standaloneLifecycleCount += 1
-    return lifecycleCardShell(renderRequestCard({
+    return lifecycleCardIsland(renderRequestCard({
       title: 'Generation failed',
       brief: stripMarkup(body) || 'Relay could not generate this media.',
       requestId: attrs.id || attrs.request_id || '',
@@ -774,7 +808,6 @@ export function renderNativeSurfaceMarkup(
     )
     content = preserveKakaoColorAttributes(content)
   }
-  if (standaloneLifecycleCount) content = `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${content}`
   return { content, renderedCount, renderedSurfaceIds }
 }
 
@@ -1223,7 +1256,6 @@ function renderAnyMedia(body: string, context: NativeSurfaceRenderContext, baseS
   }
   const image = extractImage(body)
   if (!image) return ''
-  const actions = renderActionButtons(image.requestId, context, baseSurfaceId, 'resolved')
   const relayAttrs = [
     image.key ? ` data-dgir-key="${escapeAttr(image.key)}"` : '',
     image.requestId ? ` data-dgir-request-id="${escapeAttr(image.requestId)}"` : '',
@@ -1231,7 +1263,7 @@ function renderAnyMedia(body: string, context: NativeSurfaceRenderContext, baseS
     image.imageId ? ` data-dgir-image-id="${escapeAttr(image.imageId)}"` : '',
   ].join('')
   const aspect = image.aspect || '16:9'
-  return `<figure class="rrn-media" data-aspect="${escapeAttr(aspect)}" style="--reverie-media-aspect:${escapeAttr(cssAspectRatio(aspect, '16:9'))}"><img src="${escapeAttr(image.src)}" alt="${escapeAttr(image.alt || 'Reverie media')}" data-rrn-request-id="${escapeAttr(image.requestId)}"${relayAttrs}>${image.caption ? `<figcaption class="rrn-caption">${sanitizeInline(image.caption)}</figcaption>` : ''}</figure>${actions}`
+  return `<figure class="rrn-media" data-aspect="${escapeAttr(aspect)}" style="--reverie-media-aspect:${escapeAttr(cssAspectRatio(aspect, '16:9'))}"><img src="${escapeAttr(image.src)}" alt="${escapeAttr(image.alt || 'Reverie media')}" data-rrn-request-id="${escapeAttr(image.requestId)}"${relayAttrs}>${image.caption ? `<figcaption class="rrn-caption">${sanitizeInline(image.caption)}</figcaption>` : ''}</figure>`
 }
 
 function extractImage(body: string): { src: string; alt: string; caption: string; requestId: string; aspect: string; key: string; imageId: string; slot: string } | null {
@@ -1291,11 +1323,12 @@ function renderRequestCard(input: {
   context: NativeSurfaceRenderContext
   failed?: boolean
 }, bare = false): string {
-  const record = input.context.records?.find(candidate => candidate.requestId === input.requestId
-    && (!input.context.messageId || !candidate.messageId || candidate.messageId === input.context.messageId)
-    && (input.context.swipeId === undefined || candidate.swipeId === undefined || candidate.swipeId === input.context.swipeId))
+  const record = currentRequestRecord({ context: input.context, requestId: input.requestId })
   const fallbackStatus = input.context.autoGenerate === false ? 'recovered-pending' : 'preparing'
-  const liveStatus = input.failed ? 'failed' : (record?.status || fallbackStatus)
+  // The canonical current record outranks historical source markup. An old
+  // image_request_error may survive briefly while a retry is active or after
+  // it succeeds; it must not resurrect failure UI.
+  const liveStatus = record?.status || (input.failed ? 'failed' : fallbackStatus)
   const statusLabels: Record<string, string> = {
     'recovered-pending': 'Discovered', preparing: 'Preparing', queued: 'Queued', parsing: 'Parsing', generating: 'Generating', previewing: 'Previewing',
     'placement-pending': 'Inserting', 'placement-repair-needed': 'Repair needed', completed: 'Completed', 'image-unavailable': 'Unavailable',
@@ -1306,43 +1339,42 @@ function renderRequestCard(input: {
     'placement-pending': 'Inserting image', 'placement-repair-needed': 'Placement needs repair', completed: 'Image completed', 'image-unavailable': 'Image unavailable',
     failed: 'Generation failed', cancelled: 'Generation stopped',
   }
-  const failure = input.failed || liveStatus === 'failed' || liveStatus === 'image-unavailable' || liveStatus === 'cancelled' || liveStatus === 'placement-repair-needed'
+  const failure = isFailureRecoveryStatus(liveStatus as import('./contracts').SlotStatus)
   const icon = failure ? '!' : liveStatus === 'completed' ? '✓' : '✦'
   const brief = failure && record?.error ? record.error : (input.brief || 'Visual request attached to this message.')
   const active = isSlotLifecycleActive(liveStatus as import('./contracts').SlotStatus)
   const repairAvailable = liveStatus === 'placement-repair-needed' && Boolean(record?.pendingPlacement)
-  const actionState = repairAvailable ? 'repair' : failure ? 'failed' : liveStatus === 'completed' ? 'resolved' : active ? 'active' : 'pending'
   const completedImageUrl = record?.imageUrl || record?.pendingPlacement?.imageUrl
   const aspect = input.aspect || record?.requestAspect || '1:1'
-  if (completedImageUrl && (liveStatus === 'completed' || liveStatus === 'placement-repair-needed')) {
+  if (completedImageUrl && liveStatus === 'completed') {
     const artifactMedia = input.baseSurfaceId === 'character-profile'
       ? ' class="reverie-artifact-media" data-reverie-artifact-media="true" data-dgir-custom-target="custom.artifact-media"'
       : ''
-    const repairNeeded = liveStatus === 'placement-repair-needed'
     const imageAttrs = artifactMedia || ' class="rrl-slot-image"'
-    const mediaSlot = stableLifecycleMediaSlot(aspect, liveStatus, input.title, `<figure class="rrl-resolved"><img src="${escapeAttr(completedImageUrl)}" alt="${escapeAttr(input.title || 'Reverie media')}"${imageAttrs}${requestRecordAttributes(record)} loading="lazy" decoding="async"></figure>`, false)
-    const resolved = `<div class="rrl-card ${repairNeeded ? 'rrl-error' : ''}" data-rrn-native-request="${escapeAttr(input.requestId)}" data-rrn-record-key="${escapeAttr(record?.key || '')}" data-rrn-live-status="${escapeAttr(liveStatus)}" aria-live="polite">${mediaSlot}<div class="rrl-main"><span class="rrl-icon"><span class="rrl-state-icon">${icon}</span></span><div class="rrl-copy"><strong class="rrl-title">${escapeHtml(titleLabels[liveStatus] || input.title)}</strong><span class="rrl-status">${escapeHtml(statusLabels[liveStatus] || titleCaseToken(liveStatus))}</span><span class="rrl-stream-status"></span><div class="rrl-progress" hidden><span></span></div></div></div><div class="rrl-actions">${renderActionButtons(input.requestId, input.context, input.baseSurfaceId, repairAvailable ? 'repair' : 'resolved', input.rootTag)}</div><details class="rrl-detail"><summary aria-label="Show request details"></summary><p>${escapeHtml(brief)}</p></details></div>`
+    const resolved = `<figure class="rrl-resolved" data-rrn-completed-request="${escapeAttr(input.requestId)}"><img src="${escapeAttr(completedImageUrl)}" alt="${escapeAttr(input.title || 'Reverie media')}"${imageAttrs}${requestRecordAttributes(record)} loading="lazy" decoding="async"></figure>`
     return bare ? resolved : lifecycleCardIsland(resolved)
   }
   const selectedEffect = input.context.generationPlaceholderEffect || 'glitter'
-  const mediaSlot = stableLifecycleMediaSlot(aspect, liveStatus, input.title, '', true, active ? selectedEffect : undefined)
+  const failedImage = repairAvailable && completedImageUrl
+    ? `<figure class="rrl-resolved"><img src="${escapeAttr(completedImageUrl)}" alt="${escapeAttr(input.title || 'Reverie media')}" class="rrl-slot-image"${requestRecordAttributes(record)} loading="lazy" decoding="async"></figure>`
+    : ''
+  const mediaSlot = stableLifecycleMediaSlot(aspect, liveStatus, input.title, failedImage, !failedImage, active ? selectedEffect : undefined)
   if (active) {
     const placeholder = `<div class="rrl-card" data-rrn-native-request="${escapeAttr(input.requestId)}" data-rrn-record-key="${escapeAttr(record?.key || '')}" data-rrn-live-status="${escapeAttr(liveStatus)}">${mediaSlot}</div>`
     return bare ? placeholder : lifecycleCardIsland(placeholder)
   }
-  const card = `<div class="rrl-card ${failure ? 'rrl-error' : ''}" data-rrn-native-request="${escapeAttr(input.requestId)}" data-rrn-record-key="${escapeAttr(record?.key || '')}" data-rrn-live-status="${escapeAttr(liveStatus)}" aria-live="polite">${mediaSlot}<div class="rrl-main"><span class="rrl-icon"><span class="rrl-spinner" aria-hidden="true"></span><span class="rrl-state-icon">${icon}</span></span><div class="rrl-copy"><strong class="rrl-title">${escapeHtml(titleLabels[liveStatus] || input.title)}</strong><span class="rrl-status">${escapeHtml(statusLabels[liveStatus] || titleCaseToken(liveStatus))}</span><span class="rrl-stream-status"></span><div class="rrl-progress" hidden><span></span></div></div></div><div class="rrl-actions">${renderActionButtons(input.requestId, input.context, input.baseSurfaceId, actionState, input.rootTag)}</div><details class="rrl-detail"><summary aria-label="Show request details"></summary><p>${escapeHtml(brief)}</p></details></div>`
+  const failureActions = repairAvailable ? 'repair' : failure ? 'failed' : undefined
+  const actions = failureActions ? `<div class="rrl-actions">${renderActionButtons(input.requestId, input.context, input.baseSurfaceId, failureActions, input.rootTag)}</div>` : ''
+  const card = `<div class="rrl-card ${failure ? 'rrl-error' : ''}" data-rrn-native-request="${escapeAttr(input.requestId)}" data-rrn-record-key="${escapeAttr(record?.key || '')}" data-rrn-live-status="${escapeAttr(liveStatus)}" aria-live="polite">${mediaSlot}<div class="rrl-main"><span class="rrl-icon"><span class="rrl-spinner" aria-hidden="true"></span><span class="rrl-state-icon">${icon}</span></span><div class="rrl-copy"><strong class="rrl-title">${escapeHtml(titleLabels[liveStatus] || input.title)}</strong><span class="rrl-status">${escapeHtml(statusLabels[liveStatus] || titleCaseToken(liveStatus))}</span><span class="rrl-stream-status"></span><div class="rrl-progress" hidden><span></span></div></div></div>${actions}<details class="rrl-detail"><summary aria-label="Show request details"></summary><p>${escapeHtml(brief)}</p></details></div>`
   return bare ? card : lifecycleCardIsland(card)
 }
 
-function renderActionButtons(requestId: string, context: NativeSurfaceRenderContext, baseSurfaceId: string, state: 'pending' | 'active' | 'failed' | 'repair' | 'resolved', rootTag = ''): string {
+function renderActionButtons(requestId: string, context: NativeSurfaceRenderContext, baseSurfaceId: string, state: 'failed' | 'repair', rootTag = ''): string {
   if (!context.messageId) return ''
   const common = `data-rrn-message-id="${escapeAttr(context.messageId)}" data-rrn-swipe-id="${escapeAttr(String(context.swipeId ?? ''))}" data-rrn-chat-id="${escapeAttr(context.chatId)}" data-rrn-request-id="${escapeAttr(requestId)}" data-rrn-surface-id="${escapeAttr(baseSurfaceId)}" data-rrn-root-tag="${escapeAttr(rootTag)}"`
   const rescan = `<button type="button" data-rrn-action="rescan" ${common}>Rescan</button>`
-  if (state === 'resolved') return `<button type="button" data-rrn-action="regenerate" ${common}>Regenerate</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`
   if (state === 'repair') return `<button type="button" data-rrn-action="repair-placement" ${common}>Repair / Reinsert</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`
-  if (state === 'failed') return `<button type="button" data-rrn-action="regenerate" ${common}>Regenerate</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`
-  if (state === 'active') return `<button type="button" data-rrn-action="abort" ${common}>Abort</button><button type="button" data-rrn-action="regenerate" ${common}>Regenerate</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`
-  return `<button type="button" data-rrn-action="retry" ${common}>Generate now</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`
+  return `<button type="button" data-rrn-action="regenerate" ${common}>Regenerate</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`
 }
 
 function shell(baseSurfaceId: string, title: string, subtitle: string, inner: string, preset: CustomSurfaceDefinition | undefined, context: NativeSurfaceRenderContext, extraClass = ''): string {

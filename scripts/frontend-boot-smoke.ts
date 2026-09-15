@@ -199,7 +199,7 @@ const moduleUrl = `${pathToFileURL(builtFrontendPath).href}?boot-smoke=${Date.no
 const frontendModule = await import(moduleUrl)
 const cleanup = frontendModule.setup(ctx)
 assert(typeof cleanup === 'function', 'built frontend setup must return its lifecycle cleanup')
-assert(stylesRegistered === 1, 'frontend setup must register Relay styles')
+assert(stylesRegistered === 2, 'frontend setup must register panel and lifecycle reservation styles')
 assert(drawerRegistrations.length === 1 && drawerRegistrations[0].id === 'reverie-relay', 'frontend setup must register the Relay drawer tab')
 assert(inputRegistrations.length === 2, 'frontend setup must register both input-bar actions')
 assert(inputRegistrations.some(entry => entry.options.id === 'open-reverie-relay'), 'Relay input-bar action must be registered')
@@ -241,7 +241,7 @@ assert(body.children.some(child => child.className.includes('dg-relay-orb')), 'O
 for (let tick = 0; tick < 8; tick += 1) await Promise.resolve()
 assert(backendPayloads.some((payload: any) => payload?.type === 'list_state' && payload.chatId === 'boot-chat'), 'frontend setup must begin backend state synchronization')
 cleanup()
-assert(drawerDestroyed && stylesRemoved === 1, 'frontend cleanup must retire registered host resources')
+assert(drawerDestroyed && stylesRemoved === 2, 'frontend cleanup must retire registered host resources')
 
 // Real bundled UI handlers: controls must work outside a chat and paint the
 // selection before any backend state echo (including a stale echo).

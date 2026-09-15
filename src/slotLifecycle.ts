@@ -56,3 +56,10 @@ export function isSlotLifecycleActive(status: SlotStatus): boolean {
 export function canAbortSlotStatus(status: SlotStatus): boolean {
   return SLOT_LIFECYCLE[status].canAbort
 }
+
+export function isFailureRecoveryStatus(status: SlotStatus): boolean {
+  return status === 'failed'
+    || status === 'image-unavailable'
+    || status === 'cancelled'
+    || status === 'placement-repair-needed'
+}
