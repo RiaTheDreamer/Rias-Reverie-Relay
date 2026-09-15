@@ -76,6 +76,21 @@ assert.equal(coldConfig.autoGenerate, false)
 assert.equal(configWrites, 0)
 storage.set('config.json', {})
 
+// Generation placeholder appearance is centralized persistent config. Every
+// canonical value must survive a write and a fresh user-scope read; missing or
+// corrupt legacy values migrate to Glitter.
+for (const effect of ['spinner', 'glitter', 'none', 'dream-orb'] as const) {
+  const saved = await backend.setConfig({ generationPlaceholderEffect: effect }, `placeholder-writer-${effect}`)
+  assert.equal(saved.generationPlaceholderEffect, effect)
+  const reloaded = await backend.getConfig(`placeholder-reload-${effect}`)
+  assert.equal(reloaded.generationPlaceholderEffect, effect)
+}
+storage.set('config.json', { generationPlaceholderEffect: 'broken-effect' })
+assert.equal((await backend.getConfig('placeholder-invalid')).generationPlaceholderEffect, 'glitter')
+storage.set('config.json', {})
+assert.equal((await backend.getConfig('placeholder-legacy')).generationPlaceholderEffect, 'glitter')
+storage.set('config.json', {})
+
 // Continue completions are assistant-message updates, not user impersonation.
 // Relay must scan them and prefer the complete stored request inventory over a
 // shorter generation-event fragment.
