@@ -13,8 +13,8 @@ const imageStreaming = read('src/imageStreaming.ts')
 const pkg = JSON.parse(read('package.json'))
 const manifest = JSON.parse(read('spindle.json'))
 
-equal(pkg.version, '0.2.7')
-equal(manifest.version, '0.2.7')
+equal(pkg.version, '0.2.7.1')
+equal(manifest.version, '0.2.7.1')
 equal(pkg.version, manifest.version, 'package and manifest versions must match')
 assert(manifest.interceptorTimeoutMs >= 30_000, 'Relay prompt assembly needs an explicit host interceptor budget')
 equal(manifest.identifier, 'reverie_relay', 'public extension identifier')
@@ -113,4 +113,4 @@ assert(!/novel|providerId\.includes|provider\.name/i.test(imageStreaming.replace
 assert(frontend.includes('Provider LoRA Catalog'))
 assert(frontend.includes('Advanced: add exact LoRA filename'))
 
-console.log('0.2.7 UX, macro, modal, Surface overview, and LoRA discovery smoke ok')
+console.log('0.2.7.1 UX, macro, modal, Surface overview, and LoRA discovery smoke ok')

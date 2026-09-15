@@ -7,6 +7,7 @@ import { hybridSurfaceOwner, SHIPPED_SURFACE_BY_ID, SHIPPED_SURFACE_SPECS, type 
 import { containsRenderedRegexSurface, renderRegexSurfaceParity, type RegexSurfaceParityMode } from './regexSurfaceParity'
 import { R45_SUPPLEMENTAL_ROOTS } from './r45SurfaceCatalog'
 import { isSlotLifecycleActive } from './slotLifecycle'
+import { sanitizedKakaoColor } from './kakaoColor'
 
 export type NativeSurfaceRenderContext = {
   chatId: string
@@ -68,6 +69,7 @@ const LIFECYCLE_CARD_CSS = `<style data-reverie-lifecycle-style="release">
 
 const STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="1">
 .rrn-editable-surface,.rrl-island,.rrn-media,.rrl-media-slot,[data-reverie-r45-lifecycle-media]{overflow-anchor:none}.rrn-media{aspect-ratio:var(--reverie-media-aspect,16/9);min-height:0;contain:layout paint}.rrn-media img{width:100%;height:100%;object-fit:var(--rrn-fit,contain)}.rrl-card>.rrl-media-slot{grid-column:1/-1}.rrl-media-slot{--reverie-media-aspect:1/1;position:relative;display:block;width:100%;aspect-ratio:var(--reverie-media-aspect);min-height:0;overflow:hidden;border:1px solid var(--rrl-border);border-radius:11px;background:linear-gradient(135deg,color-mix(in srgb,var(--rrl-panel) 74%,#050305),#070507);contain:layout paint;overflow-anchor:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-resolved{position:absolute;inset:0;width:100%;height:100%;margin:0;border:0;border-radius:0;background:transparent}.rrl-media-slot .rrl-preview{max-height:none}.rrl-media-slot .rrl-preview[hidden]{display:none}.rrl-media-slot .rrl-preview-image,.rrl-media-slot .rrl-slot-image,.rrl-media-slot .rrl-resolved img{display:block;width:100%;height:100%;max-height:none;object-fit:contain;background:#070507;border-radius:0}.rrl-actions button[data-rrn-action]{touch-action:manipulation;pointer-events:auto}.rrl-actions button[data-rrl-submitting="true"]{opacity:.68;cursor:progress}.rrl-media-skeleton{position:absolute;inset:0;display:grid;place-items:center;padding:10px;color:var(--rrl-muted);font-size:10px;text-align:center;background:radial-gradient(circle at 50% 35%,color-mix(in srgb,var(--rrl-accent) 18%,transparent),transparent 44%)}.rrl-media-skeleton:before{content:"Media slot reserved"}.rrl-card[data-rrn-live-status="failed"] .rrl-media-skeleton:before,.rrl-card[data-rrn-live-status="image-unavailable"] .rrl-media-skeleton:before,.rrl-card[data-rrn-live-status="cancelled"] .rrl-media-skeleton:before{content:"Media unavailable"}.rrl-media-slot[data-rrn-media-empty="false"] .rrl-media-skeleton{opacity:0;pointer-events:none}.rrl-media-slot[data-rrn-media-state="previewing"] .rrl-media-skeleton{opacity:0}@media(max-width:560px){.rrl-media-slot{width:100%;max-height:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-preview-image{max-height:none}}
+.rrl-card{display:block;min-height:0;padding:0;border:0;border-radius:11px;background:transparent;box-shadow:none;overflow:visible}.rrl-card>.rrl-media-slot{border:0;background:color-mix(in srgb,var(--rrl-bg) 94%,transparent)}.rrl-media-skeleton{overflow:hidden;padding:0;color:transparent;background:linear-gradient(135deg,color-mix(in srgb,var(--rrl-panel) 38%,transparent),color-mix(in srgb,var(--rrl-bg) 72%,transparent))}.rrl-media-skeleton:before{content:""}.rrl-media-skeleton:after{content:"";position:absolute;inset:-35%;background:linear-gradient(105deg,transparent 38%,color-mix(in srgb,var(--rrl-accent) 10%,transparent) 48%,color-mix(in srgb,var(--rrl-text) 7%,transparent) 52%,transparent 62%);transform:translateX(-42%);animation:rrlSkeleton 2.2s ease-in-out infinite}.rrl-main{position:absolute;z-index:3;left:8px;top:8px;max-width:calc(100% - 16px);padding:4px 7px;border-radius:999px;background:rgba(5,3,6,.62);backdrop-filter:blur(7px);pointer-events:none}.rrl-main .rrl-icon{width:18px;height:18px;flex-basis:18px;border:0;background:transparent}.rrl-main .rrl-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.rrl-main .rrl-copy{display:block}.rrl-main .rrl-status{padding:0;border:0;color:#fff;font-size:9px}.rrl-stream-status,.rrl-progress{display:none!important}.rrl-actions{position:absolute;z-index:4;right:8px;bottom:8px;max-width:calc(100% - 16px);padding:4px;border-radius:10px;background:rgba(5,3,6,.68);backdrop-filter:blur(7px);opacity:0;transform:translateY(3px);pointer-events:none;transition:opacity .16s ease,transform .16s ease}.rrl-card:hover .rrl-actions,.rrl-card:focus-within .rrl-actions,.rrl-card[data-rrn-live-status="completed"] .rrl-actions,.rrl-card[data-rrn-live-status="failed"] .rrl-actions,.rrl-card[data-rrn-live-status="image-unavailable"] .rrl-actions,.rrl-card[data-rrn-live-status="cancelled"] .rrl-actions,.rrl-card[data-rrn-live-status="placement-repair-needed"] .rrl-actions{opacity:1;transform:none;pointer-events:auto}.rrl-detail{display:none}.rrl-card[data-rrn-live-status="completed"] .rrl-main{opacity:0;transition:opacity .16s ease}.rrl-card[data-rrn-live-status="completed"]:hover .rrl-main,.rrl-card[data-rrn-live-status="completed"]:focus-within .rrl-main{opacity:.9}.rrn-message[data-rr-kakao-color] .rrn-avatar{background:color-mix(in srgb,var(--kk-color) 38%,var(--rrn-panel));border-color:color-mix(in srgb,var(--kk-color) 54%,transparent)}.rrn-message[data-rr-kakao-color] .rrn-meta b{color:color-mix(in srgb,var(--kk-color) 65%,var(--rrn-text))}.rrn-message[data-rr-kakao-color] .rrn-bubble{border:1px solid color-mix(in srgb,var(--kk-color) 35%,var(--rrn-border));background:color-mix(in srgb,var(--rrn-panel) 82%,var(--kk-color) 18%)}.rrn-message[data-rr-kakao-color] .rrn-bubble.is-sent{background:color-mix(in srgb,var(--rrn-panel) 68%,var(--kk-color) 32%)}@keyframes rrlSkeleton{50%,100%{transform:translateX(42%)}}@media(prefers-reduced-motion:reduce){.rrl-media-skeleton:after{animation:none;opacity:.35}}
 </style>`
 
 function lifecycleCardIsland(card: string): string {
@@ -497,6 +499,15 @@ function recordKakaoRenderTrace(rendered: string): void {
   recordSurfacePipelineDiagnostic('kakao', 'renderer-row-count', `${messageRows + systemRows + imageRows} rows: messages=${messageRows}, system=${systemRows}, images=${imageRows}`)
 }
 
+function preserveKakaoColorAttributes(rendered: string): string {
+  return rendered.replace(/<([a-z][\w:-]*)\b([^>]*\bclass=["'][^"']*\bkk-(?:msg-row|part|typing)\b[^"']*["'][^>]*)>/gi, (tag, name: string, attrs: string) => {
+    if (/\bdata-rr-kakao-color\s*=/i.test(attrs)) return tag
+    const style = /\bstyle=["']([^"']*)["']/i.exec(attrs)?.[1] || ''
+    const color = sanitizedKakaoColor(/(?:^|;)\s*--kk-color\s*:\s*([^;]+)/i.exec(style)?.[1])
+    return color ? `<${name}${attrs} data-rr-kakao-color="${escapeAttr(color)}">` : tag
+  })
+}
+
 function reviewedContractError(surfaceId: string, reason: string): string {
   reviewedSurfaceDiagnostics.set(surfaceId, reason)
   recordSurfacePipelineDiagnostic(surfaceId, 'final', `repair fallback: ${reason}`)
@@ -527,7 +538,10 @@ function renderParityOwnedSurface(
   const hydrated = hydrateParityRequests(canonicalMarkup, baseSurfaceId, context)
   const mode = parityModeForSurface(baseSurfaceId, preset, context)
   let rendered = renderRegexSurfaceParity(hydrated, mode, context.messageId || `${baseSurfaceId}-surface`, context.colorMode || 'realistic')
-  if (baseSurfaceId === 'kakao') recordKakaoRenderTrace(rendered)
+  if (baseSurfaceId === 'kakao') {
+    rendered = preserveKakaoColorAttributes(rendered)
+    recordKakaoRenderTrace(rendered)
+  }
   const contract = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).find(spec => spec.id === baseSurfaceId)
   const residual = contract ? residualSurfaceTags(rendered, contract) : []
   recordSurfacePipelineDiagnostic(baseSurfaceId, 'selected-contract', contract ? `${contract.id} <${contract.wrapper}>` : 'missing')
@@ -745,6 +759,7 @@ export function renderNativeSurfaceMarkup(
       renderContext.messageId || 'message-surface',
       renderContext.colorMode || 'realistic',
     )
+    content = preserveKakaoColorAttributes(content)
   }
   return { content, renderedCount, renderedSurfaceIds }
 }
@@ -1079,6 +1094,8 @@ function renderKakao(attrs: Record<string, string>, body: string, preset: Custom
     const value = match[3] || ''
     if (tag === 'k_msg') {
       const sent = a.side === 'right'
+      const color = sanitizedKakaoColor(a.color)
+      const colorAttr = color ? ` data-rr-kakao-color="${escapeAttr(color)}"` : ''
       const reply = firstTagMatch(value, 'k_reply')
       const file = firstTagMatch(value, 'k_file')
       const reactions = allTagMatches(value, 'k_react').map(row => {
@@ -1089,7 +1106,7 @@ function renderKakao(attrs: Record<string, string>, body: string, preset: Custom
       clean = stripKnownTags(clean, ['k_reply', 'k_file', 'k_react'])
       const replyMarkup = reply ? `<div class="rrn-card rrn-quote"><div class="rrn-meta"><b>${escapeHtml(parseAttrs(reply.attrs).sender || '')}</b></div>${sanitizeInline(reply.body)}</div>` : ''
       const fileMarkup = file ? (() => { const fa = parseAttrs(file.attrs); return `<div class="rrn-file"><span>▧</span><div><b>${escapeHtml(fa.name || 'Attachment')}</b><div class="rrn-sub">${escapeHtml(fa.type || '')}${fa.size ? ` · ${escapeHtml(fa.size)}` : ''}</div>${stripMarkup(file.body) ? `<div>${sanitizeInline(file.body)}</div>` : ''}</div></div>` })() : ''
-      rows.push(`<div class="rrn-message ${sent ? 'is-sent' : ''}">${sent ? '' : `<span class="rrn-avatar">${escapeHtml(a.avatar || initial(a.sender || 'K'))}</span>`}<div class="rrn-copy"><div class="rrn-meta">${sent ? '' : `<b>${escapeHtml(a.sender || '')}</b>`}<time>${escapeHtml(a.time || '')}</time>${a.read ? `<span>${escapeHtml(a.read)}</span>` : ''}</div>${replyMarkup}<div class="rrn-bubble ${sent ? 'is-sent' : ''}">${sanitizeInline(clean)}</div>${renderAnyMedia(value, context, 'kakao')}${fileMarkup}${reactions ? `<div class="rrn-reactions">${reactions}</div>` : ''}</div></div>`)
+      rows.push(`<div class="rrn-message ${sent ? 'is-sent' : ''}"${colorAttr}>${sent ? '' : `<span class="rrn-avatar">${escapeHtml(a.avatar || initial(a.sender || 'K'))}</span>`}<div class="rrn-copy"><div class="rrn-meta">${sent ? '' : `<b>${escapeHtml(a.sender || '')}</b>`}<time>${escapeHtml(a.time || '')}</time>${a.read ? `<span>${escapeHtml(a.read)}</span>` : ''}</div>${replyMarkup}<div class="rrn-bubble ${sent ? 'is-sent' : ''}">${sanitizeInline(clean)}</div>${renderAnyMedia(value, context, 'kakao')}${fileMarkup}${reactions ? `<div class="rrn-reactions">${reactions}</div>` : ''}</div></div>`)
     } else if (tag === 'k_date' || tag === 'k_unread') rows.push(`<div class="rrn-sub" style="text-align:center;padding:8px">${sanitizeInline(value)}</div>`)
     else if (tag === 'k_system') rows.push(`<div class="rrn-chip" style="margin:6px auto;display:flex;width:max-content">${sanitizeInline(value)}</div>`)
     else if (tag === 'k_typing') rows.push(`<div class="rrn-sub">${escapeHtml(a.names || '')} is typing…</div>`)

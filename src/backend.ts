@@ -340,6 +340,15 @@ function sanitizeRelayPromptMessage(message: LlmMessage): LlmMessage {
   return sanitizeRelayPromptMessageWithMetrics(message).message
 }
 
+type InitialPlacementBatchEntry = { job: RouterJob; results: SlotGenerationResult[] }
+type InitialPlacementBatch = {
+  chatId: string
+  messageId: string
+  swipeId: number
+  sourceFingerprint: string
+  entries: InitialPlacementBatchEntry[]
+}
+
 type PromptHistoryMessageMetric = {
   role: string
   checked: boolean
@@ -4431,7 +4440,7 @@ async function scanAndGenerate(
     }
 
     const swipeId = Number.isFinite(Number(forcedSwipeId)) ? Number(forcedSwipeId) : Number(message.swipe_id ?? 0)
-    const rawStoredContent = getSwipeContent(message, swipeId)
+    const rawStoredContent = getAuthoritativeSwipeContent(message, swipeId)
     const storedProseNormalization = normalizeProseIllustrationContracts(rawStoredContent)
     const storedContent = normalizeRelaySurfaceContracts(storedProseNormalization.markup)
     if (storedContent !== rawStoredContent) await patchSwipeContent(chatId, message, swipeId, storedContent)
@@ -4675,7 +4684,11 @@ async function scanAndGenerate(
       }
       return
     }
-    await runWithConcurrency(jobs, config.queueConcurrencyLimit, job => runJob(job, { replaceExisting: false, reparse: true, triggerType: 'initial', nativeSnapshot: effectiveSnapshot, automaticDispatch: true }, userId))
+    const placementBatch: InitialPlacementBatch | undefined = config.slotGenerationMode === 'auto-insert'
+      ? { chatId, messageId: message.id, swipeId, sourceFingerprint: contentFingerprint(storedContent), entries: [] }
+      : undefined
+    await runWithConcurrency(jobs, config.queueConcurrencyLimit, job => runJob(job, { replaceExisting: false, reparse: true, triggerType: 'initial', nativeSnapshot: effectiveSnapshot, automaticDispatch: true, placementBatch }, userId))
+    if (placementBatch) await commitInitialPlacementBatch(placementBatch, userId)
   } finally {
     messageLocks.delete(lockKey)
     if (messageId) clearIdleCancellationKeys(chatId, messageId)
@@ -4718,6 +4731,7 @@ async function runJob(job: RouterJob, options: {
   highResMode?: boolean
   forceImagePreview?: boolean
   automaticDispatch?: boolean
+  placementBatch?: InitialPlacementBatch
 }, userId?: string): Promise<void> {
   const lockKey = `${job.chatId}:${job.messageId}:${job.swipeId}:${job.requestId}:${job.slots.join(',')}`
   if (slotLocks.has(lockKey)) return
@@ -4897,7 +4911,7 @@ async function runJob(job: RouterJob, options: {
 
     results.sort((left, right) => job.slots.indexOf(left.slot) - job.slots.indexOf(right.slot))
     if (isJobCancelled(job)) throw new JobCancelledError()
-    const placement = await applyJobSuccess(job, results, options.replaceExisting, userId, false, options.forceImagePreview === true)
+    const placement = await applyJobSuccess(job, results, options.replaceExisting, userId, false, options.forceImagePreview === true, options.placementBatch)
     await enqueueGalleryLinksForResults(job, results, userId)
     await mutateState(job.chatId, userId, state => finishBackgroundTask(state, backgroundTaskId, placement === 'completed' ? 'Complete' : 'Ready to place'))
     spindle.sendToFrontend({ type: 'status', status: placement === 'completed' ? 'Generated' : 'Ready to Place', requestId: job.requestId }, userId)
@@ -6370,8 +6384,119 @@ function replaceOwningMessageMediaWrapper(content: string, job: RouterJob, repla
   return `${content.slice(0, owner.start)}${replacement}${content.slice(owner.end)}`
 }
 
+async function stageInitialPlacementBatchEntry(batch: InitialPlacementBatch, job: RouterJob, results: SlotGenerationResult[], userId?: string): Promise<void> {
+  await mutateJobState(job, userId, state => {
+    const now = Date.now()
+    for (const result of results) {
+      const record = state.slots[slotKey({ ...job, slot: result.slot })]
+      applyGeneration(state, record, result, now)
+      appendStateLog(state, {
+        severity: 'info', stage: 'image-generation-completed', eventType: 'image_generation_completed', chatId: job.chatId,
+        messageId: job.messageId, swipeId: job.swipeId, requestId: job.requestId, slot: result.slot, target: job.target,
+        attemptNumber: record.attemptNumber, triggerType: result.triggerType, provider: result.imageProvider,
+        connectionId: result.imageConnectionId, connectionName: result.imageConnectionName, model: result.imageModel,
+        durationMs: currentAttempt(record)?.durationMs, message: 'Image generation completed; live pixels updated while atomic message persistence waits for the batch.',
+      })
+    }
+  })
+  batch.entries.push({ job, results })
+  await sendState(userId, job.chatId)
+}
 
-async function applyJobSuccess(job: RouterJob, results: SlotGenerationResult[], replaceExisting: boolean, userId?: string, bypassImagePreview = false, forceImagePreview = false): Promise<'completed' | 'placement-pending' | 'placement-repair-needed'> {
+export function composeInitialPlacementBatchContent(content: string, entries: InitialPlacementBatchEntry[]): { content: string; error?: string } {
+  let nextContent = content
+  const ordered = [...entries].sort((left, right) => {
+    const leftIndex = content.indexOf(left.job.originalRequestXml)
+    const rightIndex = content.indexOf(right.job.originalRequestXml)
+    return (leftIndex < 0 ? Number.MAX_SAFE_INTEGER : leftIndex) - (rightIndex < 0 ? Number.MAX_SAFE_INTEGER : rightIndex)
+  })
+  for (const { job, results } of ordered) {
+    const expectedPlacements = new Map(results.map(result => [result.slot, expectedPlacementCount(nextContent, job, result)]))
+    const replacement = renderResolvedMarkup(job, results)
+    let placed = nextContent
+    if (placed.includes(job.originalRequestXml)) {
+      const ownedMediaReplacement = replaceOwningMessageMediaWrapper(placed, job, replacement)
+      placed = ownedMediaReplacement || placed.split(job.originalRequestXml).join(replacement)
+    } else {
+      placed = replaceErrorAfterComment(placed, job, replacement) || placed
+    }
+    if (!placementIsPresent(placed, job, results, expectedPlacements)) {
+      return { content, error: `No deterministic anchor remained for request ${job.requestId}.` }
+    }
+    if (isCharacterProfileArtifactJob(placed, job, results) && !results.every(result => characterProfilePortraitHasExactRelayImage(placed, {
+      chatId: job.chatId, messageId: job.messageId, swipeId: job.swipeId, requestId: job.requestId, slot: result.slot, imageUrl: result.imageUrl,
+    }))) return { content, error: `The generated Character Profile image for ${job.requestId} is not renderable in its owned portrait.` }
+    nextContent = placed
+  }
+  return { content: nextContent }
+}
+
+async function markInitialPlacementBatchForRepair(batch: InitialPlacementBatch, reason: string, currentContent: string, userId?: string): Promise<void> {
+  await mutateState(batch.chatId, userId, state => {
+    const now = Date.now()
+    for (const { job, results } of batch.entries) for (const result of results) {
+      const record = state.slots[slotKey({ ...job, slot: result.slot })]
+      if (!record) continue
+      record.status = 'placement-repair-needed'
+      record.pendingPlacement = result
+      record.previewPending = false
+      record.placementFailure = {
+        failedAt: now,
+        reason,
+        anchorsChecked: ['message/swipe generation-start fingerprint', 'exact original request or Relay error marker', 'atomic final placement verification'],
+        contentFingerprint: contentFingerprint(currentContent),
+        retryCount: (record.placementFailure?.retryCount || 0) + 1,
+      }
+      record.error = undefined
+      record.errorToastKey = undefined
+      record.updatedAt = now
+      finishAttempt(record, 'placement-repair-needed', now, reason)
+      appendStateLog(state, {
+        severity: 'warning', stage: 'placement-repair-needed', eventType: 'placement_repair_needed', chatId: job.chatId,
+        messageId: job.messageId, swipeId: job.swipeId, requestId: job.requestId, slot: result.slot, target: job.target,
+        message: 'Generated pixels were preserved, but atomic message persistence stopped without overwriting newer content.',
+        details: { reason, sourceFingerprint: batch.sourceFingerprint, currentFingerprint: contentFingerprint(currentContent), imageId: result.imageId, imageUrl: result.imageUrl },
+      })
+    }
+  })
+  await sendState(userId, batch.chatId)
+}
+
+async function commitInitialPlacementBatch(batch: InitialPlacementBatch, userId?: string): Promise<void> {
+  if (!batch.entries.length) return
+  const message = await resolveHostMessage(batch.chatId, batch.messageId)
+  const currentContent = message ? getAuthoritativeSwipeContent(message, batch.swipeId) : ''
+  if (!message || contentFingerprint(currentContent) !== batch.sourceFingerprint) {
+    await markInitialPlacementBatchForRepair(batch, message ? 'The message or active swipe changed while images were generating.' : 'The original message is no longer available.', currentContent, userId)
+    return
+  }
+  const composed = composeInitialPlacementBatchContent(currentContent, batch.entries)
+  if (composed.error || composed.content === currentContent) {
+    await markInitialPlacementBatchForRepair(batch, composed.error || 'No atomic placement change could be composed.', currentContent, userId)
+    return
+  }
+  try {
+    await patchSwipeContent(batch.chatId, message, batch.swipeId, composed.content)
+    const verifiedMessage = await resolveHostMessage(batch.chatId, batch.messageId)
+    const verifiedContent = verifiedMessage ? getSwipeContent(verifiedMessage, batch.swipeId) : ''
+    if (contentFingerprint(verifiedContent) !== contentFingerprint(composed.content)) {
+      await markInitialPlacementBatchForRepair(batch, 'The single message update returned without the exact composed batch.', verifiedContent, userId)
+      return
+    }
+    await mutateState(batch.chatId, userId, state => appendStateLog(state, {
+      severity: 'info', stage: 'placement-completed', eventType: 'message_batch_placement_completed', chatId: batch.chatId,
+      messageId: batch.messageId, swipeId: batch.swipeId,
+      message: `Persisted ${batch.entries.reduce((total, entry) => total + entry.results.length, 0)} generated image slot(s) in one fingerprint-checked message update.`,
+      details: { requestIds: batch.entries.map(entry => entry.job.requestId), sourceFingerprint: batch.sourceFingerprint },
+    }))
+    await sendState(userId, batch.chatId)
+  } catch (error) {
+    await markInitialPlacementBatchForRepair(batch, error instanceof Error ? error.message : String(error), currentContent, userId)
+  }
+}
+
+
+async function applyJobSuccess(job: RouterJob, results: SlotGenerationResult[], replaceExisting: boolean, userId?: string, bypassImagePreview = false, forceImagePreview = false, placementBatch?: InitialPlacementBatch): Promise<'completed' | 'placement-pending' | 'placement-repair-needed'> {
   if (results.length === 0) throw new Error('No image results were produced.')
   if (isJobCancelled(job)) throw new JobCancelledError()
   const config = await getConfig(userId)
@@ -6379,6 +6504,10 @@ async function applyJobSuccess(job: RouterJob, results: SlotGenerationResult[], 
     await storePendingPlacement(job, results, 'Awaiting user preview and insertion.', ['user preview mode'], '', userId, true)
     spindle.sendToFrontend({ type: 'status', status: 'Preview Ready', requestId: job.requestId }, userId)
     return 'placement-pending'
+  }
+  if (placementBatch) {
+    await stageInitialPlacementBatchEntry(placementBatch, job, results, userId)
+    return 'completed'
   }
   const anchorsChecked = ['exact resolved slot marker', 'exact original image_request or reverie-illustration tag', 'exact Relay error marker']
   const message = await resolveMessage(job.chatId, job.messageId)
@@ -13513,6 +13642,11 @@ async function resolveMessage(chatId: string, messageId?: string): Promise<ChatM
   return [...messages].reverse().find(message => isAssistantMessage(message) && !isOwnMessage(message)) ?? null
 }
 
+async function resolveHostMessage(chatId: string, messageId: string): Promise<ChatMessage | null> {
+  const messages = await spindle.chat.getMessages(chatId) as ChatMessage[]
+  return messages.find(message => message.id === messageId) ?? null
+}
+
 function messageSnapshotKey(chatId: string, messageId: string): string {
   return `${chatId}:${messageId}`
 }
@@ -13538,6 +13672,11 @@ function isAssistantMessage(message: ChatMessage): boolean {
 function getSwipeContent(message: ChatMessage, swipeId: number): string {
   if (Array.isArray(message.swipes) && message.swipes[swipeId] !== undefined) return message.swipes[swipeId]
   return message.content
+}
+
+function getAuthoritativeSwipeContent(message: ChatMessage, swipeId: number): string {
+  if (swipeId === activeSwipeId(message) && typeof message.content === 'string') return message.content
+  return getSwipeContent(message, swipeId)
 }
 
 /** Lumiverse treats message.content as the canonical active swipe during a
