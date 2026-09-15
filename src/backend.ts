@@ -1838,7 +1838,7 @@ type MessageContentProcessorContext = {
 }
 
 const NATIVE_RENDER_TAG_RE = new RegExp(
-  `(?:<|\\[)(?:${[...new Set([...NATIVE_SURFACE_ROOT_TAGS, 'reverie-illustration', 'image_request', 'image_request_error'])].map(escapeRegExp).join('|')})(?=[\\s>\\]])`,
+  `(?:<|\\[)(?:${[...new Set([...NATIVE_SURFACE_ROOT_TAGS, 'reverie-illustration', 'image_request', 'image_request_error', 'scene_image'])].map(escapeRegExp).join('|')})(?=[\\s>\\]])`,
   'i',
 )
 

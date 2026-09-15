@@ -1,7 +1,7 @@
 // @ts-nocheck -- Deterministic contract coverage for the generation reservation appearance.
 import { readFileSync } from 'node:fs'
 import { normalizeGenerationPlaceholderEffect } from '../src/contracts'
-import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
+import { lifecycleRuntimeCss, renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
 
@@ -19,13 +19,15 @@ const requestId = 'placeholder-contract'
 const request = `<image_request id="${requestId}" target="custom.artifact-media" slot="${requestId}" aspect="4:3" alt="Reserved media"><scene_brief>Fixture.</scene_brief></image_request>`
 const baseRecord = { key: `chat:message:0:${requestId}:${requestId}`, requestId, slot: requestId, target: 'custom.artifact-media', status: 'generating', messageId: 'message', swipeId: 0, requestAspect: '4:3' }
 
+const withoutStyles = (content: string) => content.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+
 const runtimeMarkup = (effect: string, status = 'generating', imageUrl?: string) => {
   const content = renderNativeSurfaceMarkup(request, studio as any, {
     chatId: 'chat', messageId: 'message', swipeId: 0, autoGenerate: true,
     generationPlaceholderEffect: effect as any,
     records: [{ ...baseRecord, status, imageUrl, imageId: imageUrl ? 'image-id' : undefined }],
   }).content
-  return content.slice(content.lastIndexOf('</style>') + '</style>'.length)
+  return withoutStyles(content)
 }
 
 assert(normalizeGenerationPlaceholderEffect(undefined) === 'glitter', 'missing config must migrate to glitter')
@@ -49,10 +51,86 @@ for (const effect of ['spinner', 'glitter', 'none', 'dream-orb'] as const) {
 
 const completed = runtimeMarkup('glitter', 'completed', '/images/completed.png')
 assert(!completed.includes('data-rr-placeholder-effect=') && completed.includes('/images/completed.png'), 'completed generation must remove the active effect and keep the image')
+assert(!/Image completed|>Ready<|Regenerate|Reparse|Rescan|rrl-state-icon|rrl-detail|data-rrn-native-request/.test(completed), 'completed image must not retain lifecycle copy, controls, status icon, details, or reservation card')
 const retry = runtimeMarkup('dream-orb', 'generating')
 assert(retry.includes('data-rr-placeholder-effect="dream-orb"'), 'retry returning to active state must restore selected effect')
 
+const placementPaths = [
+  {
+    label: 'Prose Illustration',
+    requestId: 'relay-planned-reservation',
+    source: 'Prose before.\n\n<scene_image pending="true" requestId="relay-planned-reservation" planId="relay-planned-reservation" alt="Scene">Generating scene illustration...</scene_image>\n\nProse after.',
+  },
+  {
+    label: 'Inline',
+    requestId: 'inline-reservation',
+    source: 'Prose before.\n\n<image_request id="inline-reservation" target="prose.illustration" slot="illustration" aspect="4:3"><scene_brief>Inline fixture.</scene_brief></image_request>\n\nProse after.',
+  },
+  {
+    label: 'Model-Placed',
+    requestId: 'model-placed-reservation',
+    source: 'Prose before.\n\n<reverie-illustration request="generate" slot="model-placed-reservation" aspect="4:3" cast="none"><visual_prompt>Model-placed fixture.</visual_prompt></reverie-illustration>\n\nProse after.',
+  },
+] as const
+
+function renderPlacementPath(path: typeof placementPaths[number], status: string, imageUrl?: string, recordsOverride?: any[]): string {
+  const record = {
+    key: `chat:message:0:${path.requestId}:illustration`, requestId: path.requestId, slot: 'illustration',
+    target: 'prose.illustration', status, messageId: 'message', swipeId: 0, requestAspect: '4:3',
+    imageUrl, imageId: imageUrl ? `${path.requestId}-image` : undefined, updatedAt: 20, attemptNumber: 2,
+  }
+  return withoutStyles(renderNativeSurfaceMarkup(path.source, studio as any, {
+    chatId: 'chat', messageId: 'message', swipeId: 0, autoGenerate: true,
+    generationPlaceholderEffect: 'glitter', records: recordsOverride || [record],
+  }).content)
+}
+
+for (const path of placementPaths) {
+  const active = renderPlacementPath(path, 'generating')
+  const reservation = active.indexOf('rrl-generation-placeholder')
+  assert(reservation >= 0, `${path.label}: active generation must mount GenerationPlaceholder in the real reservation path`)
+  assert(active.indexOf('rr-regex-particles', reservation) > reservation, `${path.label}: selected effect must render inside GenerationPlaceholder`)
+  assert(active.indexOf('Prose before.') < reservation && active.indexOf('Prose after.') > reservation, `${path.label}: reservation must retain its exact prose position`)
+  assert(!/Regenerate|Reparse|Rescan|Repair \/ Reinsert/.test(active), `${path.label}: active generation must not expose recovery controls`)
+
+  const finished = renderPlacementPath(path, 'completed', `/images/${path.requestId}.png`)
+  const finalImage = finished.indexOf(`/images/${path.requestId}.png`)
+  assert(finalImage >= 0 && !finished.includes('rrl-generation-placeholder'), `${path.label}: final image must replace and unmount the active reservation`)
+  assert(finished.indexOf('Prose before.') < finalImage && finished.indexOf('Prose after.') > finalImage, `${path.label}: normal prose following the image must remain normal prose`)
+  assert(!/Image completed|>Ready<|Regenerate|Reparse|Rescan|Repair \/ Reinsert|rrl-state-icon|rrl-detail|data-rrn-native-request/.test(finished), `${path.label}: healthy completion leaked prose-facing lifecycle UI`)
+
+  const failed = renderPlacementPath(path, 'failed')
+  assert(/Regenerate/.test(failed) && /Reparse/.test(failed) && /Rescan/.test(failed), `${path.label}: genuine current failure must expose recovery controls`)
+  const recovered = renderPlacementPath(path, 'completed', `/images/${path.requestId}-retry.png`)
+  assert(!/Regenerate|Reparse|Rescan|Repair \/ Reinsert/.test(recovered), `${path.label}: successful retry must immediately remove failure-only controls`)
+
+  const staleFailure = {
+    key: `stale:${path.requestId}`, requestId: path.requestId, slot: 'illustration', target: 'prose.illustration',
+    status: 'failed', messageId: 'message', swipeId: 0, updatedAt: 10, attemptNumber: 1,
+  }
+  const currentHealthy = {
+    key: `current:${path.requestId}`, requestId: path.requestId, slot: 'illustration', target: 'prose.illustration',
+    status: 'completed', messageId: 'message', swipeId: 0, requestAspect: '4:3', updatedAt: 30, attemptNumber: 2,
+    imageUrl: `/images/${path.requestId}-healthy.png`, imageId: `${path.requestId}-healthy`,
+  }
+  const staleProof = renderPlacementPath(path, 'completed', currentHealthy.imageUrl, [staleFailure, currentHealthy])
+  assert(staleProof.includes(currentHealthy.imageUrl) && !/Regenerate|Reparse|Rescan|Repair \/ Reinsert/.test(staleProof), `${path.label}: stale previous failure must not override the current healthy slot`)
+}
+
+const healthyReload = 'Prose before.\n\n![reverie-relay](/images/healthy-reload.png)\n\nProse after.'
+const healthyReloadRendered = renderNativeSurfaceMarkup(healthyReload, studio as any, { chatId: 'chat', messageId: 'message', swipeId: 0, records: [] }).content
+assert(healthyReloadRendered === healthyReload && !/Regenerate|Reparse|Rescan|Image completed|>Ready</.test(healthyReloadRendered), 'healthy reload must remain image plus normal prose with no recovery or completion UI')
+
+const staleErrorRequestId = 'recovered-after-error'
+const staleErrorSource = `<image_request_error id="${staleErrorRequestId}" target="prose.illustration" slot="illustration" retryable="true">Older attempt failed.</image_request_error>`
+const recoveredAfterError = withoutStyles(renderNativeSurfaceMarkup(staleErrorSource, studio as any, {
+  chatId: 'chat', messageId: 'message', swipeId: 0, autoGenerate: true, generationPlaceholderEffect: 'glitter',
+  records: [{ key: `current:${staleErrorRequestId}`, requestId: staleErrorRequestId, slot: 'illustration', target: 'prose.illustration', status: 'completed', messageId: 'message', swipeId: 0, updatedAt: 40, attemptNumber: 2, imageUrl: '/images/recovered-after-error.png', imageId: 'recovered-after-error-image' }],
+}).content)
+assert(recoveredAfterError.includes('/images/recovered-after-error.png') && !/Regenerate|Reparse|Rescan|Older attempt failed/.test(recoveredAfterError), 'stale error markup must not resurrect failure UI after the current retry succeeds')
+
 const nativeSource = readFileSync(new URL('../src/nativeSurfaces.ts', import.meta.url), 'utf8')
+assert(lifecycleRuntimeCss().includes('.rrl-generation-placeholder') && !lifecycleRuntimeCss().includes('<style'), 'real host stylesheet must own lifecycle placeholder CSS without detached message style tags')
 assert(nativeSource.includes('linear-gradient(135deg,rgba(255,255,255,.045),rgba(255,255,255,.015)),var(--rr-bg)') && nativeSource.includes('backdrop-filter:blur(20px)') && nativeSource.includes('0 16px 50px rgba(0,0,0,.32)'), 'shared approved Dreamglass shell is missing')
 assert(nativeSource.includes('.rrl-generation-placeholder .rr-regex-particles i{') && nativeSource.includes('pointer-events:none'), 'decorative particles must be scoped and ignore pointer input')
 assert((nativeSource.match(/\.rrl-generation-placeholder \.rr-regex-particles i:nth-child\(/g) || []).length === 24, 'approved glitter particle values must contain exactly 24 rows')
@@ -70,10 +148,16 @@ assert(nativeSource.includes('@media(prefers-reduced-motion:reduce)') && nativeS
 assert(!nativeSource.includes('\ni{') && !nativeSource.includes('}i{'), 'unscoped global i selector is forbidden')
 
 const frontendSource = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')
+const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
 const patchConfigSource = frontendSource.slice(frontendSource.indexOf('function patchConfig('), frontendSource.indexOf('async function copyText('))
 const placeholderSyncSource = frontendSource.slice(frontendSource.indexOf('function syncGenerationPlaceholderEffect('), frontendSource.indexOf('function applyGlobalInterfaceSettings('))
 assert(patchConfigSource.includes("type: 'set_config'") && !/scan_message|regenerate_slot|generate_image/.test(patchConfigSource), 'appearance setting must persist without dispatching image work')
 assert(frontendSource.includes('syncGenerationPlaceholderEffect') && frontendSource.includes('Array.from({ length: 24 }'), 'visible active placeholders must update in place')
+assert(frontendSource.includes('ctx.dom.addStyle(lifecycleRuntimeCss())'), 'lifecycle CSS must be registered through the extension-owned host stylesheet')
+assert(frontendSource.includes('stripHealthyCompletedLifecycleUi(card)') && frontendSource.includes("!image.closest('[data-rrn-native-request]')"), 'completion transition must strip the reservation UI and remove it once the authored final image mounts')
+assert(frontendSource.includes('isFailureRecoveryStatus(record.status)') && !frontendSource.includes("record.status === 'completed'\n              ? [['regenerate'"), 'prose-facing recovery buttons must be driven only by current canonical failure state')
+assert(backendSource.includes("'image_request_error', 'scene_image'") && nativeSource.includes('content.replace(/<scene_image\\b'), 'Relay-Planned scene_image reservations must enter the real native render path')
+assert(frontendSource.includes('openLightbox(current)') && frontendSource.includes('renderActionButtons(record'), 'established image actions must remain available through their existing proper UI')
 assert(!/requestAnimationFrame|setInterval|setTimeout|animationstart|animationiteration/i.test(placeholderSyncSource), 'placeholder effects must remain CSS-only without timer or animation restart logic')
 
 console.log('generation placeholder smoke passed: persistent four-mode config, textless canonical shell, exact 24-particle glitter, seamless CSS loop contracts, lifecycle, identity, reduced motion, and in-place appearance updates verified.')

@@ -1,4 +1,4 @@
-// @ts-nocheck -- Regression contracts for 0.2.7.4 live failures.
+// @ts-nocheck -- Regression contracts for 0.2.7.5 live failures.
 import { readFileSync } from 'node:fs'
 import { inspectProseIllustrationSchemas, normalizeProseIllustrationCast, normalizeProseIllustrationContracts, parseImageRequests, placementFailureCanReplaceRecord, renderResolvedMarkup, selectRescanSwipeRows } from '../src/contracts'
 

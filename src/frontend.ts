@@ -48,13 +48,13 @@ import { normalizeGenerationPlaceholderEffect } from './contracts'
 import { SlotActionFeedbackCoordinator, type SlotActionFeedback, type SlotActionKind } from './slotActionFeedback'
 import { observeRelayMediaMounts, setMediaText } from './mediaDomStability'
 import { RelayRuntimeLifecycle, type RelayRuntimeHealth } from './runtimeLifecycle'
-import { canAbortSlotStatus, isGenerationActiveStatus, isSlotLifecycleActive } from './slotLifecycle'
+import { canAbortSlotStatus, isFailureRecoveryStatus, isGenerationActiveStatus, isSlotLifecycleActive } from './slotLifecycle'
 import { C5B_CACHE_LIMITS, normalizeGalleryLinkCache, rememberBoundedMap, summarizeRelayHealth, type RelayHealthCheck } from './c5bReliability'
 import { BUILD_ID, EXTENSION_VERSION } from './build'
 import { ORB_IMAGE_DESIGNS, ORB_IMAGE_DESIGN_URLS, type OrbImageDesignId } from './orbIconData'
 import { REVERIE_RELAY_SIDEBAR_ICON_URL, REVERIE_RELAY_TAB_ICON_URL } from './brandIconData'
 import { applyKakaoColorBinding } from './kakaoColor'
-import { NATIVE_SURFACE_ROOT_TAGS, renderNativeSurfaceMarkup } from './nativeSurfaces'
+import { lifecycleRuntimeCss, NATIVE_SURFACE_ROOT_TAGS, renderNativeSurfaceMarkup } from './nativeSurfaces'
 import { hybridSurfaceOwner, shippedSurfaceDefinitions } from './shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL } from './protocols'
@@ -1143,6 +1143,10 @@ export function setup(ctx: SpindleFrontendContext) {
       .dg-router-panel *, .dg-router-panel *::before, .dg-router-panel *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
     }
   `)
+  // Message renderers may sanitize detached <style> nodes from processed prose.
+  // Keep the same reservation CSS registered through the extension-owned host
+  // stylesheet so the real inline lifecycle path cannot become unstyled.
+  const removeLifecycleStyle = ctx.dom.addStyle(lifecycleRuntimeCss())
 
   const tab = ctx.ui.registerDrawerTab({
     id: 'reverie-relay',
@@ -2430,7 +2434,8 @@ export function setup(ctx: SpindleFrontendContext) {
       const lastActivityAt = Math.max(record.updatedAt || record.createdAt || now, stream?.updatedAt || 0)
       const stalled = stallEligible && now - lastActivityAt > 90_000
       const needsPlacementRepair = record.status === 'placement-repair-needed'
-      const recoverable = stalled || needsPlacementRepair || record.status === 'failed' || record.status === 'image-unavailable' || record.status === 'cancelled'
+      const canonicalFailure = isFailureRecoveryStatus(record.status)
+      const recoverable = stalled || canonicalFailure
       const statusLabel = stalled ? 'Stalled'
         : record.status === 'recovered-pending' ? 'Ready'
           : record.status === 'preparing' ? 'Preparing'
@@ -2491,6 +2496,8 @@ export function setup(ctx: SpindleFrontendContext) {
           }
         }
 
+        if (record.status === 'completed' && record.imageUrl) stripHealthyCompletedLifecycleUi(card)
+
         const previewHost = card.querySelector<HTMLElement>('.rrl-preview')
         const previewImage = card.querySelector<HTMLImageElement>('.rrl-preview-image')
         const previewBadge = card.querySelector<HTMLElement>('.rrl-preview-badge')
@@ -2522,13 +2529,9 @@ export function setup(ctx: SpindleFrontendContext) {
         if (actions) {
           const desired: Array<[string, string]> = needsPlacementRepair
             ? [['repair-placement', 'Repair / Reinsert'], ['reparse', 'Reparse'], ['rescan', 'Rescan']]
-            : recoverable
+            : canonicalFailure
             ? [['regenerate', 'Regenerate'], ['reparse', 'Reparse'], ['rescan', 'Rescan']]
-            : record.status === 'completed'
-              ? [['regenerate', 'Regenerate'], ['reparse', 'Reparse'], ['rescan', 'Rescan']]
-            : active
-              ? [['abort', 'Abort'], ['regenerate', 'Regenerate'], ['reparse', 'Reparse'], ['rescan', 'Rescan']]
-              : [['retry', 'Generate now'], ['reparse', 'Reparse'], ['rescan', 'Rescan']]
+            : []
           const signature = desired.map(([action]) => action).join('|')
           if (actions.dataset.rrlActionSet !== signature) {
             const source = actions.querySelector<HTMLButtonElement>('button')
@@ -2591,13 +2594,14 @@ export function setup(ctx: SpindleFrontendContext) {
           })
         : []
       const images = urlImages.length > 0 ? urlImages : stableImages
-      if (images.length) {
+      const authoredImages = images.filter(image => !image.closest('[data-rrn-native-request]'))
+      if (authoredImages.length) {
         for (const card of deepQueryAll<HTMLElement>(root as ParentNode, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`)) {
-          if (!card.querySelector('.rrl-media-slot')) card.remove()
+          card.remove()
         }
       }
       cleanLegacyIllustrationControls(root as ParentNode)
-      for (const image of images) {
+      for (const image of authoredImages.length ? authoredImages : images) {
         image.dataset.dgirKey = record.key
         image.dataset.dgirRequestId = record.requestId
         image.dataset.dgirSlot = record.slot
@@ -2618,6 +2622,13 @@ export function setup(ctx: SpindleFrontendContext) {
           })
         }
       }
+    }
+  }
+
+  function stripHealthyCompletedLifecycleUi(card: HTMLElement): void {
+    card.removeAttribute('aria-live')
+    for (const selector of ['.rrl-generation-placeholder', '.rrl-preview', '.rrl-main', '.rrl-actions', '.rrl-detail']) {
+      for (const node of Array.from(card.querySelectorAll(selector))) node.remove()
     }
   }
 
@@ -9231,6 +9242,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     inputRelayAction.destroy()
     inputSurfacesAction.destroy()
     tab.destroy()
+    removeLifecycleStyle()
     removeStyle()
     ctx.dom.cleanup()
     if (runtimeHost.__REVERIE_RELAY_FRONTEND_DISPOSE__ === cleanup) delete runtimeHost.__REVERIE_RELAY_FRONTEND_DISPOSE__

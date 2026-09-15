@@ -886,6 +886,9 @@ function isSlotLifecycleActive(status) {
 function canAbortSlotStatus(status) {
   return SLOT_LIFECYCLE[status].canAbort;
 }
+function isFailureRecoveryStatus(status) {
+  return status === "failed" || status === "image-unavailable" || status === "cancelled" || status === "placement-repair-needed";
+}
 
 // src/boundedCache.ts
 class BoundedLruCache {
@@ -6034,8 +6037,8 @@ function ingestAppearanceSidecarObservations(vault, observations, input) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.7.4";
-var BUILD_ID = "20260915-0.2.7.4";
+var EXTENSION_VERSION = "0.2.7.5";
+var BUILD_ID = "20260915-0.2.7.5";
 
 // src/canonicalReviewedSurfaceContracts.ts
 var image = (id, target, slot, aspect, alt) => `<image_request id="${id}" target="${target}" slot="${slot}" aspect="${aspect}" alt="${alt}"><scene_brief>Scene-specific visual content.</scene_brief></image_request>`;
@@ -7099,7 +7102,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Realistic \u2014 Inline",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.7.4",
+  relay_product_version: "0.2.7.5",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "inline",
   surface_review_revision: "R4.5-FINAL",
@@ -7133,7 +7136,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_001_8522e5",
@@ -7170,7 +7173,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_002_e8e1a7",
@@ -7206,7 +7209,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_003_74cce1",
@@ -7242,7 +7245,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_004_f281f8",
@@ -7316,7 +7319,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_005_b8c022",
@@ -7376,7 +7379,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_006_c51fa1",
@@ -7839,7 +7842,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_007_69c357",
@@ -7875,7 +7878,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_008_59a7f9",
@@ -7911,7 +7914,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_009_c9bb76",
@@ -7955,7 +7958,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_010_cdbe6e",
@@ -7999,7 +8002,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_011_c814d0",
@@ -8043,7 +8046,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_012_645737",
@@ -8086,7 +8089,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_013_4134ee",
@@ -8129,7 +8132,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_014_366e74",
@@ -8172,7 +8175,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_015_f33f4c",
@@ -8208,7 +8211,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_016_b64ca7",
@@ -8244,7 +8247,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_017_d5d9e1",
@@ -8280,7 +8283,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_018_8ec170",
@@ -8317,7 +8320,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_019_59a3d0",
@@ -8354,7 +8357,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_020_f5c785",
@@ -8391,7 +8394,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_021_35aa40",
@@ -8428,7 +8431,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_022_4a9c43",
@@ -8465,7 +8468,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_023_614b8c",
@@ -8502,7 +8505,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_024_768354",
@@ -8539,7 +8542,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_025_0326c4",
@@ -8576,7 +8579,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_026_d850a5",
@@ -8613,7 +8616,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_027_9bf2c2",
@@ -8650,7 +8653,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_028_ba4be6",
@@ -8695,7 +8698,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_029_19c734",
@@ -8740,7 +8743,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_030_f36d5d",
@@ -8778,7 +8781,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_031_3b921c",
@@ -8816,7 +8819,7 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_032_2f87a7",
@@ -8939,7 +8942,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_033_a783e5"
@@ -9042,7 +9045,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_034_b1264c"
@@ -9153,7 +9156,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_035_23d2bc",
@@ -9265,7 +9268,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_036_50a081",
@@ -9383,7 +9386,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_037_37a16a",
@@ -9495,7 +9498,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_038_e91245",
@@ -9611,7 +9614,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_039_ec5215",
@@ -9812,7 +9815,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_040_2ec570",
@@ -9980,7 +9983,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_041_aa2349",
@@ -10087,7 +10090,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_042_11b5dc",
@@ -10193,7 +10196,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_043_93d2dd",
@@ -10308,7 +10311,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_044_07fd68",
@@ -10553,7 +10556,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_045_307e22",
@@ -10659,7 +10662,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_046_a27c2d",
@@ -10843,7 +10846,7 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_047_e5fe11",
@@ -10918,7 +10921,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_048_09762f"
@@ -10991,7 +10994,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_049_09c7a4"
@@ -11050,7 +11053,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_050_01700b"
@@ -11084,7 +11087,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_051_9d370e"
@@ -11157,7 +11160,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_052_357441"
@@ -11230,7 +11233,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_053_a5e63d"
@@ -11303,7 +11306,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_054_cec400"
@@ -12226,7 +12229,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_055_10f07c"
@@ -12312,7 +12315,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_056_63a576"
@@ -12412,7 +12415,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_057_e9609d"
@@ -12512,7 +12515,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_058_1d3222"
@@ -12612,7 +12615,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_059_3a261c"
@@ -12712,7 +12715,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_060_0ad5a3"
@@ -12798,7 +12801,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_061_f972c0"
@@ -12898,7 +12901,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_062_dad523"
@@ -12928,7 +12931,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_063_b060eb",
@@ -13030,7 +13033,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_064_d7befb"
@@ -13060,7 +13063,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_065_4f5b41",
@@ -13162,7 +13165,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_066_519356"
@@ -13262,7 +13265,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_067_9149fa"
@@ -13348,7 +13351,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_068_91bebd"
@@ -13537,7 +13540,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_069_20e6cd"
@@ -13596,7 +13599,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_070_25053d"
@@ -13669,7 +13672,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_071_1b88d2"
@@ -13742,7 +13745,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_072_d1f807"
@@ -13815,7 +13818,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_073_04383c"
@@ -13888,7 +13891,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_074_0e2d77"
@@ -13961,7 +13964,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_075_21788c"
@@ -14049,7 +14052,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_076_12d871"
@@ -14137,7 +14140,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_077_e0e28f"
@@ -14225,7 +14228,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_078_6c3166"
@@ -14326,7 +14329,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_079_4cdfdb"
@@ -14427,7 +14430,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_080_1f792f"
@@ -14500,7 +14503,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_081_829dd4"
@@ -14646,7 +14649,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_082_cd85ff"
@@ -14732,7 +14735,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_083_d8d5ab"
@@ -14818,7 +14821,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_084_cab30f"
@@ -14904,7 +14907,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_085_0d2755"
@@ -14990,7 +14993,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_086_381d02"
@@ -15090,7 +15093,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_087_77b5f5"
@@ -15190,7 +15193,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_088_b61f51"
@@ -15292,7 +15295,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_089_0071c0"
@@ -15365,7 +15368,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr37_inline_simg_sent"
@@ -15438,7 +15441,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr37_inline_simg_recv"
@@ -15540,7 +15543,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_090_64cbd5"
@@ -15642,7 +15645,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_091_09b1a2"
@@ -15797,7 +15800,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_092_3c09fc"
@@ -15897,7 +15900,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_093_8710db"
@@ -16127,7 +16130,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_094_4f12bb"
@@ -16231,7 +16234,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_095_f26e5d",
@@ -16264,7 +16267,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_096_26c55f",
@@ -16297,7 +16300,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_097_2c8cd7",
@@ -16438,7 +16441,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_098_33c93c",
@@ -16470,7 +16473,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_099_241569",
@@ -16597,7 +16600,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_100_787b63",
@@ -16725,7 +16728,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_101_570400",
@@ -16758,7 +16761,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_102_ce910d",
@@ -16791,7 +16794,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_103_2d3ac2",
@@ -16924,7 +16927,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_104_d04e4a",
@@ -17055,7 +17058,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_105_3b70d9",
@@ -17182,7 +17185,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_106_64a18b",
@@ -17340,7 +17343,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_107_c184c0",
@@ -17470,7 +17473,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_108_a23542",
@@ -17501,7 +17504,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr37_inline_letter_newlines",
@@ -17534,7 +17537,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_109_d11ed0",
@@ -17648,7 +17651,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_110_4235bc",
@@ -17783,7 +17786,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_111_30f790",
@@ -17897,7 +17900,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_112_8b63fa",
@@ -18007,7 +18010,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_114_42ca3d",
@@ -18113,7 +18116,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_115_b8ad5c",
@@ -18223,7 +18226,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_116_ec8108",
@@ -18256,7 +18259,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_117_d0bd18",
@@ -18287,7 +18290,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_118_df8c1f",
@@ -18318,7 +18321,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_119_73634b",
@@ -18349,7 +18352,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_120_3b9c2c",
@@ -18390,7 +18393,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_121_24b971",
@@ -18421,7 +18424,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_igdm_msg",
@@ -18452,7 +18455,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_igdm_media",
@@ -18483,7 +18486,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_ebay_bid",
@@ -18514,7 +18517,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_ebay_action",
@@ -18545,7 +18548,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_naver_comment",
@@ -18577,7 +18580,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igc_in",
@@ -18627,7 +18630,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igp_in",
@@ -18659,7 +18662,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igm_in",
@@ -18755,7 +18758,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igprofile_in",
@@ -18787,7 +18790,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twc_in",
@@ -18831,7 +18834,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twp_in",
@@ -18863,7 +18866,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twm_in",
@@ -19021,7 +19024,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twprofile_in",
@@ -19084,7 +19087,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_stories_in",
@@ -19116,7 +19119,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r43_twthread_in",
@@ -19131,7 +19134,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Realistic \u2014 Plain",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.7.4",
+  relay_product_version: "0.2.7.5",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "plain",
   surface_review_revision: "R4.5-FINAL",
@@ -19165,7 +19168,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_001_958563",
@@ -19202,7 +19205,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_002_01a164",
@@ -19238,7 +19241,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_003_98aec6",
@@ -19274,7 +19277,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_004_be8177",
@@ -19348,7 +19351,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_005_2b24d1",
@@ -19408,7 +19411,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_006_03f7b6",
@@ -19933,7 +19936,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_007_912c10",
@@ -19969,7 +19972,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_008_3d506a",
@@ -20005,7 +20008,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_009_87d540",
@@ -20049,7 +20052,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_010_ab14de",
@@ -20093,7 +20096,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_011_564772",
@@ -20137,7 +20140,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_012_128e9a",
@@ -20180,7 +20183,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_013_dee63a",
@@ -20223,7 +20226,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_014_7f19c0",
@@ -20266,7 +20269,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_015_9fc065",
@@ -20302,7 +20305,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_016_5979a3",
@@ -20338,7 +20341,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_017_982c41",
@@ -20374,7 +20377,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_018_f855fa",
@@ -20411,7 +20414,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_019_34416d",
@@ -20448,7 +20451,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_020_af0460",
@@ -20485,7 +20488,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_021_f83b0d",
@@ -20522,7 +20525,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_022_cdb3fd",
@@ -20559,7 +20562,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_023_dcc599",
@@ -20596,7 +20599,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_024_5fc225",
@@ -20633,7 +20636,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_025_991c00",
@@ -20670,7 +20673,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_026_020cdf",
@@ -20707,7 +20710,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_027_f68ccd",
@@ -20744,7 +20747,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_028_4f1587",
@@ -20789,7 +20792,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_029_00347b",
@@ -20834,7 +20837,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_030_33174d",
@@ -20872,7 +20875,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_031_a859dc",
@@ -20910,7 +20913,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_032_982465",
@@ -21082,7 +21085,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_033_971b42"
@@ -21234,7 +21237,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_034_c8e0e4"
@@ -21394,7 +21397,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_035_f5c6ea",
@@ -21555,7 +21558,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_036_d82e79",
@@ -21718,7 +21721,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_037_42d20f",
@@ -21879,7 +21882,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_038_c04488",
@@ -22044,7 +22047,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_039_fd6bce",
@@ -22294,7 +22297,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_040_c151c4",
@@ -22511,7 +22514,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_041_5c489f",
@@ -22667,7 +22670,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_042_53ae30",
@@ -22822,7 +22825,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_043_44ec8b",
@@ -22986,7 +22989,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_044_084064",
@@ -23280,7 +23283,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_045_70238f",
@@ -23435,7 +23438,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_046_dd3bf8",
@@ -23668,7 +23671,7 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_047_328aaa",
@@ -23743,7 +23746,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_048_270ee3"
@@ -23816,7 +23819,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_049_64ecc2"
@@ -23875,7 +23878,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_050_3998f8"
@@ -23909,7 +23912,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_051_5ed8b7"
@@ -23982,7 +23985,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_052_e4da42"
@@ -24055,7 +24058,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_053_28fcb5"
@@ -24136,7 +24139,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_054_ab79db"
@@ -25077,7 +25080,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_055_f35f13"
@@ -25163,7 +25166,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_056_28ed18"
@@ -25263,7 +25266,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_057_05e8c5"
@@ -25363,7 +25366,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_058_a0d7a4"
@@ -25463,7 +25466,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_059_e9b1ae"
@@ -25563,7 +25566,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_060_64d06a"
@@ -25649,7 +25652,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_061_25e049"
@@ -25749,7 +25752,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_062_118dce"
@@ -25779,7 +25782,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_063_15f5da",
@@ -25881,7 +25884,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_064_1dce8a"
@@ -25911,7 +25914,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_065_41a66b",
@@ -26013,7 +26016,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_066_c60d6f"
@@ -26113,7 +26116,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_067_65432d"
@@ -26199,7 +26202,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_068_4ebec4"
@@ -26437,7 +26440,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_069_29d7ae"
@@ -26496,7 +26499,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_070_518756"
@@ -26569,7 +26572,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_071_a3f4ac"
@@ -26642,7 +26645,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_072_93b282"
@@ -26715,7 +26718,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_073_d808aa"
@@ -26788,7 +26791,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_074_d58467"
@@ -26861,7 +26864,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_075_c61598"
@@ -26949,7 +26952,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_076_921f37"
@@ -27045,7 +27048,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_077_e654b7"
@@ -27141,7 +27144,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_078_13fd0d"
@@ -27250,7 +27253,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_079_03870c"
@@ -27359,7 +27362,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_080_944b0c"
@@ -27432,7 +27435,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_081_502565"
@@ -27596,7 +27599,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_082_4a0641"
@@ -27682,7 +27685,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_083_8c0979"
@@ -27768,7 +27771,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_084_522b86"
@@ -27854,7 +27857,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_085_e6f6bb"
@@ -27940,7 +27943,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_086_1fe622"
@@ -28040,7 +28043,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_087_0a52c0"
@@ -28140,7 +28143,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_088_f4b45f"
@@ -28242,7 +28245,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_089_f312a6"
@@ -28315,7 +28318,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr37_plain_simg_sent"
@@ -28388,7 +28391,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr37_plain_simg_recv"
@@ -28490,7 +28493,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_090_1d5cd4"
@@ -28592,7 +28595,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_091_17e0b6"
@@ -28796,7 +28799,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_092_7dadb2"
@@ -28914,7 +28917,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_093_2e7480"
@@ -29193,7 +29196,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_094_43e882"
@@ -29346,7 +29349,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_095_7266ba",
@@ -29494,7 +29497,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_096_0ef47f",
@@ -29642,7 +29645,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_097_ed9e83",
@@ -29832,7 +29835,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_098_0821b9",
@@ -30003,7 +30006,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_099_465030",
@@ -30179,7 +30182,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_100_9dc259",
@@ -30356,7 +30359,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_101_2028bb",
@@ -30523,7 +30526,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_102_9da300",
@@ -30650,7 +30653,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_103_735ecc",
@@ -30832,7 +30835,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_104_7ac3b8",
@@ -31008,7 +31011,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_105_ade6e5",
@@ -31180,7 +31183,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_106_6ef651",
@@ -31383,7 +31386,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_107_51cf00",
@@ -31558,7 +31561,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_108_19573c",
@@ -31589,7 +31592,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr37_plain_letter_newlines",
@@ -31783,7 +31786,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_109_a08811",
@@ -31946,7 +31949,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_110_dcc78b",
@@ -32130,7 +32133,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_111_69d05e",
@@ -32293,7 +32296,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_112_36785d",
@@ -32452,7 +32455,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_114_1ca1c8",
@@ -32607,7 +32610,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_115_efb533",
@@ -32766,7 +32769,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_116_55ea32",
@@ -32916,7 +32919,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_117_d86361",
@@ -32947,7 +32950,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_118_ff366e",
@@ -32978,7 +32981,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_119_9fbcd8",
@@ -33009,7 +33012,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_120_a671ea",
@@ -33050,7 +33053,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_121_cab2c2",
@@ -33081,7 +33084,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_igdm_msg",
@@ -33112,7 +33115,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_igdm_media",
@@ -33143,7 +33146,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_ebay_bid",
@@ -33174,7 +33177,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_ebay_action",
@@ -33205,7 +33208,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_naver_comment",
@@ -33237,7 +33240,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igc_pl",
@@ -33287,7 +33290,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igp_pl",
@@ -33319,7 +33322,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igm_pl",
@@ -33468,7 +33471,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igprofile_pl",
@@ -33500,7 +33503,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twc_pl",
@@ -33544,7 +33547,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twp_pl",
@@ -33576,7 +33579,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twm_pl",
@@ -33787,7 +33790,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twprofile_pl",
@@ -33903,7 +33906,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_stories_pl",
@@ -33935,7 +33938,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r43_twthread_pl",
@@ -33950,7 +33953,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Realistic \u2014 Spark",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.7.4",
+  relay_product_version: "0.2.7.5",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "spark",
   surface_review_revision: "R4.5-FINAL",
@@ -33984,7 +33987,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_001_79437d",
@@ -34021,7 +34024,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_002_adfed4",
@@ -34057,7 +34060,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_003_841fca",
@@ -34093,7 +34096,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_004_a2b1b8",
@@ -34167,7 +34170,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_005_d2adf0",
@@ -34227,7 +34230,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_006_b5a1df",
@@ -34766,7 +34769,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_007_6d238f",
@@ -34802,7 +34805,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_008_c7741a",
@@ -34838,7 +34841,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_009_fe1f7c",
@@ -34882,7 +34885,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_010_68f63a",
@@ -34926,7 +34929,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_011_36e620",
@@ -34970,7 +34973,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_012_ada37b",
@@ -35013,7 +35016,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_013_e25008",
@@ -35056,7 +35059,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_014_0da462",
@@ -35099,7 +35102,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_015_0bb8fa",
@@ -35135,7 +35138,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_016_237a96",
@@ -35171,7 +35174,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_017_852244",
@@ -35207,7 +35210,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_018_e28561",
@@ -35244,7 +35247,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_019_b346b5",
@@ -35281,7 +35284,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_020_5224ea",
@@ -35318,7 +35321,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_021_c03155",
@@ -35355,7 +35358,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_022_ddceb8",
@@ -35392,7 +35395,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_023_591347",
@@ -35429,7 +35432,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_024_e5ccdf",
@@ -35466,7 +35469,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_025_aaaa05",
@@ -35503,7 +35506,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_026_4c6c16",
@@ -35540,7 +35543,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_027_0efe95",
@@ -35577,7 +35580,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_028_887f90",
@@ -35622,7 +35625,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_029_b8f53b",
@@ -35667,7 +35670,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_030_75b09c",
@@ -35705,7 +35708,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_031_691604",
@@ -35743,7 +35746,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_032_aa5046",
@@ -35929,7 +35932,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_033_1c5665"
@@ -36095,7 +36098,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_034_ba998e"
@@ -36269,7 +36272,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_035_b1cd9f",
@@ -36444,7 +36447,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_036_812632",
@@ -36621,7 +36624,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_037_4c291d",
@@ -36796,7 +36799,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_038_d0a4b5",
@@ -36975,7 +36978,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_039_900980",
@@ -37239,7 +37242,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_040_affcb9",
@@ -37470,7 +37473,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_041_6ba6af",
@@ -37640,7 +37643,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_042_bf4cfb",
@@ -37809,7 +37812,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_043_f10400",
@@ -37987,7 +37990,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_044_78f604",
@@ -38295,7 +38298,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_045_06dcb0",
@@ -38464,7 +38467,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_046_8ddcb6",
@@ -38711,7 +38714,7 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_047_98c223",
@@ -38786,7 +38789,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_048_bfd492"
@@ -38859,7 +38862,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_049_c2b693"
@@ -38918,7 +38921,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_050_5e5ace"
@@ -38952,7 +38955,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_051_86cbe5"
@@ -39025,7 +39028,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_052_8acef9"
@@ -39098,7 +39101,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_053_73b284"
@@ -39192,7 +39195,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_054_a71e35"
@@ -40147,7 +40150,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_055_d307cc"
@@ -40233,7 +40236,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_056_87f08b"
@@ -40333,7 +40336,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_057_d47fb5"
@@ -40433,7 +40436,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_058_572553"
@@ -40533,7 +40536,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_059_23e7b6"
@@ -40633,7 +40636,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_060_e2c00b"
@@ -40719,7 +40722,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_061_f217db"
@@ -40819,7 +40822,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_062_ca3507"
@@ -40849,7 +40852,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_063_109b6b",
@@ -40951,7 +40954,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_064_55436c"
@@ -40981,7 +40984,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_065_b051b9",
@@ -41083,7 +41086,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_066_4c0764"
@@ -41183,7 +41186,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_067_ca2bc5"
@@ -41269,7 +41272,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_068_182012"
@@ -41521,7 +41524,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_069_a91d13"
@@ -41580,7 +41583,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_070_32baae"
@@ -41653,7 +41656,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_071_57b192"
@@ -41726,7 +41729,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_072_3716d0"
@@ -41799,7 +41802,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_073_c9c3c1"
@@ -41872,7 +41875,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_074_744661"
@@ -41945,7 +41948,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_075_1f7d2b"
@@ -42033,7 +42036,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_076_23f35e"
@@ -42142,7 +42145,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_077_5109da"
@@ -42251,7 +42254,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_078_a74d3a"
@@ -42373,7 +42376,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_079_012836"
@@ -42495,7 +42498,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_080_3dc7fb"
@@ -42568,7 +42571,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_081_8dd34c"
@@ -42746,7 +42749,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_082_1e6889"
@@ -42832,7 +42835,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_083_a90135"
@@ -42918,7 +42921,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_084_7f904e"
@@ -43004,7 +43007,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_085_4ee547"
@@ -43090,7 +43093,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_086_b34fc8"
@@ -43190,7 +43193,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_087_4678e3"
@@ -43290,7 +43293,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_088_a564f2"
@@ -43392,7 +43395,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_089_89696d"
@@ -43465,7 +43468,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr37_spark_simg_sent"
@@ -43538,7 +43541,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr37_spark_simg_recv"
@@ -43640,7 +43643,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_090_86d091"
@@ -43742,7 +43745,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_091_6e869d"
@@ -43960,7 +43963,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_092_47d780"
@@ -44092,7 +44095,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_093_2cb884"
@@ -44385,7 +44388,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_094_ba2829"
@@ -44552,7 +44555,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_095_abac4e",
@@ -44714,7 +44717,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_096_4a6466",
@@ -44876,7 +44879,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_097_85e108",
@@ -45080,7 +45083,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_098_fd15e2",
@@ -45265,7 +45268,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_099_53f974",
@@ -45455,7 +45458,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_100_450906",
@@ -45646,7 +45649,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_101_0a3245",
@@ -45827,7 +45830,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_102_f590e6",
@@ -45968,7 +45971,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_103_18cff3",
@@ -46164,7 +46167,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_104_7c77c2",
@@ -46354,7 +46357,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_105_7f498e",
@@ -46540,7 +46543,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_106_a510df",
@@ -46757,7 +46760,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_107_80e6ed",
@@ -46946,7 +46949,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_108_5eb0e9",
@@ -46977,7 +46980,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr37_spark_letter_newlines",
@@ -47185,7 +47188,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_109_4a5e54",
@@ -47362,7 +47365,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_110_2bf4e9",
@@ -47560,7 +47563,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_111_e334f1",
@@ -47737,7 +47740,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_112_f3669e",
@@ -47910,7 +47913,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_114_1c020f",
@@ -48079,7 +48082,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_115_259f72",
@@ -48252,7 +48255,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_116_c98d00",
@@ -48416,7 +48419,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_117_062be9",
@@ -48447,7 +48450,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_118_4ca169",
@@ -48478,7 +48481,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_119_09d5f9",
@@ -48509,7 +48512,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_120_45897f",
@@ -48550,7 +48553,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_121_207dbe",
@@ -48581,7 +48584,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_igdm_msg",
@@ -48612,7 +48615,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_igdm_media",
@@ -48643,7 +48646,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_ebay_bid",
@@ -48674,7 +48677,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_ebay_action",
@@ -48705,7 +48708,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_naver_comment",
@@ -48737,7 +48740,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igc_sp",
@@ -48787,7 +48790,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igp_sp",
@@ -48819,7 +48822,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igm_sp",
@@ -48968,7 +48971,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igprofile_sp",
@@ -49000,7 +49003,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twc_sp",
@@ -49044,7 +49047,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twp_sp",
@@ -49076,7 +49079,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twm_sp",
@@ -49287,7 +49290,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twprofile_sp",
@@ -49403,7 +49406,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_stories_sp",
@@ -49435,7 +49438,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r43_twthread_sp",
@@ -49450,7 +49453,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Primary \u2014 Inline",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.7.4",
+  relay_product_version: "0.2.7.5",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "inline",
   surface_review_revision: "R4.5-FINAL",
@@ -49484,7 +49487,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_001_8522e5",
@@ -49521,7 +49524,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_002_e8e1a7",
@@ -49557,7 +49560,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_003_74cce1",
@@ -49593,7 +49596,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_004_f281f8",
@@ -49667,7 +49670,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_005_b8c022",
@@ -49727,7 +49730,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_006_c51fa1",
@@ -50190,7 +50193,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_007_69c357",
@@ -50226,7 +50229,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_008_59a7f9",
@@ -50262,7 +50265,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_009_c9bb76",
@@ -50306,7 +50309,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_010_cdbe6e",
@@ -50350,7 +50353,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_011_c814d0",
@@ -50394,7 +50397,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_012_645737",
@@ -50437,7 +50440,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_013_4134ee",
@@ -50480,7 +50483,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_014_366e74",
@@ -50523,7 +50526,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_015_f33f4c",
@@ -50559,7 +50562,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_016_b64ca7",
@@ -50595,7 +50598,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_017_d5d9e1",
@@ -50631,7 +50634,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_018_8ec170",
@@ -50668,7 +50671,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_019_59a3d0",
@@ -50705,7 +50708,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_020_f5c785",
@@ -50742,7 +50745,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_021_35aa40",
@@ -50779,7 +50782,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_022_4a9c43",
@@ -50816,7 +50819,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_023_614b8c",
@@ -50853,7 +50856,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_024_768354",
@@ -50890,7 +50893,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_025_0326c4",
@@ -50927,7 +50930,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_026_d850a5",
@@ -50964,7 +50967,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_027_9bf2c2",
@@ -51001,7 +51004,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_028_ba4be6",
@@ -51046,7 +51049,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_029_19c734",
@@ -51091,7 +51094,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_030_f36d5d",
@@ -51129,7 +51132,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_031_3b921c",
@@ -51167,7 +51170,7 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_032_2f87a7",
@@ -51290,7 +51293,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_033_a783e5"
@@ -51393,7 +51396,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_034_b1264c"
@@ -51504,7 +51507,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_035_23d2bc",
@@ -51616,7 +51619,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_036_50a081",
@@ -51734,7 +51737,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_037_37a16a",
@@ -51846,7 +51849,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_038_e91245",
@@ -51962,7 +51965,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_039_ec5215",
@@ -52163,7 +52166,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_040_2ec570",
@@ -52331,7 +52334,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_041_aa2349",
@@ -52438,7 +52441,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_042_11b5dc",
@@ -52544,7 +52547,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_043_93d2dd",
@@ -52659,7 +52662,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_044_07fd68",
@@ -52904,7 +52907,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_045_307e22",
@@ -53010,7 +53013,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_046_a27c2d",
@@ -53194,7 +53197,7 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_047_e5fe11",
@@ -53269,7 +53272,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_048_09762f"
@@ -53342,7 +53345,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_049_09c7a4"
@@ -53401,7 +53404,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_050_01700b"
@@ -53435,7 +53438,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_051_9d370e"
@@ -53508,7 +53511,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_052_357441"
@@ -53581,7 +53584,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_053_a5e63d"
@@ -53654,7 +53657,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_054_cec400"
@@ -54567,7 +54570,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_055_10f07c"
@@ -54653,7 +54656,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_056_63a576"
@@ -54753,7 +54756,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_057_e9609d"
@@ -54853,7 +54856,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_058_1d3222"
@@ -54953,7 +54956,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_059_3a261c"
@@ -55053,7 +55056,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_060_0ad5a3"
@@ -55139,7 +55142,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_061_f972c0"
@@ -55239,7 +55242,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_062_dad523"
@@ -55269,7 +55272,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_063_b060eb",
@@ -55371,7 +55374,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_064_d7befb"
@@ -55401,7 +55404,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_065_4f5b41",
@@ -55503,7 +55506,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_066_519356"
@@ -55603,7 +55606,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_067_9149fa"
@@ -55689,7 +55692,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_068_91bebd"
@@ -55878,7 +55881,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_069_20e6cd"
@@ -55937,7 +55940,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_070_25053d"
@@ -56010,7 +56013,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_071_1b88d2"
@@ -56083,7 +56086,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_072_d1f807"
@@ -56156,7 +56159,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_073_04383c"
@@ -56229,7 +56232,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_074_0e2d77"
@@ -56302,7 +56305,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_075_21788c"
@@ -56390,7 +56393,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_076_12d871"
@@ -56478,7 +56481,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_077_e0e28f"
@@ -56566,7 +56569,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_078_6c3166"
@@ -56667,7 +56670,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_079_4cdfdb"
@@ -56768,7 +56771,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_080_1f792f"
@@ -56841,7 +56844,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_081_829dd4"
@@ -56986,7 +56989,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_082_cd85ff"
@@ -57072,7 +57075,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_083_d8d5ab"
@@ -57158,7 +57161,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_084_cab30f"
@@ -57244,7 +57247,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_085_0d2755"
@@ -57330,7 +57333,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_086_381d02"
@@ -57430,7 +57433,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_087_77b5f5"
@@ -57530,7 +57533,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_088_b61f51"
@@ -57632,7 +57635,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_089_0071c0"
@@ -57705,7 +57708,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr37_inline_simg_sent"
@@ -57778,7 +57781,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr37_inline_simg_recv"
@@ -57880,7 +57883,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_090_64cbd5"
@@ -57982,7 +57985,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_091_09b1a2"
@@ -58137,7 +58140,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_092_3c09fc"
@@ -58237,7 +58240,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_093_8710db"
@@ -58467,7 +58470,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_094_4f12bb"
@@ -58571,7 +58574,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_095_f26e5d",
@@ -58604,7 +58607,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_096_26c55f",
@@ -58637,7 +58640,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_097_2c8cd7",
@@ -58778,7 +58781,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_098_33c93c",
@@ -58810,7 +58813,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_099_241569",
@@ -58937,7 +58940,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_100_787b63",
@@ -59065,7 +59068,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_101_570400",
@@ -59098,7 +59101,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_102_ce910d",
@@ -59131,7 +59134,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_103_2d3ac2",
@@ -59264,7 +59267,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_104_d04e4a",
@@ -59395,7 +59398,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_105_3b70d9",
@@ -59522,7 +59525,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_106_64a18b",
@@ -59680,7 +59683,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_107_c184c0",
@@ -59810,7 +59813,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_108_a23542",
@@ -59841,7 +59844,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr37_inline_letter_newlines",
@@ -59874,7 +59877,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_109_d11ed0",
@@ -59988,7 +59991,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_110_4235bc",
@@ -60123,7 +60126,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_111_30f790",
@@ -60237,7 +60240,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_112_8b63fa",
@@ -60347,7 +60350,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_114_42ca3d",
@@ -60453,7 +60456,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_115_b8ad5c",
@@ -60563,7 +60566,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_116_ec8108",
@@ -60596,7 +60599,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_117_d0bd18",
@@ -60627,7 +60630,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_118_df8c1f",
@@ -60658,7 +60661,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_119_73634b",
@@ -60689,7 +60692,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_120_3b9c2c",
@@ -60730,7 +60733,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr22_in_121_24b971",
@@ -60761,7 +60764,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_igdm_msg",
@@ -60792,7 +60795,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_igdm_media",
@@ -60823,7 +60826,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_ebay_bid",
@@ -60854,7 +60857,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_ebay_action",
@@ -60885,7 +60888,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Inline",
       script_id: "rr23_in_naver_comment",
@@ -60917,7 +60920,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igc_in",
@@ -60967,7 +60970,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igp_in",
@@ -60999,7 +61002,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igm_in",
@@ -61095,7 +61098,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igprofile_in",
@@ -61127,7 +61130,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twc_in",
@@ -61171,7 +61174,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twp_in",
@@ -61203,7 +61206,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twm_in",
@@ -61361,7 +61364,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twprofile_in",
@@ -61424,7 +61427,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_stories_in",
@@ -61456,7 +61459,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r43_twthread_in",
@@ -61471,7 +61474,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Primary \u2014 Plain",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.7.4",
+  relay_product_version: "0.2.7.5",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "plain",
   surface_review_revision: "R4.5-FINAL",
@@ -61505,7 +61508,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_001_958563",
@@ -61542,7 +61545,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_002_01a164",
@@ -61578,7 +61581,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_003_98aec6",
@@ -61614,7 +61617,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_004_be8177",
@@ -61688,7 +61691,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_005_2b24d1",
@@ -61748,7 +61751,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_006_03f7b6",
@@ -62273,7 +62276,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_007_912c10",
@@ -62309,7 +62312,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_008_3d506a",
@@ -62345,7 +62348,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_009_87d540",
@@ -62389,7 +62392,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_010_ab14de",
@@ -62433,7 +62436,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_011_564772",
@@ -62477,7 +62480,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_012_128e9a",
@@ -62520,7 +62523,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_013_dee63a",
@@ -62563,7 +62566,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_014_7f19c0",
@@ -62606,7 +62609,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_015_9fc065",
@@ -62642,7 +62645,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_016_5979a3",
@@ -62678,7 +62681,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_017_982c41",
@@ -62714,7 +62717,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_018_f855fa",
@@ -62751,7 +62754,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_019_34416d",
@@ -62788,7 +62791,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_020_af0460",
@@ -62825,7 +62828,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_021_f83b0d",
@@ -62862,7 +62865,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_022_cdb3fd",
@@ -62899,7 +62902,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_023_dcc599",
@@ -62936,7 +62939,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_024_5fc225",
@@ -62973,7 +62976,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_025_991c00",
@@ -63010,7 +63013,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_026_020cdf",
@@ -63047,7 +63050,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_027_f68ccd",
@@ -63084,7 +63087,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_028_4f1587",
@@ -63129,7 +63132,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_029_00347b",
@@ -63174,7 +63177,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_030_33174d",
@@ -63212,7 +63215,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_031_a859dc",
@@ -63250,7 +63253,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_032_982465",
@@ -63422,7 +63425,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_033_971b42"
@@ -63574,7 +63577,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_034_c8e0e4"
@@ -63734,7 +63737,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_035_f5c6ea",
@@ -63895,7 +63898,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_036_d82e79",
@@ -64058,7 +64061,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_037_42d20f",
@@ -64219,7 +64222,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_038_c04488",
@@ -64384,7 +64387,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_039_fd6bce",
@@ -64634,7 +64637,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_040_c151c4",
@@ -64851,7 +64854,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_041_5c489f",
@@ -65007,7 +65010,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_042_53ae30",
@@ -65162,7 +65165,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_043_44ec8b",
@@ -65326,7 +65329,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_044_084064",
@@ -65620,7 +65623,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_045_70238f",
@@ -65775,7 +65778,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_046_dd3bf8",
@@ -66008,7 +66011,7 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_047_328aaa",
@@ -66083,7 +66086,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_048_270ee3"
@@ -66156,7 +66159,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_049_64ecc2"
@@ -66215,7 +66218,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_050_3998f8"
@@ -66249,7 +66252,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_051_5ed8b7"
@@ -66322,7 +66325,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_052_e4da42"
@@ -66395,7 +66398,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_053_28fcb5"
@@ -66476,7 +66479,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_054_ab79db"
@@ -67407,7 +67410,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_055_f35f13"
@@ -67493,7 +67496,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_056_28ed18"
@@ -67593,7 +67596,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_057_05e8c5"
@@ -67693,7 +67696,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_058_a0d7a4"
@@ -67793,7 +67796,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_059_e9b1ae"
@@ -67893,7 +67896,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_060_64d06a"
@@ -67979,7 +67982,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_061_25e049"
@@ -68079,7 +68082,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_062_118dce"
@@ -68109,7 +68112,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_063_15f5da",
@@ -68211,7 +68214,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_064_1dce8a"
@@ -68241,7 +68244,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_065_41a66b",
@@ -68343,7 +68346,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_066_c60d6f"
@@ -68443,7 +68446,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_067_65432d"
@@ -68529,7 +68532,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_068_4ebec4"
@@ -68767,7 +68770,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_069_29d7ae"
@@ -68826,7 +68829,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_070_518756"
@@ -68899,7 +68902,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_071_a3f4ac"
@@ -68972,7 +68975,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_072_93b282"
@@ -69045,7 +69048,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_073_d808aa"
@@ -69118,7 +69121,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_074_d58467"
@@ -69191,7 +69194,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_075_c61598"
@@ -69279,7 +69282,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_076_921f37"
@@ -69375,7 +69378,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_077_e654b7"
@@ -69471,7 +69474,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_078_13fd0d"
@@ -69580,7 +69583,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_079_03870c"
@@ -69689,7 +69692,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_080_944b0c"
@@ -69762,7 +69765,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_081_502565"
@@ -69925,7 +69928,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_082_4a0641"
@@ -70011,7 +70014,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_083_8c0979"
@@ -70097,7 +70100,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_084_522b86"
@@ -70183,7 +70186,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_085_e6f6bb"
@@ -70269,7 +70272,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_086_1fe622"
@@ -70369,7 +70372,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_087_0a52c0"
@@ -70469,7 +70472,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_088_f4b45f"
@@ -70571,7 +70574,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_089_f312a6"
@@ -70644,7 +70647,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr37_plain_simg_sent"
@@ -70717,7 +70720,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr37_plain_simg_recv"
@@ -70819,7 +70822,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_090_1d5cd4"
@@ -70921,7 +70924,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_091_17e0b6"
@@ -71125,7 +71128,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_092_7dadb2"
@@ -71243,7 +71246,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_093_2e7480"
@@ -71522,7 +71525,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_094_43e882"
@@ -71675,7 +71678,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_095_7266ba",
@@ -71823,7 +71826,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_096_0ef47f",
@@ -71971,7 +71974,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_097_ed9e83",
@@ -72161,7 +72164,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_098_0821b9",
@@ -72332,7 +72335,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_099_465030",
@@ -72508,7 +72511,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_100_9dc259",
@@ -72685,7 +72688,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_101_2028bb",
@@ -72852,7 +72855,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_102_9da300",
@@ -72979,7 +72982,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_103_735ecc",
@@ -73161,7 +73164,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_104_7ac3b8",
@@ -73337,7 +73340,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_105_ade6e5",
@@ -73509,7 +73512,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_106_6ef651",
@@ -73712,7 +73715,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_107_51cf00",
@@ -73887,7 +73890,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_108_19573c",
@@ -73918,7 +73921,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr37_plain_letter_newlines",
@@ -74112,7 +74115,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_109_a08811",
@@ -74275,7 +74278,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_110_dcc78b",
@@ -74459,7 +74462,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_111_69d05e",
@@ -74622,7 +74625,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_112_36785d",
@@ -74781,7 +74784,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_114_1ca1c8",
@@ -74936,7 +74939,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_115_efb533",
@@ -75095,7 +75098,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_116_55ea32",
@@ -75245,7 +75248,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_117_d86361",
@@ -75276,7 +75279,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_118_ff366e",
@@ -75307,7 +75310,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_119_9fbcd8",
@@ -75338,7 +75341,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_120_a671ea",
@@ -75379,7 +75382,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr22_pl_121_cab2c2",
@@ -75410,7 +75413,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_igdm_msg",
@@ -75441,7 +75444,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_igdm_media",
@@ -75472,7 +75475,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_ebay_bid",
@@ -75503,7 +75506,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_ebay_action",
@@ -75534,7 +75537,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Plain",
       script_id: "rr23_pl_naver_comment",
@@ -75566,7 +75569,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igc_pl",
@@ -75616,7 +75619,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igp_pl",
@@ -75648,7 +75651,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igm_pl",
@@ -75797,7 +75800,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igprofile_pl",
@@ -75829,7 +75832,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twc_pl",
@@ -75873,7 +75876,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twp_pl",
@@ -75905,7 +75908,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twm_pl",
@@ -76116,7 +76119,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twprofile_pl",
@@ -76232,7 +76235,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_stories_pl",
@@ -76264,7 +76267,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r43_twthread_pl",
@@ -76279,7 +76282,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Primary \u2014 Spark",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.7.4",
+  relay_product_version: "0.2.7.5",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "spark",
   surface_review_revision: "R4.5-FINAL",
@@ -76313,7 +76316,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_001_79437d",
@@ -76350,7 +76353,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_002_adfed4",
@@ -76386,7 +76389,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_003_841fca",
@@ -76422,7 +76425,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_004_a2b1b8",
@@ -76496,7 +76499,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_005_d2adf0",
@@ -76556,7 +76559,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_006_b5a1df",
@@ -77095,7 +77098,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_007_6d238f",
@@ -77131,7 +77134,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_008_c7741a",
@@ -77167,7 +77170,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_009_fe1f7c",
@@ -77211,7 +77214,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_010_68f63a",
@@ -77255,7 +77258,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_011_36e620",
@@ -77299,7 +77302,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_012_ada37b",
@@ -77342,7 +77345,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_013_e25008",
@@ -77385,7 +77388,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_014_0da462",
@@ -77428,7 +77431,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_015_0bb8fa",
@@ -77464,7 +77467,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_016_237a96",
@@ -77500,7 +77503,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_017_852244",
@@ -77536,7 +77539,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_018_e28561",
@@ -77573,7 +77576,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_019_b346b5",
@@ -77610,7 +77613,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_020_5224ea",
@@ -77647,7 +77650,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_021_c03155",
@@ -77684,7 +77687,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_022_ddceb8",
@@ -77721,7 +77724,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_023_591347",
@@ -77758,7 +77761,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_024_e5ccdf",
@@ -77795,7 +77798,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_025_aaaa05",
@@ -77832,7 +77835,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_026_4c6c16",
@@ -77869,7 +77872,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_027_0efe95",
@@ -77906,7 +77909,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_028_887f90",
@@ -77951,7 +77954,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_029_b8f53b",
@@ -77996,7 +77999,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_030_75b09c",
@@ -78034,7 +78037,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_031_691604",
@@ -78072,7 +78075,7 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_032_aa5046",
@@ -78258,7 +78261,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_033_1c5665"
@@ -78424,7 +78427,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_034_ba998e"
@@ -78598,7 +78601,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_035_b1cd9f",
@@ -78773,7 +78776,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_036_812632",
@@ -78950,7 +78953,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_037_4c291d",
@@ -79125,7 +79128,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_038_d0a4b5",
@@ -79304,7 +79307,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_039_900980",
@@ -79568,7 +79571,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_040_affcb9",
@@ -79799,7 +79802,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_041_6ba6af",
@@ -79969,7 +79972,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_042_bf4cfb",
@@ -80138,7 +80141,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_043_f10400",
@@ -80316,7 +80319,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_044_78f604",
@@ -80624,7 +80627,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_045_06dcb0",
@@ -80793,7 +80796,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_046_8ddcb6",
@@ -81040,7 +81043,7 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_047_98c223",
@@ -81115,7 +81118,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_048_bfd492"
@@ -81188,7 +81191,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_049_c2b693"
@@ -81247,7 +81250,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_050_5e5ace"
@@ -81281,7 +81284,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_051_86cbe5"
@@ -81354,7 +81357,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_052_8acef9"
@@ -81427,7 +81430,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_053_73b284"
@@ -81521,7 +81524,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_054_a71e35"
@@ -82466,7 +82469,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_055_d307cc"
@@ -82552,7 +82555,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_056_87f08b"
@@ -82652,7 +82655,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_057_d47fb5"
@@ -82752,7 +82755,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_058_572553"
@@ -82852,7 +82855,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_059_23e7b6"
@@ -82952,7 +82955,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_060_e2c00b"
@@ -83038,7 +83041,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_061_f217db"
@@ -83138,7 +83141,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_062_ca3507"
@@ -83168,7 +83171,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_063_109b6b",
@@ -83270,7 +83273,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_064_55436c"
@@ -83300,7 +83303,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_065_b051b9",
@@ -83402,7 +83405,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_066_4c0764"
@@ -83502,7 +83505,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_067_ca2bc5"
@@ -83588,7 +83591,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_068_182012"
@@ -83840,7 +83843,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_069_a91d13"
@@ -83899,7 +83902,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_070_32baae"
@@ -83972,7 +83975,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_071_57b192"
@@ -84045,7 +84048,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_072_3716d0"
@@ -84118,7 +84121,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_073_c9c3c1"
@@ -84191,7 +84194,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_074_744661"
@@ -84264,7 +84267,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_075_1f7d2b"
@@ -84352,7 +84355,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_076_23f35e"
@@ -84461,7 +84464,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_077_5109da"
@@ -84570,7 +84573,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_078_a74d3a"
@@ -84692,7 +84695,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_079_012836"
@@ -84814,7 +84817,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_080_3dc7fb"
@@ -84887,7 +84890,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_081_8dd34c"
@@ -85064,7 +85067,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_082_1e6889"
@@ -85150,7 +85153,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_083_a90135"
@@ -85236,7 +85239,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_084_7f904e"
@@ -85322,7 +85325,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_085_4ee547"
@@ -85408,7 +85411,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_086_b34fc8"
@@ -85508,7 +85511,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_087_4678e3"
@@ -85608,7 +85611,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_088_a564f2"
@@ -85710,7 +85713,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_089_89696d"
@@ -85783,7 +85786,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr37_spark_simg_sent"
@@ -85856,7 +85859,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr37_spark_simg_recv"
@@ -85958,7 +85961,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_090_86d091"
@@ -86060,7 +86063,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_091_6e869d"
@@ -86278,7 +86281,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_092_47d780"
@@ -86410,7 +86413,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_093_2cb884"
@@ -86703,7 +86706,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_094_ba2829"
@@ -86870,7 +86873,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_095_abac4e",
@@ -87032,7 +87035,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_096_4a6466",
@@ -87194,7 +87197,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_097_85e108",
@@ -87398,7 +87401,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_098_fd15e2",
@@ -87583,7 +87586,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_099_53f974",
@@ -87773,7 +87776,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_100_450906",
@@ -87964,7 +87967,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_101_0a3245",
@@ -88145,7 +88148,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_102_f590e6",
@@ -88286,7 +88289,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_103_18cff3",
@@ -88482,7 +88485,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_104_7c77c2",
@@ -88672,7 +88675,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_105_7f498e",
@@ -88858,7 +88861,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_106_a510df",
@@ -89075,7 +89078,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_107_80e6ed",
@@ -89264,7 +89267,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_108_5eb0e9",
@@ -89295,7 +89298,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr37_spark_letter_newlines",
@@ -89503,7 +89506,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_109_4a5e54",
@@ -89680,7 +89683,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_110_2bf4e9",
@@ -89878,7 +89881,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_111_e334f1",
@@ -90055,7 +90058,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_112_f3669e",
@@ -90228,7 +90231,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_114_1c020f",
@@ -90397,7 +90400,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_115_259f72",
@@ -90570,7 +90573,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_116_c98d00",
@@ -90734,7 +90737,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_117_062be9",
@@ -90765,7 +90768,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_118_4ca169",
@@ -90796,7 +90799,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_119_09d5f9",
@@ -90827,7 +90830,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_120_45897f",
@@ -90868,7 +90871,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr22_sp_121_207dbe",
@@ -90899,7 +90902,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_igdm_msg",
@@ -90930,7 +90933,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_igdm_media",
@@ -90961,7 +90964,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_ebay_bid",
@@ -90992,7 +90995,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_ebay_action",
@@ -91023,7 +91026,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "\uD83C\uDF0A Reverie Surfaces \u2014 Collapsible Sparkling",
       script_id: "rr23_sp_naver_comment",
@@ -91055,7 +91058,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igc_sp",
@@ -91105,7 +91108,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igp_sp",
@@ -91137,7 +91140,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igm_sp",
@@ -91286,7 +91289,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_igprofile_sp",
@@ -91318,7 +91321,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twc_sp",
@@ -91362,7 +91365,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twp_sp",
@@ -91394,7 +91397,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twm_sp",
@@ -91605,7 +91608,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_twprofile_sp",
@@ -91721,7 +91724,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r41_stories_sp",
@@ -91753,7 +91756,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4"
+        relay_product_version: "0.2.7.5"
       },
       folder: "R4.1 Profiles & Stories",
       script_id: "r43_twthread_sp",
@@ -91768,7 +91771,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Realistic \u2014 Inline",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.7.4",
+  relay_product_version: "0.2.7.5",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "inline",
   surface_review_revision: "R4.5-FINAL",
@@ -91802,7 +91805,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91844,7 +91847,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91885,7 +91888,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -91926,7 +91929,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92005,7 +92008,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92070,7 +92073,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92538,7 +92541,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92579,7 +92582,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92620,7 +92623,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92669,7 +92672,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92718,7 +92721,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92767,7 +92770,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92815,7 +92818,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92863,7 +92866,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92911,7 +92914,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92952,7 +92955,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -92993,7 +92996,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93034,7 +93037,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93076,7 +93079,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93118,7 +93121,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93160,7 +93163,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93202,7 +93205,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93244,7 +93247,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93286,7 +93289,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93328,7 +93331,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93370,7 +93373,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93412,7 +93415,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93454,7 +93457,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93504,7 +93507,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93554,7 +93557,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93597,7 +93600,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93640,7 +93643,7 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93768,7 +93771,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93876,7 +93879,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -93992,7 +93995,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94109,7 +94112,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94232,7 +94235,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94349,7 +94352,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94470,7 +94473,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94676,7 +94679,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94849,7 +94852,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -94961,7 +94964,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95072,7 +95075,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95192,7 +95195,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95442,7 +95445,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95553,7 +95556,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95742,7 +95745,7 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95822,7 +95825,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95900,7 +95903,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -95964,7 +95967,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -96003,7 +96006,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -96081,7 +96084,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -96159,7 +96162,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -96237,7 +96240,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97165,7 +97168,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97256,7 +97259,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97361,7 +97364,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97466,7 +97469,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97571,7 +97574,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97676,7 +97679,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97767,7 +97770,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97872,7 +97875,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -97907,7 +97910,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98014,7 +98017,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98049,7 +98052,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98156,7 +98159,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98261,7 +98264,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98352,7 +98355,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98546,7 +98549,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98610,7 +98613,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98688,7 +98691,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98766,7 +98769,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98844,7 +98847,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -98922,7 +98925,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99000,7 +99003,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99093,7 +99096,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99186,7 +99189,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99279,7 +99282,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99385,7 +99388,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99491,7 +99494,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99569,7 +99572,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99720,7 +99723,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99811,7 +99814,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99902,7 +99905,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -99993,7 +99996,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100084,7 +100087,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100189,7 +100192,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100294,7 +100297,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100401,7 +100404,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100479,7 +100482,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100557,7 +100560,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100664,7 +100667,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100771,7 +100774,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -100931,7 +100934,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101036,7 +101039,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101271,7 +101274,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101380,7 +101383,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101418,7 +101421,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101456,7 +101459,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101602,7 +101605,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101639,7 +101642,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101771,7 +101774,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101904,7 +101907,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101942,7 +101945,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -101980,7 +101983,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102118,7 +102121,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102254,7 +102257,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102386,7 +102389,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102549,7 +102552,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102684,7 +102687,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102720,7 +102723,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102758,7 +102761,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -102877,7 +102880,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103017,7 +103020,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103136,7 +103139,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103251,7 +103254,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103362,7 +103365,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103477,7 +103480,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103515,7 +103518,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103551,7 +103554,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103587,7 +103590,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103623,7 +103626,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103669,7 +103672,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103705,7 +103708,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103741,7 +103744,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103777,7 +103780,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103813,7 +103816,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103849,7 +103852,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103886,7 +103889,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103941,7 +103944,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -103978,7 +103981,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -104079,7 +104082,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -104116,7 +104119,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -104165,7 +104168,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -104202,7 +104205,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -104365,7 +104368,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -104433,7 +104436,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -104470,7 +104473,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "inline",
@@ -104490,7 +104493,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
   type: "lumiverse_regex_scripts",
   name: "Reverie Surfaces R4.5 \u2014 Realistic \u2014 Plain",
   notes: "Reverie Surfaces R4.5 FINAL authority for the selected presentation and color mode. Use exactly one pack.",
-  relay_product_version: "0.2.7.4",
+  relay_product_version: "0.2.7.5",
   surface_pack_revision: "R4.5",
   surface_pack_mode: "plain",
   surface_review_revision: "R4.5-FINAL",
@@ -104524,7 +104527,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104566,7 +104569,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104607,7 +104610,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104648,7 +104651,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104727,7 +104730,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -104792,7 +104795,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105322,7 +105325,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105363,7 +105366,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105404,7 +105407,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105453,7 +105456,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105502,7 +105505,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105551,7 +105554,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105599,7 +105602,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105647,7 +105650,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105695,7 +105698,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105736,7 +105739,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105777,7 +105780,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105818,7 +105821,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105860,7 +105863,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105902,7 +105905,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105944,7 +105947,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -105986,7 +105989,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106028,7 +106031,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106070,7 +106073,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106112,7 +106115,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106154,7 +106157,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106196,7 +106199,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106238,7 +106241,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106288,7 +106291,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106338,7 +106341,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106381,7 +106384,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106424,7 +106427,7 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106601,7 +106604,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "structured",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106758,7 +106761,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         variant: "legacy",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -106923,7 +106926,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -107089,7 +107092,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -107257,7 +107260,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         enable_one_mode_only: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -107423,7 +107426,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -107593,7 +107596,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -107848,7 +107851,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108070,7 +108073,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108231,7 +108234,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108391,7 +108394,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108560,7 +108563,7 @@ width:100%!important;height:100%!important}
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -108859,7 +108862,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -109019,7 +109022,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -109257,7 +109260,7 @@ $7
         approved_redesign: true,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -109337,7 +109340,7 @@ $7
         source_order: 1,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -109415,7 +109418,7 @@ $7
         source_order: 2,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -109479,7 +109482,7 @@ $7
         source_order: 3,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -109518,7 +109521,7 @@ $7
         source_order: 4,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -109596,7 +109599,7 @@ $7
         source_order: 5,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -109674,7 +109677,7 @@ $7
         source_order: 6,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -109760,7 +109763,7 @@ $7
         source_order: 7,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110706,7 +110709,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 8,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110797,7 +110800,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 9,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -110902,7 +110905,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 10,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111007,7 +111010,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 11,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111112,7 +111115,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 12,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111217,7 +111220,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 13,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111308,7 +111311,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 14,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111413,7 +111416,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 15,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111448,7 +111451,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111555,7 +111558,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 16,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111590,7 +111593,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         internal_transformer: true,
         surface: "mission-board",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111697,7 +111700,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 17,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111802,7 +111805,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 18,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -111893,7 +111896,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 19,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112136,7 +112139,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 20,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112200,7 +112203,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 21,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112278,7 +112281,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 22,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112356,7 +112359,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 23,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112434,7 +112437,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 24,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112512,7 +112515,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 25,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112590,7 +112593,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 26,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112683,7 +112686,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 27,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112784,7 +112787,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 28,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112885,7 +112888,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 29,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -112999,7 +113002,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 30,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113113,7 +113116,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 31,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113191,7 +113194,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 32,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113360,7 +113363,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         utility_contract: "for_you_following_thread_trends_separated",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113451,7 +113454,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 33,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113542,7 +113545,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 34,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113633,7 +113636,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 35,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113724,7 +113727,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 36,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113829,7 +113832,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 38,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -113934,7 +113937,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 39,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -114041,7 +114044,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 40,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -114119,7 +114122,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -114197,7 +114200,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -114304,7 +114307,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 41,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -114411,7 +114414,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 42,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -114620,7 +114623,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 43,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -114743,7 +114746,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         source_order: 49,
         enable_one_mode_only: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -115027,7 +115030,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         enable_one_mode_only: true,
         surface_label: "Relationship Web",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -115185,7 +115188,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Evidence Photo",
         utility_revision: "structured-evidence-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -115338,7 +115341,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Photo Booth Strip",
         utility_revision: "four-frame-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -115491,7 +115494,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Polaroid",
         utility_revision: "captioned-polaroid-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -115686,7 +115689,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_label: "Workspace Chat",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -115862,7 +115865,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
         surface_outer: true,
         surface_label: "Email",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -116043,7 +116046,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "iMessage",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -116225,7 +116228,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Twitch",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -116397,7 +116400,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Music Player",
         utility_revision: "lyrics-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -116529,7 +116532,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Live Location",
         utility_revision: "chat-popup-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -116716,7 +116719,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Voice Memo",
         utility_revision: "transcript-direct-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -116897,7 +116900,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         utility_revision: "multi-note-v2",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -117074,7 +117077,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Marketplace",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -117282,7 +117285,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -117462,7 +117465,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Naver News",
         r2_3_fix: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -117498,7 +117501,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -117697,7 +117700,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Letter",
         utility_revision: "paper-letter-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -117865,7 +117868,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Medical Chart",
         utility_revision: "chart-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118054,7 +118057,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Court Transcript",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118222,7 +118225,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "Wiki Page",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118386,7 +118389,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Diary",
         utility_revision: "multi-entry-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118546,7 +118549,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Mission / List Board",
         utility_revision: "generic-list-v2",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118710,7 +118713,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_outer: true,
         surface_label: "CCTV",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118865,7 +118868,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_label: "Discord Server",
         utility_revision: "four-populated-channels",
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118901,7 +118904,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118937,7 +118940,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -118973,7 +118976,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119019,7 +119022,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119055,7 +119058,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119091,7 +119094,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119127,7 +119130,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119163,7 +119166,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119199,7 +119202,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
       metadata: {
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119236,7 +119239,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119291,7 +119294,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119328,7 +119331,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119482,7 +119485,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119519,7 +119522,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119568,7 +119571,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119605,7 +119608,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119821,7 +119824,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119942,7 +119945,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: false,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -119979,7 +119982,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
         surface_pack_revision: "R4.5",
         internal_transformer: true,
         authority: "Reverie Surfaces R4.5 FINAL",
-        relay_product_version: "0.2.7.4",
+        relay_product_version: "0.2.7.5",
         authoring_contract: "reverie-bracket-native-v1",
         semantic_delimiters: "square-brackets",
         presentation_variant: "plain",
@@ -136392,7 +136395,7 @@ function renderVariableNotes(markup, template, macro) {
 function r45SurfaceAuthorityPack(presentation, color) {
   const key = `${presentation}:${color}`;
   const pack = PACKS[key];
-  if (!pack || pack.type !== "lumiverse_regex_scripts" || pack.relay_product_version !== "0.2.7.4" || pack.scripts.length !== 138) {
+  if (!pack || pack.type !== "lumiverse_regex_scripts" || pack.relay_product_version !== "0.2.7.5" || pack.scripts.length !== 138) {
     throw new Error(`Invalid R4.5 Surface authority selection: ${key}`);
   }
   return pack;
@@ -137053,9 +137056,6 @@ var CHARACTER_PROFILE_CSS = `<style data-reverie-surface="character-profile">
 var SHIPPED_SURFACE_CSS = `<style data-reverie-shipped-surface-style="1">
 .rrn-surface-v1{--rrn-card-gap:10px}.rrn-surface-v1 .rrn-surface-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}.rrn-surface-v1 .rrn-surface-icon{display:grid;place-items:center;flex:0 0 42px;width:42px;height:42px;border:1px solid var(--rrn-border);border-radius:13px;background:color-mix(in srgb,var(--rrn-accent) 16%,transparent);font-size:21px}.rrn-surface-v1 .rrn-surface-copy{min-width:0;flex:1}.rrn-surface-v1 .rrn-surface-title{margin:0;font:750 clamp(18px,3vw,24px)/1.15 Georgia,"Times New Roman",serif}.rrn-surface-v1 .rrn-surface-meta{display:flex;flex-wrap:wrap;gap:5px 9px;margin-top:6px;color:var(--rrn-muted);font-size:11px}.rrn-surface-v1 .rrn-node{min-width:0}.rrn-surface-v1 .rrn-node-group{display:grid;gap:var(--rrn-card-gap)}.rrn-surface-v1 .rrn-node-card{padding:11px;border:1px solid color-mix(in srgb,var(--rrn-border) 72%,transparent);border-radius:13px;background:color-mix(in srgb,var(--rrn-bg) 70%,transparent)}.rrn-surface-v1 .rrn-node-message{padding:9px 11px;border-radius:14px;background:color-mix(in srgb,var(--rrn-panel) 78%,transparent);line-height:1.48}.rrn-surface-v1 .rrn-node-message+.rrn-node-message{margin-top:7px}.rrn-surface-v1 .rrn-node-highlight{padding:10px 12px;border-left:3px solid var(--rrn-accent);border-radius:8px;background:color-mix(in srgb,var(--rrn-accent) 10%,transparent);line-height:1.48}.rrn-surface-v1 .rrn-node-text{line-height:1.58;white-space:pre-wrap;overflow-wrap:anywhere}.rrn-surface-v1 .rrn-node-label{display:block;margin-bottom:4px;color:color-mix(in srgb,var(--rrn-accent) 76%,white);font-size:10px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}.rrn-surface-v1 .rrn-node-meta{display:flex;flex-wrap:wrap;gap:4px 8px;margin-bottom:6px;color:var(--rrn-muted);font-size:10px}.rrn-surface-v1 .rrn-node-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border:1px solid var(--rrn-border);border-radius:999px;background:color-mix(in srgb,var(--rrn-accent) 10%,transparent);font-size:11px}.rrn-surface-v1 .rrn-node-media{display:grid;gap:9px}.rrn-surface-v1 details.rrn-node-details{margin-top:10px;border:1px solid var(--rrn-border);border-radius:12px;background:color-mix(in srgb,var(--rrn-panel) 52%,transparent);overflow:hidden}.rrn-surface-v1 details.rrn-node-details>summary{cursor:pointer;list-style:none;padding:10px 12px;font-weight:750}.rrn-surface-v1 details.rrn-node-details>summary::-webkit-details-marker{display:none}.rrn-surface-v1 details.rrn-node-details>summary:after{content:"\u2304";float:right;color:var(--rrn-muted)}.rrn-surface-v1 details.rrn-node-details[open]>summary:after{transform:rotate(180deg)}.rrn-surface-v1 details.rrn-node-details>.rrn-details-body{padding:0 12px 12px}.rrn-surface-v1 .rrn-contract-warning{margin:0 0 11px;padding:9px 11px;border:1px solid color-mix(in srgb,#f4b96f 46%,transparent);border-radius:11px;background:rgba(244,185,111,.08);color:#f4cf9f;font-size:11px}.rrn-surface-v1 .rrn-resolved-media{position:relative}.rrn-surface-v1 .rrn-resolved-media img{cursor:zoom-in}.rrn-surface-v1 .rrn-media-caption{padding:7px 9px;color:var(--rrn-muted);font-size:11px;line-height:1.4}.rrn-surface-v1-imessage-chat .rrn-node-media,.rrn-surface-v1-workspace-chat .rrn-node-media{width:100%}.rrn-surface-v1-imessage-chat .rrn-media,.rrn-surface-v1-workspace-chat .rrn-media{aspect-ratio:16/9;min-height:0}.rrn-surface-v1-imessage-chat .rrn-media img,.rrn-surface-v1-workspace-chat .rrn-media img{object-fit:contain!important;background:#09090c}.rrn-surface-v1-property-listing [data-rrn-child="pr_gallery"],.rrn-surface-v1-webtoon-panel [data-rrn-child="wb_panels"],.rrn-surface-v1-cctv-feed [data-rrn-child="cv_feeds"]{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:10px}.rrn-surface-v1-webtoon-panel .rrn-media{aspect-ratio:9/16;max-height:72vh;min-height:360px}.rrn-surface-v1-webtoon-panel .rrn-media img{object-fit:contain!important}.rrn-surface-v1-cctv-feed .rrn-media{aspect-ratio:16/9;min-height:0}.rrn-surface-v1-medical-record [data-rrn-child="med_avatar"]{width:min(190px,55vw);margin:0 auto 12px}.rrn-surface-v1-medical-record [data-rrn-child="med_avatar"] .rrn-media{aspect-ratio:1/1;border-radius:50%;min-height:0}.rrn-surface-v1-medical-record [data-rrn-child="med_avatar"] img{object-fit:cover!important}.rrn-surface-v1-letter-dispatch .rrn-shell{overflow:visible}.rrn-surface-v1-letter-dispatch .rrn-body{padding:18px}.rrn-surface-v1-letter-dispatch [data-rrn-child="lt_body"]{position:relative;z-index:1;padding:clamp(16px,4vw,28px);border-radius:8px;background:linear-gradient(145deg,#f7ecd8,#ddc7a5);color:#35211e;box-shadow:0 10px 25px rgba(0,0,0,.22)}.rrn-surface-v1-case-file .rrn-body{padding-top:22px}.rrn-surface-v1-case-file .rrn-surface-head{padding-top:3px}.rrn-surface-v1-divination-surface .rrn-media{aspect-ratio:4/5}.rrn-surface-v1 .rrn-node[data-rrn-side="right"]{margin-left:auto;max-width:82%;background:color-mix(in srgb,var(--rrn-accent) 28%,var(--rrn-panel))}.rrn-surface-v1 .rrn-node[data-rrn-side="left"]{margin-right:auto;max-width:82%}@media(max-width:560px){.rrn-surface-v1 .rrn-surface-icon{width:36px;height:36px;flex-basis:36px;font-size:18px}.rrn-surface-v1 .rrn-surface-title{font-size:18px}.rrn-surface-v1-property-listing [data-rrn-child="pr_gallery"],.rrn-surface-v1-webtoon-panel [data-rrn-child="wb_panels"],.rrn-surface-v1-cctv-feed [data-rrn-child="cv_feeds"]{grid-template-columns:1fr}.rrn-surface-v1-case-file .rrn-body{padding-top:18px}.rrn-surface-v1-letter-dispatch .rrn-body{padding:12px}}
 </style>`;
-var LIFECYCLE_CARD_CSS = `<style data-reverie-lifecycle-style="release">
-.rrl-island{--rrl-accent:var(--lumiverse-primary,var(--lumiverse-accent,#c24b78));--rrl-bg:color-mix(in srgb,var(--lumiverse-bg-deep,var(--lumiverse-fill,#150a11)) 94%,#000);--rrl-panel:color-mix(in srgb,var(--lumiverse-bg-elevated,var(--lumiverse-fill-subtle,#24131d)) 91%,var(--rrl-accent) 9%);--rrl-border:color-mix(in srgb,var(--rrl-accent) 34%,var(--lumiverse-border,transparent));--rrl-text:var(--lumiverse-text-primary,var(--lumiverse-text,#f7eaf0));--rrl-muted:var(--lumiverse-text-secondary,var(--lumiverse-text-muted,#c8aeb9));display:block;width:min(100%,680px);margin:8px auto;font-family:var(--lumiverse-font-family,system-ui,-apple-system,"Segoe UI",sans-serif);color:var(--rrl-text);box-sizing:border-box}.rrl-island *{box-sizing:border-box}.rrl-card{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px 10px;min-height:54px;padding:9px 10px;border:1px solid var(--rrl-border);border-radius:15px;background:linear-gradient(145deg,color-mix(in srgb,var(--rrl-panel) 96%,transparent),color-mix(in srgb,var(--rrl-bg) 98%,transparent));box-shadow:0 8px 24px rgba(0,0,0,.22),inset 0 1px rgba(255,255,255,.045);overflow:hidden}.rrl-preview{grid-column:1/-1;position:relative;width:100%;max-height:320px;overflow:hidden;border:1px solid var(--rrl-border);border-radius:11px;background:#070507}.rrl-preview[hidden]{display:none}.rrl-preview img{display:block;width:100%;max-height:320px;object-fit:contain;background:#070507}.rrl-preview-badge{position:absolute;right:7px;bottom:7px;padding:3px 7px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(0,0,0,.62);backdrop-filter:blur(8px);color:#fff;font-size:9px}.rrl-main{display:flex;align-items:center;gap:9px;min-width:0}.rrl-icon{display:grid;place-items:center;flex:0 0 30px;width:30px;height:30px;border:1px solid var(--rrl-border);border-radius:10px;background:color-mix(in srgb,var(--rrl-accent) 12%,transparent)}.rrl-spinner{display:none;width:15px;height:15px;border:2px solid color-mix(in srgb,var(--rrl-accent) 22%,transparent);border-top-color:var(--rrl-accent);border-radius:50%;animation:rrlSpin .78s linear infinite}.rrl-state-icon{font:800 13px/1 system-ui,sans-serif}.rrl-card[data-rrn-live-status="preparing"] .rrl-spinner,.rrl-card[data-rrn-live-status="queued"] .rrl-spinner,.rrl-card[data-rrn-live-status="parsing"] .rrl-spinner,.rrl-card[data-rrn-live-status="generating"] .rrl-spinner,.rrl-card[data-rrn-live-status="previewing"] .rrl-spinner,.rrl-card[data-rrn-live-status="placement-pending"] .rrl-spinner{display:block}.rrl-card[data-rrn-live-status="preparing"] .rrl-state-icon,.rrl-card[data-rrn-live-status="queued"] .rrl-state-icon,.rrl-card[data-rrn-live-status="parsing"] .rrl-state-icon,.rrl-card[data-rrn-live-status="generating"] .rrl-state-icon,.rrl-card[data-rrn-live-status="previewing"] .rrl-state-icon,.rrl-card[data-rrn-live-status="placement-pending"] .rrl-state-icon{display:none}.rrl-copy{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:3px 8px;min-width:0;flex:1}.rrl-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:700 12px/1.25 Georgia,"Times New Roman",serif}.rrl-status{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;padding:3px 7px;border:1px solid var(--rrl-border);border-radius:999px;color:var(--rrl-muted);font-size:9px;white-space:nowrap}.rrl-status:before{content:"";width:5px;height:5px;border-radius:50%;background:var(--rrl-accent);box-shadow:0 0 8px var(--rrl-accent)}.rrl-stream-status{grid-column:1/-1;color:var(--rrl-muted);font-size:9px;line-height:1.25;min-height:0}.rrl-stream-status:empty{display:none}.rrl-progress{grid-column:1/-1;height:3px;border-radius:99px;background:color-mix(in srgb,var(--rrl-border) 36%,transparent);overflow:hidden}.rrl-progress[hidden]{display:none}.rrl-progress>span{display:block;width:0;height:100%;border-radius:inherit;background:var(--rrl-accent);box-shadow:0 0 9px color-mix(in srgb,var(--rrl-accent) 70%,transparent);transition:width .18s ease}.rrl-actions{display:flex;align-items:center;justify-content:flex-end;gap:5px;min-width:0}.rrl-actions button{appearance:none;min-height:28px;padding:4px 8px;border:1px solid var(--rrl-border);border-radius:9px;background:color-mix(in srgb,var(--rrl-panel) 91%,transparent);color:var(--rrl-text);font:700 9px/1 system-ui,sans-serif;white-space:nowrap;cursor:pointer}.rrl-actions button:hover{background:color-mix(in srgb,var(--rrl-accent) 18%,var(--rrl-panel))}.rrl-actions button[data-rrn-action="abort"]{color:#ffc2cf;border-color:color-mix(in srgb,#ff5f7d 45%,transparent)}.rrl-detail{grid-column:1/-1;margin:0}.rrl-detail>summary{width:max-content;cursor:pointer;list-style:none;color:var(--rrl-muted);font-size:9px;line-height:1.2}.rrl-detail>summary::-webkit-details-marker{display:none}.rrl-detail>summary:before{content:"Details"}.rrl-detail[open]>summary:before{content:"Hide details"}.rrl-detail p{margin:5px 0 0;padding:7px 9px;border-radius:8px;background:rgba(0,0,0,.15);color:var(--rrl-muted);font-size:10px;line-height:1.4;max-height:7em;overflow:auto}.rrl-error{--rrl-accent:#ff5f7d}.rrl-card[data-rrn-live-status="generating"] .rrl-status:before,.rrl-card[data-rrn-live-status="parsing"] .rrl-status:before{animation:rrlPulse 1.05s ease-in-out infinite}.rrl-resolved{position:relative;width:100%;margin:0}.rrl-resolved img{display:block;width:100%;height:auto;border-radius:13px}.rrl-resolved-actions{margin-top:6px;justify-content:flex-start}@keyframes rrlPulse{0%,100%{opacity:.38;transform:scale(.8)}50%{opacity:1;transform:scale(1.18)}}@keyframes rrlSpin{to{transform:rotate(360deg)}}@media(max-width:560px){.rrl-island{margin:7px 0}.rrl-card{grid-template-columns:1fr;padding:8px}.rrl-actions{justify-content:flex-start;overflow-x:auto;scrollbar-width:none}.rrl-actions::-webkit-scrollbar{display:none}.rrl-actions button{flex:0 0 auto}.rrl-copy{gap:3px 5px}.rrl-status{font-size:8px}.rrl-title{font-size:11px}.rrl-preview,.rrl-preview img{max-height:260px}}@media(prefers-reduced-motion:reduce){.rrl-card *{animation:none!important}.rrl-progress>span{transition:none}}
-</style>`;
 var STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="2">
 .rrn-editable-surface,.rrl-island,.rrn-media,.rrl-media-slot,[data-reverie-r45-lifecycle-media]{overflow-anchor:none}.rrn-media{aspect-ratio:var(--reverie-media-aspect,16/9);min-height:0;contain:layout paint}.rrn-media img{width:100%;height:100%;object-fit:var(--rrn-fit,contain)}.rrl-card>.rrl-media-slot{grid-column:1/-1}.rrl-media-slot{--reverie-media-aspect:1/1;--rr-primary:var(--lumiverse-primary,var(--rrl-accent));--rr-secondary:var(--lumiverse-secondary,var(--rrl-accent));--rr-text:var(--lumiverse-text,var(--rrl-text));--rr-accent:var(--lumiverse-secondary,var(--rrl-accent));--rr-accent-text:var(--lumiverse-primary,var(--rrl-text));--rr-border:var(--lumiverse-border,var(--rrl-border));--rr-bg:var(--lumiverse-bg-deep-080,var(--rrl-bg));position:relative;display:block;width:100%;aspect-ratio:var(--reverie-media-aspect);min-height:0;overflow:hidden;border:1px solid var(--rr-border);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.045),rgba(255,255,255,.015)),var(--rr-bg);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 16px 50px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.055);contain:layout paint;overflow-anchor:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-resolved{position:absolute;inset:0;width:100%;height:100%;margin:0;border:0;border-radius:0;background:transparent}.rrl-media-slot .rrl-preview{max-height:none}.rrl-media-slot .rrl-preview[hidden]{display:none}.rrl-media-slot .rrl-preview-image,.rrl-media-slot .rrl-slot-image,.rrl-media-slot .rrl-resolved img{display:block;width:100%;height:100%;max-height:none;object-fit:contain;background:#070507;border-radius:0}.rrl-actions button[data-rrn-action]{touch-action:manipulation;pointer-events:auto}.rrl-actions button[data-rrl-submitting="true"]{opacity:.68;cursor:progress}.rrl-media-skeleton{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden;padding:0;color:transparent;pointer-events:none}.rrl-media-slot[data-rrn-media-empty="false"] .rrl-media-skeleton,.rrl-media-slot[data-rrn-media-state="previewing"] .rrl-media-skeleton{opacity:0;pointer-events:none}.rrl-card{display:block;min-height:0;padding:0;border:0;border-radius:18px;background:transparent;box-shadow:none;overflow:visible}.rrl-main{position:absolute;z-index:3;left:8px;top:8px;max-width:calc(100% - 16px);padding:4px 7px;border-radius:999px;background:rgba(5,3,6,.62);backdrop-filter:blur(7px);pointer-events:none}.rrl-main .rrl-icon{width:18px;height:18px;flex-basis:18px;border:0;background:transparent}.rrl-main .rrl-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.rrl-main .rrl-copy{display:block}.rrl-main .rrl-status{padding:0;border:0;color:#fff;font-size:9px}.rrl-stream-status,.rrl-progress{display:none!important}.rrl-actions{position:absolute;z-index:4;right:8px;bottom:8px;max-width:calc(100% - 16px);padding:4px;border-radius:10px;background:rgba(5,3,6,.68);backdrop-filter:blur(7px);opacity:0;transform:translateY(3px);pointer-events:none;transition:opacity .16s ease,transform .16s ease}.rrl-card:hover .rrl-actions,.rrl-card:focus-within .rrl-actions,.rrl-card[data-rrn-live-status="completed"] .rrl-actions,.rrl-card[data-rrn-live-status="failed"] .rrl-actions,.rrl-card[data-rrn-live-status="image-unavailable"] .rrl-actions,.rrl-card[data-rrn-live-status="cancelled"] .rrl-actions,.rrl-card[data-rrn-live-status="placement-repair-needed"] .rrl-actions{opacity:1;transform:none;pointer-events:auto}.rrl-detail{display:none}.rrl-card[data-rrn-live-status="completed"] .rrl-main{opacity:0;transition:opacity .16s ease}.rrl-card[data-rrn-live-status="completed"]:hover .rrl-main,.rrl-card[data-rrn-live-status="completed"]:focus-within .rrl-main{opacity:.9}.rrn-message[data-rr-kakao-color] .rrn-avatar{background:color-mix(in srgb,var(--kk-color) 38%,var(--rrn-panel));border-color:color-mix(in srgb,var(--kk-color) 54%,transparent)}.rrn-message[data-rr-kakao-color] .rrn-meta b{color:color-mix(in srgb,var(--kk-color) 65%,var(--rrn-text))}.rrn-message[data-rr-kakao-color] .rrn-bubble{border:1px solid color-mix(in srgb,var(--kk-color) 35%,var(--rrn-border));background:color-mix(in srgb,var(--rrn-panel) 82%,var(--kk-color) 18%)}.rrn-message[data-rr-kakao-color] .rrn-bubble.is-sent{background:color-mix(in srgb,var(--rrn-panel) 68%,var(--kk-color) 32%)}@media(max-width:560px){.rrl-media-slot{width:100%;max-height:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-preview-image{max-height:none}}
 .rrl-generation-placeholder .rr-spinner{width:19px;height:19px;border-radius:50%;border:2px solid rgba(255,255,255,.12);border-top-color:var(--rr-primary);border-right-color:var(--rr-secondary);animation:rr-spin 1.15s linear infinite}@keyframes rr-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
@@ -137064,7 +137064,7 @@ var STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="2">
 @media(prefers-reduced-motion:reduce){.rrl-generation-placeholder .rr-spinner,.rrl-generation-placeholder .rr-orb,.rrl-generation-placeholder .rr-orb:before,.rrl-generation-placeholder .rr-orb:after{animation:none}.rrl-generation-placeholder .rr-regex-particles{display:none}}
 </style>`;
 function lifecycleCardIsland(card) {
-  return lifecycleCardShell(`${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${card}`);
+  return lifecycleCardShell(card);
 }
 function lifecycleCardShell(card) {
   return `<div class="rrl-island" data-reverie-lifecycle-card="true">${card}</div>`;
@@ -137147,7 +137147,10 @@ function parityModeForSurface(baseSurfaceId, preset, context) {
   return "inline";
 }
 function matchingRequestRecords(context, requestId, target) {
-  return (context.records || []).filter((record3) => record3.requestId === requestId).filter((record3) => !context.messageId || !record3.messageId || record3.messageId === context.messageId).filter((record3) => context.swipeId === undefined || record3.swipeId === undefined || record3.swipeId === context.swipeId).filter((record3) => !target || !record3.target || record3.target === target).sort((left, right) => String(left.slot || "").localeCompare(String(right.slot || ""), undefined, { numeric: true }));
+  return (context.records || []).filter((record3) => record3.requestId === requestId).filter((record3) => !context.messageId || !record3.messageId || record3.messageId === context.messageId).filter((record3) => context.swipeId === undefined || record3.swipeId === undefined || record3.swipeId === context.swipeId).filter((record3) => !target || !record3.target || record3.target === target).sort((left, right) => (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0) || (Number(right.attemptNumber) || 0) - (Number(left.attemptNumber) || 0) || String(left.slot || "").localeCompare(String(right.slot || ""), undefined, { numeric: true }));
+}
+function currentRequestRecord(input) {
+  return matchingRequestRecords(input.context, input.requestId, "")[0];
 }
 function requestRecordAttributes(record3) {
   return [
@@ -137460,7 +137463,6 @@ function renderNativeSurfaceMarkup(input, studio, context) {
   let content = normalizedSurface.markup;
   const protectedRegexSurfaces = new Map;
   let renderedCount = bracketRenderedCount + normalizationFailures.length;
-  let standaloneLifecycleCount = 0;
   const renderedSurfaceIds = [...bracketRenderedSurfaceIds, ...normalizationFailures];
   if (renderContext.rendererMode === "legacy-regex" || renderContext.rendererMode === "hybrid" && hybridSurfaceOwner(activePreset(studio, "dating-profile")) === "regex") {
     content = content.replace(/<tinder\b[^>]*>[\s\S]*?<\/tinder>/gi, (fullMatch) => {
@@ -137496,14 +137498,32 @@ function renderNativeSurfaceMarkup(input, studio, context) {
       return editableRelaySurface(renderBySurface(baseSurfaceId, canonicalOpen?.[1] || tagName, parseAttrs2(canonicalOpen?.[2] || rawAttrs), canonicalOpen?.[3] || String(body || ""), preset, instanceContext), canonicalMarkup, tagName, baseSurfaceId, instanceContext, originalMarkup);
     });
   }
+  content = content.replace(/<scene_image\b([^>]*)>([\s\S]*?)<\/scene_image>/gi, (full, rawAttrs, body) => {
+    const attrs = parseAttrs2(rawAttrs);
+    const pending = /^(?:true|1|pending)$/i.test(attrs.pending || "");
+    const requestId = attrs.requestId || attrs.requestid || attrs.request_id || attrs.planId || attrs.planid || attrs.id || "";
+    if (!pending || !requestId || /<img\b/i.test(body))
+      return full;
+    renderedCount += 1;
+    renderedSurfaceIds.push("prose-illustration");
+    return lifecycleCardIsland(renderRequestCard({
+      title: "Illustration requested",
+      brief: stripMarkup(String(body || "")),
+      requestId,
+      aspect: attrs.aspect || currentRequestRecord({ context: renderContext, requestId })?.requestAspect || "4:3",
+      rootTag: "scene_image",
+      baseSurfaceId: "prose-illustration",
+      preset: activePreset(studio, "prose-illustration"),
+      context: renderContext
+    }, true));
+  });
   content = content.replace(/<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi, (_full, rawAttrs, body) => {
     const attrs = parseAttrs2(rawAttrs);
     if ((attrs.request || "").toLowerCase() !== "generate")
       return "";
     renderedCount += 1;
     renderedSurfaceIds.push("prose-illustration");
-    standaloneLifecycleCount += 1;
-    return lifecycleCardShell(renderRequestCard({
+    return lifecycleCardIsland(renderRequestCard({
       title: "Illustration requested",
       brief: stripMarkup(String(body || "")),
       requestId: attrs.slot || attrs.id || "",
@@ -137520,8 +137540,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
       return full;
     renderedCount += 1;
     renderedSurfaceIds.push("artifact-media");
-    standaloneLifecycleCount += 1;
-    return lifecycleCardShell(renderRequestCard({
+    return lifecycleCardIsland(renderRequestCard({
       title: "Artifact media requested",
       brief: firstTagText2(body, "scene_brief") || stripMarkup(body),
       requestId: attrs.id || attrs.request_id || "",
@@ -137538,8 +137557,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
     const baseSurfaceId = baseSurfaceIdForTarget(target);
     renderedCount += 1;
     renderedSurfaceIds.push(baseSurfaceId);
-    standaloneLifecycleCount += 1;
-    return lifecycleCardShell(renderRequestCard({
+    return lifecycleCardIsland(renderRequestCard({
       title: "Media requested",
       brief: firstTagText2(body, "scene_brief") || firstTagText2(body, "prompt") || stripMarkup(body),
       requestId: attrs.id || attrs.request_id || "",
@@ -137556,8 +137574,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
     const baseSurfaceId = baseSurfaceIdForTarget(target);
     renderedCount += 1;
     renderedSurfaceIds.push(baseSurfaceId);
-    standaloneLifecycleCount += 1;
-    return lifecycleCardShell(renderRequestCard({
+    return lifecycleCardIsland(renderRequestCard({
       title: "Generation failed",
       brief: stripMarkup(body) || "Relay could not generate this media.",
       requestId: attrs.id || attrs.request_id || "",
@@ -137575,8 +137592,6 @@ function renderNativeSurfaceMarkup(input, studio, context) {
     content = renderRegexSurfaceParity(content, parityModeForSurface("message", undefined, renderContext), renderContext.messageId || "message-surface", renderContext.colorMode || "realistic");
     content = preserveKakaoColorAttributes(content);
   }
-  if (standaloneLifecycleCount)
-    content = `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${content}`;
   return { content, renderedCount, renderedSurfaceIds };
 }
 function baseSurfaceIdForTarget(target) {
@@ -137916,7 +137931,6 @@ function renderAnyMedia(body, context, baseSurfaceId) {
   const image2 = extractImage(body);
   if (!image2)
     return "";
-  const actions = renderActionButtons(image2.requestId, context, baseSurfaceId, "resolved");
   const relayAttrs = [
     image2.key ? ` data-dgir-key="${escapeAttr2(image2.key)}"` : "",
     image2.requestId ? ` data-dgir-request-id="${escapeAttr2(image2.requestId)}"` : "",
@@ -137924,7 +137938,7 @@ function renderAnyMedia(body, context, baseSurfaceId) {
     image2.imageId ? ` data-dgir-image-id="${escapeAttr2(image2.imageId)}"` : ""
   ].join("");
   const aspect = image2.aspect || "16:9";
-  return `<figure class="rrn-media" data-aspect="${escapeAttr2(aspect)}" style="--reverie-media-aspect:${escapeAttr2(cssAspectRatio(aspect, "16:9"))}"><img src="${escapeAttr2(image2.src)}" alt="${escapeAttr2(image2.alt || "Reverie media")}" data-rrn-request-id="${escapeAttr2(image2.requestId)}"${relayAttrs}>${image2.caption ? `<figcaption class="rrn-caption">${sanitizeInline(image2.caption)}</figcaption>` : ""}</figure>${actions}`;
+  return `<figure class="rrn-media" data-aspect="${escapeAttr2(aspect)}" style="--reverie-media-aspect:${escapeAttr2(cssAspectRatio(aspect, "16:9"))}"><img src="${escapeAttr2(image2.src)}" alt="${escapeAttr2(image2.alt || "Reverie media")}" data-rrn-request-id="${escapeAttr2(image2.requestId)}"${relayAttrs}>${image2.caption ? `<figcaption class="rrn-caption">${sanitizeInline(image2.caption)}</figcaption>` : ""}</figure>`;
 }
 function extractImage(body) {
   const img = /<img\b([^>]*)>/i.exec(body);
@@ -137973,9 +137987,9 @@ function stableLifecycleMediaSlot(aspect, state, title, inner = "", empty = true
   return `<div${stableMediaSlotAttrs(aspect, state, empty)}>${inner}${fallbackImage}<div class="rrl-preview" hidden><img class="rrl-preview-image" alt=""></div>${placeholder}</div>`;
 }
 function renderRequestCard(input, bare = false) {
-  const record3 = input.context.records?.find((candidate) => candidate.requestId === input.requestId && (!input.context.messageId || !candidate.messageId || candidate.messageId === input.context.messageId) && (input.context.swipeId === undefined || candidate.swipeId === undefined || candidate.swipeId === input.context.swipeId));
+  const record3 = currentRequestRecord({ context: input.context, requestId: input.requestId });
   const fallbackStatus = input.context.autoGenerate === false ? "recovered-pending" : "preparing";
-  const liveStatus = input.failed ? "failed" : record3?.status || fallbackStatus;
+  const liveStatus = record3?.status || (input.failed ? "failed" : fallbackStatus);
   const statusLabels = {
     "recovered-pending": "Discovered",
     preparing: "Preparing",
@@ -138004,29 +138018,29 @@ function renderRequestCard(input, bare = false) {
     failed: "Generation failed",
     cancelled: "Generation stopped"
   };
-  const failure = input.failed || liveStatus === "failed" || liveStatus === "image-unavailable" || liveStatus === "cancelled" || liveStatus === "placement-repair-needed";
+  const failure = isFailureRecoveryStatus(liveStatus);
   const icon = failure ? "!" : liveStatus === "completed" ? "\u2713" : "\u2726";
   const brief = failure && record3?.error ? record3.error : input.brief || "Visual request attached to this message.";
   const active = isSlotLifecycleActive(liveStatus);
   const repairAvailable = liveStatus === "placement-repair-needed" && Boolean(record3?.pendingPlacement);
-  const actionState = repairAvailable ? "repair" : failure ? "failed" : liveStatus === "completed" ? "resolved" : active ? "active" : "pending";
   const completedImageUrl = record3?.imageUrl || record3?.pendingPlacement?.imageUrl;
   const aspect = input.aspect || record3?.requestAspect || "1:1";
-  if (completedImageUrl && (liveStatus === "completed" || liveStatus === "placement-repair-needed")) {
+  if (completedImageUrl && liveStatus === "completed") {
     const artifactMedia = input.baseSurfaceId === "character-profile" ? ' class="reverie-artifact-media" data-reverie-artifact-media="true" data-dgir-custom-target="custom.artifact-media"' : "";
-    const repairNeeded = liveStatus === "placement-repair-needed";
     const imageAttrs = artifactMedia || ' class="rrl-slot-image"';
-    const mediaSlot2 = stableLifecycleMediaSlot(aspect, liveStatus, input.title, `<figure class="rrl-resolved"><img src="${escapeAttr2(completedImageUrl)}" alt="${escapeAttr2(input.title || "Reverie media")}"${imageAttrs}${requestRecordAttributes(record3)} loading="lazy" decoding="async"></figure>`, false);
-    const resolved = `<div class="rrl-card ${repairNeeded ? "rrl-error" : ""}" data-rrn-native-request="${escapeAttr2(input.requestId)}" data-rrn-record-key="${escapeAttr2(record3?.key || "")}" data-rrn-live-status="${escapeAttr2(liveStatus)}" aria-live="polite">${mediaSlot2}<div class="rrl-main"><span class="rrl-icon"><span class="rrl-state-icon">${icon}</span></span><div class="rrl-copy"><strong class="rrl-title">${escapeHtml(titleLabels[liveStatus] || input.title)}</strong><span class="rrl-status">${escapeHtml(statusLabels[liveStatus] || titleCaseToken(liveStatus))}</span><span class="rrl-stream-status"></span><div class="rrl-progress" hidden><span></span></div></div></div><div class="rrl-actions">${renderActionButtons(input.requestId, input.context, input.baseSurfaceId, repairAvailable ? "repair" : "resolved", input.rootTag)}</div><details class="rrl-detail"><summary aria-label="Show request details"></summary><p>${escapeHtml(brief)}</p></details></div>`;
+    const resolved = `<figure class="rrl-resolved" data-rrn-completed-request="${escapeAttr2(input.requestId)}"><img src="${escapeAttr2(completedImageUrl)}" alt="${escapeAttr2(input.title || "Reverie media")}"${imageAttrs}${requestRecordAttributes(record3)} loading="lazy" decoding="async"></figure>`;
     return bare ? resolved : lifecycleCardIsland(resolved);
   }
   const selectedEffect = input.context.generationPlaceholderEffect || "glitter";
-  const mediaSlot = stableLifecycleMediaSlot(aspect, liveStatus, input.title, "", true, active ? selectedEffect : undefined);
+  const failedImage = repairAvailable && completedImageUrl ? `<figure class="rrl-resolved"><img src="${escapeAttr2(completedImageUrl)}" alt="${escapeAttr2(input.title || "Reverie media")}" class="rrl-slot-image"${requestRecordAttributes(record3)} loading="lazy" decoding="async"></figure>` : "";
+  const mediaSlot = stableLifecycleMediaSlot(aspect, liveStatus, input.title, failedImage, !failedImage, active ? selectedEffect : undefined);
   if (active) {
     const placeholder = `<div class="rrl-card" data-rrn-native-request="${escapeAttr2(input.requestId)}" data-rrn-record-key="${escapeAttr2(record3?.key || "")}" data-rrn-live-status="${escapeAttr2(liveStatus)}">${mediaSlot}</div>`;
     return bare ? placeholder : lifecycleCardIsland(placeholder);
   }
-  const card = `<div class="rrl-card ${failure ? "rrl-error" : ""}" data-rrn-native-request="${escapeAttr2(input.requestId)}" data-rrn-record-key="${escapeAttr2(record3?.key || "")}" data-rrn-live-status="${escapeAttr2(liveStatus)}" aria-live="polite">${mediaSlot}<div class="rrl-main"><span class="rrl-icon"><span class="rrl-spinner" aria-hidden="true"></span><span class="rrl-state-icon">${icon}</span></span><div class="rrl-copy"><strong class="rrl-title">${escapeHtml(titleLabels[liveStatus] || input.title)}</strong><span class="rrl-status">${escapeHtml(statusLabels[liveStatus] || titleCaseToken(liveStatus))}</span><span class="rrl-stream-status"></span><div class="rrl-progress" hidden><span></span></div></div></div><div class="rrl-actions">${renderActionButtons(input.requestId, input.context, input.baseSurfaceId, actionState, input.rootTag)}</div><details class="rrl-detail"><summary aria-label="Show request details"></summary><p>${escapeHtml(brief)}</p></details></div>`;
+  const failureActions = repairAvailable ? "repair" : failure ? "failed" : undefined;
+  const actions = failureActions ? `<div class="rrl-actions">${renderActionButtons(input.requestId, input.context, input.baseSurfaceId, failureActions, input.rootTag)}</div>` : "";
+  const card = `<div class="rrl-card ${failure ? "rrl-error" : ""}" data-rrn-native-request="${escapeAttr2(input.requestId)}" data-rrn-record-key="${escapeAttr2(record3?.key || "")}" data-rrn-live-status="${escapeAttr2(liveStatus)}" aria-live="polite">${mediaSlot}<div class="rrl-main"><span class="rrl-icon"><span class="rrl-spinner" aria-hidden="true"></span><span class="rrl-state-icon">${icon}</span></span><div class="rrl-copy"><strong class="rrl-title">${escapeHtml(titleLabels[liveStatus] || input.title)}</strong><span class="rrl-status">${escapeHtml(statusLabels[liveStatus] || titleCaseToken(liveStatus))}</span><span class="rrl-stream-status"></span><div class="rrl-progress" hidden><span></span></div></div></div>${actions}<details class="rrl-detail"><summary aria-label="Show request details"></summary><p>${escapeHtml(brief)}</p></details></div>`;
   return bare ? card : lifecycleCardIsland(card);
 }
 function renderActionButtons(requestId, context, baseSurfaceId, state, rootTag = "") {
@@ -138034,15 +138048,9 @@ function renderActionButtons(requestId, context, baseSurfaceId, state, rootTag =
     return "";
   const common = `data-rrn-message-id="${escapeAttr2(context.messageId)}" data-rrn-swipe-id="${escapeAttr2(String(context.swipeId ?? ""))}" data-rrn-chat-id="${escapeAttr2(context.chatId)}" data-rrn-request-id="${escapeAttr2(requestId)}" data-rrn-surface-id="${escapeAttr2(baseSurfaceId)}" data-rrn-root-tag="${escapeAttr2(rootTag)}"`;
   const rescan = `<button type="button" data-rrn-action="rescan" ${common}>Rescan</button>`;
-  if (state === "resolved")
-    return `<button type="button" data-rrn-action="regenerate" ${common}>Regenerate</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`;
   if (state === "repair")
     return `<button type="button" data-rrn-action="repair-placement" ${common}>Repair / Reinsert</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`;
-  if (state === "failed")
-    return `<button type="button" data-rrn-action="regenerate" ${common}>Regenerate</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`;
-  if (state === "active")
-    return `<button type="button" data-rrn-action="abort" ${common}>Abort</button><button type="button" data-rrn-action="regenerate" ${common}>Regenerate</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`;
-  return `<button type="button" data-rrn-action="retry" ${common}>Generate now</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`;
+  return `<button type="button" data-rrn-action="regenerate" ${common}>Regenerate</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`;
 }
 function shell(baseSurfaceId, title, subtitle, inner, preset, context, extraClass = "") {
   const shellMode = context.defaultShellMode || preset?.shellMode || defaultShellMode(baseSurfaceId);
@@ -155023,7 +155031,7 @@ function maybeWarnUtilityNotInjected(chatId, userId) {
     message: "Relay Surface Utility was not injected. Place {{reverie_surfaces}} or {{reverie_all}} in the preset, or enable Automatic Surface Injection."
   }, userId);
 }
-var NATIVE_RENDER_TAG_RE = new RegExp(`(?:<|\\[)(?:${[...new Set([...NATIVE_SURFACE_ROOT_TAGS, "reverie-illustration", "image_request", "image_request_error"])].map(escapeRegExp3).join("|")})(?=[\\s>\\]])`, "i");
+var NATIVE_RENDER_TAG_RE = new RegExp(`(?:<|\\[)(?:${[...new Set([...NATIVE_SURFACE_ROOT_TAGS, "reverie-illustration", "image_request", "image_request_error", "scene_image"])].map(escapeRegExp3).join("|")})(?=[\\s>\\]])`, "i");
 var registerMessageContentProcessor = spindle.registerMessageContentProcessor;
 if (typeof registerMessageContentProcessor === "function") {
   registerMessageContentProcessor.call(spindle, async (context) => {
