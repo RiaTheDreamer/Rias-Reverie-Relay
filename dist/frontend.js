@@ -133223,6 +133223,7 @@ var STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="2">
 .rrl-generation-placeholder .rr-spinner{width:19px;height:19px;border-radius:50%;border:2px solid rgba(255,255,255,.12);border-top-color:var(--rr-primary);border-right-color:var(--rr-secondary);animation:rr-spin 1.15s linear infinite}@keyframes rr-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
 .rrl-generation-placeholder .rr-regex-particles{position:absolute;inset:0;z-index:2;overflow:hidden;pointer-events:none}.rrl-generation-placeholder .rr-regex-particles i{position:absolute;left:var(--x);top:var(--y);width:var(--s);height:var(--s);border-radius:999px;background:radial-gradient(circle,color-mix(in srgb,var(--rr-accent-text) 90%,var(--rr-text) 10%) 0 28%,color-mix(in srgb,var(--rr-accent-text) 66%,var(--rr-accent) 34%) 38%,color-mix(in srgb,var(--rr-accent) 22%,transparent) 65%,transparent 72%);box-shadow:0 0 5px color-mix(in srgb,var(--rr-accent-text) 72%,transparent),0 0 12px color-mix(in srgb,var(--rr-accent) 34%,transparent);opacity:0;animation:rr-regex-floating-particle var(--d) ease-in-out var(--delay) infinite}.rrl-generation-placeholder .rr-regex-particles i:nth-child(1){--x:3%;--y:88%;--dx:6px;--dy:-76px;--s:2px;--d:10.2s;--delay:-7.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(2){--x:8%;--y:66%;--dx:-5px;--dy:-63px;--s:3px;--d:12.4s;--delay:-3.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(3){--x:13%;--y:92%;--dx:7px;--dy:-84px;--s:2px;--d:11.8s;--delay:-9.4s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(4){--x:18%;--y:46%;--dx:-4px;--dy:-55px;--s:2px;--d:9.9s;--delay:-5.6s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(5){--x:22%;--y:78%;--dx:8px;--dy:-71px;--s:3px;--d:13.2s;--delay:-1.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(6){--x:27%;--y:58%;--dx:-6px;--dy:-64px;--s:2px;--d:10.8s;--delay:-8.3s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(7){--x:31%;--y:96%;--dx:5px;--dy:-89px;--s:3px;--d:14.1s;--delay:-6.2s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(8){--x:35%;--y:34%;--dx:-7px;--dy:-48px;--s:2px;--d:11.3s;--delay:-2.5s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(9){--x:39%;--y:73%;--dx:6px;--dy:-69px;--s:2px;--d:10.7s;--delay:-9.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(10){--x:43%;--y:90%;--dx:-7px;--dy:-86px;--s:3px;--d:13.7s;--delay:-4.4s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(11){--x:47%;--y:53%;--dx:4px;--dy:-59px;--s:2px;--d:9.7s;--delay:-7.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(12){--x:51%;--y:82%;--dx:-5px;--dy:-75px;--s:3px;--d:12.6s;--delay:-10.6s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(13){--x:55%;--y:42%;--dx:7px;--dy:-52px;--s:2px;--d:11.1s;--delay:-3.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(14){--x:59%;--y:94%;--dx:-6px;--dy:-91px;--s:2px;--d:14.5s;--delay:-8.9s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(15){--x:63%;--y:69%;--dx:5px;--dy:-67px;--s:3px;--d:10.4s;--delay:-5.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(16){--x:67%;--y:31%;--dx:-7px;--dy:-46px;--s:2px;--d:12.9s;--delay:-1.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(17){--x:71%;--y:86%;--dx:8px;--dy:-81px;--s:3px;--d:13.9s;--delay:-11.3s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(18){--x:75%;--y:57%;--dx:-5px;--dy:-61px;--s:2px;--d:10.1s;--delay:-6.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(19){--x:79%;--y:97%;--dx:6px;--dy:-92px;--s:2px;--d:14.8s;--delay:-4.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(20){--x:83%;--y:38%;--dx:-4px;--dy:-51px;--s:3px;--d:11.6s;--delay:-9.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(21){--x:87%;--y:76%;--dx:7px;--dy:-72px;--s:2px;--d:12.2s;--delay:-2.9s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(22){--x:91%;--y:91%;--dx:-6px;--dy:-87px;--s:3px;--d:14.3s;--delay:-7.5s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(23){--x:95%;--y:49%;--dx:4px;--dy:-56px;--s:2px;--d:10.9s;--delay:-10.2s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(24){--x:98%;--y:84%;--dx:-5px;--dy:-79px;--s:2px;--d:13.4s;--delay:-5.9s}@keyframes rr-regex-floating-particle{0%{opacity:0;transform:translate3d(0,10px,0) scale(.45)}18%{opacity:.72}55%{opacity:.94}100%{opacity:0;transform:translate3d(var(--dx),var(--dy),0) scale(1.18)}}
 .rrl-generation-placeholder .rr-orb{width:21px;height:21px;position:relative;border-radius:50%;background:radial-gradient(circle at 31% 25%,rgba(255,255,255,.95) 0,rgba(255,255,255,.28) 8%,transparent 23%),radial-gradient(circle at 50% 55%,rgba(255,255,255,.11),color-mix(in srgb,var(--rr-primary) 14%,transparent) 48%,color-mix(in srgb,var(--rr-secondary) 7%,transparent) 72%,rgba(255,255,255,.04));border:1px solid rgba(255,255,255,.24);box-shadow:inset -3px -4px 8px color-mix(in srgb,var(--rr-primary) 13%,transparent),inset 2px 2px 5px rgba(255,255,255,.13),0 0 7px color-mix(in srgb,var(--rr-secondary) 17%,transparent);animation:rr-orb-float 5.8s ease-in-out infinite,rr-orb-breathe 7s ease-in-out infinite}.rrl-generation-placeholder .rr-orb:before{content:"";position:absolute;width:3px;height:3px;top:5px;right:5px;border-radius:50%;background:rgba(255,255,255,.95);box-shadow:0 0 4px rgba(255,255,255,.6);animation:rr-glint 3.9s ease-in-out infinite}.rrl-generation-placeholder .rr-orb:after{content:"";position:absolute;width:1.5px;height:1.5px;bottom:5px;left:5px;border-radius:50%;background:white;opacity:.5;box-shadow:0 0 3px rgba(255,255,255,.6);animation:rr-glint 5.1s ease-in-out -2s infinite}@keyframes rr-orb-float{0%,100%{transform:translateY(1px)}50%{transform:translateY(-3px)}}@keyframes rr-orb-breathe{0%,100%{scale:.97}50%{scale:1.025}}@keyframes rr-glint{0%,70%,100%{opacity:.25;transform:scale(.8)}82%{opacity:1;transform:scale(1.35)}}
+.rrl-media-slot{box-shadow:0 2px 10px rgba(0,0,0,.12),inset 0 1px rgba(255,255,255,.055)}
 @media(prefers-reduced-motion:reduce){.rrl-generation-placeholder .rr-spinner,.rrl-generation-placeholder .rr-orb,.rrl-generation-placeholder .rr-orb:before,.rrl-generation-placeholder .rr-orb:after{animation:none}.rrl-generation-placeholder .rr-regex-particles{display:none}}
 </style>`;
 function lifecycleCardIsland(card) {
@@ -134174,22 +134175,24 @@ function renderRequestCard(input, bare = false) {
   const repairAvailable = liveStatus === "placement-repair-needed" && Boolean(record?.pendingPlacement);
   const completedImageUrl = record?.imageUrl || record?.pendingPlacement?.imageUrl;
   const aspect = input.aspect || record?.requestAspect || "1:1";
+  const streamIsland = surfaceStreamIslandKey(input.context.messageId, input.context.swipeId, `request-${input.requestId}`, 0);
+  const streamIslandAttr = ` data-reverie-stream-island="${escapeAttr(streamIsland)}"`;
   if (completedImageUrl && liveStatus === "completed") {
     const artifactMedia = input.baseSurfaceId === "character-profile" ? ' class="reverie-artifact-media" data-reverie-artifact-media="true" data-dgir-custom-target="custom.artifact-media"' : "";
     const imageAttrs = artifactMedia || ' class="rrl-slot-image"';
-    const resolved = `<figure class="rrl-resolved" data-rrn-completed-request="${escapeAttr(input.requestId)}"><img src="${escapeAttr(completedImageUrl)}" alt="${escapeAttr(input.title || "Reverie media")}"${imageAttrs}${requestRecordAttributes(record)} loading="lazy" decoding="async"></figure>`;
+    const resolved = `<figure class="rrl-resolved" data-rrn-completed-request="${escapeAttr(input.requestId)}"${streamIslandAttr}><img src="${escapeAttr(completedImageUrl)}" alt="${escapeAttr(input.title || "Reverie media")}"${imageAttrs}${requestRecordAttributes(record)} loading="lazy" decoding="async"></figure>`;
     return bare ? resolved : lifecycleCardIsland(resolved);
   }
   const selectedEffect = input.context.generationPlaceholderEffect || "glitter";
   const failedImage = repairAvailable && completedImageUrl ? `<figure class="rrl-resolved"><img src="${escapeAttr(completedImageUrl)}" alt="${escapeAttr(input.title || "Reverie media")}" class="rrl-slot-image"${requestRecordAttributes(record)} loading="lazy" decoding="async"></figure>` : "";
   const mediaSlot = stableLifecycleMediaSlot(aspect, liveStatus, input.title, failedImage, !failedImage, active ? selectedEffect : undefined);
   if (active) {
-    const placeholder = `<div class="rrl-card" data-rrn-native-request="${escapeAttr(input.requestId)}" data-rrn-record-key="${escapeAttr(record?.key || "")}" data-rrn-live-status="${escapeAttr(liveStatus)}">${mediaSlot}</div>`;
+    const placeholder = `<div class="rrl-card" data-rrn-native-request="${escapeAttr(input.requestId)}" data-rrn-record-key="${escapeAttr(record?.key || "")}" data-rrn-live-status="${escapeAttr(liveStatus)}"${streamIslandAttr}>${mediaSlot}</div>`;
     return bare ? placeholder : lifecycleCardIsland(placeholder);
   }
   const failureActions = repairAvailable ? "repair" : failure ? "failed" : undefined;
   const actions = failureActions ? `<div class="rrl-actions">${renderActionButtons(input.requestId, input.context, input.baseSurfaceId, failureActions, input.rootTag)}</div>` : "";
-  const card = `<div class="rrl-card ${failure ? "rrl-error" : ""}" data-rrn-native-request="${escapeAttr(input.requestId)}" data-rrn-record-key="${escapeAttr(record?.key || "")}" data-rrn-live-status="${escapeAttr(liveStatus)}" aria-live="polite">${mediaSlot}<div class="rrl-main"><span class="rrl-icon"><span class="rrl-spinner" aria-hidden="true"></span><span class="rrl-state-icon">${icon}</span></span><div class="rrl-copy"><strong class="rrl-title">${escapeHtml(titleLabels[liveStatus] || input.title)}</strong><span class="rrl-status">${escapeHtml(statusLabels[liveStatus] || titleCaseToken(liveStatus))}</span><span class="rrl-stream-status"></span><div class="rrl-progress" hidden><span></span></div></div></div>${actions}<details class="rrl-detail"><summary aria-label="Show request details"></summary><p>${escapeHtml(brief)}</p></details></div>`;
+  const card = `<div class="rrl-card ${failure ? "rrl-error" : ""}" data-rrn-native-request="${escapeAttr(input.requestId)}" data-rrn-record-key="${escapeAttr(record?.key || "")}" data-rrn-live-status="${escapeAttr(liveStatus)}"${streamIslandAttr} aria-live="polite">${mediaSlot}<div class="rrl-main"><span class="rrl-icon"><span class="rrl-spinner" aria-hidden="true"></span><span class="rrl-state-icon">${icon}</span></span><div class="rrl-copy"><strong class="rrl-title">${escapeHtml(titleLabels[liveStatus] || input.title)}</strong><span class="rrl-status">${escapeHtml(statusLabels[liveStatus] || titleCaseToken(liveStatus))}</span><span class="rrl-stream-status"></span><div class="rrl-progress" hidden><span></span></div></div></div>${actions}<details class="rrl-detail"><summary aria-label="Show request details"></summary><p>${escapeHtml(brief)}</p></details></div>`;
   return bare ? card : lifecycleCardIsland(card);
 }
 function renderActionButtons(requestId, context, baseSurfaceId, state, rootTag = "") {
@@ -138478,6 +138481,7 @@ ${record.imageId || record.error || "No image yet"}`;
     wrapper.className = "dg-illustrator-settings";
     const essentials = document.createElement("div");
     essentials.className = "dg-settings-grid dg-illustrator-essentials";
+    essentials.append(selectField("Generation Placeholder Effect", normalizeGenerationPlaceholderEffect(config?.generationPlaceholderEffect), [["glitter", "Glitter"], ["spinner", "Spinner"], ["dream-orb", "Dream Orb"], ["none", "None"]], (value) => patchConfig({ generationPlaceholderEffect: normalizeGenerationPlaceholderEffect(value) })));
     if (settings.mode !== "off")
       essentials.append(prosePlannerSelect(settings), plannerModelControl(settings));
     if (settings.mode === "model-placed") {
@@ -141619,7 +141623,7 @@ Generated image assets and message content will remain, but Relay history and me
     box.className = "dg-settings";
     const behavior = document.createElement("div");
     behavior.className = "dg-toggle-grid";
-    behavior.append(toggleCard("Enabled", "", current.enabled, (checked) => patchConfig({ enabled: checked })), toggleCard("Auto Generate", "", current.autoGenerate, (checked) => patchConfig({ autoGenerate: checked })), selectField("Slot Mode", current.slotGenerationMode || "auto-insert", [["auto-insert", "Generate and Insert"], ["prompt-preview", "Preview Prompt First"], ["image-preview", "Preview Image Before Insert"]], (value) => patchConfig({ slotGenerationMode: value })), selectField("Generation Placeholder Effect", normalizeGenerationPlaceholderEffect(current.generationPlaceholderEffect), [["glitter", "Glitter"], ["spinner", "Spinner"], ["dream-orb", "Dream Orb"], ["none", "None"]], (value) => patchConfig({ generationPlaceholderEffect: normalizeGenerationPlaceholderEffect(value) })), toggleCard("High-Res / Polished Capture", "Preserves the requested camera style while prioritizing identity, anatomy, clarity, and rendering polish.", current.highResMode, (checked) => patchConfig({ highResMode: checked })), toggleCard("Save completed images to Character Gallery", "Links completed Relay Surface and Illustrator images to the active character Gallery when Lumiverse confirms the destination.", current.galleryAutoLink, (checked) => patchConfig({ galleryAutoLink: checked })));
+    behavior.append(toggleCard("Enabled", "", current.enabled, (checked) => patchConfig({ enabled: checked })), toggleCard("Auto Generate", "", current.autoGenerate, (checked) => patchConfig({ autoGenerate: checked })), selectField("Slot Mode", current.slotGenerationMode || "auto-insert", [["auto-insert", "Generate and Insert"], ["prompt-preview", "Preview Prompt First"], ["image-preview", "Preview Image Before Insert"]], (value) => patchConfig({ slotGenerationMode: value })), toggleCard("High-Res / Polished Capture", "Preserves the requested camera style while prioritizing identity, anatomy, clarity, and rendering polish.", current.highResMode, (checked) => patchConfig({ highResMode: checked })), toggleCard("Save completed images to Character Gallery", "Links completed Relay Surface and Illustrator images to the active character Gallery when Lumiverse confirms the destination.", current.galleryAutoLink, (checked) => patchConfig({ galleryAutoLink: checked })));
     box.appendChild(panelSection("Core Settings", behavior));
     const imageSettings = document.createElement("div");
     imageSettings.className = "dg-settings-grid";
@@ -142046,20 +142050,82 @@ The chat message and generated image asset will remain.`, scope: `${appLabel(rec
     wrapper.appendChild(manage);
     return wrapper;
   }
+  function resolveLightboxAsset(record, selectedVersion, historyIndex) {
+    if (selectedVersion?.imageUrl)
+      return {
+        imageId: selectedVersion.imageId || "",
+        imageUrl: selectedVersion.imageUrl,
+        width: selectedVersion.imageWidth || null,
+        height: selectedVersion.imageHeight || null,
+        aspect: selectedVersion.aspectRatio || record.requestAspect || "",
+        lifecycleStatus: record.status,
+        placementError: record.placementFailure?.reason,
+        selectedVersionIdentity: selectedVersion.versionId || String(historyIndex ?? ""),
+        source: "history",
+        promptMetadata: selectedVersion.promptPipeline || selectedVersion
+      };
+    if (record.status === "completed" && record.imageUrl)
+      return {
+        imageId: record.imageId || "",
+        imageUrl: record.imageUrl,
+        width: record.imageWidth || null,
+        height: record.imageHeight || null,
+        aspect: record.aspectRatio || record.requestAspect || "",
+        lifecycleStatus: record.status,
+        placementError: record.placementFailure?.reason,
+        source: "completed",
+        promptMetadata: record.promptPipeline || record.diagnostic
+      };
+    if (record.pendingPlacement?.imageUrl)
+      return {
+        imageId: record.pendingPlacement.imageId || "",
+        imageUrl: record.pendingPlacement.imageUrl,
+        width: record.pendingPlacement.imageWidth || null,
+        height: record.pendingPlacement.imageHeight || null,
+        aspect: record.pendingPlacement.aspectRatio || record.requestAspect || "",
+        lifecycleStatus: record.status,
+        placementError: record.placementFailure?.reason,
+        source: "pending-placement",
+        promptMetadata: record.pendingPlacement.promptPipeline || record.pendingPlacement.diagnostic
+      };
+    if (record.imageUrl)
+      return {
+        imageId: record.imageId || "",
+        imageUrl: record.imageUrl,
+        width: record.imageWidth || null,
+        height: record.imageHeight || null,
+        aspect: record.aspectRatio || record.requestAspect || "",
+        lifecycleStatus: record.status,
+        placementError: record.placementFailure?.reason,
+        source: "repair-preserved",
+        promptMetadata: record.promptPipeline || record.diagnostic
+      };
+    return { imageId: "", imageUrl: "", width: null, height: null, aspect: record.requestAspect || "", lifecycleStatus: record.status, placementError: record.placementFailure?.reason, source: "none", promptMetadata: record.diagnostic };
+  }
+  function renderLightboxDiagnostics(record, asset, version) {
+    const actions = document.createElement("div");
+    actions.className = "dg-actions";
+    actions.append(button("Generation Details", () => openResolvedGenerationPlan(record), false, "subtle"), button("Export Diagnostic JSON", () => downloadJson(`reverie-relay-diagnostic-${record.requestId}-${record.slot}.json`, {
+      metadata: buildMetadata(record, version || record),
+      asset,
+      lifecycle: { status: record.status, placementFailure: record.placementFailure }
+    }), false, "subtle"), button("Copy Image URL", () => copyText(asset.imageUrl, "Image URL copied."), !asset.imageUrl, "subtle"), button("Copy Image ID", () => copyText(asset.imageId, "Image ID copied."), !asset.imageId, "subtle"));
+    return actions;
+  }
   function openLightbox(record) {
     const modal = ctx.ui.showModal({ title: `${appLabel(record)} ${slotLabel(record)}`, width: 860 });
     modal.root.classList.add("dg-router-panel", "dg-modal-host");
     const body = document.createElement("div");
     body.className = "dg-modal-body";
-    const imageUrl = record.imageUrl || record.pendingPlacement?.imageUrl;
-    if (imageUrl) {
+    const asset = resolveLightboxAsset(record);
+    if (asset.imageUrl) {
       const img = document.createElement("img");
       img.className = "dg-lightbox-img";
-      img.src = imageUrl;
+      img.src = asset.imageUrl;
       img.alt = record.alt || record.slot;
       body.appendChild(img);
     }
-    body.appendChild(renderActionButtons2(record, () => modal.dismiss()));
+    body.append(renderLightboxDiagnostics(record, asset), renderActionButtons2(record, () => modal.dismiss()));
     modal.root.appendChild(body);
   }
   function openHistoryVersionImage(record, version, historyIndex) {
@@ -142076,7 +142142,7 @@ The chat message and generated image asset will remain.`, scope: `${appLabel(rec
     const actions = document.createElement("div");
     actions.className = "dg-actions";
     actions.append(button("Restore", () => ctx.sendToBackend({ type: "restore_history", chatId: record.chatId, key: record.key, historyIndex }), false, "primary"), button("Metadata", () => openMetadata(record, version, historyIndex), false, "subtle"), button("Copy Image URL", () => copyText(version.imageUrl, "Image URL copied."), false, "subtle"), button("Copy Image ID", () => copyText(version.imageId, "Image ID copied."), !version.imageId, "subtle"));
-    body.append(img, actions);
+    body.append(img, renderLightboxDiagnostics(record, resolveLightboxAsset(record, version, historyIndex), version), actions);
     modal.root.appendChild(body);
   }
   function openActionMenu(record, x, y) {

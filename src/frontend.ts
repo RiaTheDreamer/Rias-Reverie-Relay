@@ -4188,6 +4188,7 @@ memory: [['genetics', 'Appearance Memory']],
 
     const essentials = document.createElement('div')
     essentials.className = 'dg-settings-grid dg-illustrator-essentials'
+    essentials.append(selectField('Generation Placeholder Effect', normalizeGenerationPlaceholderEffect(config?.generationPlaceholderEffect), [['glitter', 'Glitter'], ['spinner', 'Spinner'], ['dream-orb', 'Dream Orb'], ['none', 'None']], value => patchConfig({ generationPlaceholderEffect: normalizeGenerationPlaceholderEffect(value) })))
     if (settings.mode !== 'off') essentials.append(prosePlannerSelect(settings), plannerModelControl(settings))
     if (settings.mode === 'model-placed') {
       essentials.append(toggleCard('Illustration Runtime Contract', 'Model-Placed sends the configured protocol, exact count/range, aspect policy, and framing to the Story Model through the final prompt path.', true, () => patchProseSettings({ automaticProtocolInjection: true })))
@@ -7224,7 +7225,6 @@ ${bracketFixture}`)
       toggleCard('Enabled', '', current.enabled, checked => patchConfig({ enabled: checked })),
       toggleCard('Auto Generate', '', current.autoGenerate, checked => patchConfig({ autoGenerate: checked })),
       selectField('Slot Mode', current.slotGenerationMode || 'auto-insert', [['auto-insert', 'Generate and Insert'], ['prompt-preview', 'Preview Prompt First'], ['image-preview', 'Preview Image Before Insert']], value => patchConfig({ slotGenerationMode: value as RouterConfig['slotGenerationMode'] })),
-      selectField('Generation Placeholder Effect', normalizeGenerationPlaceholderEffect(current.generationPlaceholderEffect), [['glitter', 'Glitter'], ['spinner', 'Spinner'], ['dream-orb', 'Dream Orb'], ['none', 'None']], value => patchConfig({ generationPlaceholderEffect: normalizeGenerationPlaceholderEffect(value) })),
       toggleCard('High-Res / Polished Capture', 'Preserves the requested camera style while prioritizing identity, anatomy, clarity, and rendering polish.', current.highResMode, checked => patchConfig({ highResMode: checked })),
       toggleCard('Save completed images to Character Gallery', 'Links completed Relay Surface and Illustrator images to the active character Gallery when Lumiverse confirms the destination.', current.galleryAutoLink, checked => patchConfig({ galleryAutoLink: checked })),
     )
@@ -7732,20 +7732,74 @@ ${bracketFixture}`)
     return wrapper
   }
 
+  function resolveLightboxAsset(record: SlotRecord, selectedVersion?: GenerationSnapshot, historyIndex?: number): {
+    imageId: string
+    imageUrl: string
+    width: number | null
+    height: number | null
+    aspect: string
+    lifecycleStatus: SlotRecord['status']
+    placementError?: string
+    selectedVersionIdentity?: string
+    source: 'history' | 'completed' | 'pending-placement' | 'repair-preserved' | 'none'
+    promptMetadata: unknown
+  } {
+    if (selectedVersion?.imageUrl) return {
+      imageId: selectedVersion.imageId || '', imageUrl: selectedVersion.imageUrl,
+      width: selectedVersion.imageWidth || null, height: selectedVersion.imageHeight || null,
+      aspect: selectedVersion.aspectRatio || record.requestAspect || '', lifecycleStatus: record.status,
+      placementError: record.placementFailure?.reason,
+      selectedVersionIdentity: selectedVersion.versionId || String(historyIndex ?? ''), source: 'history',
+      promptMetadata: selectedVersion.promptPipeline || selectedVersion,
+    }
+    if (record.status === 'completed' && record.imageUrl) return {
+      imageId: record.imageId || '', imageUrl: record.imageUrl, width: record.imageWidth || null, height: record.imageHeight || null,
+      aspect: record.aspectRatio || record.requestAspect || '', lifecycleStatus: record.status,
+      placementError: record.placementFailure?.reason, source: 'completed', promptMetadata: record.promptPipeline || record.diagnostic,
+    }
+    if (record.pendingPlacement?.imageUrl) return {
+      imageId: record.pendingPlacement.imageId || '', imageUrl: record.pendingPlacement.imageUrl,
+      width: record.pendingPlacement.imageWidth || null, height: record.pendingPlacement.imageHeight || null,
+      aspect: record.pendingPlacement.aspectRatio || record.requestAspect || '', lifecycleStatus: record.status,
+      placementError: record.placementFailure?.reason, source: 'pending-placement',
+      promptMetadata: record.pendingPlacement.promptPipeline || record.pendingPlacement.diagnostic,
+    }
+    if (record.imageUrl) return {
+      imageId: record.imageId || '', imageUrl: record.imageUrl, width: record.imageWidth || null, height: record.imageHeight || null,
+      aspect: record.aspectRatio || record.requestAspect || '', lifecycleStatus: record.status,
+      placementError: record.placementFailure?.reason, source: 'repair-preserved', promptMetadata: record.promptPipeline || record.diagnostic,
+    }
+    return { imageId: '', imageUrl: '', width: null, height: null, aspect: record.requestAspect || '', lifecycleStatus: record.status, placementError: record.placementFailure?.reason, source: 'none', promptMetadata: record.diagnostic }
+  }
+
+  function renderLightboxDiagnostics(record: SlotRecord, asset: ReturnType<typeof resolveLightboxAsset>, version?: GenerationSnapshot): HTMLElement {
+    const actions = document.createElement('div')
+    actions.className = 'dg-actions'
+    actions.append(
+      button('Generation Details', () => openResolvedGenerationPlan(record), false, 'subtle'),
+      button('Export Diagnostic JSON', () => downloadJson(`reverie-relay-diagnostic-${record.requestId}-${record.slot}.json`, {
+        metadata: buildMetadata(record, version || record), asset, lifecycle: { status: record.status, placementFailure: record.placementFailure },
+      }), false, 'subtle'),
+      button('Copy Image URL', () => copyText(asset.imageUrl, 'Image URL copied.'), !asset.imageUrl, 'subtle'),
+      button('Copy Image ID', () => copyText(asset.imageId, 'Image ID copied.'), !asset.imageId, 'subtle'),
+    )
+    return actions
+  }
+
   function openLightbox(record: SlotRecord): void {
     const modal = ctx.ui.showModal({ title: `${appLabel(record)} ${slotLabel(record)}`, width: 860 })
     modal.root.classList.add('dg-router-panel', 'dg-modal-host')
     const body = document.createElement('div')
     body.className = 'dg-modal-body'
-    const imageUrl = record.imageUrl || record.pendingPlacement?.imageUrl
-    if (imageUrl) {
+    const asset = resolveLightboxAsset(record)
+    if (asset.imageUrl) {
       const img = document.createElement('img')
       img.className = 'dg-lightbox-img'
-      img.src = imageUrl
+      img.src = asset.imageUrl
       img.alt = record.alt || record.slot
       body.appendChild(img)
     }
-    body.appendChild(renderActionButtons(record, () => modal.dismiss()))
+    body.append(renderLightboxDiagnostics(record, asset), renderActionButtons(record, () => modal.dismiss()))
     modal.root.appendChild(body)
   }
 
@@ -7767,7 +7821,7 @@ ${bracketFixture}`)
       button('Copy Image URL', () => copyText(version.imageUrl, 'Image URL copied.'), false, 'subtle'),
       button('Copy Image ID', () => copyText(version.imageId, 'Image ID copied.'), !version.imageId, 'subtle'),
     )
-    body.append(img, actions)
+    body.append(img, renderLightboxDiagnostics(record, resolveLightboxAsset(record, version, historyIndex), version), actions)
     modal.root.appendChild(body)
   }
 

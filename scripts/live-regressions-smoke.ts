@@ -29,6 +29,6 @@ const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url)
 assert(backendSource.includes('getAuthoritativeSwipeContent(verifiedMessage, batch.swipeId)') && backendSource.includes('const placementVerified = batch.entries.every'), 'atomic placement verification must accept valid canonical rendered output')
 assert(backendSource.includes("await storePendingPlacement(job, results, 'No deterministic request, error, or resolved slot anchor was found.'"), 'truly missing rendered media must still enter Repair Needed')
 assert(backendSource.includes('record.attemptNumber !== expectedAttemptNumbers[slot]') && backendSource.includes('isJobCancelled(job) || !failureApplied'), 'stale generic failure state/toast protection is missing')
-assert(backendSource.includes('invalidProseSchemaNotices.get(noticeKey)') && backendSource.includes('invalidProseSchemaNotices.set(noticeKey, true)'), 'malformed schema toast must be deduplicated at source')
+assert(backendSource.includes("eventType: 'invalid_prose_illustration_schema'") && !backendSource.includes('invalidProseSchemaNotices'), 'malformed Prose schema must remain lane-scoped diagnostic evidence instead of becoming a generic toast')
 
-console.log('live regressions smoke passed: canonical render health wins over stale snapshots/failures, real missing media remains repairable, cast aliases/default normalize, invalid casts fail, and toast spam is deduplicated.')
+console.log('live regressions smoke passed: canonical render health wins over stale snapshots/failures, real missing media remains repairable, cast aliases/default normalize, and invalid casts stay lane-scoped without toast spam.')

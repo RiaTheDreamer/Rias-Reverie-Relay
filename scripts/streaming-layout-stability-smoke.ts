@@ -94,7 +94,8 @@ assert(frontendSource.includes('invalidateDisplayIfContractChanged') && (fronten
 
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
 assert(backendSource.includes('activeStreamingSurfaceChats.add(chatId)') && backendSource.includes('activeStreamingSurfaceChats.has(chatId)'), 'Surface discovery must wait until assistant streaming finishes')
-assert(backendSource.includes('commitInitialPlacementBatch(placementBatch') && backendSource.includes('sourceFingerprint: contentFingerprint(storedContent)'), 'initial multi-image generation must use fingerprint-checked terminal batch persistence')
+assert(backendSource.includes('withPlacementMutationLock(job') && backendSource.includes('markGeneratedPlacementPending(job, results') && !backendSource.includes('commitInitialPlacementBatch(placementBatch'), 'concurrent image jobs must enter placement-pending and serialize only their per-message writes')
+assert(nativeSource.includes('`request-${input.requestId}`') && nativeSource.includes('data-reverie-stream-island'), 'one request identity must keep one stable stream island across lifecycle updates')
 const renderProcessor = backendSource.slice(backendSource.indexOf("if (typeof registerMessageContentProcessor === 'function')"), backendSource.indexOf('const registerInterceptor'))
 assert(renderProcessor.includes('hotFallbackRenderSnapshot(context.userId)') && !renderProcessor.includes('await Promise.all([\n          getState'), 'render-origin processing must never wait on state/config storage reads')
 assert(!renderProcessor.includes('recordSignature') && renderProcessor.includes('contentFingerprint(source)'), 'slot lifecycle changes must reuse the same rendered message body')

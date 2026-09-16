@@ -137253,6 +137253,7 @@ var STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="2">
 .rrl-generation-placeholder .rr-spinner{width:19px;height:19px;border-radius:50%;border:2px solid rgba(255,255,255,.12);border-top-color:var(--rr-primary);border-right-color:var(--rr-secondary);animation:rr-spin 1.15s linear infinite}@keyframes rr-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
 .rrl-generation-placeholder .rr-regex-particles{position:absolute;inset:0;z-index:2;overflow:hidden;pointer-events:none}.rrl-generation-placeholder .rr-regex-particles i{position:absolute;left:var(--x);top:var(--y);width:var(--s);height:var(--s);border-radius:999px;background:radial-gradient(circle,color-mix(in srgb,var(--rr-accent-text) 90%,var(--rr-text) 10%) 0 28%,color-mix(in srgb,var(--rr-accent-text) 66%,var(--rr-accent) 34%) 38%,color-mix(in srgb,var(--rr-accent) 22%,transparent) 65%,transparent 72%);box-shadow:0 0 5px color-mix(in srgb,var(--rr-accent-text) 72%,transparent),0 0 12px color-mix(in srgb,var(--rr-accent) 34%,transparent);opacity:0;animation:rr-regex-floating-particle var(--d) ease-in-out var(--delay) infinite}.rrl-generation-placeholder .rr-regex-particles i:nth-child(1){--x:3%;--y:88%;--dx:6px;--dy:-76px;--s:2px;--d:10.2s;--delay:-7.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(2){--x:8%;--y:66%;--dx:-5px;--dy:-63px;--s:3px;--d:12.4s;--delay:-3.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(3){--x:13%;--y:92%;--dx:7px;--dy:-84px;--s:2px;--d:11.8s;--delay:-9.4s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(4){--x:18%;--y:46%;--dx:-4px;--dy:-55px;--s:2px;--d:9.9s;--delay:-5.6s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(5){--x:22%;--y:78%;--dx:8px;--dy:-71px;--s:3px;--d:13.2s;--delay:-1.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(6){--x:27%;--y:58%;--dx:-6px;--dy:-64px;--s:2px;--d:10.8s;--delay:-8.3s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(7){--x:31%;--y:96%;--dx:5px;--dy:-89px;--s:3px;--d:14.1s;--delay:-6.2s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(8){--x:35%;--y:34%;--dx:-7px;--dy:-48px;--s:2px;--d:11.3s;--delay:-2.5s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(9){--x:39%;--y:73%;--dx:6px;--dy:-69px;--s:2px;--d:10.7s;--delay:-9.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(10){--x:43%;--y:90%;--dx:-7px;--dy:-86px;--s:3px;--d:13.7s;--delay:-4.4s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(11){--x:47%;--y:53%;--dx:4px;--dy:-59px;--s:2px;--d:9.7s;--delay:-7.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(12){--x:51%;--y:82%;--dx:-5px;--dy:-75px;--s:3px;--d:12.6s;--delay:-10.6s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(13){--x:55%;--y:42%;--dx:7px;--dy:-52px;--s:2px;--d:11.1s;--delay:-3.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(14){--x:59%;--y:94%;--dx:-6px;--dy:-91px;--s:2px;--d:14.5s;--delay:-8.9s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(15){--x:63%;--y:69%;--dx:5px;--dy:-67px;--s:3px;--d:10.4s;--delay:-5.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(16){--x:67%;--y:31%;--dx:-7px;--dy:-46px;--s:2px;--d:12.9s;--delay:-1.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(17){--x:71%;--y:86%;--dx:8px;--dy:-81px;--s:3px;--d:13.9s;--delay:-11.3s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(18){--x:75%;--y:57%;--dx:-5px;--dy:-61px;--s:2px;--d:10.1s;--delay:-6.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(19){--x:79%;--y:97%;--dx:6px;--dy:-92px;--s:2px;--d:14.8s;--delay:-4.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(20){--x:83%;--y:38%;--dx:-4px;--dy:-51px;--s:3px;--d:11.6s;--delay:-9.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(21){--x:87%;--y:76%;--dx:7px;--dy:-72px;--s:2px;--d:12.2s;--delay:-2.9s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(22){--x:91%;--y:91%;--dx:-6px;--dy:-87px;--s:3px;--d:14.3s;--delay:-7.5s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(23){--x:95%;--y:49%;--dx:4px;--dy:-56px;--s:2px;--d:10.9s;--delay:-10.2s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(24){--x:98%;--y:84%;--dx:-5px;--dy:-79px;--s:2px;--d:13.4s;--delay:-5.9s}@keyframes rr-regex-floating-particle{0%{opacity:0;transform:translate3d(0,10px,0) scale(.45)}18%{opacity:.72}55%{opacity:.94}100%{opacity:0;transform:translate3d(var(--dx),var(--dy),0) scale(1.18)}}
 .rrl-generation-placeholder .rr-orb{width:21px;height:21px;position:relative;border-radius:50%;background:radial-gradient(circle at 31% 25%,rgba(255,255,255,.95) 0,rgba(255,255,255,.28) 8%,transparent 23%),radial-gradient(circle at 50% 55%,rgba(255,255,255,.11),color-mix(in srgb,var(--rr-primary) 14%,transparent) 48%,color-mix(in srgb,var(--rr-secondary) 7%,transparent) 72%,rgba(255,255,255,.04));border:1px solid rgba(255,255,255,.24);box-shadow:inset -3px -4px 8px color-mix(in srgb,var(--rr-primary) 13%,transparent),inset 2px 2px 5px rgba(255,255,255,.13),0 0 7px color-mix(in srgb,var(--rr-secondary) 17%,transparent);animation:rr-orb-float 5.8s ease-in-out infinite,rr-orb-breathe 7s ease-in-out infinite}.rrl-generation-placeholder .rr-orb:before{content:"";position:absolute;width:3px;height:3px;top:5px;right:5px;border-radius:50%;background:rgba(255,255,255,.95);box-shadow:0 0 4px rgba(255,255,255,.6);animation:rr-glint 3.9s ease-in-out infinite}.rrl-generation-placeholder .rr-orb:after{content:"";position:absolute;width:1.5px;height:1.5px;bottom:5px;left:5px;border-radius:50%;background:white;opacity:.5;box-shadow:0 0 3px rgba(255,255,255,.6);animation:rr-glint 5.1s ease-in-out -2s infinite}@keyframes rr-orb-float{0%,100%{transform:translateY(1px)}50%{transform:translateY(-3px)}}@keyframes rr-orb-breathe{0%,100%{scale:.97}50%{scale:1.025}}@keyframes rr-glint{0%,70%,100%{opacity:.25;transform:scale(.8)}82%{opacity:1;transform:scale(1.35)}}
+.rrl-media-slot{box-shadow:0 2px 10px rgba(0,0,0,.12),inset 0 1px rgba(255,255,255,.055)}
 @media(prefers-reduced-motion:reduce){.rrl-generation-placeholder .rr-spinner,.rrl-generation-placeholder .rr-orb,.rrl-generation-placeholder .rr-orb:before,.rrl-generation-placeholder .rr-orb:after{animation:none}.rrl-generation-placeholder .rr-regex-particles{display:none}}
 </style>`;
 function lifecycleCardIsland(card) {
@@ -138223,22 +138224,24 @@ function renderRequestCard(input, bare = false) {
   const repairAvailable = liveStatus === "placement-repair-needed" && Boolean(record3?.pendingPlacement);
   const completedImageUrl = record3?.imageUrl || record3?.pendingPlacement?.imageUrl;
   const aspect = input.aspect || record3?.requestAspect || "1:1";
+  const streamIsland = surfaceStreamIslandKey(input.context.messageId, input.context.swipeId, `request-${input.requestId}`, 0);
+  const streamIslandAttr = ` data-reverie-stream-island="${escapeAttr2(streamIsland)}"`;
   if (completedImageUrl && liveStatus === "completed") {
     const artifactMedia = input.baseSurfaceId === "character-profile" ? ' class="reverie-artifact-media" data-reverie-artifact-media="true" data-dgir-custom-target="custom.artifact-media"' : "";
     const imageAttrs = artifactMedia || ' class="rrl-slot-image"';
-    const resolved = `<figure class="rrl-resolved" data-rrn-completed-request="${escapeAttr2(input.requestId)}"><img src="${escapeAttr2(completedImageUrl)}" alt="${escapeAttr2(input.title || "Reverie media")}"${imageAttrs}${requestRecordAttributes(record3)} loading="lazy" decoding="async"></figure>`;
+    const resolved = `<figure class="rrl-resolved" data-rrn-completed-request="${escapeAttr2(input.requestId)}"${streamIslandAttr}><img src="${escapeAttr2(completedImageUrl)}" alt="${escapeAttr2(input.title || "Reverie media")}"${imageAttrs}${requestRecordAttributes(record3)} loading="lazy" decoding="async"></figure>`;
     return bare ? resolved : lifecycleCardIsland(resolved);
   }
   const selectedEffect = input.context.generationPlaceholderEffect || "glitter";
   const failedImage = repairAvailable && completedImageUrl ? `<figure class="rrl-resolved"><img src="${escapeAttr2(completedImageUrl)}" alt="${escapeAttr2(input.title || "Reverie media")}" class="rrl-slot-image"${requestRecordAttributes(record3)} loading="lazy" decoding="async"></figure>` : "";
   const mediaSlot = stableLifecycleMediaSlot(aspect, liveStatus, input.title, failedImage, !failedImage, active ? selectedEffect : undefined);
   if (active) {
-    const placeholder = `<div class="rrl-card" data-rrn-native-request="${escapeAttr2(input.requestId)}" data-rrn-record-key="${escapeAttr2(record3?.key || "")}" data-rrn-live-status="${escapeAttr2(liveStatus)}">${mediaSlot}</div>`;
+    const placeholder = `<div class="rrl-card" data-rrn-native-request="${escapeAttr2(input.requestId)}" data-rrn-record-key="${escapeAttr2(record3?.key || "")}" data-rrn-live-status="${escapeAttr2(liveStatus)}"${streamIslandAttr}>${mediaSlot}</div>`;
     return bare ? placeholder : lifecycleCardIsland(placeholder);
   }
   const failureActions = repairAvailable ? "repair" : failure ? "failed" : undefined;
   const actions = failureActions ? `<div class="rrl-actions">${renderActionButtons(input.requestId, input.context, input.baseSurfaceId, failureActions, input.rootTag)}</div>` : "";
-  const card = `<div class="rrl-card ${failure ? "rrl-error" : ""}" data-rrn-native-request="${escapeAttr2(input.requestId)}" data-rrn-record-key="${escapeAttr2(record3?.key || "")}" data-rrn-live-status="${escapeAttr2(liveStatus)}" aria-live="polite">${mediaSlot}<div class="rrl-main"><span class="rrl-icon"><span class="rrl-spinner" aria-hidden="true"></span><span class="rrl-state-icon">${icon}</span></span><div class="rrl-copy"><strong class="rrl-title">${escapeHtml(titleLabels[liveStatus] || input.title)}</strong><span class="rrl-status">${escapeHtml(statusLabels[liveStatus] || titleCaseToken(liveStatus))}</span><span class="rrl-stream-status"></span><div class="rrl-progress" hidden><span></span></div></div></div>${actions}<details class="rrl-detail"><summary aria-label="Show request details"></summary><p>${escapeHtml(brief)}</p></details></div>`;
+  const card = `<div class="rrl-card ${failure ? "rrl-error" : ""}" data-rrn-native-request="${escapeAttr2(input.requestId)}" data-rrn-record-key="${escapeAttr2(record3?.key || "")}" data-rrn-live-status="${escapeAttr2(liveStatus)}"${streamIslandAttr} aria-live="polite">${mediaSlot}<div class="rrl-main"><span class="rrl-icon"><span class="rrl-spinner" aria-hidden="true"></span><span class="rrl-state-icon">${icon}</span></span><div class="rrl-copy"><strong class="rrl-title">${escapeHtml(titleLabels[liveStatus] || input.title)}</strong><span class="rrl-status">${escapeHtml(statusLabels[liveStatus] || titleCaseToken(liveStatus))}</span><span class="rrl-stream-status"></span><div class="rrl-progress" hidden><span></span></div></div></div>${actions}<details class="rrl-detail"><summary aria-label="Show request details"></summary><p>${escapeHtml(brief)}</p></details></div>`;
   return bare ? card : lifecycleCardIsland(card);
 }
 function renderActionButtons(requestId, context, baseSurfaceId, state, rootTag = "") {
@@ -154601,6 +154604,7 @@ var relayBatchLocks = new Set;
 var relayProcessingKeys = new Set;
 var BACKEND_STARTED_AT = Date.now();
 var stateMutationQueues = new Map;
+var placementMutationQueues = new Map;
 var narrativeStartupReconciledUsers = new Set;
 var configMutationQueues = new Map;
 var pendingGenerationContent = new Map;
@@ -154639,7 +154643,6 @@ var pendingPromptInjectionRecords = new Map;
 var lastPromptInjectionFingerprint = new BoundedLruCache({ maxEntries: 128, ttlMs: 30 * 60000 });
 var surfaceMacroSyncFingerprints = new BoundedLruCache({ maxEntries: 128 });
 var scheduledStateBroadcasts = new Map;
-var invalidProseSchemaNotices = new BoundedLruCache({ maxEntries: 256, ttlMs: 30 * 60000 });
 function userConfigCacheKey(userId) {
   return userId || "__default__";
 }
@@ -158291,16 +158294,6 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
             details: { sourcePreserved: true, generationDispatched: false, index: diagnostic.index }
           });
       });
-      const noticeKey = `${userId || "__default__"}:${chatId}:${message.id}:${swipeId}:${contentFingerprint(invalidProseIllustrations.map((item) => item.message + item.fullMatch).join(`
-`))}`;
-      if (!invalidProseSchemaNotices.get(noticeKey)) {
-        invalidProseSchemaNotices.set(noticeKey, true);
-        spindle.sendToFrontend({
-          type: "relay_notice",
-          level: "warning",
-          message: invalidProseIllustrations[0].message
-        }, userId);
-      }
     }
     const rawTags = inspectRawImageRequestTags(content);
     logStage(config, "request_detection", {
@@ -158507,20 +158500,16 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
       }
       return;
     }
-    const placementBatch = config.slotGenerationMode === "auto-insert" ? { chatId, messageId: message.id, swipeId, sourceFingerprint: contentFingerprint(storedContent), entries: [] } : undefined;
     await Promise.all(jobs.map((job) => enqueueRelayJob(job, {
       replaceExisting: false,
       reparse: true,
       triggerType: "initial",
       nativeSnapshot: effectiveSnapshot,
       automaticDispatch: true,
-      placementBatch,
       settingsSource: freshness.source,
       settingsAgeMs: freshness.ageMs,
       dispatchReason: "new-eligible-automatic-request"
     }, userId)));
-    if (placementBatch)
-      await commitInitialPlacementBatch(placementBatch, userId);
   } finally {
     releaseDiscoveryLock();
   }
@@ -158777,7 +158766,7 @@ async function runJob(job, options, userId) {
     if (isJobCancelled(job))
       throw new JobCancelledError;
     throwIfAborted(options.signal);
-    const placement = await raceWithAbort(applyJobSuccess(job, results, options.replaceExisting, userId, false, options.forceImagePreview === true, options.placementBatch), options.signal);
+    const placement = await raceWithAbort(applyJobSuccess(job, results, options.replaceExisting, userId, false, options.forceImagePreview === true), options.signal);
     throwIfAborted(options.signal);
     await enqueueGalleryLinksForResults(job, results, userId);
     await mutateState(job.chatId, userId, (state) => finishBackgroundTask(state, backgroundTaskId, placement === "completed" ? "Complete" : "Ready to place"));
@@ -160058,6 +160047,30 @@ async function reconcileChatState(chatId, userId, onlyMessageId, suppliedMessage
         summary.orphanedRemoved += 1;
         continue;
       }
+      const currentSwipeContent = getAuthoritativeSwipeContent(message, record3.swipeId);
+      if (record3.pendingPlacement && ["placement-pending", "placement-repair-needed"].includes(record3.status)) {
+        const pending = record3.pendingPlacement;
+        const job = jobFromRecord(record3);
+        if (placementIsPresent(currentSwipeContent, job, [pending])) {
+          applyGeneration(state, record3, pending, Date.now());
+          record3.placementFailure = undefined;
+          record3.error = undefined;
+          record3.errorToastKey = undefined;
+          changed = true;
+          summary.valid += 1;
+          continue;
+        }
+      }
+      if (record3.status === "completed" && (record3.placementFailure || record3.error)) {
+        const result = record3.imageUrl ? { slot: record3.slot, imageId: record3.imageId || "", imageUrl: record3.imageUrl } : null;
+        if (result && placementIsPresent(currentSwipeContent, jobFromRecord(record3), [result])) {
+          record3.placementFailure = undefined;
+          record3.error = undefined;
+          record3.errorToastKey = undefined;
+          record3.updatedAt = Date.now();
+          changed = true;
+        }
+      }
       if (isProcessing(record3)) {
         summary.valid += 1;
         continue;
@@ -160542,36 +160555,6 @@ function replaceOwningMessageMediaWrapper(content, job, replacement) {
   const owner = matches[0];
   return `${content.slice(0, owner.start)}${replacement}${content.slice(owner.end)}`;
 }
-async function stageInitialPlacementBatchEntry(batch, job, results, userId) {
-  await mutateJobState(job, userId, (state) => {
-    const now = Date.now();
-    for (const result of results) {
-      const record3 = state.slots[slotKey({ ...job, slot: result.slot })];
-      applyGeneration(state, record3, result, now);
-      appendStateLog(state, {
-        severity: "info",
-        stage: "image-generation-completed",
-        eventType: "image_generation_completed",
-        chatId: job.chatId,
-        messageId: job.messageId,
-        swipeId: job.swipeId,
-        requestId: job.requestId,
-        slot: result.slot,
-        target: job.target,
-        attemptNumber: record3.attemptNumber,
-        triggerType: result.triggerType,
-        provider: result.imageProvider,
-        connectionId: result.imageConnectionId,
-        connectionName: result.imageConnectionName,
-        model: result.imageModel,
-        durationMs: currentAttempt(record3)?.durationMs,
-        message: "Image generation completed; live pixels updated while atomic message persistence waits for the batch."
-      });
-    }
-  });
-  batch.entries.push({ job, results });
-  await sendState(userId, job.chatId);
-}
 function composeInitialPlacementBatchContent(content, entries) {
   let nextContent = content;
   const ordered = [...entries].sort((left, right) => {
@@ -160605,91 +160588,7 @@ function composeInitialPlacementBatchContent(content, entries) {
   }
   return { content: nextContent };
 }
-async function markInitialPlacementBatchForRepair(batch, reason, currentContent, userId) {
-  await mutateState(batch.chatId, userId, (state) => {
-    const now = Date.now();
-    for (const { job, results } of batch.entries)
-      for (const result of results) {
-        const record3 = state.slots[slotKey({ ...job, slot: result.slot })];
-        if (!record3 || !placementFailureCanReplaceRecord(record3, result) || placementIsPresent(currentContent, job, [result]))
-          continue;
-        record3.status = "placement-repair-needed";
-        record3.pendingPlacement = result;
-        record3.previewPending = false;
-        record3.placementFailure = {
-          failedAt: now,
-          reason,
-          anchorsChecked: ["message/swipe generation-start fingerprint", "exact original request or Relay error marker", "atomic final placement verification"],
-          contentFingerprint: contentFingerprint(currentContent),
-          retryCount: (record3.placementFailure?.retryCount || 0) + 1
-        };
-        record3.error = undefined;
-        record3.errorToastKey = undefined;
-        record3.updatedAt = now;
-        finishAttempt(record3, "placement-repair-needed", now, reason);
-        appendStateLog(state, {
-          severity: "warning",
-          stage: "placement-repair-needed",
-          eventType: "placement_repair_needed",
-          chatId: job.chatId,
-          messageId: job.messageId,
-          swipeId: job.swipeId,
-          requestId: job.requestId,
-          slot: result.slot,
-          target: job.target,
-          message: "Generated pixels were preserved, but atomic message persistence stopped without overwriting newer content.",
-          details: { reason, sourceFingerprint: batch.sourceFingerprint, currentFingerprint: contentFingerprint(currentContent), imageId: result.imageId, imageUrl: result.imageUrl }
-        });
-      }
-  });
-  await sendState(userId, batch.chatId);
-}
-async function commitInitialPlacementBatch(batch, userId) {
-  if (!batch.entries.length)
-    return;
-  const message = await resolveHostMessage(batch.chatId, batch.messageId);
-  const currentContent = message ? getAuthoritativeSwipeContent(message, batch.swipeId) : "";
-  if (!message) {
-    await markInitialPlacementBatchForRepair(batch, "The original message is no longer available.", currentContent, userId);
-    return;
-  }
-  if (contentFingerprint(currentContent) !== batch.sourceFingerprint) {
-    const alreadyPlaced = batch.entries.every(({ job, results }) => placementIsPresent(currentContent, job, results));
-    if (alreadyPlaced)
-      return;
-    await markInitialPlacementBatchForRepair(batch, "The message or active swipe changed while images were generating.", currentContent, userId);
-    return;
-  }
-  const composed = composeInitialPlacementBatchContent(currentContent, batch.entries);
-  if (composed.error || composed.content === currentContent) {
-    await markInitialPlacementBatchForRepair(batch, composed.error || "No atomic placement change could be composed.", currentContent, userId);
-    return;
-  }
-  try {
-    await patchSwipeContent(batch.chatId, message, batch.swipeId, composed.content);
-    const verifiedMessage = await resolveHostMessage(batch.chatId, batch.messageId);
-    const verifiedContent = verifiedMessage ? getAuthoritativeSwipeContent(verifiedMessage, batch.swipeId) : "";
-    const placementVerified = batch.entries.every(({ job, results }) => placementIsPresent(verifiedContent, job, results));
-    if (!placementVerified) {
-      await markInitialPlacementBatchForRepair(batch, "The single message update returned without the exact composed batch.", verifiedContent, userId);
-      return;
-    }
-    await mutateState(batch.chatId, userId, (state) => appendStateLog(state, {
-      severity: "info",
-      stage: "placement-completed",
-      eventType: "message_batch_placement_completed",
-      chatId: batch.chatId,
-      messageId: batch.messageId,
-      swipeId: batch.swipeId,
-      message: `Persisted ${batch.entries.reduce((total, entry) => total + entry.results.length, 0)} generated image slot(s) in one fingerprint-checked message update.`,
-      details: { requestIds: batch.entries.map((entry) => entry.job.requestId), sourceFingerprint: batch.sourceFingerprint }
-    }));
-    await sendState(userId, batch.chatId);
-  } catch (error) {
-    await markInitialPlacementBatchForRepair(batch, error instanceof Error ? error.message : String(error), currentContent, userId);
-  }
-}
-async function applyJobSuccess(job, results, replaceExisting, userId, bypassImagePreview = false, forceImagePreview = false, placementBatch) {
+async function applyJobSuccess(job, results, replaceExisting, userId, bypassImagePreview = false, forceImagePreview = false) {
   if (results.length === 0)
     throw new Error("No image results were produced.");
   if (isJobCancelled(job))
@@ -160700,102 +160599,140 @@ async function applyJobSuccess(job, results, replaceExisting, userId, bypassImag
     spindle.sendToFrontend({ type: "status", status: "Preview Ready", requestId: job.requestId }, userId);
     return "placement-pending";
   }
-  if (placementBatch) {
-    await stageInitialPlacementBatchEntry(placementBatch, job, results, userId);
-    return "completed";
-  }
-  const anchorsChecked = ["exact resolved slot marker", "exact original image_request or reverie-illustration tag", "exact Relay error marker"];
-  const message = await resolveMessage(job.chatId, job.messageId);
-  if (!message) {
-    await storePendingPlacement(job, results, "The generated image is ready, but the original message is unavailable.", anchorsChecked, "", userId);
-    return "placement-repair-needed";
-  }
-  try {
-    const rawContent = getAuthoritativeSwipeContent(message, job.swipeId);
-    const content = normalizeRelaySurfaceContracts(rawContent);
-    const expectedPlacements = new Map(results.map((result) => [result.slot, expectedPlacementCount(content, job, result)]));
-    const requiresCharacterProfilePortrait = isCharacterProfileArtifactJob(rawContent, job, results);
-    if (requiresCharacterProfilePortrait)
-      anchorsChecked.push("exact Character Profile portrait ownership and renderable image");
-    let nextContent = content;
-    if (replaceExisting) {
-      for (const result of results) {
-        const replaced = replaceResolvedSlotAfterComment(nextContent, job, result);
-        if (replaced)
-          nextContent = replaced;
-      }
-    } else {
-      const replacement = renderResolvedMarkup(job, results);
-      if (nextContent.includes(job.originalRequestXml)) {
-        const ownedMediaReplacement = replaceOwningMessageMediaWrapper(nextContent, job, replacement);
-        nextContent = ownedMediaReplacement || nextContent.split(job.originalRequestXml).join(replacement);
+  await markGeneratedPlacementPending(job, results, userId);
+  return withPlacementMutationLock(job, async () => {
+    const anchorsChecked = ["exact resolved slot marker", "exact original image_request or reverie-illustration tag", "exact Relay error marker"];
+    const message = await resolveMessage(job.chatId, job.messageId);
+    if (!message) {
+      await storePendingPlacement(job, results, "The generated image is ready, but the original message is unavailable.", anchorsChecked, "", userId);
+      return "placement-repair-needed";
+    }
+    try {
+      const rawContent = getAuthoritativeSwipeContent(message, job.swipeId);
+      const content = normalizeRelaySurfaceContracts(rawContent);
+      const expectedPlacements = new Map(results.map((result) => [result.slot, expectedPlacementCount(content, job, result)]));
+      const requiresCharacterProfilePortrait = isCharacterProfileArtifactJob(rawContent, job, results);
+      if (requiresCharacterProfilePortrait)
+        anchorsChecked.push("exact Character Profile portrait ownership and renderable image");
+      let nextContent = content;
+      if (replaceExisting) {
+        for (const result of results) {
+          const replaced = replaceResolvedSlotAfterComment(nextContent, job, result);
+          if (replaced)
+            nextContent = replaced;
+        }
       } else {
-        const replaced = replaceErrorAfterComment(nextContent, job, replacement);
-        if (replaced)
-          nextContent = replaced;
+        const replacement = renderResolvedMarkup(job, results);
+        if (nextContent.includes(job.originalRequestXml)) {
+          const ownedMediaReplacement = replaceOwningMessageMediaWrapper(nextContent, job, replacement);
+          nextContent = ownedMediaReplacement || nextContent.split(job.originalRequestXml).join(replacement);
+        } else {
+          const replaced = replaceErrorAfterComment(nextContent, job, replacement);
+          if (replaced)
+            nextContent = replaced;
+        }
       }
-    }
-    if (isJobCancelled(job))
-      throw new JobCancelledError;
-    if (nextContent !== rawContent)
-      await patchSwipeContent(job.chatId, message, job.swipeId, nextContent);
-    else if (!placementIsPresent(content, job, results, expectedPlacements)) {
-      await storePendingPlacement(job, results, "No deterministic request, error, or resolved slot anchor was found.", anchorsChecked, content, userId);
+      if (isJobCancelled(job))
+        throw new JobCancelledError;
+      if (nextContent !== rawContent)
+        await patchSwipeContent(job.chatId, message, job.swipeId, nextContent);
+      else if (!placementIsPresent(content, job, results, expectedPlacements)) {
+        await storePendingPlacement(job, results, "No deterministic request, error, or resolved slot anchor was found.", anchorsChecked, content, userId);
+        return "placement-repair-needed";
+      }
+      if (isJobCancelled(job))
+        throw new JobCancelledError;
+      const verifiedMessage = await resolveMessage(job.chatId, job.messageId);
+      const verifiedContent = verifiedMessage ? getAuthoritativeSwipeContent(verifiedMessage, job.swipeId) : "";
+      if (!placementIsPresent(verifiedContent, job, results, expectedPlacements)) {
+        await storePendingPlacement(job, results, "Message update completed without a verifiable exact slot marker and image URL.", anchorsChecked, verifiedContent, userId);
+        return "placement-repair-needed";
+      }
+      if (requiresCharacterProfilePortrait && !results.every((result) => characterProfilePortraitHasExactRelayImage(verifiedContent, {
+        chatId: job.chatId,
+        messageId: job.messageId,
+        swipeId: job.swipeId,
+        requestId: job.requestId,
+        slot: result.slot,
+        imageUrl: result.imageUrl
+      }))) {
+        await storePendingPlacement(job, results, "Generation completed, but the exact Relay asset is not renderable inside its matching Character Profile portrait.", anchorsChecked, verifiedContent, userId);
+        return "placement-repair-needed";
+      }
+    } catch (error) {
+      if (error instanceof JobCancelledError)
+        throw error;
+      await storePendingPlacement(job, results, error instanceof Error ? error.message : String(error), anchorsChecked, "", userId);
       return "placement-repair-needed";
     }
-    if (isJobCancelled(job))
-      throw new JobCancelledError;
-    const verifiedMessage = await resolveMessage(job.chatId, job.messageId);
-    const verifiedContent = verifiedMessage ? getAuthoritativeSwipeContent(verifiedMessage, job.swipeId) : "";
-    if (!placementIsPresent(verifiedContent, job, results, expectedPlacements)) {
-      await storePendingPlacement(job, results, "Message update completed without a verifiable exact slot marker and image URL.", anchorsChecked, verifiedContent, userId);
-      return "placement-repair-needed";
-    }
-    if (requiresCharacterProfilePortrait && !results.every((result) => characterProfilePortraitHasExactRelayImage(verifiedContent, {
-      chatId: job.chatId,
-      messageId: job.messageId,
-      swipeId: job.swipeId,
-      requestId: job.requestId,
-      slot: result.slot,
-      imageUrl: result.imageUrl
-    }))) {
-      await storePendingPlacement(job, results, "Generation completed, but the exact Relay asset is not renderable inside its matching Character Profile portrait.", anchorsChecked, verifiedContent, userId);
-      return "placement-repair-needed";
-    }
-  } catch (error) {
-    if (error instanceof JobCancelledError)
-      throw error;
-    await storePendingPlacement(job, results, error instanceof Error ? error.message : String(error), anchorsChecked, "", userId);
-    return "placement-repair-needed";
-  }
+    await mutateJobState(job, userId, (state) => {
+      const now = Date.now();
+      for (const result of results) {
+        const record3 = state.slots[slotKey({ ...job, slot: result.slot })];
+        applyGeneration(state, record3, result, now);
+        appendStateLog(state, {
+          severity: "info",
+          stage: "image-generation-completed",
+          eventType: "image_generation_completed",
+          chatId: job.chatId,
+          messageId: job.messageId,
+          swipeId: job.swipeId,
+          requestId: job.requestId,
+          slot: result.slot,
+          target: job.target,
+          attemptNumber: record3.attemptNumber,
+          triggerType: result.triggerType,
+          provider: result.imageProvider,
+          connectionId: result.imageConnectionId,
+          connectionName: result.imageConnectionName,
+          model: result.imageModel,
+          durationMs: currentAttempt(record3)?.durationMs,
+          message: "Image generation completed."
+        });
+      }
+    });
+    await sendState(userId, job.chatId);
+    return "completed";
+  });
+}
+async function markGeneratedPlacementPending(job, results, userId) {
   await mutateJobState(job, userId, (state) => {
     const now = Date.now();
     for (const result of results) {
       const record3 = state.slots[slotKey({ ...job, slot: result.slot })];
-      applyGeneration(state, record3, result, now);
+      if (!record3 || !placementFailureCanReplaceRecord(record3, result))
+        continue;
+      record3.status = "placement-pending";
+      record3.pendingPlacement = result;
+      record3.previewPending = false;
+      record3.placementFailure = undefined;
+      record3.error = undefined;
+      record3.errorToastKey = undefined;
+      record3.updatedAt = now;
+      finishAttempt(record3, "placement-pending", now);
+      if (record3.proseIllustrationId && state.proseIllustrator.records[record3.proseIllustrationId]) {
+        const proseRecord = state.proseIllustrator.records[record3.proseIllustrationId];
+        proseRecord.status = "ready-to-place";
+        proseRecord.imageId = result.imageId;
+        proseRecord.imageUrl = result.imageUrl;
+        proseRecord.error = undefined;
+      }
       appendStateLog(state, {
         severity: "info",
-        stage: "image-generation-completed",
-        eventType: "image_generation_completed",
+        stage: "placement-pending",
+        eventType: "generated_asset_awaiting_placement",
         chatId: job.chatId,
         messageId: job.messageId,
         swipeId: job.swipeId,
         requestId: job.requestId,
         slot: result.slot,
         target: job.target,
-        attemptNumber: record3.attemptNumber,
-        triggerType: result.triggerType,
-        provider: result.imageProvider,
-        connectionId: result.imageConnectionId,
-        connectionName: result.imageConnectionName,
-        model: result.imageModel,
-        durationMs: currentAttempt(record3)?.durationMs,
-        message: "Image generation completed."
+        message: "Image generation succeeded; this exact asset is waiting for its serialized message placement.",
+        details: { imageId: result.imageId, imageUrl: result.imageUrl }
       });
     }
   });
   await sendState(userId, job.chatId);
-  return "completed";
 }
 function resolvedSlotRegex(target, flags = "i") {
   if (target.startsWith("custom."))
@@ -168371,10 +168308,6 @@ async function resolveMessage(chatId, messageId) {
   }
   return [...messages].reverse().find((message) => isAssistantMessage(message) && !isOwnMessage(message)) ?? null;
 }
-async function resolveHostMessage(chatId, messageId) {
-  const messages = await spindle.chat.getMessages(chatId);
-  return messages.find((message) => message.id === messageId) ?? null;
-}
 function messageSnapshotKey(chatId, messageId) {
   return `${chatId}:${messageId}`;
 }
@@ -168521,6 +168454,26 @@ function applyGeneration(state, record3, result, now) {
   commitSlotAssetVersion(state, record3, result, snapshot, now);
   finishAttempt(record3, "completed", now);
   updateQueueSafetySummary(state, now);
+}
+async function withPlacementMutationLock(job, action) {
+  const key = `${job.chatId}:${job.messageId}:${job.swipeId}`;
+  const previous = placementMutationQueues.get(key) || Promise.resolve();
+  let release = () => {
+    return;
+  };
+  const current = new Promise((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.then(() => current);
+  placementMutationQueues.set(key, queued);
+  await previous;
+  try {
+    return await action();
+  } finally {
+    release();
+    if (placementMutationQueues.get(key) === queued)
+      placementMutationQueues.delete(key);
+  }
 }
 function compactAssetLibraryForState(library) {
   const pinned = new Set([library.compare?.leftAssetId, library.compare?.rightAssetId].filter((id) => Boolean(id)));
@@ -169990,6 +169943,7 @@ async function handleRemoveSlotImage(payload, userId) {
   await sendState(userId, chatId);
 }
 export {
+  withPlacementMutationLock,
   targetHumanPolicy,
   targetFramingInstruction,
   shouldScanCompletedGeneration,

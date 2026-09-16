@@ -1110,6 +1110,7 @@ const relayBatchLocks = new Set<string>()
 const relayProcessingKeys = new Set<string>()
 const BACKEND_STARTED_AT = Date.now()
 const stateMutationQueues = new Map<string, Promise<void>>()
+const placementMutationQueues = new Map<string, Promise<void>>()
 const narrativeStartupReconciledUsers = new Set<string>()
 const configMutationQueues = new Map<string, Promise<void>>()
 const pendingGenerationContent = new Map<string, { content: string; receivedAt: number }>()
@@ -1172,7 +1173,6 @@ type RunJobOptions = {
   highResMode?: boolean
   forceImagePreview?: boolean
   automaticDispatch?: boolean
-  placementBatch?: InitialPlacementBatch
   signal?: AbortSignal
   attemptId?: string
   cancellationEpoch?: number
@@ -1254,7 +1254,6 @@ const pendingPromptInjectionRecords = new Map<string, {
 const lastPromptInjectionFingerprint = new BoundedLruCache<{ fingerprint: string; recordedAt: number }>({ maxEntries: 128, ttlMs: 30 * 60_000 })
 const surfaceMacroSyncFingerprints = new BoundedLruCache<string>({ maxEntries: 128 })
 const scheduledStateBroadcasts = new Map<string, ReturnType<typeof setTimeout>>()
-const invalidProseSchemaNotices = new BoundedLruCache<boolean>({ maxEntries: 256, ttlMs: 30 * 60_000 })
 
 function userConfigCacheKey(userId?: string): string {
   return userId || '__default__'
@@ -4969,14 +4968,9 @@ async function scanAndGenerate(
           details: { sourcePreserved: true, generationDispatched: false, index: diagnostic.index },
         })
       })
-      const noticeKey = `${userId || '__default__'}:${chatId}:${message.id}:${swipeId}:${contentFingerprint(invalidProseIllustrations.map(item => item.message + item.fullMatch).join('\n'))}`
-      if (!invalidProseSchemaNotices.get(noticeKey)) {
-        invalidProseSchemaNotices.set(noticeKey, true)
-        spindle.sendToFrontend({
-          type: 'relay_notice', level: 'warning',
-          message: invalidProseIllustrations[0].message,
-        }, userId)
-      }
+      // Invalid Prose Illustration markup is scoped to that lane and remains
+      // visible in diagnostics. Do not turn a locally isolated/repairable
+      // schema problem into a generic story-use toast.
     }
     const rawTags = inspectRawImageRequestTags(content)
     logStage(config, 'request_detection', {
@@ -5179,21 +5173,16 @@ async function scanAndGenerate(
       }
       return
     }
-    const placementBatch: InitialPlacementBatch | undefined = config.slotGenerationMode === 'auto-insert'
-      ? { chatId, messageId: message.id, swipeId, sourceFingerprint: contentFingerprint(storedContent), entries: [] }
-      : undefined
     await Promise.all(jobs.map(job => enqueueRelayJob(job, {
       replaceExisting: false,
       reparse: true,
       triggerType: 'initial',
       nativeSnapshot: effectiveSnapshot,
       automaticDispatch: true,
-      placementBatch,
       settingsSource: freshness.source,
       settingsAgeMs: freshness.ageMs,
       dispatchReason: 'new-eligible-automatic-request',
     }, userId)))
-    if (placementBatch) await commitInitialPlacementBatch(placementBatch, userId)
   } finally {
     releaseDiscoveryLock()
   }
@@ -5408,7 +5397,7 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
     results.sort((left, right) => job.slots.indexOf(left.slot) - job.slots.indexOf(right.slot))
     if (isJobCancelled(job)) throw new JobCancelledError()
     throwIfAborted(options.signal)
-    const placement = await raceWithAbort(applyJobSuccess(job, results, options.replaceExisting, userId, false, options.forceImagePreview === true, options.placementBatch), options.signal)
+    const placement = await raceWithAbort(applyJobSuccess(job, results, options.replaceExisting, userId, false, options.forceImagePreview === true), options.signal)
     throwIfAborted(options.signal)
     await enqueueGalleryLinksForResults(job, results, userId)
     await mutateState(job.chatId, userId, state => finishBackgroundTask(state, backgroundTaskId, placement === 'completed' ? 'Complete' : 'Ready to place'))
@@ -6503,6 +6492,30 @@ async function reconcileChatState(chatId: string, userId?: string, onlyMessageId
       summary.orphanedRemoved += 1
       continue
     }
+    const currentSwipeContent = getAuthoritativeSwipeContent(message, record.swipeId)
+    if (record.pendingPlacement && ['placement-pending', 'placement-repair-needed'].includes(record.status)) {
+      const pending = record.pendingPlacement
+      const job = jobFromRecord(record)
+      if (placementIsPresent(currentSwipeContent, job, [pending])) {
+        applyGeneration(state, record, pending, Date.now())
+        record.placementFailure = undefined
+        record.error = undefined
+        record.errorToastKey = undefined
+        changed = true
+        summary.valid += 1
+        continue
+      }
+    }
+    if (record.status === 'completed' && (record.placementFailure || record.error)) {
+      const result = record.imageUrl ? ({ slot: record.slot, imageId: record.imageId || '', imageUrl: record.imageUrl } as SlotGenerationResult) : null
+      if (result && placementIsPresent(currentSwipeContent, jobFromRecord(record), [result])) {
+        record.placementFailure = undefined
+        record.error = undefined
+        record.errorToastKey = undefined
+        record.updatedAt = Date.now()
+        changed = true
+      }
+    }
     if (isProcessing(record)) {
       summary.valid += 1
       continue
@@ -6910,22 +6923,8 @@ function replaceOwningMessageMediaWrapper(content: string, job: RouterJob, repla
 }
 
 async function stageInitialPlacementBatchEntry(batch: InitialPlacementBatch, job: RouterJob, results: SlotGenerationResult[], userId?: string): Promise<void> {
-  await mutateJobState(job, userId, state => {
-    const now = Date.now()
-    for (const result of results) {
-      const record = state.slots[slotKey({ ...job, slot: result.slot })]
-      applyGeneration(state, record, result, now)
-      appendStateLog(state, {
-        severity: 'info', stage: 'image-generation-completed', eventType: 'image_generation_completed', chatId: job.chatId,
-        messageId: job.messageId, swipeId: job.swipeId, requestId: job.requestId, slot: result.slot, target: job.target,
-        attemptNumber: record.attemptNumber, triggerType: result.triggerType, provider: result.imageProvider,
-        connectionId: result.imageConnectionId, connectionName: result.imageConnectionName, model: result.imageModel,
-        durationMs: currentAttempt(record)?.durationMs, message: 'Image generation completed; live pixels updated while atomic message persistence waits for the batch.',
-      })
-    }
-  })
+  await markGeneratedPlacementPending(job, results, userId)
   batch.entries.push({ job, results })
-  await sendState(userId, job.chatId)
 }
 
 export function composeInitialPlacementBatchContent(content: string, entries: InitialPlacementBatchEntry[]): { content: string; error?: string } {
@@ -7015,12 +7014,19 @@ async function commitInitialPlacementBatch(batch: InitialPlacementBatch, userId?
       await markInitialPlacementBatchForRepair(batch, 'The single message update returned without the exact composed batch.', verifiedContent, userId)
       return
     }
-    await mutateState(batch.chatId, userId, state => appendStateLog(state, {
-      severity: 'info', stage: 'placement-completed', eventType: 'message_batch_placement_completed', chatId: batch.chatId,
-      messageId: batch.messageId, swipeId: batch.swipeId,
-      message: `Persisted ${batch.entries.reduce((total, entry) => total + entry.results.length, 0)} generated image slot(s) in one fingerprint-checked message update.`,
-      details: { requestIds: batch.entries.map(entry => entry.job.requestId), sourceFingerprint: batch.sourceFingerprint },
-    }))
+    await mutateState(batch.chatId, userId, state => {
+      const now = Date.now()
+      for (const { job, results } of batch.entries) for (const result of results) {
+        const record = state.slots[slotKey({ ...job, slot: result.slot })]
+        if (record) applyGeneration(state, record, result, now)
+      }
+      appendStateLog(state, {
+        severity: 'info', stage: 'placement-completed', eventType: 'message_batch_placement_completed', chatId: batch.chatId,
+        messageId: batch.messageId, swipeId: batch.swipeId,
+        message: `Persisted ${batch.entries.reduce((total, entry) => total + entry.results.length, 0)} generated image slot(s) in one fingerprint-checked message update.`,
+        details: { requestIds: batch.entries.map(entry => entry.job.requestId), sourceFingerprint: batch.sourceFingerprint },
+      })
+    })
     await sendState(userId, batch.chatId)
   } catch (error) {
     await markInitialPlacementBatchForRepair(batch, error instanceof Error ? error.message : String(error), currentContent, userId)
@@ -7028,7 +7034,7 @@ async function commitInitialPlacementBatch(batch: InitialPlacementBatch, userId?
 }
 
 
-async function applyJobSuccess(job: RouterJob, results: SlotGenerationResult[], replaceExisting: boolean, userId?: string, bypassImagePreview = false, forceImagePreview = false, placementBatch?: InitialPlacementBatch): Promise<'completed' | 'placement-pending' | 'placement-repair-needed'> {
+async function applyJobSuccess(job: RouterJob, results: SlotGenerationResult[], replaceExisting: boolean, userId?: string, bypassImagePreview = false, forceImagePreview = false): Promise<'completed' | 'placement-pending' | 'placement-repair-needed'> {
   if (results.length === 0) throw new Error('No image results were produced.')
   if (isJobCancelled(job)) throw new JobCancelledError()
   const config = await getConfig(userId)
@@ -7037,10 +7043,8 @@ async function applyJobSuccess(job: RouterJob, results: SlotGenerationResult[], 
     spindle.sendToFrontend({ type: 'status', status: 'Preview Ready', requestId: job.requestId }, userId)
     return 'placement-pending'
   }
-  if (placementBatch) {
-    await stageInitialPlacementBatchEntry(placementBatch, job, results, userId)
-    return 'completed'
-  }
+  await markGeneratedPlacementPending(job, results, userId)
+  return withPlacementMutationLock(job, async () => {
   const anchorsChecked = ['exact resolved slot marker', 'exact original image_request or reverie-illustration tag', 'exact Relay error marker']
   const message = await resolveMessage(job.chatId, job.messageId)
   if (!message) {
@@ -7122,6 +7126,39 @@ async function applyJobSuccess(job: RouterJob, results: SlotGenerationResult[], 
   })
   await sendState(userId, job.chatId)
   return 'completed'
+  })
+}
+
+async function markGeneratedPlacementPending(job: RouterJob, results: SlotGenerationResult[], userId?: string): Promise<void> {
+  await mutateJobState(job, userId, state => {
+    const now = Date.now()
+    for (const result of results) {
+      const record = state.slots[slotKey({ ...job, slot: result.slot })]
+      if (!record || !placementFailureCanReplaceRecord(record, result)) continue
+      record.status = 'placement-pending'
+      record.pendingPlacement = result
+      record.previewPending = false
+      record.placementFailure = undefined
+      record.error = undefined
+      record.errorToastKey = undefined
+      record.updatedAt = now
+      finishAttempt(record, 'placement-pending', now)
+      if (record.proseIllustrationId && state.proseIllustrator.records[record.proseIllustrationId]) {
+        const proseRecord = state.proseIllustrator.records[record.proseIllustrationId]
+        proseRecord.status = 'ready-to-place'
+        proseRecord.imageId = result.imageId
+        proseRecord.imageUrl = result.imageUrl
+        proseRecord.error = undefined
+      }
+      appendStateLog(state, {
+        severity: 'info', stage: 'placement-pending', eventType: 'generated_asset_awaiting_placement', chatId: job.chatId,
+        messageId: job.messageId, swipeId: job.swipeId, requestId: job.requestId, slot: result.slot, target: job.target,
+        message: 'Image generation succeeded; this exact asset is waiting for its serialized message placement.',
+        details: { imageId: result.imageId, imageUrl: result.imageUrl },
+      })
+    }
+  })
+  await sendState(userId, job.chatId)
 }
 
 function resolvedSlotRegex(target: SlotRecord['target'], flags = 'i'): RegExp {
@@ -14812,6 +14849,22 @@ function applyGeneration(state: StateFile, record: SlotRecord, result: SlotGener
   commitSlotAssetVersion(state, record, result, snapshot, now)
   finishAttempt(record, 'completed', now)
   updateQueueSafetySummary(state, now)
+}
+
+export async function withPlacementMutationLock<T>(job: Pick<RouterJob, 'chatId' | 'messageId' | 'swipeId'>, action: () => Promise<T>): Promise<T> {
+  const key = `${job.chatId}:${job.messageId}:${job.swipeId}`
+  const previous = placementMutationQueues.get(key) || Promise.resolve()
+  let release: () => void = () => undefined
+  const current = new Promise<void>(resolve => { release = resolve })
+  const queued = previous.then(() => current)
+  placementMutationQueues.set(key, queued)
+  await previous
+  try {
+    return await action()
+  } finally {
+    release()
+    if (placementMutationQueues.get(key) === queued) placementMutationQueues.delete(key)
+  }
 }
 
 function compactAssetLibraryForState(library: AssetLibraryState): AssetLibraryState {
