@@ -14780,8 +14780,20 @@ function trimLogs(state: StateFile): void {
   if (state.logs.length > HOT_LOG_LIMIT) state.logs.splice(0, state.logs.length - HOT_LOG_LIMIT)
 }
 
-function completedDiagnosticPath(chatId: string, archiveId: string): string {
-  return `completed-history/${contentFingerprint(chatId).slice(0, 24)}/diagnostics/${archiveId}.json`
+export function safeStorageSegment(value: string): string {
+  const safe = String(value ?? '')
+    .trim()
+    .replace(/[^A-Za-z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '')
+  if (!safe) throw new Error('Invalid empty storage path segment')
+  return safe
+}
+
+export function completedDiagnosticPath(chatId: string, archiveId: string): string {
+  const chatKey = safeStorageSegment(contentFingerprint(chatId)).slice(0, 24)
+  const archiveKey = safeStorageSegment(archiveId)
+  return `completed-history/${chatKey}/diagnostics/${archiveKey}.json`
 }
 
 function completedRecordHasHeavyData(record: SlotRecord): boolean {

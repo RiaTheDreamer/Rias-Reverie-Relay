@@ -8329,8 +8329,8 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8";
-var BUILD_ID = "20260916-0.2.8";
+var EXTENSION_VERSION = "0.2.8.1";
+var BUILD_ID = "20260916-0.2.8.1";
 
 // src/providerPromptSafety.ts
 class ProviderPromptSafetyError extends Error {
@@ -170031,8 +170031,16 @@ function trimLogs(state) {
   if (state.logs.length > HOT_LOG_LIMIT)
     state.logs.splice(0, state.logs.length - HOT_LOG_LIMIT);
 }
+function safeStorageSegment(value) {
+  const safe = String(value ?? "").trim().replace(/[^A-Za-z0-9._-]/g, "-").replace(/-+/g, "-").replace(/^[-.]+|[-.]+$/g, "");
+  if (!safe)
+    throw new Error("Invalid empty storage path segment");
+  return safe;
+}
 function completedDiagnosticPath(chatId, archiveId) {
-  return `completed-history/${contentFingerprint(chatId).slice(0, 24)}/diagnostics/${archiveId}.json`;
+  const chatKey = safeStorageSegment(contentFingerprint(chatId)).slice(0, 24);
+  const archiveKey = safeStorageSegment(archiveId);
+  return `completed-history/${chatKey}/diagnostics/${archiveKey}.json`;
 }
 function completedRecordHasHeavyData(record4) {
   return Boolean(record4.promptPipeline || record4.diagnostic || record4.parserOutput || record4.finalImageRequest || record4.finalImageParameters || record4.nativeImageSettings || record4.excludedContinuityFacts?.length || record4.includedContinuityFacts?.length || record4.pendingPlacement || record4.history?.length || record4.attempts?.length);
@@ -172081,6 +172089,7 @@ export {
   sanitizeSubjectIdentityPrompt,
   sanitizeRecentVisualContext,
   sanitizeCurrentOutfitMemory,
+  safeStorageSegment,
   runWithConcurrency,
   runAppearanceSidecar,
   resolveVisualPromptMacros,
@@ -172140,6 +172149,7 @@ export {
   contextualizeSexualParserInstructions,
   composePromptForOpportunity,
   composeInitialPlacementBatchContent,
+  completedDiagnosticPath,
   classifyImageRequest,
   claimProviderImageResult,
   canonicalEditedMessage,
