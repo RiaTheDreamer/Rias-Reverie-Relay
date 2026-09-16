@@ -13834,6 +13834,11 @@ function migrateState(raw: Partial<StateFile> | null | undefined): StateFile {
   return state
 }
 
+/** Deterministic compatibility seam used by release regression tests. */
+export function migrateRelayStateSnapshot(raw: unknown): unknown {
+  return migrateState(raw && typeof raw === 'object' ? raw as Partial<StateFile> : {})
+}
+
 async function exportQueueDispatchDiagnostic(chatId: string, userId?: string): Promise<void> {
   const state = await getState(chatId, userId)
   const config = await getConfig(userId)
