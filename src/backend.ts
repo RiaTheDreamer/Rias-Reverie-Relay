@@ -140,6 +140,14 @@ import { BoundedLruCache } from './boundedCache'
 import { abortableSlotKeys, C5B_CACHE_LIMITS, cancelMapKeysFromSnapshot, healthCheck, rememberBoundedMap, summarizeRelayHealth, type RelayHealthCheck } from './c5bReliability'
 import { c5aCastRequirements, enforceC5AKnownIdentity, resolveC5ANativeIdentityBinding, type C5ANativeIdentityBinding } from './c5aIdentity'
 import { buildAppearanceSidecarPayload, ingestAppearanceSidecarObservations, normalizeAppearanceFieldRefreshOutput, normalizeAppearanceSidecarOutput, preserveCompleteSidecarContext, type AppearanceFieldRefreshResult, type AppearanceMemoryRefreshField } from './appearanceSidecar'
+import {
+  RELAY_PLANNED_V2,
+  compileRelayPlannedPrompt,
+  validateRelayPlannedDirectorResult,
+  type RelayPlannedContext,
+  type RelayPlannedIllustration,
+  type RelayPlannedSubjectState,
+} from './relayPlannedV2'
 import { assertModelContextBudget, invalidateContextSnapshots, measureModelMessages, selectExcerpts, selectLorebookContext, visualSourceSnapshot, type ContextMetrics } from './contextBudget'
 import { BUILD_ID, EXTENSION_VERSION } from './build'
 import { hybridSurfaceOwner, REVIEWED_REGEX_SURFACE_IDS, shippedSurfaceDefinitions, SHIPPED_SURFACE_SPECS } from './shippedSurfaceDefinitions'
@@ -687,7 +695,7 @@ type FrontendMessage =
   | { type: 'native_surface_action'; chatId: string; messageId: string; action: 'delete' | 'edit'; requestId?: string; rootTag?: string; surfaceId?: string; originalMarkup?: string; replacementMarkup?: string }
   | { type: 'remove_slot_image'; chatId: string; key: string }
   | { type: 'gallery_link_result'; chatId?: string | null; linkId: string; ok: boolean; galleryItemId?: string; error?: string }
-  | { type: 'dry_run'; chatId?: string | null; kind: 'slot' | 'prose-plan'; key?: string; planId?: string; prompt?: string; negativePrompt?: string; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
+  | { type: 'dry_run'; chatId?: string | null; kind: 'slot' | 'prose-plan' | 'relay-planned'; key?: string; planId?: string; messageId?: string; swipeId?: number; prompt?: string; negativePrompt?: string; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
   | { type: 'full_complete_dry_run'; chatId?: string | null; runtimeHealth?: Record<string, unknown>; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
   | { type: 'explain_no_generation'; chatId?: string | null; scope: 'slot' | 'illustrator' | 'auto'; key?: string; planId?: string }
   | { type: 'self_test'; chatId?: string | null; frontendBuildId?: string; frontendLoadedAt?: number; nativeSettingsAvailable?: boolean }
@@ -2718,6 +2726,278 @@ async function recordLifecycleEvent(stage: string, payload: any, userId?: string
   })).catch(error => spindle.log.warn(`[Reverie Relay:${stage}] ${error instanceof Error ? error.message : String(error)}`))
 }
 
+type RelayPlannedStageTelemetry = ReturnType<typeof measureModelMessages> & { modelCalls: number }
+
+type RelayPlannedAnalysis = {
+  context: RelayPlannedContext
+  opportunities: ProseIllustrationOpportunity[]
+  directorReason: string
+  telemetry: RelayPlannedStageTelemetry[]
+  rawDirectorOutput: string
+  repairCalls: number
+}
+
+function relayPlannedJson(raw: string, label: string): Record<string, unknown> {
+  const clean = cleanString(raw).replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()
+  const start = clean.indexOf('{')
+  const end = clean.lastIndexOf('}')
+  if (start < 0 || end < start) throw new Error(`${label} returned no JSON object.`)
+  const parsed = JSON.parse(clean.slice(start, end + 1)) as unknown
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${label} result must be a JSON object.`)
+  return parsed as Record<string, unknown>
+}
+
+function relayPlannedSubjectStates(
+  state: StateFile,
+  chatId: string,
+  content: string,
+  settings: ProseIllustratorSettings,
+): RelayPlannedSubjectState[] {
+  if (!settings.appearanceMemoryEnabled) return []
+  const facts = allAppearanceFacts(state.continuityVault)
+  const candidates = new Set(extractCharacterCandidates(content).map(name => name.toLocaleLowerCase()))
+  for (const fact of facts) {
+    if (fact.chatId && fact.chatId !== chatId) continue
+    if (content.toLocaleLowerCase().includes(fact.canonicalCharacterName.toLocaleLowerCase())) candidates.add(fact.canonicalCharacterName.toLocaleLowerCase())
+  }
+  if (settings.perspectiveMode === 'solo-scene') for (const name of selectedCharacterOnlySubjects(settings)) candidates.add(name.toLocaleLowerCase())
+  const names = [...new Set(facts
+    .filter(fact => candidates.has(fact.canonicalCharacterName.toLocaleLowerCase()))
+    .map(fact => fact.canonicalCharacterName))]
+  for (const candidate of extractCharacterCandidates(content)) if (!names.some(name => name.toLocaleLowerCase() === candidate.toLocaleLowerCase())) names.push(candidate)
+  return names.slice(0, 24).map(name => {
+    const subjectFacts = facts.filter(fact => fact.canonicalCharacterName.toLocaleLowerCase() === name.toLocaleLowerCase())
+    const active = subjectFacts.filter(fact => fact.status === 'active' && fact.active !== false)
+    const identity = active.filter(fact => fact.layer === 'visual-identity').map(appearanceFactDescriptor).filter(Boolean)
+    const current = active.filter(fact => fact.layer !== 'visual-identity').map(appearanceFactDescriptor).filter(Boolean)
+    const pinned = active.filter(fact => fact.pinned).map(appearanceFactDescriptor).filter(Boolean)
+    const superseded = subjectFacts.filter(fact => fact.status === 'superseded').map(appearanceFactDescriptor).filter(Boolean)
+    const animal = [...identity, ...current].some(value => /\b(?:dog|cat|horse|animal|canine|feline|retriever|wolf|fox)\b/i.test(value))
+    return { name, role: animal ? 'animal' : 'character', identity, current, pinned, superseded, activeFactIds: active.map(fact => fact.factId) }
+  })
+}
+
+function relayPlannedContextForResponse(input: {
+  chatId: string
+  messageId: string
+  swipeId: number
+  content: string
+  state: StateFile
+  settings: ProseIllustratorSettings
+  config: RouterConfig
+}): RelayPlannedContext {
+  const references = selectProseReferenceAssets(input.state, input.chatId, input.settings, false)
+  const locationReferences = selectProseReferenceAssets(input.state, input.chatId, input.settings, true)
+  const priorIllustrations = Object.values(input.state.proseIllustrator.plans)
+    .filter(plan => plan.chatId === input.chatId && plan.messageId === input.messageId && plan.swipeId === input.swipeId)
+    .map(plan => ({ planId: plan.planId, title: plan.title, subjects: plan.namedSubjects, paragraphIndex: plan.anchor.paragraphIndex, status: plan.status }))
+  const native = nativeSnapshotFromConfig(input.config)?.settings || {}
+  return {
+    version: RELAY_PLANNED_V2,
+    chatId: input.chatId,
+    messageId: input.messageId,
+    swipeId: input.swipeId,
+    maximumIllustrations: Math.max(0, Math.min(
+      Math.max(0, input.settings.maximumIllustrationsPerMessage - countCommittedProseIllustrationsForMessage(input.state, input.chatId, input.messageId, input.swipeId) - countActiveProsePlansForMessage(input.state, input.chatId, input.messageId, input.swipeId)),
+      input.settings.maximumImages,
+      input.settings.maximumOpportunitiesPerMessage,
+    )),
+    maximumCharacters: input.settings.maximumCharacters,
+    maximumPromptCharacters: 6000,
+    perspectiveMode: input.settings.perspectiveMode,
+    defaultAspectRatio: input.settings.defaultAspectRatio,
+    promptStyle: input.settings.customPromptPrefix,
+    adultMode: adultModeFromSettings(input.config, native),
+    paragraphs: proseParagraphs(input.content).map((paragraph, index) => ({ index, text: compact(sanitizeRecentVisualContext(paragraph), 1600) })).filter(row => Boolean(row.text)),
+    subjects: relayPlannedSubjectStates(input.state, input.chatId, input.content, input.settings),
+    referenceAssetIds: references.map(asset => asset.assetId),
+    locationReferenceAssetIds: locationReferences.map(asset => asset.assetId),
+    priorIllustrations,
+    globalNegativeRequirements: [input.config.nativeNegativePrompt, input.config.additionalNegativePrompt, input.settings.customNegativePrefix].map(cleanString).filter(Boolean),
+  }
+}
+
+function relayPlannedDirectorMessages(settings: ProseIllustratorSettings, context: RelayPlannedContext): Array<{ role: 'system' | 'user'; content: string }> {
+  const referenceIds = [...context.referenceAssetIds, ...context.locationReferenceAssetIds]
+  return [
+    { role: 'system', content: registryPrompt(settings, 'relay-planned.director.system') },
+    { role: 'user', content: expandModelPromptTemplate(registryPrompt(settings, 'relay-planned.director.request'), {
+      maximumIllustrations: context.maximumIllustrations,
+      maximumCharacters: context.maximumCharacters,
+      perspectiveMode: context.perspectiveMode,
+      defaultAspectRatio: context.defaultAspectRatio,
+      promptStyle: context.promptStyle || 'provider-native visual style',
+      adultMode: context.adultMode,
+      characterContextJson: JSON.stringify(context.subjects, null, 2),
+      locationContextJson: JSON.stringify({ locationReferenceAssetIds: context.locationReferenceAssetIds }, null, 2),
+      referenceAssetsJson: JSON.stringify(referenceIds.map(id => ({ assetId: id })), null, 2),
+      priorIllustrationsJson: JSON.stringify(context.priorIllustrations, null, 2),
+      globalNegativeRequirementsJson: JSON.stringify(context.globalNegativeRequirements, null, 2),
+      paragraphsJson: JSON.stringify(context.paragraphs, null, 2),
+    }) },
+  ]
+}
+
+function relayPlannedRepairMessages(
+  settings: ProseIllustratorSettings,
+  context: RelayPlannedContext,
+  illustration: RelayPlannedIllustration,
+  validationErrors: string[],
+): Array<{ role: 'system' | 'user'; content: string }> {
+  return [
+    { role: 'system', content: registryPrompt(settings, 'relay-planned.repair-parser.system') },
+    { role: 'user', content: expandModelPromptTemplate(registryPrompt(settings, 'relay-planned.repair-parser.request'), {
+      validationErrorsJson: JSON.stringify(validationErrors, null, 2),
+      sourceParagraphsJson: JSON.stringify(context.paragraphs, null, 2),
+      subjectStateJson: JSON.stringify(context.subjects, null, 2),
+      referenceAssetsJson: JSON.stringify([...context.referenceAssetIds, ...context.locationReferenceAssetIds].map(assetId => ({ assetId })), null, 2),
+      proposedIllustrationJson: JSON.stringify(illustration, null, 2),
+    }) },
+  ]
+}
+
+function relayPlannedOpportunity(
+  input: { chatId: string; messageId: string; swipeId: number; content: string },
+  settings: ProseIllustratorSettings,
+  context: RelayPlannedContext,
+  illustration: RelayPlannedIllustration,
+  meta: { connectionId: string; model: string; settingsFingerprint: string; sourceFingerprint: string; raw: Record<string, unknown>; warnings: string[] },
+): ProseIllustrationOpportunity {
+  const compiled = compileRelayPlannedPrompt(illustration, context, {
+    stylePrefix: settings.customPromptPrefix,
+    qualitySuffix: settings.highResolutionModifier ? 'high-resolution polished rendering, refined detail, consistent identity' : '',
+    globalNegative: settings.customNegativePrefix,
+  })
+  const namedSubjects = illustration.namedSubjects
+  const limited = enforceMaximumCharacters(namedSubjects, settings.maximumCharacters)
+  const now = Date.now()
+  const opportunityId = `opp-${contentFingerprint(`${input.chatId}:${input.messageId}:${input.swipeId}:${meta.sourceFingerprint}:${illustration.rank}:${illustration.anchor.paragraphIndex}:${illustration.title}`).replace(/[^a-z0-9]/gi, '-')}`
+  const subjectNames = new Set(namedSubjects.map(name => name.toLocaleLowerCase()))
+  const activeFactIds = context.subjects
+    .filter(subject => subjectNames.has(subject.name.toLocaleLowerCase()))
+    .flatMap(subject => subject.activeFactIds || [])
+  const composition: ProsePromptComposition = {
+    composerConnectionId: null,
+    composerModel: 'relay-local-compiler',
+    composedAt: now,
+    sceneBrief: illustration.promptCore,
+    positivePrompt: compiled.positivePrompt,
+    negativePrompt: compiled.negativePrompt,
+    framing: [illustration.composition.shotType, illustration.composition.cameraAngle, illustration.composition.framing, illustration.composition.blocking].filter(Boolean).join(', '),
+    perspectiveMode: settings.perspectiveMode,
+    peoplePolicy: illustration.expectedPeopleCount > 0 ? 'required' : 'forbidden',
+    expectedPeopleCount: illustration.expectedPeopleCount,
+    namedSubjects: limited.kept,
+    omittedSubjects: [...new Set([...illustration.omittedSubjects, ...limited.omitted])],
+    backgroundPeople: illustration.composition.backgroundPeople,
+    location: illustration.composition.location,
+    importantProps: illustration.composition.importantProps,
+    continuityFactIdsUsed: [...new Set(activeFactIds)],
+    referenceAssetIdsUsed: illustration.referenceAssetIds,
+    locationReferenceAssetIdsUsed: illustration.locationReferenceAssetIds,
+    highResolutionModifier: settings.highResolutionModifier,
+    candidateCount: settings.defaultCandidateCount,
+    imageAlignment: settings.imageAlignment,
+    imageSize: settings.imageSize,
+    warnings: [...new Set([...meta.warnings, ...compiled.warnings])],
+    rawOutput: { plannerVersion: RELAY_PLANNED_V2, director: meta.raw, illustration },
+  }
+  return {
+    opportunityId,
+    chatId: input.chatId,
+    messageId: input.messageId,
+    swipeId: input.swipeId,
+    sourceContentFingerprint: meta.sourceFingerprint,
+    settingsFingerprint: meta.settingsFingerprint,
+    plannerVersion: RELAY_PLANNED_V2,
+    status: 'proposed',
+    title: illustration.title,
+    reason: illustration.reason || 'Illustration Director selected this visual beat.',
+    sceneSummary: illustration.promptCore,
+    selectedExcerpt: illustration.anchor.anchorExcerpt,
+    paragraphIndex: illustration.anchor.paragraphIndex,
+    insertionSide: illustration.anchor.insertionSide,
+    composition: [illustration.composition.shotType, illustration.composition.cameraAngle, illustration.composition.framing, illustration.composition.blocking].filter(Boolean).join(', '),
+    peoplePolicy: composition.peoplePolicy,
+    expectedPeopleCount: illustration.expectedPeopleCount,
+    namedSubjects: limited.kept,
+    omittedSubjects: composition.omittedSubjects,
+    backgroundPeople: illustration.composition.backgroundPeople,
+    location: illustration.composition.location,
+    timeOfDay: illustration.composition.timeOfDay,
+    mood: illustration.composition.mood,
+    importantProps: illustration.composition.importantProps,
+    recommendedProfileId: settings.defaultPromptProfileId,
+    recommendedAspectRatio: illustration.aspectRatio,
+    visualPlan: { plannerVersion: RELAY_PLANNED_V2, illustration },
+    promptComposition: composition,
+    continuityFactIds: composition.continuityFactIdsUsed,
+    referenceAssetIds: illustration.referenceAssetIds,
+    locationReferenceAssetIds: illustration.locationReferenceAssetIds,
+    confidence: Math.max(0.1, 1 - ((illustration.rank - 1) * 0.1)),
+    sidecarConnectionId: meta.connectionId,
+    sidecarModel: meta.model,
+    sidecarOutput: meta.raw,
+    contextSummary: { plannerVersion: RELAY_PLANNED_V2, contextIdentity: { chatId: context.chatId, messageId: context.messageId, swipeId: context.swipeId } },
+    createdAt: now,
+    updatedAt: now,
+    warning: meta.warnings.join(' ') || undefined,
+  }
+}
+
+async function analyzeRelayPlannedResponse(input: {
+  chatId: string
+  messageId: string
+  swipeId: number
+  content: string
+  state: StateFile
+  settings: ProseIllustratorSettings
+  config: RouterConfig
+  userId?: string
+  dryRun?: boolean
+}): Promise<RelayPlannedAnalysis> {
+  if (!input.settings.plannerConnectionId) throw new Error('Illustration Director unavailable. Configure a Relay-Planned connection.')
+  const connection = await spindle.connections.get(input.settings.plannerConnectionId, input.userId)
+  if (!connection) throw new Error('Relay-Planned Illustration Director connection not found.')
+  const context = relayPlannedContextForResponse(input)
+  const directorMessages = relayPlannedDirectorMessages(input.settings, context)
+  const telemetry: RelayPlannedStageTelemetry[] = [{ ...measureModelMessages('relay-planned-director', directorMessages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 }]
+  const modelConfig = { ...input.config, debugLogging: input.dryRun ? false : input.config.debugLogging, parserModel: input.settings.plannerModel || connection.model, parserParameters: input.settings.plannerParameters }
+  const rawDirectorOutput = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, directorMessages, input.userId, input.chatId, undefined, 'relay-planned-director')
+  let validated = validateRelayPlannedDirectorResult(rawDirectorOutput, context)
+  let repairCalls = 0
+  const finalIllustrations: Array<{ illustration: RelayPlannedIllustration; warnings: string[] }> = []
+  for (const row of validated.shouldIllustrate ? validated.illustrations : []) {
+    if (row.rejected) continue
+    if (!row.requiresRepair) {
+      finalIllustrations.push({ illustration: row.illustration, warnings: row.issues.map(issue => issue.message) })
+      continue
+    }
+    const repairMessages = relayPlannedRepairMessages(input.settings, context, row.illustration, row.issues.filter(issue => issue.repair === 'ambiguous').map(issue => `${issue.code}: ${issue.message}`))
+    telemetry.push({ ...measureModelMessages('relay-planned-repair-parser', repairMessages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 })
+    repairCalls += 1
+    const repairedRaw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, repairMessages, input.userId, input.chatId, undefined, 'relay-planned-repair-parser')
+    const repair = relayPlannedJson(repairedRaw, 'Illustration Plan Repair Parser')
+    if (repair.repairable !== true || !repair.illustration) continue
+    const repairedEnvelope = JSON.stringify({ shouldIllustrate: true, reason: validated.reason, illustrations: [repair.illustration] })
+    const repaired = validateRelayPlannedDirectorResult(repairedEnvelope, context).illustrations[0]
+    if (!repaired || repaired.rejected || repaired.requiresRepair) continue
+    finalIllustrations.push({ illustration: repaired.illustration, warnings: [...row.issues.map(issue => issue.message), ...repaired.issues.map(issue => issue.message), 'Repair Parser resolved structural ambiguity.'] })
+  }
+  const parsedDirector = relayPlannedJson(rawDirectorOutput, 'Illustration Director')
+  const sourceFingerprint = contentFingerprint(input.content)
+  const settingsFingerprint = proseOpportunitySettingsFingerprint(input.settings)
+  const opportunities = finalIllustrations.map(row => relayPlannedOpportunity(input, input.settings, context, row.illustration, {
+    connectionId: connection.id,
+    model: input.settings.plannerModel || connection.model,
+    settingsFingerprint,
+    sourceFingerprint,
+    raw: parsedDirector,
+    warnings: row.warnings,
+  }))
+  return { context, opportunities, directorReason: validated.reason, telemetry, rawDirectorOutput, repairCalls }
+}
+
 async function discoverProseOpportunities(input: {
   chatId: string
   messageId: string
@@ -2743,10 +3023,12 @@ async function discoverProseOpportunities(input: {
       return []
     }
   }
-  await ensureAppearanceReadyForTurn({
+  // Appearance refresh is opportunistic. Relay-Planned compiles from the latest
+  // persisted snapshot and must never make image planning wait on Sidecar I/O.
+  void ensureAppearanceReadyForTurn({
     chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
     content: input.content, userId: input.userId, reason: `prose-opportunity:${input.source}`,
-  })
+  }).catch(error => spindle.log.warn(`[Reverie Relay:appearance-nonblocking] ${error instanceof Error ? error.message : String(error)}`))
   const operationKey = `prose:${input.chatId}`
   const queueTaskId = `analysis:${input.chatId}:${input.messageId}:${input.swipeId}`
   const operationSerial = captureAbortableOperation(operationKey)
@@ -2813,34 +3095,18 @@ async function discoverProseOpportunities(input: {
     appendStateLog(next, {
       severity: 'info', stage: 'prose-opportunity-discovery', eventType: 'prose_opportunity_analysis_started',
       chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
-      message: 'Sidecar opportunity discovery started.',
-      details: { source: input.source, settingsFingerprint, sourceFingerprint, plannerVersion: PROSE_OPPORTUNITY_PLANNER_VERSION },
+        message: 'Relay-Planned Illustration Director started.',
+        details: { source: input.source, settingsFingerprint, sourceFingerprint, plannerVersion: RELAY_PLANNED_V2 },
     })
   })
   await sendState(input.userId, input.chatId)
 
   try {
-    const connection = await spindle.connections.get(settings.plannerConnectionId, input.userId)
-    if (!connection) throw new Error('Prose Illustrator Sidecar connection not found.')
-    const messages = await buildProseOpportunityMessages(input.chatId, input.messageId, input.swipeId, input.content, settings, input.userId)
-    assertAbortableOperationCurrent(operationKey, operationSerial)
-    const raw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, {
-      ...config,
-      parserModel: settings.plannerModel || connection.model,
-      parserParameters: settings.plannerParameters,
-    }, messages, input.userId, input.chatId, undefined, 'opportunity')
-    assertAbortableOperationCurrent(operationKey, operationSerial)
-    const parsed = parseProseOpportunityJson(raw)
-    const opportunities = normalizeProseOpportunities(input, settings, parsed, {
-      connectionId: connection.id,
-      model: settings.plannerModel || connection.model,
-      settingsFingerprint,
-      sourceFingerprint,
-    })
+    const analysis = await analyzeRelayPlannedResponse({ ...input, state, settings, config })
     assertAbortableOperationCurrent(operationKey, operationSerial)
     const accepted: ProseIllustrationOpportunity[] = []
     await mutateState(input.chatId, input.userId, next => {
-      for (const opportunity of opportunities) {
+      for (const opportunity of analysis.opportunities) {
         next.proseIllustrator.opportunities[opportunity.opportunityId] = opportunity
         accepted.push(opportunity)
       }
@@ -2854,8 +3120,8 @@ async function discoverProseOpportunities(input: {
         stage: 'prose-opportunity-discovery',
         eventType: 'prose_opportunity_analysis_completed',
         chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
-        message: accepted.length ? `Sidecar found ${accepted.length} Prose Illustrator opportunit${accepted.length === 1 ? 'y' : 'ies'}.` : 'Sidecar found no strong Prose Illustrator opportunity.',
-        details: { raw: parsed, accepted, ignoredCount: opportunities.length - accepted.length },
+        message: accepted.length ? `Illustration Director selected ${accepted.length} visual beat${accepted.length === 1 ? '' : 's'}.` : 'Illustration Director selected no visual beat.',
+        details: { plannerVersion: RELAY_PLANNED_V2, directorReason: analysis.directorReason, accepted, repairCalls: analysis.repairCalls, telemetry: analysis.telemetry },
       })
     })
     await sendState(input.userId, input.chatId)
@@ -2889,8 +3155,8 @@ async function discoverProseOpportunities(input: {
       const failedId = `opp-failed-${contentFingerprint(`${idempotenceKey}:${message}`).replace(/[^a-z0-9]/gi, '-')}`
       next.proseIllustrator.opportunities[failedId] = {
         opportunityId: failedId, chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
-        sourceContentFingerprint: sourceFingerprint, settingsFingerprint, plannerVersion: PROSE_OPPORTUNITY_PLANNER_VERSION,
-        status: 'failed-analysis', title: 'Sidecar analysis failed', reason: message, sceneSummary: '', selectedExcerpt: '',
+        sourceContentFingerprint: sourceFingerprint, settingsFingerprint, plannerVersion: RELAY_PLANNED_V2,
+        status: 'failed-analysis', title: 'Illustration Director analysis failed', reason: message, sceneSummary: '', selectedExcerpt: '',
         paragraphIndex: 0, insertionSide: 'after', composition: '', peoplePolicy: 'allowed', expectedPeopleCount: 0,
         namedSubjects: [], omittedSubjects: [], backgroundPeople: '', location: '', timeOfDay: '', mood: '',
         importantProps: [], recommendedProfileId: settings.defaultPromptProfileId, recommendedAspectRatio: settings.defaultAspectRatio,
@@ -2901,7 +3167,7 @@ async function discoverProseOpportunities(input: {
       appendStateLog(next, {
         severity: 'error', stage: 'prose-opportunity-discovery', eventType: 'prose_opportunity_analysis_failed',
         chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, errorMessage: message,
-        message: 'Sidecar opportunity discovery failed.',
+        message: 'Relay-Planned Illustration Director failed.',
       })
     })
     await sendState(input.userId, input.chatId)
@@ -4019,7 +4285,86 @@ async function handleDryRun(payload: Extract<FrontendMessage, { type: 'dry_run' 
   const chatId = cleanNullableString(payload.chatId)
   const config = await getConfig(userId)
   let report: DryRunReport
-  if (payload.kind === 'prose-plan') {
+  if (payload.kind === 'relay-planned') {
+    if (!chatId) throw new Error('An active chat is required for Relay-Planned Dry Run.')
+    const message = await resolveMessage(chatId, payload.messageId)
+    if (!message) throw new Error('No eligible assistant response was found for Relay-Planned Dry Run.')
+    const swipeId = Number.isFinite(Number(payload.swipeId)) ? Number(payload.swipeId) : activeSwipeId(message)
+    const content = strictSwipeContent(message, swipeId)
+    const state = await getState(chatId, userId)
+    const settings = proseSettingsForChat(state, chatId)
+    const analysis = await analyzeRelayPlannedResponse({ chatId, messageId: message.id, swipeId, content, state, settings, config, userId, dryRun: true })
+    const stageTelemetry = analysis.telemetry.map(stage => ({ workflow: stage.workflow, chars: stage.chars, bytes: stage.bytes, estimatedInputTokens: stage.estimatedInputTokens, modelCalls: stage.modelCalls }))
+    const telemetry = {
+      stages: stageTelemetry,
+      totalChars: stageTelemetry.reduce((sum, stage) => sum + stage.chars, 0),
+      totalBytes: stageTelemetry.reduce((sum, stage) => sum + stage.bytes, 0),
+      estimatedInputTokens: stageTelemetry.reduce((sum, stage) => sum + stage.estimatedInputTokens, 0),
+      modelCalls: stageTelemetry.reduce((sum, stage) => sum + stage.modelCalls, 0),
+      imageGenerationCalls: 0 as const,
+    }
+    if (!analysis.opportunities.length) {
+      const connection = settings.plannerConnectionId ? await spindle.connections.get(settings.plannerConnectionId, userId) : null
+      report = {
+        id: `dry-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        kind: 'relay-planned',
+        generatedAt: Date.now(),
+        chatId,
+        title: 'Relay-Planned 2.0 Dry Run',
+        origin: 'relay-planned-2',
+        prompt: '',
+        negativePrompt: '',
+        subjects: [],
+        peoplePolicy: 'none',
+        vaultFacts: [],
+        connectionId: connection?.id || settings.plannerConnectionId,
+        connectionName: connection?.name || '',
+        provider: connection?.provider || '',
+        model: settings.plannerModel || connection?.model || '',
+        loras: [],
+        aspectRatio: settings.defaultAspectRatio,
+        width: null,
+        height: null,
+        anchor: null,
+        galleryDestination: 'No image selected',
+        warnings: [analysis.directorReason, 'Simulation only. The Director selected zero illustrations; no image-provider request exists.', ...(config.autoGenerate ? [] : ['Auto Generate is off; production provider dispatch would be suppressed.'])],
+        simulationOnly: true,
+        productionDispatchSuppressed: !config.autoGenerate,
+        telemetry,
+        finalParameters: {},
+        finalRequestPreview: { dryRun: true, generated: false, plannerVersion: RELAY_PLANNED_V2, imageGenerationCalls: 0, directorReason: analysis.directorReason, requests: [] },
+      }
+    } else {
+      const previews: DryRunReport[] = []
+      for (const opportunity of analysis.opportunities) {
+        const planRecord = planFromOpportunity(opportunity, content, settings, opportunity.promptComposition as ProsePromptComposition)
+        const job = jobFromProsePlan(planRecord, '')
+        const imagePlan = await prepareImagePlan(config, job, {} as SlotRecord, nativeSnapshot, userId, planRecord.highResolutionModifier)
+        previews.push(dryRunReportFromPlan({
+          kind: 'relay-planned', chatId, title: planRecord.title || 'Relay-Planned Dry Run', origin: 'relay-planned-2',
+          prompt: planRecord.promptComposition?.positivePrompt || planRecord.sceneBrief,
+          negativePrompt: planRecord.promptComposition?.negativePrompt || '',
+          subjects: planRecord.namedSubjects, peoplePolicy: planRecord.peoplePolicy, plan: imagePlan,
+          anchor: planRecord.anchor as unknown as Record<string, unknown>, warnings: planRecord.warnings,
+          galleryDestination: 'Current character Gallery',
+        }))
+      }
+      report = previews[0]
+      report.title = `Relay-Planned 2.0 Dry Run · ${previews.length} proposed`
+      report.simulationOnly = true
+      report.productionDispatchSuppressed = !config.autoGenerate
+      report.telemetry = telemetry
+      report.warnings = [...report.warnings, 'Simulation only. No message, queue, Gallery, or image-provider state was changed.', ...(config.autoGenerate ? [] : ['Auto Generate is off; production provider dispatch would be suppressed.'])]
+      report.finalRequestPreview = {
+        dryRun: true,
+        generated: false,
+        plannerVersion: RELAY_PLANNED_V2,
+        imageGenerationCalls: 0,
+        directorReason: analysis.directorReason,
+        requests: previews.map(item => item.finalRequestPreview),
+      }
+    }
+  } else if (payload.kind === 'prose-plan') {
     if (!chatId || !payload.planId) throw new Error('A prose plan is required for Dry Run.')
     const state = await getState(chatId, userId)
     const planRecord = state.proseIllustrator.plans[payload.planId]
@@ -7876,6 +8221,31 @@ async function planProseIllustrationForMessage(
   const swipeId = Number.isFinite(Number(swipeIdInput)) ? Number(swipeIdInput) : activeSwipeId(message)
   const content = contentOverride || strictSwipeContent(message, swipeId)
   if (!isEligibleProseContent(content, settings)) throw new Error('Selected message is not eligible for Prose Illustrator planning.')
+  if (mode === 'relay-planned') {
+    const config = await getConfig(userId)
+    const analysis = await analyzeRelayPlannedResponse({ chatId, messageId: message.id, swipeId, content, state, settings, config, userId })
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    if (!analysis.opportunities.length) {
+      const declined = normalizeProsePlan(chatId, message.id, swipeId, content, settings, {
+        shouldIllustrate: false,
+        reason: analysis.directorReason,
+        selectedExcerpt: proseParagraphs(content)[0] || compact(content, 400),
+      }, {
+        mode,
+        planningConnectionId: settings.plannerConnectionId,
+        planningModel: settings.plannerModel,
+        plannerOutput: relayPlannedJson(analysis.rawDirectorOutput, 'Illustration Director'),
+        source: 'planner',
+      })
+      declined.plannerVersion = RELAY_PLANNED_V2
+      await mutateState(chatId, userId, next => storeProsePlan(next, declined))
+      return declined
+    }
+    await mutateState(chatId, userId, next => {
+      for (const opportunity of analysis.opportunities) next.proseIllustrator.opportunities[opportunity.opportunityId] = opportunity
+    })
+    return selectProseOpportunity(chatId, analysis.opportunities[0].opportunityId, userId)
+  }
   if (!settings.plannerConnectionId) throw new Error('Planner unavailable. Select a Prose Illustrator planner connection or use Model-Placed mode with the preset prompt.')
   const paragraphs = proseParagraphs(content)
   const plannerMessages = await buildProsePlannerMessages(chatId, message.id, swipeId, content, paragraphs, settings, userId)
@@ -7894,7 +8264,7 @@ async function planProseIllustrationForMessage(
     planningConnectionId: connection.id,
     planningModel: settings.plannerModel || connection.model,
     plannerOutput: parsed,
-    source: mode === 'relay-planned' ? 'auto' : 'planner',
+    source: 'planner',
   })
   assertAbortableOperationCurrent(operationKey, operationSerial)
   await mutateState(chatId, userId, next => storeProsePlan(next, plan))
@@ -7935,7 +8305,7 @@ async function selectProseOpportunity(chatId: string, opportunityId: string, use
     throw new StaleOpportunityError('That illustration candidate was stale and has been removed. Relay can plan a fresh candidate from the current content.')
   }
   const settings = proseSettingsForChat(state, chatId)
-  const composition = await composePromptForOpportunity(chatId, opportunity, content, settings, userId)
+  const composition = opportunity.promptComposition || await composePromptForOpportunity(chatId, opportunity, content, settings, userId)
   const plan = planFromOpportunity(opportunity, content, settings, composition)
   await mutateState(chatId, userId, next => {
     const stored = next.proseIllustrator.opportunities[opportunityId]
@@ -8169,6 +8539,7 @@ function planFromOpportunity(
     messageId: opportunity.messageId,
     swipeId: opportunity.swipeId,
     opportunityId: opportunity.opportunityId,
+    plannerVersion: opportunity.plannerVersion,
     mode: settings.mode,
     shouldIllustrate: true,
     reason: opportunity.reason,
@@ -8266,7 +8637,7 @@ async function generateProseIllustrationPlan(chatId: string, planId: string, nat
     spindle.sendToFrontend({ type: 'relay_notice', level: 'warning', message: `Illustration limit reached for this message (${settings.maximumIllustrationsPerMessage}). Remove an existing illustration or raise the limit.` }, userId)
     return
   }
-  if (!plan.promptComposition && plan.opportunityId && settings.plannerConnectionId) {
+  if (!plan.promptComposition && plan.plannerVersion !== RELAY_PLANNED_V2 && plan.opportunityId && settings.plannerConnectionId) {
     const opportunity = state.proseIllustrator.opportunities[plan.opportunityId]
     const messageForCompose = await resolveMessage(chatId, plan.messageId)
     if (opportunity && messageForCompose) {
@@ -9929,6 +10300,14 @@ function normalizeProseOpportunity(id: string, value: unknown): ProseIllustratio
     recommendedProfileId: cleanString(raw.recommendedProfileId) || cleanString(raw.profileId) || 'auto',
     recommendedAspectRatio: cleanString(raw.recommendedAspectRatio) || '16:9',
     visualPlan: cleanParameters(raw.visualPlan),
+    promptComposition: raw.promptComposition && typeof raw.promptComposition === 'object'
+      ? {
+          ...(raw.promptComposition as ProsePromptComposition),
+          perspectiveMode: cleanString((raw.promptComposition as Record<string, unknown>).perspectiveMode)
+            ? normalizeProsePerspectiveMode((raw.promptComposition as Record<string, unknown>).perspectiveMode)
+            : undefined,
+        }
+      : undefined,
     continuityFactIds: stringList(raw.continuityFactIds),
     referenceAssetIds: stringList(raw.referenceAssetIds),
     locationReferenceAssetIds: stringList(raw.locationReferenceAssetIds),
@@ -10713,6 +11092,7 @@ export async function parseSlotPrompt(
     if (!config.parserConnectionId) return buildAuthoritativeVisualPrompt(job, slot, config, context, nativeSettings, 'Skipped — No Parser connection configured')
   }
   if (job.composedPositivePrompt?.trim()) {
+    const locallyCompiledRelayPlan = job.prosePromptComposition?.rawOutput?.plannerVersion === RELAY_PLANNED_V2
     const classification = classifyImageRequest(job)
     const profile = resolvePromptProfileDecision(job, config)
     const humanPolicy = targetHumanPolicy(job, classification)
@@ -10760,11 +11140,13 @@ export async function parseSlotPrompt(
       parserRequest: [],
       rawParserResponse: JSON.stringify(job.prosePromptComposition || {}),
       parsedPositivePrompt: positivePrompt,
-      parserRequested: true,
-      parserSucceeded: true,
+      parserRequested: !locallyCompiledRelayPlan,
+      parserSucceeded: !locallyCompiledRelayPlan,
       parserFailed: false,
       parserFallbackUsed: false,
-      parserDecision: 'Used — Relay-Planned composed prompt',
+      parserDecision: locallyCompiledRelayPlan
+        ? 'Skipped — Relay-Planned 2.0 local compiler produced the provider prompt'
+        : 'Skipped — Relay-Planned legacy composition supplied a provider prompt',
       unresolvedMacros: [],
       requestClassification: classification,
       detectedTargetClass: humanPolicy.targetClass,
@@ -10810,9 +11192,11 @@ export async function parseSlotPrompt(
     return {
       prompt: positivePrompt,
       negativePrompt: negative.negative,
-      promptMode: `sidecar_prompt_composer:${PROSE_PROMPT_COMPOSER_VERSION}`,
+      promptMode: locallyCompiledRelayPlan
+        ? `relay_planned_local_compiler:${RELAY_PLANNED_V2}`
+        : `sidecar_prompt_composer:${PROSE_PROMPT_COMPOSER_VERSION}`,
       promptPresetId: job.promptProfileId || config.nativePromptPresetId,
-      parserUsed: true,
+      parserUsed: !locallyCompiledRelayPlan,
       parserOutput: JSON.stringify(job.prosePromptComposition || {}),
       parserConnectionId: job.prosePromptComposition?.composerConnectionId || null,
       parserModel: job.prosePromptComposition?.composerModel || '',

@@ -139524,7 +139524,13 @@ Relay will not generate these without approval.`;
     if (settings.mode === "off") {
       actions.append(button("Enable Model-Placed", () => patchProseSettings({ mode: "model-placed", enabled: true }), false, "primary"));
     } else if (settings.mode === "relay-planned") {
-      actions.append(button(settings.paused ? "Resume Relay-Planned" : "Pause Relay-Planned", () => sendProseAction({ action: settings.paused ? "resume_auto" : "pause_auto" }), !activeChatId, settings.paused ? "primary" : "subtle"), button("Plan Latest Once", () => sendProseAction({ action: "plan_latest" }), !activeChatId || !settings.plannerConnectionId, "primary"));
+      actions.append(button(settings.paused ? "Resume Relay-Planned" : "Pause Relay-Planned", () => sendProseAction({ action: settings.paused ? "resume_auto" : "pause_auto" }), !activeChatId, settings.paused ? "primary" : "subtle"), button("Plan Latest Once", () => sendProseAction({ action: "plan_latest" }), !activeChatId || !settings.plannerConnectionId, "primary"), button("Relay-Planned Dry Run", () => void fetchNativeSettingsSnapshot(true).then((snapshot) => ctx.sendToBackend({
+        type: "dry_run",
+        chatId: activeChatId,
+        kind: "relay-planned",
+        nativeImageSettings: snapshot?.settings,
+        nativeSettingsCapturedAt: snapshot?.capturedAt
+      })), !activeChatId || !settings.plannerConnectionId, "subtle", "Runs the real Director, validator, optional repair, and local compiler without generating or inserting images."));
     } else {
       actions.append(button("Copy Preset Prompt", () => void copyText(REVERIE_ILLUSTRATION_PROTOCOL, "Full Model-Placed preset prompt copied"), false, "primary"), button("Copy Macro", () => void copyText("{{reverie_illustration_protocol}}", "Illustrator macro copied"), false, "subtle"));
     }
@@ -140432,7 +140438,7 @@ Model enumeration unavailable; Relay can only show models exposed by configured 
     body.className = "dg-modal-body";
     const banner = document.createElement("div");
     banner.className = "dg-recovery-note";
-    banner.textContent = "No image was generated. This is the exact request Relay would send after resolution.";
+    banner.textContent = report.simulationOnly ? "Simulation only. Relay ran the planning pipeline but did not generate, queue, insert, or link an image." : "No image was generated. This is the exact request Relay would send after resolution.";
     const summary = document.createElement("div");
     summary.className = "dg-meta-grid";
     const rows2 = [
@@ -140442,7 +140448,8 @@ Model enumeration unavailable; Relay can only show models exposed by configured 
       ["Size", `${report.aspectRatio || "native"} · ${report.width || "?"}×${report.height || "?"}`],
       ["Subjects", report.subjects.join(", ") || "None resolved"],
       ["People policy", report.peoplePolicy || "auto"],
-      ["Gallery destination", report.galleryDestination]
+      ["Gallery destination", report.galleryDestination],
+      ...report.telemetry ? [["Model calls", String(report.telemetry.modelCalls)], ["Estimated input tokens", String(report.telemetry.estimatedInputTokens)], ["Image generation calls", "0"]] : []
     ];
     for (const [labelText, value] of rows2) {
       const label = document.createElement("div");
@@ -140474,6 +140481,11 @@ ${report.anchor ? JSON.stringify(report.anchor, null, 2) : "None"}
 WARNINGS
 ${report.warnings.join(`
 `) || "None"}`;
+    const telemetry = document.createElement("pre");
+    telemetry.className = "dg-pre";
+    telemetry.textContent = report.telemetry ? `PIPELINE TELEMETRY
+${JSON.stringify(report.telemetry, null, 2)}` : `PIPELINE TELEMETRY
+Not recorded`;
     const details = document.createElement("details");
     details.className = "dg-manage";
     const detailsSummary = document.createElement("summary");
@@ -140485,7 +140497,7 @@ ${report.warnings.join(`
     const actions = document.createElement("div");
     actions.className = "dg-actions";
     actions.append(button("Copy Dry Run", () => void copyText(JSON.stringify(report, null, 2), "Dry Run copied."), false, "subtle"), button("Close", () => modal.dismiss(), false, "primary"));
-    body.append(banner, summary, prompt, details, actions);
+    body.append(banner, summary, prompt, telemetry, details, actions);
     modal.root.appendChild(body);
   }
   function openGenerationBlockers(scope, blockers) {

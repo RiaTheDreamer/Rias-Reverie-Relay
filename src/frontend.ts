@@ -3945,6 +3945,10 @@ memory: [['genetics', 'Appearance Memory']],
       actions.append(
         button(settings.paused ? 'Resume Relay-Planned' : 'Pause Relay-Planned', () => sendProseAction({ action: settings.paused ? 'resume_auto' : 'pause_auto' }), !activeChatId, settings.paused ? 'primary' : 'subtle'),
         button('Plan Latest Once', () => sendProseAction({ action: 'plan_latest' }), !activeChatId || !settings.plannerConnectionId, 'primary'),
+        button('Relay-Planned Dry Run', () => void fetchNativeSettingsSnapshot(true).then(snapshot => ctx.sendToBackend({
+          type: 'dry_run', chatId: activeChatId, kind: 'relay-planned',
+          nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt,
+        })), !activeChatId || !settings.plannerConnectionId, 'subtle', 'Runs the real Director, validator, optional repair, and local compiler without generating or inserting images.'),
       )
     } else {
       actions.append(
@@ -4800,7 +4804,9 @@ memory: [['genetics', 'Appearance Memory']],
     modal.root.classList.add('dg-router-panel', 'dg-modal-host')
     const body = document.createElement('div'); body.className = 'dg-modal-body'
     const banner = document.createElement('div'); banner.className = 'dg-recovery-note'
-    banner.textContent = 'No image was generated. This is the exact request Relay would send after resolution.'
+    banner.textContent = report.simulationOnly
+      ? 'Simulation only. Relay ran the planning pipeline but did not generate, queue, insert, or link an image.'
+      : 'No image was generated. This is the exact request Relay would send after resolution.'
     const summary = document.createElement('div'); summary.className = 'dg-meta-grid'
     const rows: Array<[string, string]> = [
       ['Origin', report.origin],
@@ -4810,6 +4816,7 @@ memory: [['genetics', 'Appearance Memory']],
       ['Subjects', report.subjects.join(', ') || 'None resolved'],
       ['People policy', report.peoplePolicy || 'auto'],
       ['Gallery destination', report.galleryDestination],
+      ...(report.telemetry ? [['Model calls', String(report.telemetry.modelCalls)], ['Estimated input tokens', String(report.telemetry.estimatedInputTokens)], ['Image generation calls', '0']] as Array<[string, string]> : []),
     ]
     for (const [labelText, value] of rows) {
       const label = document.createElement('div'); label.className = 'dg-meta-label'; label.textContent = labelText
@@ -4817,13 +4824,15 @@ memory: [['genetics', 'Appearance Memory']],
       summary.append(label, cell)
     }
 const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; prompt.textContent = `POSITIVE PROMPT\n${report.prompt || '(empty)'}\n\nNEGATIVE PROMPT\n${report.negativePrompt || '(empty)'}\n\nLORAS\n${report.loras.map(row => `${row.name} @ ${row.weightModel}${row.weightClip !== undefined ? ` / clip ${row.weightClip}` : ''}`).join('\n') || 'None'}\n\nAPPEARANCE MEMORY\n${report.vaultFacts.map(row => `${row.character} · ${row.layer}: ${row.value}`).join('\n') || 'None'}\n\nANCHOR\n${report.anchor ? JSON.stringify(report.anchor, null, 2) : 'None'}\n\nWARNINGS\n${report.warnings.join('\n') || 'None'}`
+    const telemetry = document.createElement('pre'); telemetry.className = 'dg-pre'
+    telemetry.textContent = report.telemetry ? `PIPELINE TELEMETRY\n${JSON.stringify(report.telemetry, null, 2)}` : 'PIPELINE TELEMETRY\nNot recorded'
     const details = document.createElement('details'); details.className = 'dg-manage'
     const detailsSummary = document.createElement('summary'); detailsSummary.textContent = 'Resolved parameters and request JSON'
     const raw = document.createElement('pre'); raw.className = 'dg-pre'; raw.textContent = JSON.stringify({ parameters: report.finalParameters, request: report.finalRequestPreview }, null, 2)
     details.append(detailsSummary, raw)
     const actions = document.createElement('div'); actions.className = 'dg-actions'
     actions.append(button('Copy Dry Run', () => void copyText(JSON.stringify(report, null, 2), 'Dry Run copied.'), false, 'subtle'), button('Close', () => modal.dismiss(), false, 'primary'))
-    body.append(banner, summary, prompt, details, actions); modal.root.appendChild(body)
+    body.append(banner, summary, prompt, telemetry, details, actions); modal.root.appendChild(body)
   }
 
   function openGenerationBlockers(scope: string, blockers: GenerationBlocker[]): void {

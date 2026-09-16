@@ -167,7 +167,7 @@ export type GalleryLinkRequest = {
 
 export type DryRunReport = {
   id: string
-  kind: 'slot' | 'prose-plan'
+  kind: 'slot' | 'prose-plan' | 'relay-planned'
   generatedAt: number
   chatId: string | null
   title: string
@@ -188,6 +188,16 @@ export type DryRunReport = {
   anchor: Record<string, unknown> | null
   galleryDestination: string
   warnings: string[]
+  simulationOnly?: boolean
+  productionDispatchSuppressed?: boolean
+  telemetry?: {
+    stages: Array<{ workflow: string; chars: number; bytes: number; estimatedInputTokens: number; modelCalls: number }>
+    totalChars: number
+    totalBytes: number
+    estimatedInputTokens: number
+    modelCalls: number
+    imageGenerationCalls: 0
+  }
   finalParameters: Record<string, unknown>
   finalRequestPreview: Record<string, unknown>
 }
@@ -468,6 +478,7 @@ export type ProseIllustrationOpportunity = {
   recommendedProfileId: PromptProfileId
   recommendedAspectRatio: string
   visualPlan?: Record<string, unknown>
+  promptComposition?: ProsePromptComposition
   continuityFactIds: string[]
   referenceAssetIds: string[]
   locationReferenceAssetIds: string[]
@@ -517,6 +528,7 @@ export type ProseIllustrationPlan = {
   messageId: string
   swipeId: number
   opportunityId?: string
+  plannerVersion?: string
   mode: ProseIllustratorMode
   perspectiveMode?: ProseIllustratorPerspectiveMode
   shouldIllustrate: boolean
