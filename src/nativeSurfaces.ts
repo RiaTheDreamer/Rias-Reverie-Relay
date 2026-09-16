@@ -1330,12 +1330,12 @@ function renderRequestCard(input: {
   // it succeeds; it must not resurrect failure UI.
   const liveStatus = record?.status || (input.failed ? 'failed' : fallbackStatus)
   const statusLabels: Record<string, string> = {
-    'recovered-pending': 'Discovered', preparing: 'Preparing', queued: 'Queued', parsing: 'Parsing', generating: 'Generating', previewing: 'Previewing',
+    'recovered-pending': 'Discovered', preparing: 'Preparing', queued: 'Queued', 'awaiting-native-settings': 'Waiting for settings', 'paused-backlog': 'Pending review', superseded: 'Superseded', parsing: 'Parsing', generating: 'Generating', previewing: 'Previewing',
     'placement-pending': 'Inserting', 'placement-repair-needed': 'Repair needed', completed: 'Completed', 'image-unavailable': 'Unavailable',
     failed: 'Failed', cancelled: 'Stopped',
   }
   const titleLabels: Record<string, string> = {
-    'recovered-pending': input.title, preparing: 'Preparing generation', queued: 'Preparing automatically', parsing: 'Preparing prompt', generating: 'Generating image', previewing: 'Previewing image',
+    'recovered-pending': input.title, preparing: 'Preparing generation', queued: 'Preparing automatically', 'awaiting-native-settings': 'Waiting for Native ImageGen settings', 'paused-backlog': 'Pending generation review', superseded: 'Request superseded', parsing: 'Preparing prompt', generating: 'Generating image', previewing: 'Previewing image',
     'placement-pending': 'Inserting image', 'placement-repair-needed': 'Placement needs repair', completed: 'Image completed', 'image-unavailable': 'Image unavailable',
     failed: 'Generation failed', cancelled: 'Generation stopped',
   }

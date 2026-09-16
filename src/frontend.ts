@@ -62,6 +62,7 @@ import { CHARACTER_PHONE_APPS, characterPhoneAppLabel, normalizeCharacterPhoneDe
 import { NARRATIVE_UTILITY_OVERVIEWS, SURFACE_UTILITY_OVERVIEWS, settingHelp } from './uxCopy'
 import { bracketExampleFromXml } from './bracketSurfaceAuthoring'
 import { narrativeUtilityDisplayName } from './narrativeRegexAssets'
+import { emptyRelayChatStats, type RelayChatStats } from './completedState'
 
 const COPYABLE_IMAGE_REQUEST_TEMPLATE = `<reverie-illustration
   request="generate"
@@ -223,13 +224,17 @@ type RouterConfig = {
 }
 
 type BackendMessage =
-  | { type: 'state'; chatId: string | null; records: SlotRecord[]; config: RouterConfig; parserConnections: ParserConnection[]; imageConnections: ImageConnection[]; imageProviders?: ImageProviderInfo[]; logs: RouterLogEntry[]; candidateBatches: RelayCandidateBatch[]; queueDirector: QueueDirectorState; assetLibrary: AssetLibraryState; versionTrees: VersionTree[]; continuityVault: ContinuityVaultState; customSurfaces: CustomSurfaceStudioState; proseIllustrator: ProseIllustratorState; backgroundQueue: BackgroundQueueState; galleryLinks: GalleryLinkRequest[]; lastDryRun: DryRunReport | null; lastGenerationBlockers: GenerationBlocker[]; schemaVersion: number; revision: number; build: BackendBuildInfo }
+  | { type: 'state'; chatId: string | null; records: SlotRecord[]; stats: RelayChatStats; recentCompleted: Array<Record<string, unknown>>; queueSafety: { rawPendingRecords: number; uniquePendingJobs: number; duplicateRecordsCollapsed: number; oldestPendingAgeMs: number; pausedBacklog: boolean; updatedAt: number }; config: RouterConfig; parserConnections: ParserConnection[]; imageConnections: ImageConnection[]; imageProviders?: ImageProviderInfo[]; logs: RouterLogEntry[]; candidateBatches: RelayCandidateBatch[]; queueDirector: QueueDirectorState; assetLibrary: AssetLibraryState; versionTrees: VersionTree[]; continuityVault: ContinuityVaultState; customSurfaces: CustomSurfaceStudioState; proseIllustrator: ProseIllustratorState; backgroundQueue: BackgroundQueueState; galleryLinks: GalleryLinkRequest[]; lastDryRun: DryRunReport | null; lastGenerationBlockers: GenerationBlocker[]; schemaVersion: number; revision: number; build: BackendBuildInfo; performance?: { statePayloadBytes: number; serializationMs: number; recordsSent: number; completedLifetime: number; hotCompleted: number } }
   | { type: 'status'; status: string; requestId?: string }
   | { type: 'error'; source: string; message: string; key?: string; attemptNumber?: number }
   | ({ type: 'slot_action_feedback' } & SlotActionFeedback)
   | { type: 'image_generation_stream'; event: 'started' | 'status' | 'preview' | 'done' | 'cancelled' | 'error'; chatId?: string; generationId: string; source: 'relay-slot' | 'relay-illustrator' | 'relay-candidate'; slotKey?: string; requestId?: string; previewImageDataUrl?: string; statusText?: string; step?: number; totalSteps?: number; nodeId?: string; streaming?: boolean; error?: string }
   | { type: 'recovery_notice'; key: string; message: string }
-  | { type: 'native_snapshot_requested'; chatId: string; messageId: string | null; swipeId: number | null; sourceContent?: string }
+  | { type: 'native_snapshot_requested'; chatId: string; messageId: string | null; swipeId: number | null; sourceContent?: string; coalescedWaiterCount?: number }
+  | { type: 'queue_abort_ack'; abortedQueued: number; abortedActive: number; remoteCancelRequested: number; alreadyStopped: number }
+  | { type: 'queue_dispatch_diagnostic'; diagnostic: Record<string, unknown> }
+  | { type: 'completed_history_page'; chatId: string; cursor: number; limit: number; rows: Array<Record<string, unknown>>; nextCursor: number | null; total: number; completedLifetime: number }
+  | { type: 'completed_diagnostic'; chatId: string; archiveId: string; diagnostic: unknown; message: string }
   | { type: 'reparse_preview'; key: string; prompt: string; negativePrompt: string; pipeline: PromptPipeline }
   | { type: 'self_test_result'; checks: RelayHealthCheck[]; frontendBuildId: string; backend: BackendBuildInfo; buildMatch: boolean }
   | { type: 'rescan_result'; summary: ChatRescanSummary; automatic: boolean; alreadyRunning?: boolean }
@@ -307,6 +312,8 @@ export function setup(ctx: SpindleFrontendContext) {
   runtimeHost.__REVERIE_RELAY_HEALTH__ = health
   console.info(`Reverie Relay frontend loaded - v${EXTENSION_VERSION} / ${BUILD_ID}`)
   let records: SlotRecord[] = []
+  let stats: RelayChatStats = emptyRelayChatStats()
+  let queueSafety = { rawPendingRecords: 0, uniquePendingJobs: 0, duplicateRecordsCollapsed: 0, oldestPendingAgeMs: 0, pausedBacklog: false, updatedAt: 0 }
   let candidateBatches: RelayCandidateBatch[] = []
   let queueDirector: QueueDirectorState = { pausedAfterCurrent: false, concurrencyLimit: 1, selectedKeys: [], jobStatuses: {} }
   let assetLibrary: AssetLibraryState = { assets: {}, compare: {}, updatedAt: 0 }
@@ -344,6 +351,8 @@ export function setup(ctx: SpindleFrontendContext) {
   let pendingConfigPatches: Array<{ patch: Partial<RouterConfig>; sentAt: number }> = []
   let selfTest: { checks: RelayHealthCheck[]; buildMatch: boolean } | null = null
   const frontendLoadedAt = Date.now()
+  const frontendSessionId = `relay-${frontendLoadedAt}-${Math.random().toString(36).slice(2, 10)}`
+  const frontendPlatformClass: 'mobile' | 'desktop' = /Android|Mobile|iPhone|iPad/i.test(navigator.userAgent) || window.matchMedia('(max-width: 768px)').matches ? 'mobile' : 'desktop'
   let config: RouterConfig | null = null
   let activeChatId: string | null = ctx.getActiveChat().chatId
   let activeTab: DrawerTab = 'slots'
@@ -358,6 +367,9 @@ export function setup(ctx: SpindleFrontendContext) {
   let terminalStateRefreshTimer = 0
   let recipeEditorId = ''
   let historySubTab: HistorySubTab = 'all-chats-gallery'
+  let completedHistoryChatId = ''
+  let completedHistoryRows: Array<Record<string, unknown>> = []
+  let completedHistoryNextCursor: number | null = null
   let vaultSelectedCharacterId = ''
   const streamPreviews = new Map<string, { imageDataUrl?: string; statusText?: string; updatedAt: number; source: string; streaming?: boolean; step?: number; totalSteps?: number; failed?: boolean }>()
   const completedPreviewGenerations = new Set<string>()
@@ -1186,6 +1198,8 @@ export function setup(ctx: SpindleFrontendContext) {
           }
           return { ...record, status: optimistic.status, regenerationIntent: optimistic.intent || record.regenerationIntent }
         })
+        stats = message.stats || emptyRelayChatStats()
+        queueSafety = message.queueSafety || { rawPendingRecords: 0, uniquePendingJobs: 0, duplicateRecordsCollapsed: 0, oldestPendingAgeMs: 0, pausedBacklog: false, updatedAt: 0 }
         recordByKey = new Map(records.map(record => [record.key, record]))
         const incomingProseSettings = message.config.proseIllustratorSettings
         const pendingStillFresh = Boolean(pendingProseSettingsWrite && Date.now() - pendingProseSettingsWrite.sentAt < 15_000)
@@ -1257,26 +1271,6 @@ export function setup(ctx: SpindleFrontendContext) {
         renderRelayOrb()
         maybeOpenSlotImagePreviews()
         updateSidecarTicker()
-        if (activeChatId && config?.autoGenerate) {
-          const recoveredKeys = records
-            .filter(record => record.chatId === activeChatId && record.status === 'recovered-pending' && canReparse(record) && !record.orphaned)
-            .map(record => record.key)
-            .sort()
-          const signature = recoveredKeys.join('|')
-          if (!signature) autoResumeRecoveredSignatures.delete(activeChatId)
-          else if (autoResumeRecoveredSignatures.get(activeChatId) !== signature) {
-            autoResumeRecoveredSignatures.set(activeChatId, signature)
-            const chatId = activeChatId
-            window.setTimeout(() => {
-              if (activeChatId !== chatId) return
-              void syncNativeSettings().then(snapshot => ctx.sendToBackend({
-                type: 'generate_all_recovered', chatId,
-                nativeImageSettings: snapshot?.settings,
-                nativeSettingsCapturedAt: snapshot?.capturedAt,
-              }))
-            }, 450)
-          }
-        }
         if (activeChatId && config.autoRescanOnChatOpen && !autoRescannedChats.has(activeChatId)) {
           autoRescannedChats.add(activeChatId)
           const chatId = activeChatId
@@ -1441,8 +1435,26 @@ export function setup(ctx: SpindleFrontendContext) {
       renderPanel()
       return
     }
+    if (message.type === 'queue_dispatch_diagnostic') {
+      downloadJson(`reverie-relay-queue-diagnostic-${Date.now()}.json`, message.diagnostic)
+      return
+    }
+    if (message.type === 'completed_diagnostic') {
+      if (message.diagnostic) downloadJson(`reverie-relay-completed-${message.archiveId}.json`, message.diagnostic)
+      else showToast('warning', message.message)
+      return
+    }
+    if (message.type === 'completed_history_page') {
+      completedHistoryChatId = message.chatId
+      completedHistoryRows = message.cursor === 0 ? message.rows : [...completedHistoryRows, ...message.rows]
+      completedHistoryNextCursor = message.nextCursor
+      renderPanel()
+      return
+    }
     if (message.type === 'native_snapshot_requested') {
-      void sendScanWithNativeSnapshot(message.chatId, message.messageId, message.swipeId ?? undefined, message.sourceContent)
+      // One broker refresh answers every waiting job. Re-submitting the source
+      // scan here used to multiply old work after a suspended frontend resumed.
+      void syncNativeSettings(true)
       return
     }
     if (message.type === 'reparse_preview') {
@@ -1479,11 +1491,6 @@ export function setup(ctx: SpindleFrontendContext) {
         const recovered = rescanRecoveredCount(message.summary)
         if (recovered > 0) {
           showToast('info', `Recovered ${recovered} missing Reverie Relay slot${recovered === 1 ? '' : 's'}.`)
-          if ((message.summary.recoveredPending || 0) > 0 && config?.autoGenerate && activeChatId) {
-            void syncNativeSettings().then(snapshot => ctx.sendToBackend({
-              type: 'generate_all_recovered', chatId: activeChatId!, nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt,
-            }))
-          }
         }
       }
       return
@@ -1954,6 +1961,7 @@ export function setup(ctx: SpindleFrontendContext) {
   // Load Relay's persisted state before any write-capable native-settings sync.
   // Cold extension restarts can expose host settings before userStorage has
   // hydrated; syncing first allowed a fallback config to be saved as defaults.
+  ctx.sendToBackend({ type: 'frontend_session', chatId: activeChatId, sessionId: frontendSessionId, connected: true, nativeSettingsAvailable: false, platformClass: frontendPlatformClass })
   void refreshState(false)
   renderPanel()
   renderRelayOrb()
@@ -2034,7 +2042,7 @@ export function setup(ctx: SpindleFrontendContext) {
     const snapshot = await fetchNativeSettingsSnapshot(force)
     if (snapshot && (force || Date.now() - nativeSettingsLastSyncedAt > NATIVE_SETTINGS_CACHE_TTL_MS)) {
       nativeSettingsLastSyncedAt = Date.now()
-      ctx.sendToBackend({ type: 'sync_native_settings', chatId: activeChatId, imageGeneration: snapshot.settings })
+      ctx.sendToBackend({ type: 'sync_native_settings', chatId: activeChatId, imageGeneration: snapshot.settings, nativeSettingsCapturedAt: snapshot.capturedAt, frontendSessionId, platformClass: frontendPlatformClass })
     }
     return snapshot
   }
@@ -2428,7 +2436,7 @@ export function setup(ctx: SpindleFrontendContext) {
       const root = ctx.dom.findMessageElement(record.messageId)
       if (!root) continue
       const requestCards = deepQueryAll<HTMLElement>(root as ParentNode, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`)
-      const active = ['preparing', 'queued', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)
+      const active = ['preparing', 'queued', 'awaiting-native-settings', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)
       const stallEligible = ['preparing', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)
       const stream = streamPreviews.get(record.key)
       const lastActivityAt = Math.max(record.updatedAt || record.createdAt || now, stream?.updatedAt || 0)
@@ -2440,7 +2448,10 @@ export function setup(ctx: SpindleFrontendContext) {
         : record.status === 'recovered-pending' ? 'Ready'
           : record.status === 'preparing' ? 'Preparing'
           : record.status === 'queued' ? 'Queued'
-            : record.status === 'parsing' ? 'Preparing'
+            : record.status === 'awaiting-native-settings' ? 'Waiting for settings'
+              : record.status === 'paused-backlog' ? 'Pending review'
+                : record.status === 'superseded' ? 'Superseded'
+                  : record.status === 'parsing' ? 'Preparing'
               : record.status === 'generating' ? 'Generating'
                 : record.status === 'placement-pending' ? 'Inserting'
                   : record.status === 'placement-repair-needed' ? 'Repair needed'
@@ -3358,7 +3369,7 @@ export function setup(ctx: SpindleFrontendContext) {
     const counts = countStatuses()
     const recovered = records.filter(record => record.status === 'recovered-pending').length
     const retryableFailed = records.filter(record => record.status === 'failed' && canReparse(record)).length
-    const activeWork = records.some(record => isProcessing(record)) || candidateBatches.some(batch => batch.chatId === activeChatId && batch.status === 'processing')
+    const activeWork = records.some(record => canAbortSlotStatus(record.status)) || candidateBatches.some(batch => batch.chatId === activeChatId && batch.status === 'processing')
     const head = document.createElement('header')
     head.className = 'dg-head dg-suite-head'
     const top = document.createElement('div')
@@ -3394,7 +3405,7 @@ export function setup(ctx: SpindleFrontendContext) {
     if (reviewBatch) headerActions.appendChild(button('Review Candidates', () => openRelayCandidateReview(reviewBatch), false, 'primary'))
     headerActions.append(
       button(rescanInProgress ? 'Scanning…' : 'Rescan', rescanChat, !activeChatId || rescanInProgress, 'subtle', 'Find semantic image requests missing from Relay state.'),
-      button('Abort', abortActiveGeneration, !activeChatId || !activeWork, 'danger', activeWork ? 'Cancel active Relay and Illustrator work.' : 'No active generation to abort.'),
+      button('Abort All', abortActiveGeneration, !activeChatId || !activeWork, 'danger', activeWork ? 'Cancel queued, waiting, and active Relay work.' : 'No active generation to abort.'),
       button('Retry Failed', () => activeChatId && ctx.sendToBackend({ type: 'retry_failed', chatId: activeChatId }), retryableFailed === 0, 'subtle', retryableFailed ? '' : 'No retryable failures.'),
     )
     top.append(brand, headerActions)
@@ -3411,6 +3422,24 @@ export function setup(ctx: SpindleFrontendContext) {
       countBox('Completed', counts.completed, 'completed'),
     )
     head.append(top, overviewTitle, summary)
+    if (queueSafety.pausedBacklog && activeChatId) {
+      const backlog = document.createElement('div')
+      backlog.className = 'dg-card dg-warning-card'
+      const copy = document.createElement('div')
+      copy.className = 'dg-copy'
+      const ageMinutes = Math.max(1, Math.round(queueSafety.oldestPendingAgeMs / 60_000))
+      copy.textContent = `Pending from earlier session: ${queueSafety.uniquePendingJobs}\nOldest: ${ageMinutes}m\nRelay will not generate these without approval.`
+      const actions = document.createElement('div')
+      actions.className = 'dg-actions'
+      actions.append(
+        button('Review Pending', () => { activeTab = 'slots'; slotFilter = 'all'; renderPanel() }, false, 'subtle'),
+        button('Generate Pending', () => activeChatId && ctx.sendToBackend({ type: 'queue_action', chatId: activeChatId, action: 'generate_pending' }), false, 'primary'),
+        button('Discard Pending', () => activeChatId && ctx.sendToBackend({ type: 'queue_action', chatId: activeChatId, action: 'discard_pending' }), false, 'danger'),
+        button('Export Queue Diagnostic', () => activeChatId && ctx.sendToBackend({ type: 'export_queue_diagnostic', chatId: activeChatId }), false, 'subtle'),
+      )
+      backlog.append(copy, actions)
+      head.appendChild(backlog)
+    }
     return head
   }
 
@@ -6572,6 +6601,38 @@ ${bracketFixture}`)
 
   function renderSlotVersionHistory(): HTMLElement {
     const box = document.createElement('div')
+    if (activeChatId && completedHistoryChatId !== activeChatId) {
+      completedHistoryChatId = activeChatId
+      completedHistoryRows = []
+      completedHistoryNextCursor = null
+      ctx.sendToBackend({ type: 'completed_history_page', chatId: activeChatId, cursor: 0, limit: 24 })
+    }
+    if (completedHistoryRows.length) {
+      const archivedTitle = document.createElement('h3')
+      archivedTitle.className = 'dg-section-title'
+      archivedTitle.textContent = `Completed History · ${stats.completedTotal} lifetime`
+      const archivedTrack = document.createElement('div')
+      archivedTrack.className = 'dg-history-track'
+      for (const row of completedHistoryRows) {
+        const item = document.createElement('div')
+        item.className = 'dg-history-item'
+        const imageUrl = String(row.imageUrl || '')
+        const image = imageUrl ? document.createElement('img') : document.createElement('div')
+        image.className = imageUrl ? 'dg-history-thumb' : 'dg-history-thumb dg-thumb-empty'
+        if (image instanceof HTMLImageElement) { image.src = imageUrl.includes('?') ? `${imageUrl}&size=sm` : `${imageUrl}?size=sm`; image.alt = String(row.requestId || 'Relay image'); image.loading = 'lazy' }
+        else image.textContent = 'Image'
+        const copy = document.createElement('div')
+        copy.className = 'dg-slot-meta'
+        copy.textContent = `${String(row.requestId || '')} / ${String(row.slot || '')}\n${new Date(Number(row.completedAt) || 0).toLocaleString()}`
+        const actions = document.createElement('div')
+        actions.className = 'dg-actions'
+        if (row.diagnosticArchiveId) actions.append(button('Load Diagnostic', () => activeChatId && ctx.sendToBackend({ type: 'completed_diagnostic', chatId: activeChatId, archiveId: String(row.diagnosticArchiveId) }), false, 'subtle'))
+        item.append(image, copy, actions)
+        archivedTrack.appendChild(item)
+      }
+      box.append(archivedTitle, archivedTrack)
+      if (completedHistoryNextCursor !== null && activeChatId) box.append(button('Load 24 More', () => ctx.sendToBackend({ type: 'completed_history_page', chatId: activeChatId!, cursor: completedHistoryNextCursor || 0, limit: 24 }), false, 'subtle'))
+    }
     box.appendChild(renderAssetLibrary())
     box.appendChild(renderSlotFilters(historyFilter, value => { historyFilter = value; renderPanel() }))
     const items: Array<{ record: SlotRecord; version: SlotRecord | GenerationSnapshot; historyIndex?: number; timestamp: number }> = []
@@ -6757,7 +6818,7 @@ ${bracketFixture}`)
     const cleanup = document.createElement('div'); cleanup.className = 'dg-actions'
     cleanup.append(
       cleanupButton('Clear Failed', 'Clear Failed Slots?', 'This removes retry state and metadata for failed slots in this chat.\nMessages and generated image assets will remain.', 'clear_failed'),
-      cleanupButton('Clear Completed', 'Clear Completed Slots?', 'This removes Relay metadata and history for completed slots in this chat.\nMessages and generated image assets will remain.', 'clear_completed'),
+      cleanupButton('Clear Completed from Relay History', 'Clear Completed Relay History?', 'This removes Relay history metadata for completed slots in this chat.\nLifetime statistics, messages, and generated image assets remain.', 'clear_completed'),
       cleanupButton('Clear Orphaned', 'Clear Orphaned Slots?', 'This removes Relay records whose source markers can no longer be found.\nMessages and generated image assets will remain.', 'clear_orphaned'),
       cleanupButton('Clear Cancelled', 'Clear Cancelled Slots?', 'This removes cancelled Relay records from this chat.\nMessages and generated image assets will remain.', 'clear_cancelled'),
       cleanupButton('Clear All Relay State', 'Clear All Relay State?', 'This removes every Reverie Relay record for this chat.\nGenerated image assets and message content will remain, but Relay history and metadata will be lost.', 'clear_all', true),
@@ -9073,7 +9134,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
       processing: records.filter(isProcessing).length,
       readyToPlace: records.filter(record => record.status === 'placement-pending').length,
       failed: records.filter(record => record.status === 'failed' || record.status === 'image-unavailable').length,
-      completed: records.filter(record => record.status === 'completed').length,
+      completed: stats.completedTotal,
     }
   }
 
@@ -9202,6 +9263,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
   const cleanup = () => {
     if (disposed) return
     disposed = true
+    ctx.sendToBackend({ type: 'frontend_session', chatId: activeChatId, sessionId: frontendSessionId, connected: false, nativeSettingsAvailable: Boolean(Object.keys(nativeImageSettingsCache).length), platformClass: frontendPlatformClass })
     // Best effort only. Persisted ownership is cleared only after the host
     // setting write succeeds, so a later startup can repair a torn teardown.
     void enforceNativeAutoGenerationGuard(true)

@@ -107,6 +107,8 @@ export type GenerationRecipe = {
 
 export type BackgroundQueueStage =
   | 'queued'
+  | 'awaiting-native-settings'
+  | 'paused-backlog'
   | 'analyzing'
   | 'composing-prompt'
   | 'waiting-for-provider'
@@ -203,6 +205,9 @@ export type SlotStatus =
   | 'recovered-pending'
   | 'preparing'
   | 'queued'
+  | 'awaiting-native-settings'
+  | 'paused-backlog'
+  | 'superseded'
   | 'parsing'
   | 'generating'
   | 'previewing'

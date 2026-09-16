@@ -866,6 +866,9 @@ var SLOT_LIFECYCLE = {
   "recovered-pending": lifecycle(false, false, false),
   preparing: lifecycle(true, false, false),
   queued: lifecycle(true, false, false),
+  "awaiting-native-settings": lifecycle(true, false, false),
+  "paused-backlog": lifecycle(false, false, false, true),
+  superseded: lifecycle(false, false, true),
   parsing: lifecycle(true, false, false),
   generating: lifecycle(true, false, false),
   previewing: lifecycle(true, false, false),
@@ -887,7 +890,196 @@ function canAbortSlotStatus(status) {
   return SLOT_LIFECYCLE[status].canAbort;
 }
 function isFailureRecoveryStatus(status) {
-  return status === "failed" || status === "image-unavailable" || status === "cancelled" || status === "placement-repair-needed";
+  return status === "failed" || status === "image-unavailable" || status === "placement-repair-needed";
+}
+
+// src/queueSafety.ts
+var NATIVE_SETTINGS_SOFT_TTL_MS = 10 * 60000;
+var NATIVE_SETTINGS_HARD_TTL_MS = 24 * 60 * 60000;
+var AUTO_DISPATCH_STALE_MS = 10 * 60000;
+var AUTO_RESUME_MAX_JOBS = 12;
+function canonicalDispatchKey(input) {
+  return [input.chatId, input.messageId, input.swipeId, input.requestId, input.slot.trim().toLocaleLowerCase()].join(":");
+}
+function dispatchKeysForJob(job) {
+  return [...new Set(job.slots.map((slot) => canonicalDispatchKey({ ...job, slot })))];
+}
+function requestJobFromRecords(records) {
+  const ordered = [...records].sort((left, right) => left.slot.localeCompare(right.slot));
+  const first = ordered[0];
+  if (!first)
+    return null;
+  return {
+    chatId: first.chatId,
+    messageId: first.messageId,
+    swipeId: first.swipeId,
+    requestId: first.requestId,
+    target: first.target,
+    intent: first.imageIntent,
+    count: first.count,
+    slots: ordered.map((record) => record.slot),
+    alt: first.alt,
+    caption: first.caption,
+    time: first.time,
+    aspect: first.requestAspect,
+    originalSceneBrief: first.originalSceneBrief,
+    originalNegativePrompt: first.originalNegativePrompt,
+    originalRequestXml: first.originalRequestXml,
+    cast: first.cast,
+    promptSource: first.promptSource,
+    proseIllustrationId: first.proseIllustrationId,
+    prosePlanId: first.prosePlanId,
+    proseAnchor: first.proseAnchor,
+    synthetic: first.proseSynthetic,
+    proseImageAlignment: first.proseImageAlignment,
+    proseImageSize: first.proseImageSize,
+    composedPositivePrompt: first.composedPositivePrompt,
+    composedNegativePrompt: first.composedNegativePrompt,
+    prosePromptComposition: first.prosePromptComposition
+  };
+}
+function groupRecordsIntoJobs(records) {
+  const groups = new Map;
+  for (const record of records) {
+    const key = [record.chatId, record.messageId, record.swipeId, record.requestId].join(":");
+    groups.set(key, [...groups.get(key) || [], record]);
+  }
+  return [...groups.values()].map(requestJobFromRecords).filter((job) => Boolean(job));
+}
+function classifyNativeSettings(capturedAt, now = Date.now()) {
+  if (!capturedAt || !Number.isFinite(capturedAt))
+    return { usable: false, ageMs: Number.POSITIVE_INFINITY, source: "missing", requestRefresh: true };
+  const ageMs = Math.max(0, now - capturedAt);
+  if (ageMs <= NATIVE_SETTINGS_SOFT_TTL_MS)
+    return { usable: true, ageMs, source: "fresh", requestRefresh: false };
+  if (ageMs <= NATIVE_SETTINGS_HARD_TTL_MS)
+    return { usable: true, ageMs, source: "last-known-stale-refresh-requested", requestRefresh: true };
+  return { usable: false, ageMs, source: "expired", requestRefresh: true };
+}
+function classifyBacklog(records, now = Date.now()) {
+  const rawRecords = records.length;
+  const uniqueKeys = new Set(records.map((record) => canonicalDispatchKey(record)));
+  const oldestDiscoveredAt = records.reduce((oldest, record) => Math.min(oldest, record.discoveredAt || record.createdAt || now), now);
+  const oldestPendingAgeMs = records.length ? Math.max(0, now - oldestDiscoveredAt) : 0;
+  const uniqueJobs = uniqueKeys.size;
+  const stale = oldestPendingAgeMs > AUTO_DISPATCH_STALE_MS;
+  const large = uniqueJobs > AUTO_RESUME_MAX_JOBS;
+  return {
+    pause: stale || large,
+    uniqueJobs,
+    rawRecords,
+    duplicateRecordsCollapsed: Math.max(0, rawRecords - uniqueJobs),
+    oldestPendingAgeMs,
+    reason: stale ? "stale" : large ? "large" : "ready"
+  };
+}
+function throwIfAborted(signal) {
+  if (!signal?.aborted)
+    return;
+  const error = new Error(typeof signal.reason === "string" ? signal.reason : "Relay attempt aborted by user.");
+  error.name = "AbortError";
+  throw error;
+}
+async function raceWithAbort(operation, signal) {
+  throwIfAborted(signal);
+  if (!signal)
+    return operation;
+  return await new Promise((resolve, reject) => {
+    const abort = () => {
+      const error = new Error(typeof signal.reason === "string" ? signal.reason : "Relay attempt aborted by user.");
+      error.name = "AbortError";
+      reject(error);
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then((value) => {
+      signal.removeEventListener("abort", abort);
+      resolve(value);
+    }, (error) => {
+      signal.removeEventListener("abort", abort);
+      reject(error);
+    });
+  });
+}
+
+// src/completedState.ts
+var RECENT_COMPLETED_HOT_LIMIT = 24;
+var COMPLETED_HISTORY_PAGE_SIZE = 24;
+var HOT_LOG_LIMIT = 250;
+function emptyRelayChatStats(now = 0) {
+  return { discoveredTotal: 0, generatedTotal: 0, completedTotal: 0, failedTotal: 0, cancelledTotal: 0, completedByTarget: {}, updatedAt: now };
+}
+function completedArchiveId(record) {
+  let hash = 2166136261;
+  const value = `${record.key}:${record.completedAt || record.updatedAt || 0}`;
+  for (let index = 0;index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `completed-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+function compactCompletedRecord(record) {
+  return {
+    key: record.key,
+    chatId: record.chatId,
+    messageId: record.messageId,
+    swipeId: record.swipeId,
+    requestId: record.requestId,
+    slot: record.slot,
+    target: record.target,
+    imageId: record.imageId,
+    imageUrl: record.imageUrl,
+    completedAt: record.completedAt || record.updatedAt,
+    diagnosticArchiveId: completedArchiveId(record)
+  };
+}
+function stripCompletedRecord(record) {
+  const compact = compactCompletedRecord(record);
+  return {
+    key: compact.key,
+    chatId: compact.chatId,
+    messageId: compact.messageId,
+    swipeId: compact.swipeId,
+    requestId: compact.requestId,
+    target: record.target,
+    imageIntent: record.imageIntent,
+    targetApp: record.targetApp,
+    slot: compact.slot,
+    status: "completed",
+    originalSceneBrief: "",
+    originalNegativePrompt: "",
+    originalRequestXml: "",
+    alt: record.alt,
+    caption: record.caption,
+    count: record.count,
+    requestAspect: record.requestAspect,
+    createdAt: record.createdAt,
+    discoveredAt: record.discoveredAt,
+    registeredAt: record.registeredAt,
+    updatedAt: record.updatedAt,
+    completedAt: compact.completedAt,
+    imageId: compact.imageId,
+    imageUrl: compact.imageUrl,
+    imageWidth: record.imageWidth,
+    imageHeight: record.imageHeight,
+    aspectRatio: record.aspectRatio,
+    attemptNumber: record.attemptNumber,
+    triggerType: record.triggerType,
+    proseIllustrationId: record.proseIllustrationId,
+    prosePlanId: record.prosePlanId,
+    proseAnchor: record.proseAnchor,
+    proseSynthetic: record.proseSynthetic,
+    proseImageAlignment: record.proseImageAlignment,
+    proseImageSize: record.proseImageSize,
+    imageAvailability: record.imageAvailability,
+    imageAvailabilityCheckedAt: record.imageAvailabilityCheckedAt,
+    galleryLinkStatus: record.galleryLinkStatus,
+    galleryItemId: record.galleryItemId,
+    galleryLinkedAt: record.galleryLinkedAt,
+    history: []
+  };
+}
+function serializedBytes(value) {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
 }
 
 // src/boundedCache.ts
@@ -137994,6 +138186,9 @@ function renderRequestCard(input, bare = false) {
     "recovered-pending": "Discovered",
     preparing: "Preparing",
     queued: "Queued",
+    "awaiting-native-settings": "Waiting for settings",
+    "paused-backlog": "Pending review",
+    superseded: "Superseded",
     parsing: "Parsing",
     generating: "Generating",
     previewing: "Previewing",
@@ -138008,6 +138203,9 @@ function renderRequestCard(input, bare = false) {
     "recovered-pending": input.title,
     preparing: "Preparing generation",
     queued: "Preparing automatically",
+    "awaiting-native-settings": "Waiting for Native ImageGen settings",
+    "paused-backlog": "Pending generation review",
+    superseded: "Request superseded",
     parsing: "Preparing prompt",
     generating: "Generating image",
     previewing: "Previewing image",
@@ -154223,7 +154421,7 @@ var DEFAULT_GENERATION_PROFILE = {
 };
 var CONFIG_PATH = "config.json";
 var EXTENSION_ID = "reverie_relay";
-var STATE_SCHEMA_VERSION = 34;
+var STATE_SCHEMA_VERSION = 35;
 var PROSE_OPPORTUNITY_PLANNER_VERSION = "prose-opportunity-sidecar-v1";
 var PROSE_PROMPT_COMPOSER_VERSION = "prose-prompt-composer-v1";
 var BACKEND_LOADED_AT = Date.now();
@@ -154314,8 +154512,15 @@ async function withImageGenerationDeadline(operation, controller, timeoutMs = IM
       reject(error);
     }, boundedTimeoutMs);
   });
+  const aborted = new Promise((_, reject) => {
+    if (controller.signal.aborted) {
+      reject(abortError());
+      return;
+    }
+    controller.signal.addEventListener("abort", () => reject(abortError()), { once: true });
+  });
   try {
-    return await Promise.race([operation(), timeout]);
+    return await Promise.race([operation(), timeout, aborted]);
   } finally {
     if (timer)
       clearTimeout(timer);
@@ -154407,6 +154612,12 @@ var scheduledProseOpportunityScans = new Map;
 var deferredReparseRequests = new Map;
 var deferredRegenerateRequests = new Map;
 var abortableOperationSerials = new Map;
+var relayDispatchQueues = new Map;
+var enqueuedRelayJobs = new Map;
+var activeRelayAttempts = new Map;
+var queueCancellationEpochs = new Map;
+var nativeSettingsBrokers = new Map;
+var lastStateDispatchMetrics = new Map;
 var renderSnapshotCache = new BoundedLruCache({ maxEntries: 64, ttlMs: 30 * 60000 });
 var renderOutputCache = new BoundedLruCache({
   maxEntries: 96,
@@ -154483,7 +154694,7 @@ function cacheRenderSnapshot(chatId, userId, state, config) {
     autoGenerate: config.autoGenerate,
     generationPlaceholderEffect: config.generationPlaceholderEffect,
     narrativeVariant: narrativeVariantForSurfaceShellMode(config.surfaceDefaultShellMode),
-    records: Object.values(state.slots),
+    records: Object.values(state.slots).filter((record3) => record3.status !== "completed"),
     cachedAt: Date.now()
   };
   renderSnapshotCache.set(renderScopeKey(chatId, userId), snapshot);
@@ -156768,8 +156979,43 @@ async function handleFrontendMessage(payload, userId) {
     case "scan_message":
       await scanAndGenerate(payload.chatId, payload.messageId ?? undefined, payload.swipeId, userId, snapshotFromPayload(payload), payload.sourceContent);
       return;
+    case "frontend_session": {
+      const broker = nativeSettingsBroker(userId);
+      broker.frontendSessions.set(payload.sessionId, {
+        sessionId: payload.sessionId,
+        connected: payload.connected,
+        nativeSettingsAvailable: payload.nativeSettingsAvailable,
+        lastSeenAt: Date.now(),
+        platformClass: payload.platformClass
+      });
+      if (payload.chatId)
+        await mutateState(payload.chatId, userId, (state) => appendStateLog(state, {
+          severity: "info",
+          stage: "frontend-session",
+          eventType: payload.connected ? "frontend_connected" : "frontend_disconnected",
+          chatId: payload.chatId || undefined,
+          message: `${payload.platformClass} frontend ${payload.connected ? "connected" : "disconnected"}.`,
+          details: { sessionId: payload.sessionId, platformClass: payload.platformClass, nativeSettingsAvailable: payload.nativeSettingsAvailable }
+        }));
+      return;
+    }
     case "sync_native_settings":
-      await syncNativeSettings(payload.imageGeneration || {}, userId);
+      if (payload.frontendSessionId) {
+        const broker = nativeSettingsBroker(userId);
+        broker.frontendSessions.set(payload.frontendSessionId, {
+          sessionId: payload.frontendSessionId,
+          connected: true,
+          nativeSettingsAvailable: Boolean(Object.keys(payload.imageGeneration || {}).length),
+          lastSeenAt: Date.now(),
+          platformClass: payload.platformClass || "desktop"
+        });
+      }
+      await syncNativeSettings(payload.imageGeneration || {}, userId, payload.nativeSettingsCapturedAt);
+      if (payload.chatId)
+        await resumeNativeSettingsWaiters(payload.chatId, {
+          settings: cleanParameters(payload.imageGeneration),
+          capturedAt: Number(payload.nativeSettingsCapturedAt) || Date.now()
+        }, userId);
       await sendState(userId, payload.chatId ?? undefined);
       return;
     case "set_config":
@@ -156933,6 +157179,15 @@ async function handleFrontendMessage(payload, userId) {
       return;
     case "queue_action":
       await handleQueueAction(payload, snapshotFromPayload(payload), userId);
+      return;
+    case "export_queue_diagnostic":
+      await exportQueueDispatchDiagnostic(payload.chatId, userId);
+      return;
+    case "completed_history_page":
+      await sendCompletedHistoryPage(payload.chatId, payload.cursor, payload.limit, userId);
+      return;
+    case "completed_diagnostic":
+      await sendCompletedDiagnostic(payload.chatId, payload.archiveId, userId);
       return;
     case "asset_library_action":
       await handleAssetLibraryAction(payload, userId);
@@ -157314,14 +157569,297 @@ function inspectRawImageRequestTags(content) {
   }
   return out;
 }
-function requestNativeSettingsSnapshot(chatId, messageId, swipeId, userId, sourceContent) {
+function relayQueueScope(userId) {
+  return userId || "__default-user__";
+}
+function relayCancellationScope(chatId, userId) {
+  return `${relayQueueScope(userId)}:${chatId}`;
+}
+function currentQueueCancellationEpoch(chatId, userId) {
+  return queueCancellationEpochs.get(relayCancellationScope(chatId, userId)) || 0;
+}
+function relayQueueKey(job, userId) {
+  return `${relayQueueScope(userId)}:${jobCancellationKey(job)}`;
+}
+function nativeSettingsBroker(userId) {
+  const scope = relayQueueScope(userId);
+  const broker = nativeSettingsBrokers.get(scope) || { refreshInFlight: false, waiters: new Set, frontendSessions: new Map };
+  nativeSettingsBrokers.set(scope, broker);
+  return broker;
+}
+function requestNativeSettingsSnapshot(chatId, messageId, swipeId, userId, sourceContent, waiterKeys = []) {
+  const broker = nativeSettingsBroker(userId);
+  for (const key of waiterKeys)
+    broker.waiters.add(key);
+  const now = Date.now();
+  if (broker.refreshInFlight && now - (broker.refreshRequestedAt || now) < 30000)
+    return;
+  broker.refreshInFlight = true;
+  broker.refreshRequestedAt = now;
   spindle.sendToFrontend({
     type: "native_snapshot_requested",
     chatId,
     messageId: messageId ?? null,
     swipeId: swipeId ?? null,
-    sourceContent
+    sourceContent,
+    coalescedWaiterCount: broker.waiters.size
   }, userId);
+}
+async function markJobsAwaitingNativeSettings(jobs, userId) {
+  if (!jobs.length)
+    return;
+  const now = Date.now();
+  const chatId = jobs[0].chatId;
+  const waiterKeys = jobs.flatMap(dispatchKeysForJob);
+  await mutateState(chatId, userId, (state) => {
+    for (const job of jobs)
+      for (const slot of job.slots) {
+        const record3 = state.slots[slotKey({ ...job, slot })];
+        if (!record3 || record3.status === "completed")
+          continue;
+        record3.status = "awaiting-native-settings";
+        record3.updatedAt = now;
+        const dispatchKey = canonicalDispatchKey({ ...job, slot });
+        const lease = state.dispatchLeases[dispatchKey];
+        if (lease)
+          Object.assign(lease, { status: "awaiting-native-settings", settingsSource: "missing", settingsAgeMs: Number.MAX_SAFE_INTEGER });
+      }
+    updateQueueSafetySummary(state, now);
+    appendStateLog(state, {
+      severity: "warning",
+      stage: "native-settings-broker",
+      eventType: "native_settings_refresh_requested",
+      chatId,
+      message: `Waiting for one coalesced Native ImageGen settings refresh for ${waiterKeys.length} unique slot${waiterKeys.length === 1 ? "" : "s"}.`,
+      details: { coalescedWaiterCount: waiterKeys.length }
+    });
+  });
+  requestNativeSettingsSnapshot(chatId, jobs[0].messageId, jobs[0].swipeId, userId, undefined, waiterKeys);
+  await sendState(userId, chatId);
+}
+async function resumeNativeSettingsWaiters(chatId, snapshot, userId) {
+  if (!Object.keys(snapshot.settings || {}).length)
+    return;
+  const broker = nativeSettingsBroker(userId);
+  broker.refreshInFlight = false;
+  broker.refreshRequestedAt = undefined;
+  const state = await getState(chatId, userId);
+  const waiting = Object.values(state.slots).filter((record3) => record3.status === "awaiting-native-settings");
+  if (!waiting.length) {
+    broker.waiters.clear();
+    return;
+  }
+  const now = Date.now();
+  const decision = classifyBacklog(waiting, now);
+  if (decision.pause) {
+    await mutateState(chatId, userId, (next) => {
+      for (const record3 of Object.values(next.slots)) {
+        if (record3.status !== "awaiting-native-settings")
+          continue;
+        record3.status = "paused-backlog";
+        record3.updatedAt = now;
+        const lease = next.dispatchLeases[canonicalDispatchKey(record3)];
+        if (lease)
+          lease.status = "paused-backlog";
+      }
+      updateQueueSafetySummary(next, now);
+      appendStateLog(next, {
+        severity: "warning",
+        stage: "native-settings-broker",
+        eventType: "backlog_paused",
+        chatId,
+        message: `Paused ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? "" : "s"} instead of auto-dispatching an earlier-session backlog.`,
+        details: decision
+      });
+    });
+    broker.waiters.clear();
+    spindle.sendToFrontend({
+      type: "relay_notice",
+      level: "warning",
+      message: `Reverie Relay found ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? "" : "s"} from an earlier session. Review, generate, or discard them from Queue.`
+    }, userId);
+    return;
+  }
+  const validJobs = [];
+  const supersededKeys = new Set;
+  for (const job of groupRecordsIntoJobs(waiting)) {
+    const message = await resolveMessage(job.chatId, job.messageId);
+    const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : "";
+    const active = message ? activeSwipeId(message) === job.swipeId : false;
+    const authored = Boolean(job.originalRequestXml && content.includes(job.originalRequestXml)) || parseSafeSurfaceImageRequests(content).some((request2) => request2.id === job.requestId);
+    if (!active || !authored) {
+      for (const key of dispatchKeysForJob(job))
+        supersededKeys.add(key);
+      continue;
+    }
+    validJobs.push(job);
+  }
+  if (supersededKeys.size)
+    await mutateState(chatId, userId, (next) => {
+      for (const record3 of Object.values(next.slots)) {
+        if (!supersededKeys.has(canonicalDispatchKey(record3)))
+          continue;
+        record3.status = "superseded";
+        record3.updatedAt = now;
+        const lease = next.dispatchLeases[canonicalDispatchKey(record3)];
+        if (lease)
+          lease.status = "superseded";
+      }
+      updateQueueSafetySummary(next, now);
+    });
+  broker.waiters.clear();
+  await Promise.all(validJobs.map((job) => enqueueRelayJob(job, {
+    replaceExisting: false,
+    reparse: true,
+    triggerType: "initial",
+    nativeSnapshot: snapshot,
+    automaticDispatch: true,
+    settingsSource: "fresh-after-coalesced-refresh",
+    settingsAgeMs: Math.max(0, Date.now() - snapshot.capturedAt),
+    dispatchReason: "native-settings-restored-recent-small-backlog"
+  }, userId)));
+}
+function updateQueueSafetySummary(state, now = Date.now()) {
+  const pending = Object.values(state.slots).filter((record3) => ["queued", "awaiting-native-settings", "paused-backlog"].includes(record3.status));
+  const decision = classifyBacklog(pending, now);
+  state.queueSafety = {
+    rawPendingRecords: decision.rawRecords,
+    uniquePendingJobs: decision.uniqueJobs,
+    duplicateRecordsCollapsed: decision.duplicateRecordsCollapsed,
+    oldestPendingAgeMs: decision.oldestPendingAgeMs,
+    pausedBacklog: pending.some((record3) => record3.status === "paused-backlog"),
+    updatedAt: now
+  };
+}
+async function enqueueRelayJob(job, options, userId) {
+  const queueKey = relayQueueKey(job, userId);
+  const existing = enqueuedRelayJobs.get(queueKey);
+  if (existing)
+    return existing;
+  const scope = relayQueueScope(userId);
+  const config = await getConfig(userId);
+  const queue = relayDispatchQueues.get(scope) || { pending: [], active: 0, concurrency: config.queueConcurrencyLimit };
+  queue.concurrency = Math.max(1, config.queueConcurrencyLimit);
+  relayDispatchQueues.set(scope, queue);
+  const epoch = currentQueueCancellationEpoch(job.chatId, userId);
+  const promise = new Promise((resolve) => {
+    queue.pending.push({ queueKey, job, options, userId, epoch, resolve });
+  });
+  enqueuedRelayJobs.set(queueKey, promise);
+  const now = Date.now();
+  await mutateState(job.chatId, userId, (state) => {
+    for (const slot of job.slots) {
+      const record3 = state.slots[slotKey({ ...job, slot })];
+      if (!record3 || record3.status === "completed")
+        continue;
+      record3.status = "queued";
+      record3.queuedAt = now;
+      record3.updatedAt = now;
+      const dispatchKey = canonicalDispatchKey({ ...job, slot });
+      const lease = state.dispatchLeases[dispatchKey];
+      if (lease)
+        Object.assign(lease, { status: "queued", queuedAt: now, dispatchEligibleAt: now, cancellationEpoch: epoch });
+    }
+    updateQueueSafetySummary(state, now);
+  });
+  drainRelayDispatchQueue(scope);
+  return promise;
+}
+async function drainRelayDispatchQueue(scope) {
+  const queue = relayDispatchQueues.get(scope);
+  if (!queue)
+    return;
+  while (queue.active < queue.concurrency && queue.pending.length) {
+    const entry = queue.pending.shift();
+    if (entry.epoch !== currentQueueCancellationEpoch(entry.job.chatId, entry.userId)) {
+      enqueuedRelayJobs.delete(entry.queueKey);
+      entry.resolve();
+      continue;
+    }
+    queue.active += 1;
+    const attemptId = `${entry.queueKey}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+    const controller = new AbortController;
+    activeRelayAttempts.set(attemptId, { attemptId, chatId: entry.job.chatId, jobKey: entry.queueKey, controller, createdAt: Date.now() });
+    (async () => {
+      try {
+        const now = Date.now();
+        const dispatchAllowed = await mutateState(entry.job.chatId, entry.userId, (state) => {
+          const duplicate = dispatchKeysForJob(entry.job).some((key) => {
+            const lease = state.dispatchLeases[key];
+            return lease?.status === "completed" || lease?.status === "dispatched" && Boolean(lease.attemptId) && lease.attemptId !== attemptId;
+          });
+          if (duplicate && entry.options.automaticDispatch) {
+            appendStateLog(state, {
+              severity: "warning",
+              stage: "provider-dispatch",
+              eventType: "duplicate_auto_dispatch_suppressed",
+              chatId: entry.job.chatId,
+              messageId: entry.job.messageId,
+              swipeId: entry.job.swipeId,
+              requestId: entry.job.requestId,
+              message: "Suppressed an equivalent automatic provider dispatch before spend.",
+              details: { dispatchKeys: dispatchKeysForJob(entry.job), attemptId }
+            });
+            return false;
+          }
+          for (const key of dispatchKeysForJob(entry.job)) {
+            const lease = state.dispatchLeases[key];
+            if (lease)
+              Object.assign(lease, {
+                attemptId,
+                status: "dispatched",
+                dispatchedAt: now,
+                cancellationEpoch: entry.epoch,
+                settingsSource: entry.options.settingsSource,
+                settingsAgeMs: entry.options.settingsAgeMs,
+                dispatchReason: entry.options.dispatchReason
+              });
+          }
+          updateQueueSafetySummary(state, now);
+          return true;
+        });
+        if (!dispatchAllowed)
+          return;
+        await runJob(entry.job, { ...entry.options, signal: controller.signal, attemptId, cancellationEpoch: entry.epoch }, entry.userId);
+      } finally {
+        activeRelayAttempts.delete(attemptId);
+        enqueuedRelayJobs.delete(entry.queueKey);
+        queue.active = Math.max(0, queue.active - 1);
+        entry.resolve();
+        drainRelayDispatchQueue(scope);
+      }
+    })().catch((error) => spindle.log.error(`[Reverie Relay:dispatch_queue] ${error instanceof Error ? error.message : String(error)}`));
+  }
+}
+function cancelRelayDispatchScope(chatId, userId) {
+  const cancellationScope = relayCancellationScope(chatId, userId);
+  const epoch = (queueCancellationEpochs.get(cancellationScope) || 0) + 1;
+  queueCancellationEpochs.set(cancellationScope, epoch);
+  const queue = relayDispatchQueues.get(relayQueueScope(userId));
+  let queued = 0;
+  if (queue) {
+    const retained = [];
+    for (const entry of queue.pending) {
+      if (entry.job.chatId !== chatId) {
+        retained.push(entry);
+        continue;
+      }
+      queued += 1;
+      enqueuedRelayJobs.delete(entry.queueKey);
+      entry.resolve();
+    }
+    queue.pending = retained;
+  }
+  let active = 0;
+  for (const attempt of activeRelayAttempts.values()) {
+    if (attempt.chatId !== chatId || attempt.controller.signal.aborted)
+      continue;
+    active += 1;
+    attempt.abortedAt = Date.now();
+    attempt.reason = "Cancelled by Abort All.";
+    attempt.controller.abort(attempt.reason);
+  }
+  return { queued, active, epoch };
 }
 async function runWithConcurrency(items, limit, worker) {
   let cursor = 0;
@@ -157652,6 +158190,22 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
     return;
   }
   messageLocks.add(lockKey);
+  let discoveryLockReleased = false;
+  const releaseDiscoveryLock = () => {
+    if (discoveryLockReleased)
+      return;
+    discoveryLockReleased = true;
+    messageLocks.delete(lockKey);
+    if (messageId)
+      clearIdleCancellationKeys(chatId, messageId);
+    const deferred = deferredScans.get(lockKey);
+    if (!deferred)
+      return;
+    deferredScans.delete(lockKey);
+    queueMicrotask(() => {
+      scanAndGenerate(...deferred).catch((error) => spindle.log.error(`[Reverie Relay:deferred_scan] ${error instanceof Error ? error.message : String(error)}`));
+    });
+  };
   try {
     const config = await getConfig(userId);
     if (!config.enabled)
@@ -157867,6 +158421,12 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
             promptPipeline: previous?.promptPipeline ?? emptyPromptPipeline({ caption: req.caption, originalNegativePrompt: req.negative || "" }),
             history: previous?.history ?? []
           };
+          const dispatchKey = canonicalDispatchKey({ ...job, slot });
+          if (!state.dispatchLeases[dispatchKey]) {
+            state.stats.discoveredTotal += 1;
+            state.stats.updatedAt = now;
+            state.dispatchLeases[dispatchKey] = { dispatchKey, attemptId: "", status: "discovered", discoveredAt: previous?.discoveredAt ?? now };
+          }
         }
         logStage(config, "request_registered", {
           chatId,
@@ -157889,6 +158449,7 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
         });
         registeredJobs.push(job);
       }
+      updateQueueSafetySummary(state, now);
       return registeredJobs;
     });
     if (jobs.length === 0) {
@@ -157899,6 +158460,7 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
     pendingGenerationContent.delete(pendingContentKey(chatId, message.id));
     logSlotSummary(config, await getState(chatId, userId), chatId);
     await sendState(userId, chatId);
+    releaseDiscoveryLock();
     if (registerOnly) {
       await mutateState(chatId, userId, (state) => appendStateLog(state, {
         severity: "info",
@@ -157913,11 +158475,19 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
       await sendState(userId, chatId);
       return;
     }
-    if (config.followNativeImageGen && !nativeSnapshot && !nativeSnapshotFromConfig(config)) {
-      requestNativeSettingsSnapshot(chatId, message.id, swipeId, userId, content);
+    if (nativeSnapshot)
+      await syncNativeSettings(nativeSnapshot.settings, userId, nativeSnapshot.capturedAt);
+    const storedSnapshot = nativeSnapshotFromConfig(await getConfig(userId));
+    const candidateSnapshot = nativeSnapshot || storedSnapshot;
+    const freshness = classifyNativeSettings(candidateSnapshot?.capturedAt);
+    if (config.followNativeImageGen && (!candidateSnapshot || !freshness.usable)) {
+      await markJobsAwaitingNativeSettings(jobs, userId);
       return;
     }
-    const effectiveSnapshot = nativeSnapshot || nativeSnapshotFromConfig(config);
+    if (config.followNativeImageGen && freshness.requestRefresh) {
+      requestNativeSettingsSnapshot(chatId, message.id, swipeId, userId, undefined, jobs.flatMap(dispatchKeysForJob));
+    }
+    const effectiveSnapshot = candidateSnapshot;
     if (config.slotGenerationMode === "prompt-preview") {
       for (const job of jobs) {
         const key = slotKey({ ...job, slot: job.slots[0] || "image" });
@@ -157926,20 +158496,21 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
       return;
     }
     const placementBatch = config.slotGenerationMode === "auto-insert" ? { chatId, messageId: message.id, swipeId, sourceFingerprint: contentFingerprint(storedContent), entries: [] } : undefined;
-    await runWithConcurrency(jobs, config.queueConcurrencyLimit, (job) => runJob(job, { replaceExisting: false, reparse: true, triggerType: "initial", nativeSnapshot: effectiveSnapshot, automaticDispatch: true, placementBatch }, userId));
+    await Promise.all(jobs.map((job) => enqueueRelayJob(job, {
+      replaceExisting: false,
+      reparse: true,
+      triggerType: "initial",
+      nativeSnapshot: effectiveSnapshot,
+      automaticDispatch: true,
+      placementBatch,
+      settingsSource: freshness.source,
+      settingsAgeMs: freshness.ageMs,
+      dispatchReason: "new-eligible-automatic-request"
+    }, userId)));
     if (placementBatch)
       await commitInitialPlacementBatch(placementBatch, userId);
   } finally {
-    messageLocks.delete(lockKey);
-    if (messageId)
-      clearIdleCancellationKeys(chatId, messageId);
-    const deferred = deferredScans.get(lockKey);
-    if (deferred) {
-      deferredScans.delete(lockKey);
-      queueMicrotask(() => {
-        scanAndGenerate(...deferred).catch((error) => spindle.log.error(`[Reverie Relay:deferred_scan] ${error instanceof Error ? error.message : String(error)}`));
-      });
-    }
+    releaseDiscoveryLock();
   }
 }
 function clearIdleCancellationKeys(chatId, messageId) {
@@ -157973,6 +158544,9 @@ async function runJob(job, options, userId) {
   let expectedAttemptNumbers = {};
   const backgroundTaskId = `slot:${contentFingerprint(lockKey).slice(0, 20)}`;
   try {
+    throwIfAborted(options.signal);
+    if (options.cancellationEpoch !== undefined && options.cancellationEpoch !== currentQueueCancellationEpoch(job.chatId, userId))
+      throw new JobCancelledError;
     if (isJobCancelled(job))
       throw new JobCancelledError;
     await assertPersonaPovDispatchAllowed(job, userId);
@@ -158043,7 +158617,7 @@ async function runJob(job, options, userId) {
         throw new JobCancelledError;
       const highResMode = options.highResMode ?? (options.reparse ? config.highResMode : record3.highResMode ?? config.highResMode);
       failureStage = "provider-validation";
-      const imagePlan = await prepareImagePlan(config, job, record3, options.nativeSnapshot, userId, highResMode);
+      const imagePlan = await raceWithAbort(prepareImagePlan(config, job, record3, options.nativeSnapshot, userId, highResMode), options.signal);
       await mutateJobState(job, userId, (state) => stampImagePlan(state.slots[key], imagePlan));
       scheduleStateBroadcast(userId, job.chatId);
       if (isJobCancelled(job))
@@ -158052,7 +158626,7 @@ async function runJob(job, options, userId) {
       failureStage = "parser-failed";
       if (isJobCancelled(job))
         throw new JobCancelledError;
-      const prepared = options.reparse ? await parseSlotPrompt(job, slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings, highResMode, options.triggerType === "reparse" || options.triggerType === "intent-regeneration") : resolvedPromptFromRecord(record3, config);
+      const prepared = options.reparse ? await raceWithAbort(parseSlotPrompt(job, slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings, highResMode, options.triggerType === "reparse" || options.triggerType === "intent-regeneration"), options.signal) : resolvedPromptFromRecord(record3, config);
       if (isJobCancelled(job))
         throw new JobCancelledError;
       enrichPromptPipelineWithImagePlan(prepared.promptPipeline, imagePlan, prepared.prompt, prepared.negativePrompt);
@@ -158117,7 +158691,8 @@ async function runJob(job, options, userId) {
         source: job.target === "prose.illustration" ? "relay-illustrator" : "relay-slot",
         slotKey: key,
         requestId: job.requestId,
-        addToGallery: config.galleryAutoLink
+        addToGallery: config.galleryAutoLink,
+        attemptSignal: options.signal
       });
       if (isJobCancelled(job))
         throw new JobCancelledError;
@@ -158189,13 +158764,34 @@ async function runJob(job, options, userId) {
     results.sort((left, right) => job.slots.indexOf(left.slot) - job.slots.indexOf(right.slot));
     if (isJobCancelled(job))
       throw new JobCancelledError;
-    const placement = await applyJobSuccess(job, results, options.replaceExisting, userId, false, options.forceImagePreview === true, options.placementBatch);
+    throwIfAborted(options.signal);
+    const placement = await raceWithAbort(applyJobSuccess(job, results, options.replaceExisting, userId, false, options.forceImagePreview === true, options.placementBatch), options.signal);
+    throwIfAborted(options.signal);
     await enqueueGalleryLinksForResults(job, results, userId);
     await mutateState(job.chatId, userId, (state) => finishBackgroundTask(state, backgroundTaskId, placement === "completed" ? "Complete" : "Ready to place"));
     spindle.sendToFrontend({ type: "status", status: placement === "completed" ? "Generated" : "Ready to Place", requestId: job.requestId }, userId);
   } catch (error) {
-    if (error instanceof JobCancelledError || isJobCancelled(job)) {
-      await mutateState(job.chatId, userId, (state) => updateBackgroundTask(state, backgroundTaskId, { stage: "cancelled", statusText: "Cancelled", etaSeconds: null })).catch(() => {
+    if (error instanceof JobCancelledError || isAbortError(error) || options.signal?.aborted || isJobCancelled(job)) {
+      await mutateState(job.chatId, userId, (state) => {
+        const now = Date.now();
+        updateBackgroundTask(state, backgroundTaskId, { stage: "cancelled", statusText: "Aborted", etaSeconds: null });
+        for (const slot of job.slots) {
+          const record3 = state.slots[slotKey({ ...job, slot })];
+          if (!record3 || record3.status === "completed")
+            continue;
+          if (record3.status !== "cancelled")
+            state.stats.cancelledTotal += 1;
+          record3.status = "cancelled";
+          record3.cancelledAt = now;
+          record3.updatedAt = now;
+          finishAttempt(record3, "cancelled", now, "Cancelled by user.");
+          const lease = state.dispatchLeases[canonicalDispatchKey({ ...job, slot })];
+          if (lease)
+            lease.status = "cancelled";
+        }
+        state.stats.updatedAt = now;
+        updateQueueSafetySummary(state, now);
+      }).catch(() => {
         return;
       });
       return;
@@ -159619,9 +160215,14 @@ async function cleanupState(payload, userId) {
       }
     } else if (payload.action === "clear_failed")
       removeSlotRecords(state, selected.filter((record3) => record3.status === "failed"));
-    else if (payload.action === "clear_completed")
+    else if (payload.action === "clear_completed") {
       removeSlotRecords(state, selected.filter((record3) => record3.status === "completed"));
-    else if (payload.action === "clear_cancelled")
+      for (const [key, archived] of Object.entries(state.completedArchive)) {
+        if (payload.scope === "chat" || payload.scope === "slot" && key === payload.key || payload.scope === "message" && archived.messageId === payload.messageId)
+          delete state.completedArchive[key];
+      }
+      state.recentCompleted = Object.values(state.completedArchive).sort((a, b) => b.completedAt - a.completedAt).slice(0, RECENT_COMPLETED_HOT_LIMIT);
+    } else if (payload.action === "clear_cancelled")
       removeSlotRecords(state, selected.filter((record3) => record3.status === "cancelled"));
     else if (payload.action === "clear_orphaned")
       removeSlotRecords(state, selected.filter((record3) => record3.orphaned));
@@ -160496,29 +161097,130 @@ async function discardRelayCandidate(chatId, batchId, candidateKey, userId) {
 }
 async function handleQueueAction(payload, nativeSnapshot, userId) {
   if (payload.action === "abort_all") {
+    const queueAbort = cancelRelayDispatchScope(payload.chatId, userId);
     const stoppedStreams = abortAllImageStreams();
     cancelMapKeysFromSnapshot(abortableOperationSerials, cancelAbortableOperation);
+    for (const [key, scheduled] of [...scheduledAssistantScans.entries()]) {
+      if (scheduled.chatId !== payload.chatId)
+        continue;
+      if (scheduled.timer)
+        clearTimeout(scheduled.timer);
+      scheduledAssistantScans.delete(key);
+    }
+    for (const [key, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
+      if (scheduled.chatId !== payload.chatId)
+        continue;
+      if (scheduled.timer)
+        clearTimeout(scheduled.timer);
+      scheduledProseOpportunityScans.delete(key);
+    }
+    for (const key of [...deferredScans.keys()])
+      if (key.startsWith(`${payload.chatId}:`))
+        deferredScans.delete(key);
+    for (const [key, request2] of [...deferredRegenerateRequests.entries()]) {
+      if (!key.startsWith(`${payload.chatId}:`))
+        continue;
+      if (request2.timer)
+        clearTimeout(request2.timer);
+      deferredRegenerateRequests.delete(key);
+    }
+    for (const [key, request2] of [...deferredReparseRequests.entries()]) {
+      if (!key.startsWith(`${payload.chatId}:`))
+        continue;
+      if (request2.timer)
+        clearTimeout(request2.timer);
+      deferredReparseRequests.delete(key);
+    }
+    const broker = nativeSettingsBroker(userId);
     await mutateState(payload.chatId, userId, (state) => {
-      state.backgroundQueue.abortRequestedAt = Date.now();
-      state.backgroundQueue.updatedAt = Date.now();
+      const now = Date.now();
+      state.backgroundQueue.abortRequestedAt = now;
+      state.backgroundQueue.updatedAt = now;
       for (const record3 of Object.values(state.slots)) {
-        if (!isGenerationActiveStatus(record3.status))
+        if (!isGenerationActiveStatus(record3.status) && record3.status !== "paused-backlog")
           continue;
         cancelledJobs.add(jobCancellationKey(record3));
+        broker.waiters.delete(canonicalDispatchKey(record3));
+        if (record3.status !== "cancelled")
+          state.stats.cancelledTotal += 1;
         record3.status = "cancelled";
-        record3.cancelledAt = Date.now();
-        record3.updatedAt = Date.now();
-        finishAttempt(record3, "cancelled", Date.now(), "Cancelled by global Abort All.");
+        record3.cancelledAt = now;
+        record3.updatedAt = now;
+        finishAttempt(record3, "cancelled", now, "Cancelled by global Abort All.");
+        const lease = state.dispatchLeases[canonicalDispatchKey(record3)];
+        if (lease)
+          Object.assign(lease, { status: "cancelled", cancellationEpoch: queueAbort.epoch });
       }
       for (const item of Object.values(state.backgroundQueue.items)) {
         if (["completed", "failed", "cancelled"].includes(item.stage))
           continue;
         updateBackgroundTask(state, item.id, { stage: "cancelled", statusText: "Cancelled by Abort All", etaSeconds: null });
       }
-      appendStateLog(state, { severity: "warning", stage: "background-queue", eventType: "abort_all", chatId: payload.chatId, message: "User cancelled all active Relay analysis and generation work." });
+      state.stats.updatedAt = now;
+      updateQueueSafetySummary(state, now);
+      appendStateLog(state, {
+        severity: "warning",
+        stage: "background-queue",
+        eventType: "abort_all",
+        chatId: payload.chatId,
+        message: "User cancelled all queued, waiting, and active Relay work.",
+        details: { abortedQueued: queueAbort.queued, abortedActive: queueAbort.active, stoppedStreams, cancellationEpoch: queueAbort.epoch }
+      });
     });
     await sendState(userId, payload.chatId);
-    spindle.sendToFrontend({ type: "relay_notice", level: "info", message: stoppedStreams > 0 ? `Stopped ${stoppedStreams} active image generation stream${stoppedStreams === 1 ? "" : "s"}.` : "Stopped active Relay work." }, userId);
+    spindle.sendToFrontend({
+      type: "queue_abort_ack",
+      abortedQueued: queueAbort.queued,
+      abortedActive: queueAbort.active,
+      remoteCancelRequested: 0,
+      alreadyStopped: queueAbort.queued + queueAbort.active + stoppedStreams === 0 ? 1 : 0
+    }, userId);
+    spindle.sendToFrontend({ type: "relay_notice", level: "info", message: `Abort acknowledged: ${queueAbort.queued} queued and ${queueAbort.active || stoppedStreams} active Relay job${queueAbort.queued + queueAbort.active === 1 ? "" : "s"} stopped locally.` }, userId);
+    return;
+  }
+  if (payload.action === "generate_pending") {
+    const config = await getConfig(userId);
+    const snapshot = nativeSnapshot || nativeSnapshotFromConfig(config);
+    const freshness = classifyNativeSettings(snapshot?.capturedAt);
+    if (config.followNativeImageGen && (!snapshot || !freshness.usable)) {
+      requestNativeSettingsSnapshot(payload.chatId, undefined, undefined, userId);
+      spindle.sendToFrontend({ type: "relay_notice", level: "warning", message: "Pending jobs remain paused until Relay has a usable Native ImageGen settings snapshot." }, userId);
+      return;
+    }
+    const state = await getState(payload.chatId, userId);
+    const selected = new Set(payload.selectedKeys || []);
+    const pending = Object.values(state.slots).filter((record3) => record3.status === "paused-backlog" && (!selected.size || selected.has(record3.key)));
+    await Promise.all(groupRecordsIntoJobs(pending).map((job) => enqueueRelayJob(job, {
+      replaceExisting: false,
+      reparse: true,
+      triggerType: "initial",
+      nativeSnapshot: snapshot,
+      automaticDispatch: false,
+      settingsSource: freshness.source,
+      settingsAgeMs: freshness.ageMs,
+      dispatchReason: "explicit-generate-pending"
+    }, userId)));
+    return;
+  }
+  if (payload.action === "discard_pending") {
+    const selected = new Set(payload.selectedKeys || []);
+    await mutateState(payload.chatId, userId, (state) => {
+      const now = Date.now();
+      for (const record3 of Object.values(state.slots)) {
+        if (!["paused-backlog", "awaiting-native-settings"].includes(record3.status) || selected.size && !selected.has(record3.key))
+          continue;
+        record3.status = "cancelled";
+        record3.cancelledAt = now;
+        record3.updatedAt = now;
+        state.stats.cancelledTotal += 1;
+        const lease = state.dispatchLeases[canonicalDispatchKey(record3)];
+        if (lease)
+          lease.status = "cancelled";
+      }
+      state.stats.updatedAt = now;
+      updateQueueSafetySummary(state, now);
+    });
+    await sendState(userId, payload.chatId);
     return;
   }
   if (payload.action === "generate_selected_only" && payload.selectedKeys?.length) {
@@ -161302,14 +162004,17 @@ async function generateProseIllustrationPlan(chatId, planId, nativeSnapshot, use
     if (!autoRecord)
       throw new Error("Relay-Planned could not resolve the synthetic prose slot after placement.");
     assertAbortableOperationCurrent(operationKey, operationSerial);
-    await runJob(jobFromRecord(autoRecord), {
+    await enqueueRelayJob(jobFromRecord(autoRecord), {
       replaceExisting: false,
       reparse: true,
       triggerType: "initial",
       nativeSnapshot,
       highResMode: plan.highResolutionModifier ?? settings.highResolutionModifier,
       forceImagePreview: settings.relayInsertionMode === "review",
-      automaticDispatch: true
+      automaticDispatch: true,
+      settingsSource: classifyNativeSettings(nativeSnapshot?.capturedAt).source,
+      settingsAgeMs: classifyNativeSettings(nativeSnapshot?.capturedAt).ageMs,
+      dispatchReason: "relay-planned-automatic-request"
     }, userId);
     return;
   }
@@ -164236,7 +164941,7 @@ async function generateImage(chatId, prepared, plan, userId, streamContext, owne
     add_to_gallery: shouldLinkToGallery,
     gallery_caption: shouldLinkToGallery ? prepared.prompt.slice(0, 240) : undefined,
     generation_origin: source,
-    includeDataUrl: true
+    includeDataUrl: false
   };
   const resolvedStreamContext = streamContext || (chatId ? {
     chatId,
@@ -164472,7 +165177,7 @@ function nativeSnapshotFromConfig(config) {
     return;
   return {
     settings: cloneRecord(config.nativeImageSettingsSnapshot),
-    capturedAt: config.nativeSettingsCapturedAt || Date.now()
+    capturedAt: config.nativeSettingsCapturedAt || 0
   };
 }
 async function prepareImagePlan(config, job, record3, nativeSnapshot, userId, highResMode = config.highResMode) {
@@ -165615,7 +166320,7 @@ function buildParserFallbackPrompt(job, slot, config, context, nativeSettings, c
     promptPipeline: pipeline
   };
 }
-async function syncNativeSettings(imageGeneration, userId) {
+async function syncNativeSettings(imageGeneration, userId, capturedAt = Date.now()) {
   const current = await getConfig(userId);
   if (!configStorageHydratedScopes.has(userConfigCacheKey(userId))) {
     spindle.log.warn("[Reverie Relay] Native settings sync deferred until persisted Relay configuration is available.");
@@ -165623,7 +166328,7 @@ async function syncNativeSettings(imageGeneration, userId) {
   }
   const patch = {
     nativeImageSettingsSnapshot: cloneRecord(imageGeneration),
-    nativeSettingsCapturedAt: Date.now(),
+    nativeSettingsCapturedAt: Number.isFinite(capturedAt) && capturedAt > 0 ? capturedAt : Date.now(),
     nativePromptMode: cleanString(imageGeneration.promptMode),
     nativePromptPresetId: cleanNullableString(imageGeneration.activePromptPresetId),
     nativeCustomPrompt: cleanString(imageGeneration.customPrompt),
@@ -166064,6 +166769,12 @@ function emptyState() {
     schemaVersion: STATE_SCHEMA_VERSION,
     revision: 0,
     slots: {},
+    stats: emptyRelayChatStats(),
+    countedCompletedKeys: {},
+    recentCompleted: [],
+    completedArchive: {},
+    dispatchLeases: {},
+    queueSafety: { rawPendingRecords: 0, uniquePendingJobs: 0, duplicateRecordsCollapsed: 0, oldestPendingAgeMs: 0, pausedBacklog: false, updatedAt: 0 },
     logs: [],
     lastReconciledAt: 0,
     candidateBatches: {},
@@ -166126,6 +166837,11 @@ function normalizeImageGenerationStreamEvent(rawEvent) {
 }
 async function generateWithOptionalStream(finalRequest, plan, userId, context, forceStandard = false, timeoutMs = IMAGE_GENERATION_TIMEOUT_MS) {
   const controller = new AbortController;
+  const abortFromAttempt = () => controller.abort(context.attemptSignal?.reason || "Cancelled by user.");
+  if (context.attemptSignal?.aborted)
+    abortFromAttempt();
+  else
+    context.attemptSignal?.addEventListener("abort", abortFromAttempt, { once: true });
   registerImageStream(context, controller);
   let releaseLane = null;
   try {
@@ -166234,6 +166950,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Generation failed.", error: message });
     throw error;
   } finally {
+    context.attemptSignal?.removeEventListener("abort", abortFromAttempt);
     releaseLane?.();
     releaseImageStream(context, controller);
   }
@@ -166278,6 +166995,12 @@ function migrateState(raw) {
     clearedAt: Number(base.clearedAt) || undefined,
     suppressedContentFingerprints: base.suppressedContentFingerprints && typeof base.suppressedContentFingerprints === "object" ? base.suppressedContentFingerprints : {},
     slots,
+    stats: normalizeRelayChatStats(base.stats),
+    countedCompletedKeys: cleanParameters(base.countedCompletedKeys),
+    recentCompleted: Array.isArray(base.recentCompleted) ? cloneValue(base.recentCompleted) : [],
+    completedArchive: cleanParameters(base.completedArchive),
+    dispatchLeases: cleanParameters(base.dispatchLeases),
+    queueSafety: normalizeQueueSafety(base.queueSafety),
     logs: Array.isArray(base.logs) ? base.logs : [],
     lastReconciledAt: Number(base.lastReconciledAt) || 0,
     lastReconciliation: base.lastReconciliation,
@@ -166298,6 +167021,9 @@ function migrateState(raw) {
     state.continuityVault.chatId = firstString(Object.values(slots)[0]?.chatId);
   for (const record3 of Object.values(state.slots))
     migrateSlotRecord(record3);
+  reconstructCompletionStats(state);
+  ensureDispatchLeases(state);
+  updateQueueSafetySummary(state);
   for (const batch of Object.values(state.candidateBatches))
     for (const candidate of batch.candidates || [])
       candidate.imageIntent = normalizeImageIntent(candidate.imageIntent);
@@ -166316,6 +167042,129 @@ function migrateState(raw) {
   }
   return state;
 }
+async function exportQueueDispatchDiagnostic(chatId, userId) {
+  const state = await getState(chatId, userId);
+  const config = await getConfig(userId);
+  const broker = nativeSettingsBroker(userId);
+  const snapshot = nativeSnapshotFromConfig(config);
+  const freshness = classifyNativeSettings(snapshot?.capturedAt);
+  const jobs = Object.values(state.slots).filter((record3) => ["queued", "awaiting-native-settings", "paused-backlog", "parsing", "generating"].includes(record3.status)).map((record3) => {
+    const lease = state.dispatchLeases[canonicalDispatchKey(record3)];
+    return {
+      dispatchKey: lease?.dispatchKey || canonicalDispatchKey(record3),
+      chatId: record3.chatId,
+      messageId: record3.messageId,
+      swipeId: record3.swipeId,
+      requestId: record3.requestId,
+      slot: record3.slot,
+      status: record3.status,
+      discoveredAt: record3.discoveredAt || record3.createdAt,
+      dispatchEligibleAt: lease?.dispatchEligibleAt || 0,
+      dispatchedAt: lease?.dispatchedAt || 0,
+      awaitingNativeSettingsMs: record3.status === "awaiting-native-settings" ? Math.max(0, Date.now() - (record3.queuedAt || record3.discoveredAt || record3.createdAt)) : 0,
+      settingsSource: lease?.settingsSource || freshness.source,
+      settingsAgeMs: Number.isFinite(lease?.settingsAgeMs) ? lease.settingsAgeMs : freshness.ageMs,
+      dispatchReason: lease?.dispatchReason || ""
+    };
+  });
+  spindle.sendToFrontend({
+    type: "queue_dispatch_diagnostic",
+    diagnostic: {
+      generatedAt: Date.now(),
+      frontendSessions: [...broker.frontendSessions.values()].map((session) => ({ ...session })),
+      nativeSettingsBroker: {
+        hasSnapshot: Boolean(snapshot),
+        capturedAt: snapshot?.capturedAt || 0,
+        ageMs: Number.isFinite(freshness.ageMs) ? freshness.ageMs : null,
+        refreshInFlight: broker.refreshInFlight,
+        waiterCount: broker.waiters.size
+      },
+      queue: state.queueSafety,
+      stateDispatch: lastStateDispatchMetrics.get(`${userId || "__default__"}:${chatId}`) || null,
+      jobs
+    }
+  }, userId);
+}
+async function sendCompletedHistoryPage(chatId, cursor = 0, limit = COMPLETED_HISTORY_PAGE_SIZE, userId) {
+  await ensureCompletedStateCompacted(chatId, userId);
+  const state = await getState(chatId, userId);
+  const safeCursor = Math.max(0, Number(cursor) || 0);
+  const safeLimit = Math.max(1, Math.min(COMPLETED_HISTORY_PAGE_SIZE, Number(limit) || COMPLETED_HISTORY_PAGE_SIZE));
+  const rows2 = Object.values(state.completedArchive).sort((left, right) => right.completedAt - left.completedAt);
+  spindle.sendToFrontend({
+    type: "completed_history_page",
+    chatId,
+    cursor: safeCursor,
+    limit: safeLimit,
+    rows: rows2.slice(safeCursor, safeCursor + safeLimit),
+    nextCursor: safeCursor + safeLimit < rows2.length ? safeCursor + safeLimit : null,
+    total: rows2.length,
+    completedLifetime: state.stats.completedTotal
+  }, userId);
+}
+async function sendCompletedDiagnostic(chatId, archiveId, userId) {
+  const diagnostic = await spindle.userStorage.getJson(completedDiagnosticPath(chatId, archiveId), { fallback: null, userId });
+  spindle.sendToFrontend({
+    type: "completed_diagnostic",
+    chatId,
+    archiveId,
+    diagnostic,
+    message: diagnostic ? "Loaded one archived Relay diagnostic." : "Detailed Relay diagnostics were not retained for this historical image."
+  }, userId);
+}
+function normalizeRelayChatStats(value) {
+  const raw = cleanParameters(value);
+  return {
+    discoveredTotal: Math.max(0, Number(raw.discoveredTotal) || 0),
+    generatedTotal: Math.max(0, Number(raw.generatedTotal) || 0),
+    completedTotal: Math.max(0, Number(raw.completedTotal) || 0),
+    failedTotal: Math.max(0, Number(raw.failedTotal) || 0),
+    cancelledTotal: Math.max(0, Number(raw.cancelledTotal) || 0),
+    completedByTarget: Object.fromEntries(Object.entries(cleanParameters(raw.completedByTarget)).map(([key, count]) => [key, Math.max(0, Number(count) || 0)])),
+    updatedAt: Math.max(0, Number(raw.updatedAt) || 0)
+  };
+}
+function normalizeQueueSafety(value) {
+  const raw = cleanParameters(value);
+  return {
+    rawPendingRecords: Math.max(0, Number(raw.rawPendingRecords) || 0),
+    uniquePendingJobs: Math.max(0, Number(raw.uniquePendingJobs) || 0),
+    duplicateRecordsCollapsed: Math.max(0, Number(raw.duplicateRecordsCollapsed) || 0),
+    oldestPendingAgeMs: Math.max(0, Number(raw.oldestPendingAgeMs) || 0),
+    pausedBacklog: raw.pausedBacklog === true,
+    updatedAt: Math.max(0, Number(raw.updatedAt) || 0)
+  };
+}
+function reconstructCompletionStats(state) {
+  const completed = Object.values(state.slots).filter((record3) => record3.status === "completed" && Boolean(record3.imageUrl || record3.imageId));
+  for (const record3 of completed) {
+    if (state.countedCompletedKeys[record3.key])
+      continue;
+    state.countedCompletedKeys[record3.key] = record3.completedAt || record3.updatedAt || Date.now();
+    state.stats.completedTotal += 1;
+    state.stats.generatedTotal = Math.max(state.stats.generatedTotal, state.stats.completedTotal);
+    state.stats.completedByTarget[record3.target] = (state.stats.completedByTarget[record3.target] || 0) + 1;
+    state.stats.updatedAt = Math.max(state.stats.updatedAt, record3.completedAt || record3.updatedAt || 0);
+  }
+  state.stats.discoveredTotal = Math.max(state.stats.discoveredTotal, Object.keys(state.slots).length, Object.keys(state.countedCompletedKeys).length);
+  state.stats.completedTotal = Math.max(state.stats.completedTotal, Object.keys(state.countedCompletedKeys).length);
+}
+function ensureDispatchLeases(state) {
+  for (const record3 of Object.values(state.slots)) {
+    const dispatchKey = canonicalDispatchKey(record3);
+    if (state.dispatchLeases[dispatchKey])
+      continue;
+    state.dispatchLeases[dispatchKey] = {
+      dispatchKey,
+      attemptId: record3.attemptNumber ? `${dispatchKey}:legacy-${record3.attemptNumber}` : "",
+      status: record3.status === "completed" ? "completed" : record3.status === "placement-repair-needed" ? "placement-repair-needed" : record3.status === "failed" ? "failed" : record3.status === "cancelled" ? "cancelled" : record3.status === "paused-backlog" ? "paused-backlog" : record3.status === "awaiting-native-settings" ? "awaiting-native-settings" : "discovered",
+      discoveredAt: record3.discoveredAt || record3.createdAt || Date.now(),
+      queuedAt: record3.queuedAt,
+      dispatchedAt: record3.generationStartedAt,
+      completedAt: record3.completedAt
+    };
+  }
+}
 function migrateSlotRecord(record3) {
   const now = record3.updatedAt || record3.createdAt || Date.now();
   record3.imageIntent = normalizeImageIntent(record3.imageIntent);
@@ -166330,8 +167179,10 @@ function migrateSlotRecord(record3) {
     record3.proseImageSize = ["small", "medium", "large", "full"].includes(cleanString(record3.proseImageSize)) ? record3.proseImageSize : "medium";
   }
   record3.history = record3.history.map((version) => ({ ...version, imageIntent: normalizeImageIntent(version.imageIntent ?? record3.imageIntent), promptPipeline: version.promptPipeline ? { ...version.promptPipeline, imageIntent: normalizeImageIntent(version.promptPipeline.imageIntent ?? version.imageIntent ?? record3.imageIntent) } : version.promptPipeline }));
-  record3.promptPipeline ||= emptyPromptPipeline(record3);
-  record3.promptPipeline.imageIntent = normalizeImageIntent(record3.promptPipeline.imageIntent ?? record3.imageIntent);
+  if (record3.status !== "completed" || record3.originalSceneBrief) {
+    record3.promptPipeline ||= emptyPromptPipeline(record3);
+    record3.promptPipeline.imageIntent = normalizeImageIntent(record3.promptPipeline.imageIntent ?? record3.imageIntent);
+  }
   if (record3.recoverySource && !record3.recoveryCompleteness) {
     record3.recoveryCompleteness = record3.recoverySource === "unresolved-request" ? "full" : "marker-only";
   }
@@ -166351,9 +167202,9 @@ function migrateSlotRecord(record3) {
     record3.error = "Recovered after the app closed or generation state became stale. Reparse or generate this slot again.";
     record3.updatedAt = Date.now();
     finishAttempt(record3, "cancelled", record3.updatedAt, "Recovered stale processing state after restart.");
-  } else if (record3.status === "queued" && !activeInThisRuntime && processingAge > 90000) {
-    record3.status = canReparseRecord(record3) ? "recovered-pending" : "failed";
-    record3.error = "Recovered a stale queued slot after restart.";
+  } else if ((record3.status === "queued" || record3.status === "awaiting-native-settings") && !activeInThisRuntime && processingAge > AUTO_DISPATCH_STALE_MS) {
+    record3.status = "paused-backlog";
+    record3.error = undefined;
     record3.updatedAt = Date.now();
   }
 }
@@ -166961,8 +167812,66 @@ function appendStateLog(state, entry) {
   trimLogs(state);
 }
 function trimLogs(state) {
-  if (state.logs.length > 500)
-    state.logs.splice(0, state.logs.length - 500);
+  if (state.logs.length > HOT_LOG_LIMIT)
+    state.logs.splice(0, state.logs.length - HOT_LOG_LIMIT);
+}
+function completedDiagnosticPath(chatId, archiveId) {
+  return `completed-history/${contentFingerprint(chatId).slice(0, 24)}/diagnostics/${archiveId}.json`;
+}
+function completedRecordHasHeavyData(record3) {
+  return Boolean(record3.promptPipeline || record3.diagnostic || record3.parserOutput || record3.finalImageRequest || record3.finalImageParameters || record3.nativeImageSettings || record3.excludedContinuityFacts?.length || record3.includedContinuityFacts?.length || record3.pendingPlacement || record3.history?.length || record3.attempts?.length);
+}
+async function ensureCompletedStateCompacted(chatId, userId) {
+  const before = await getState(chatId, userId);
+  const completedBefore = Object.values(before.slots).filter((record3) => record3.status === "completed" && Boolean(record3.imageUrl || record3.imageId));
+  const needsCompaction = completedBefore.length > RECENT_COMPLETED_HOT_LIMIT || completedBefore.some(completedRecordHasHeavyData) || completedBefore.some((record3) => !before.completedArchive[record3.key]) || before.logs.length > HOT_LOG_LIMIT;
+  if (!needsCompaction)
+    return;
+  await mutateState(chatId, userId, async (state) => {
+    const oldBytes = serializedBytes({ records: Object.values(state.slots), logs: state.logs });
+    const completed = Object.values(state.slots).filter((record3) => record3.status === "completed" && Boolean(record3.imageUrl || record3.imageId)).sort((left, right) => (right.completedAt || right.updatedAt) - (left.completedAt || left.updatedAt));
+    await spindle.userStorage.mkdir("completed-history", userId).catch(() => {
+      return;
+    });
+    for (const record3 of completed) {
+      const compact = compactCompletedRecord(record3);
+      const existing = state.completedArchive[record3.key];
+      if (!existing?.diagnosticArchivedAt && completedRecordHasHeavyData(record3)) {
+        await spindle.userStorage.setJson(completedDiagnosticPath(chatId, compact.diagnosticArchiveId), {
+          schemaVersion: 1,
+          archivedAt: Date.now(),
+          record: record3
+        }, { indent: 2, userId });
+        compact.diagnosticArchiveId = compact.diagnosticArchiveId || completedArchiveId(record3);
+      }
+      state.completedArchive[record3.key] = {
+        ...existing,
+        ...compact,
+        historyVersionIds: (record3.history || []).map((version) => version.versionId).filter((id) => Boolean(id)),
+        diagnosticArchivedAt: existing?.diagnosticArchivedAt || (completedRecordHasHeavyData(record3) ? Date.now() : undefined)
+      };
+    }
+    const hot = completed.slice(0, RECENT_COMPLETED_HOT_LIMIT);
+    const hotKeys = new Set(hot.map((record3) => record3.key));
+    for (const record3 of completed) {
+      if (hotKeys.has(record3.key))
+        state.slots[record3.key] = stripCompletedRecord(record3);
+      else
+        delete state.slots[record3.key];
+    }
+    state.recentCompleted = hot.map(compactCompletedRecord);
+    trimLogs(state);
+    reconstructCompletionStats(state);
+    const newBytes = serializedBytes({ records: Object.values(state.slots), logs: state.logs, stats: state.stats, recentCompleted: state.recentCompleted });
+    appendStateLog(state, {
+      severity: "info",
+      stage: "completed-state-compaction",
+      eventType: "completed_state_compacted",
+      chatId,
+      message: `Compacted ${completed.length} completed record${completed.length === 1 ? "" : "s"} to ${hot.length} hot summaries.`,
+      details: { completedLifetime: state.stats.completedTotal, hotCompleted: hot.length, oldPayloadBytes: oldBytes, newPayloadBytes: newBytes }
+    });
+  });
 }
 function backendBuildInfo() {
   return { extensionVersion: EXTENSION_VERSION, buildId: BUILD_ID, loadedAt: BACKEND_LOADED_AT, lastResponseAt: lastBackendResponseAt };
@@ -167066,6 +167975,8 @@ function scheduleStateBroadcast(userId, chatId, delayMs = 16) {
 }
 async function sendState(userId, chatId) {
   const config = await getConfig(userId);
+  if (chatId)
+    await ensureCompletedStateCompacted(chatId, userId);
   let state = chatId ? await getState(chatId, userId) : emptyState();
   state.continuityVault.strength = config.vaultStrength;
   if (chatId && Date.now() - state.lastReconciledAt > 5000) {
@@ -167079,11 +167990,14 @@ async function sendState(userId, chatId) {
       spindle.log.warn(`[Reverie Relay] Resolved-macro sync failed: ${error instanceof Error ? error.message : String(error)}`);
     });
   const records = Object.values(state.slots).sort((a, b) => b.updatedAt - a.updatedAt);
-  const globalAssets = await hostOwnedRelayAssetLibrary(state.assetLibrary, userId);
+  const globalAssets = compactAssetLibraryForState(state.assetLibrary);
   const message = {
     type: "state",
     chatId: chatId ?? null,
     records,
+    stats: state.stats,
+    recentCompleted: state.recentCompleted,
+    queueSafety: state.queueSafety,
     config,
     parserConnections: await getParserConnections(userId),
     imageConnections: await getImageConnections(userId),
@@ -167092,74 +168006,30 @@ async function sendState(userId, chatId) {
     candidateBatches: Object.values(state.candidateBatches || {}).sort((a, b) => b.updatedAt - a.updatedAt),
     queueDirector: state.queueDirector,
     assetLibrary: globalAssets,
-    versionTrees: Object.values(state.versionTrees || {}).sort((a, b) => b.updatedAt - a.updatedAt),
+    versionTrees: Object.values(state.versionTrees || {}).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, RECENT_COMPLETED_HOT_LIMIT),
     continuityVault: state.continuityVault,
     customSurfaces: state.customSurfaces,
     proseIllustrator: state.proseIllustrator,
     backgroundQueue: state.backgroundQueue,
-    galleryLinks: Object.values(state.galleryLinks).sort((a, b) => b.updatedAt - a.updatedAt),
+    galleryLinks: Object.values(state.galleryLinks).sort((a, b) => b.updatedAt - a.updatedAt).filter((link, index) => index < RECENT_COMPLETED_HOT_LIMIT || link.status === "pending"),
     lastDryRun: state.lastDryRun,
     lastGenerationBlockers: state.lastGenerationBlockers,
     schemaVersion: state.schemaVersion,
     revision: state.revision,
     build: backendBuildInfo()
   };
+  const serializationStartedAt = Date.now();
+  const statePayloadBytes = serializedBytes(message);
+  message.performance = {
+    statePayloadBytes,
+    serializationMs: Math.max(0, Date.now() - serializationStartedAt),
+    recordsSent: records.length,
+    completedLifetime: state.stats.completedTotal,
+    hotCompleted: records.filter((record3) => record3.status === "completed").length
+  };
+  lastStateDispatchMetrics.set(`${userId || "__default__"}:${chatId || "__none__"}`, message.performance);
   lastBackendResponseAt = Date.now();
   spindle.sendToFrontend(message, userId);
-}
-async function hostOwnedRelayAssetLibrary(local, userId) {
-  const api = spindle.images;
-  if (typeof api.list !== "function")
-    return local;
-  try {
-    const rows2 = await api.list({ onlyOwned: true, userId });
-    const assets = { ...local.assets };
-    for (const row of Array.isArray(rows2) ? rows2 : []) {
-      const metadata = cleanParameters(row?.metadata);
-      const origin = firstString(metadata.origin, metadata.source, row?.origin);
-      if (!/reverie|relay/i.test(origin) && cleanString(metadata.extensionIdentifier) !== EXTENSION_ID)
-        continue;
-      const imageId = firstString(row?.id, row?.imageId, metadata.imageId);
-      const imageUrl = firstString(row?.url, row?.imageUrl, metadata.imageUrl);
-      if (!imageId || !imageUrl)
-        continue;
-      const assetId = firstString(metadata.assetId, `host:${imageId}`);
-      if (assets[assetId])
-        continue;
-      const createdAt = Number(row?.createdAt || metadata.createdAt) || Date.now();
-      assets[assetId] = {
-        assetId,
-        imageId,
-        imageUrl,
-        status: "available",
-        favorite: false,
-        visualReference: false,
-        tags: stringList3(metadata.tags),
-        caption: cleanString(metadata.caption),
-        alt: cleanString(metadata.alt),
-        characterNames: stringList3(metadata.characterNames),
-        locationNames: stringList3(metadata.locationNames),
-        target: firstString(metadata.target, "custom.artifact-media"),
-        targetApp: firstString(metadata.targetApp, "custom"),
-        chatId: cleanString(metadata.chatId),
-        messageId: cleanString(metadata.messageId),
-        swipeId: Number(metadata.swipeId) || 0,
-        requestId: cleanString(metadata.requestId),
-        slot: cleanString(metadata.slot),
-        source: "history",
-        createdAt,
-        updatedAt: Number(row?.updatedAt || metadata.updatedAt) || createdAt,
-        originalSceneBrief: cleanString(metadata.originalSceneBrief),
-        resolvedPositivePrompt: cleanString(metadata.resolvedPositivePrompt),
-        resolvedNegativePrompt: cleanString(metadata.resolvedNegativePrompt),
-        metadata: { ...metadata, hostCatalog: true }
-      };
-    }
-    return { ...local, assets, updatedAt: Math.max(local.updatedAt, Date.now()) };
-  } catch (error) {
-    spindle.log.warn(`[Reverie Relay:host_catalog] ${error instanceof Error ? error.message : String(error)}`);
-    return local;
-  }
 }
 var CONNECTION_LIST_CACHE_TTL_MS = 2000;
 var parserConnectionListCache = new Map;
@@ -167482,12 +168352,39 @@ function applyGeneration(state, record3, result, now) {
   record3.triggerType = result.triggerType;
   record3.updatedAt = now;
   record3.completedAt = now;
+  if (!state.countedCompletedKeys[record3.key]) {
+    state.countedCompletedKeys[record3.key] = now;
+    state.stats.completedTotal += 1;
+    state.stats.generatedTotal += 1;
+    state.stats.completedByTarget[record3.target] = (state.stats.completedByTarget[record3.target] || 0) + 1;
+    state.stats.updatedAt = now;
+  }
+  const dispatchKey = canonicalDispatchKey(record3);
+  const lease = state.dispatchLeases[dispatchKey];
+  if (lease)
+    Object.assign(lease, { status: "completed", completedAt: now });
   if (record3.recoveryCompleteness === "marker-only") {
     record3.recoveryCompleteness = "partial";
     record3.missingRecoveryFields = ["originalSceneBrief", "originalRequestXml"].filter((field) => field === "originalSceneBrief" ? !record3.originalSceneBrief : !record3.originalRequestXml);
   }
   commitSlotAssetVersion(state, record3, result, snapshot, now);
   finishAttempt(record3, "completed", now);
+  updateQueueSafetySummary(state, now);
+}
+function compactAssetLibraryForState(library) {
+  const pinned = new Set([library.compare?.leftAssetId, library.compare?.rightAssetId].filter((id) => Boolean(id)));
+  const rows2 = Object.values(library.assets || {}).sort((left, right) => right.updatedAt - left.updatedAt);
+  const selected = rows2.filter((asset, index) => index < RECENT_COMPLETED_HOT_LIMIT || asset.favorite || asset.visualReference || pinned.has(asset.assetId));
+  return {
+    ...library,
+    assets: Object.fromEntries(selected.map((asset) => [asset.assetId, {
+      ...asset,
+      originalSceneBrief: "",
+      resolvedPositivePrompt: "",
+      resolvedNegativePrompt: "",
+      metadata: {}
+    }]))
+  };
 }
 function snapshotFromRecord(record3, now) {
   if (!record3.imageUrl)

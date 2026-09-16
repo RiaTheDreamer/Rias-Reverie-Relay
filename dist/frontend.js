@@ -224,6 +224,9 @@ var SLOT_LIFECYCLE = {
   "recovered-pending": lifecycle(false, false, false),
   preparing: lifecycle(true, false, false),
   queued: lifecycle(true, false, false),
+  "awaiting-native-settings": lifecycle(true, false, false),
+  "paused-backlog": lifecycle(false, false, false, true),
+  superseded: lifecycle(false, false, true),
   parsing: lifecycle(true, false, false),
   generating: lifecycle(true, false, false),
   previewing: lifecycle(true, false, false),
@@ -245,7 +248,7 @@ function canAbortSlotStatus(status) {
   return SLOT_LIFECYCLE[status].canAbort;
 }
 function isFailureRecoveryStatus(status) {
-  return status === "failed" || status === "image-unavailable" || status === "cancelled" || status === "placement-repair-needed";
+  return status === "failed" || status === "image-unavailable" || status === "placement-repair-needed";
 }
 
 // src/protocols.ts
@@ -134134,6 +134137,9 @@ function renderRequestCard(input, bare = false) {
     "recovered-pending": "Discovered",
     preparing: "Preparing",
     queued: "Queued",
+    "awaiting-native-settings": "Waiting for settings",
+    "paused-backlog": "Pending review",
+    superseded: "Superseded",
     parsing: "Parsing",
     generating: "Generating",
     previewing: "Previewing",
@@ -134148,6 +134154,9 @@ function renderRequestCard(input, bare = false) {
     "recovered-pending": input.title,
     preparing: "Preparing generation",
     queued: "Preparing automatically",
+    "awaiting-native-settings": "Waiting for Native ImageGen settings",
+    "paused-backlog": "Pending generation review",
+    superseded: "Request superseded",
     parsing: "Preparing prompt",
     generating: "Generating image",
     previewing: "Previewing image",
@@ -134517,6 +134526,11 @@ function narrativeUtilityDisplayName(internalName) {
   return NARRATIVE_UTILITY_DISPLAY_NAMES[internalName] || internalName;
 }
 
+// src/completedState.ts
+function emptyRelayChatStats(now = 0) {
+  return { discoveredTotal: 0, generatedTotal: 0, completedTotal: 0, failedTotal: 0, cancelledTotal: 0, completedByTarget: {}, updatedAt: now };
+}
+
 // src/frontend.ts
 var COPYABLE_IMAGE_REQUEST_TEMPLATE = `<reverie-illustration
   request="generate"
@@ -134578,6 +134592,8 @@ function setup(ctx) {
   runtimeHost.__REVERIE_RELAY_HEALTH__ = health;
   console.info(`Reverie Relay frontend loaded - v${EXTENSION_VERSION} / ${BUILD_ID}`);
   let records = [];
+  let stats = emptyRelayChatStats();
+  let queueSafety = { rawPendingRecords: 0, uniquePendingJobs: 0, duplicateRecordsCollapsed: 0, oldestPendingAgeMs: 0, pausedBacklog: false, updatedAt: 0 };
   let candidateBatches = [];
   let queueDirector = { pausedAfterCurrent: false, concurrencyLimit: 1, selectedKeys: [], jobStatuses: {} };
   let assetLibrary = { assets: {}, compare: {}, updatedAt: 0 };
@@ -134615,6 +134631,8 @@ function setup(ctx) {
   let pendingConfigPatches = [];
   let selfTest = null;
   const frontendLoadedAt = Date.now();
+  const frontendSessionId = `relay-${frontendLoadedAt}-${Math.random().toString(36).slice(2, 10)}`;
+  const frontendPlatformClass = /Android|Mobile|iPhone|iPad/i.test(navigator.userAgent) || window.matchMedia("(max-width: 768px)").matches ? "mobile" : "desktop";
   let config = null;
   let activeChatId = ctx.getActiveChat().chatId;
   let activeTab = "slots";
@@ -134629,6 +134647,9 @@ function setup(ctx) {
   let terminalStateRefreshTimer = 0;
   let recipeEditorId = "";
   let historySubTab = "all-chats-gallery";
+  let completedHistoryChatId = "";
+  let completedHistoryRows = [];
+  let completedHistoryNextCursor = null;
   let vaultSelectedCharacterId = "";
   const streamPreviews = new Map;
   const completedPreviewGenerations = new Set;
@@ -135437,6 +135458,8 @@ function setup(ctx) {
           }
           return { ...record, status: optimistic.status, regenerationIntent: optimistic.intent || record.regenerationIntent };
         });
+        stats = message.stats || emptyRelayChatStats();
+        queueSafety = message.queueSafety || { rawPendingRecords: 0, uniquePendingJobs: 0, duplicateRecordsCollapsed: 0, oldestPendingAgeMs: 0, pausedBacklog: false, updatedAt: 0 };
         recordByKey = new Map(records.map((record) => [record.key, record]));
         const incomingProseSettings = message.config.proseIllustratorSettings;
         const pendingStillFresh = Boolean(pendingProseSettingsWrite && Date.now() - pendingProseSettingsWrite.sentAt < 15000);
@@ -135498,26 +135521,6 @@ function setup(ctx) {
         renderRelayOrb();
         maybeOpenSlotImagePreviews();
         updateSidecarTicker();
-        if (activeChatId && config?.autoGenerate) {
-          const recoveredKeys = records.filter((record) => record.chatId === activeChatId && record.status === "recovered-pending" && canReparse(record) && !record.orphaned).map((record) => record.key).sort();
-          const signature = recoveredKeys.join("|");
-          if (!signature)
-            autoResumeRecoveredSignatures.delete(activeChatId);
-          else if (autoResumeRecoveredSignatures.get(activeChatId) !== signature) {
-            autoResumeRecoveredSignatures.set(activeChatId, signature);
-            const chatId = activeChatId;
-            window.setTimeout(() => {
-              if (activeChatId !== chatId)
-                return;
-              syncNativeSettings().then((snapshot) => ctx.sendToBackend({
-                type: "generate_all_recovered",
-                chatId,
-                nativeImageSettings: snapshot?.settings,
-                nativeSettingsCapturedAt: snapshot?.capturedAt
-              }));
-            }, 450);
-          }
-        }
         if (activeChatId && config.autoRescanOnChatOpen && !autoRescannedChats.has(activeChatId)) {
           autoRescannedChats.add(activeChatId);
           const chatId = activeChatId;
@@ -135693,8 +135696,26 @@ ${message.prompt}`;
       renderPanel();
       return;
     }
+    if (message.type === "queue_dispatch_diagnostic") {
+      downloadJson(`reverie-relay-queue-diagnostic-${Date.now()}.json`, message.diagnostic);
+      return;
+    }
+    if (message.type === "completed_diagnostic") {
+      if (message.diagnostic)
+        downloadJson(`reverie-relay-completed-${message.archiveId}.json`, message.diagnostic);
+      else
+        showToast("warning", message.message);
+      return;
+    }
+    if (message.type === "completed_history_page") {
+      completedHistoryChatId = message.chatId;
+      completedHistoryRows = message.cursor === 0 ? message.rows : [...completedHistoryRows, ...message.rows];
+      completedHistoryNextCursor = message.nextCursor;
+      renderPanel();
+      return;
+    }
     if (message.type === "native_snapshot_requested") {
-      sendScanWithNativeSnapshot(message.chatId, message.messageId, message.swipeId ?? undefined, message.sourceContent);
+      syncNativeSettings(true);
       return;
     }
     if (message.type === "reparse_preview") {
@@ -135730,14 +135751,6 @@ ${message.prompt}`;
         const recovered = rescanRecoveredCount(message.summary);
         if (recovered > 0) {
           showToast("info", `Recovered ${recovered} missing Reverie Relay slot${recovered === 1 ? "" : "s"}.`);
-          if ((message.summary.recoveredPending || 0) > 0 && config?.autoGenerate && activeChatId) {
-            syncNativeSettings().then((snapshot) => ctx.sendToBackend({
-              type: "generate_all_recovered",
-              chatId: activeChatId,
-              nativeImageSettings: snapshot?.settings,
-              nativeSettingsCapturedAt: snapshot?.capturedAt
-            }));
-          }
         }
       }
       return;
@@ -136255,6 +136268,7 @@ ${message.prompt}`;
     scheduleActiveChatSync();
   });
   lifecycle2.track(stopMediaObserver, "observer");
+  ctx.sendToBackend({ type: "frontend_session", chatId: activeChatId, sessionId: frontendSessionId, connected: true, nativeSettingsAvailable: false, platformClass: frontendPlatformClass });
   refreshState(false);
   renderPanel();
   renderRelayOrb();
@@ -136325,7 +136339,7 @@ ${message.prompt}`;
     const snapshot = await fetchNativeSettingsSnapshot(force);
     if (snapshot && (force || Date.now() - nativeSettingsLastSyncedAt > NATIVE_SETTINGS_CACHE_TTL_MS)) {
       nativeSettingsLastSyncedAt = Date.now();
-      ctx.sendToBackend({ type: "sync_native_settings", chatId: activeChatId, imageGeneration: snapshot.settings });
+      ctx.sendToBackend({ type: "sync_native_settings", chatId: activeChatId, imageGeneration: snapshot.settings, nativeSettingsCapturedAt: snapshot.capturedAt, frontendSessionId, platformClass: frontendPlatformClass });
     }
     return snapshot;
   }
@@ -136719,7 +136733,7 @@ ${message.prompt}`;
       if (!root)
         continue;
       const requestCards = deepQueryAll(root, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`);
-      const active = ["preparing", "queued", "parsing", "generating", "previewing", "placement-pending"].includes(record.status);
+      const active = ["preparing", "queued", "awaiting-native-settings", "parsing", "generating", "previewing", "placement-pending"].includes(record.status);
       const stallEligible = ["preparing", "parsing", "generating", "previewing", "placement-pending"].includes(record.status);
       const stream = streamPreviews.get(record.key);
       const lastActivityAt = Math.max(record.updatedAt || record.createdAt || now, stream?.updatedAt || 0);
@@ -136727,7 +136741,7 @@ ${message.prompt}`;
       const needsPlacementRepair = record.status === "placement-repair-needed";
       const canonicalFailure = isFailureRecoveryStatus(record.status);
       const recoverable = stalled || canonicalFailure;
-      const statusLabel = stalled ? "Stalled" : record.status === "recovered-pending" ? "Ready" : record.status === "preparing" ? "Preparing" : record.status === "queued" ? "Queued" : record.status === "parsing" ? "Preparing" : record.status === "generating" ? "Generating" : record.status === "placement-pending" ? "Inserting" : record.status === "placement-repair-needed" ? "Repair needed" : record.status === "completed" ? "Ready" : record.status === "failed" || record.status === "image-unavailable" ? "Failed" : record.status === "cancelled" ? "Stopped" : "Requested";
+      const statusLabel = stalled ? "Stalled" : record.status === "recovered-pending" ? "Ready" : record.status === "preparing" ? "Preparing" : record.status === "queued" ? "Queued" : record.status === "awaiting-native-settings" ? "Waiting for settings" : record.status === "paused-backlog" ? "Pending review" : record.status === "superseded" ? "Superseded" : record.status === "parsing" ? "Preparing" : record.status === "generating" ? "Generating" : record.status === "placement-pending" ? "Inserting" : record.status === "placement-repair-needed" ? "Repair needed" : record.status === "completed" ? "Ready" : record.status === "failed" || record.status === "image-unavailable" ? "Failed" : record.status === "cancelled" ? "Stopped" : "Requested";
       for (const card of requestCards) {
         const owningKey = card.dataset.rrnRecordKey;
         if (owningKey && owningKey !== record.key)
@@ -137690,7 +137704,7 @@ ${candidate.error}` : ""}`;
     const counts = countStatuses();
     const recovered = records.filter((record) => record.status === "recovered-pending").length;
     const retryableFailed = records.filter((record) => record.status === "failed" && canReparse(record)).length;
-    const activeWork = records.some((record) => isProcessing(record)) || candidateBatches.some((batch) => batch.chatId === activeChatId && batch.status === "processing");
+    const activeWork = records.some((record) => canAbortSlotStatus(record.status)) || candidateBatches.some((batch) => batch.chatId === activeChatId && batch.status === "processing");
     const head = document.createElement("header");
     head.className = "dg-head dg-suite-head";
     const top = document.createElement("div");
@@ -137723,7 +137737,7 @@ ${candidate.error}` : ""}`;
     const reviewBatch = candidateBatches.find((batch) => batch.chatId === activeChatId && batch.status === "review");
     if (reviewBatch)
       headerActions.appendChild(button("Review Candidates", () => openRelayCandidateReview(reviewBatch), false, "primary"));
-    headerActions.append(button(rescanInProgress ? "Scanning…" : "Rescan", rescanChat, !activeChatId || rescanInProgress, "subtle", "Find semantic image requests missing from Relay state."), button("Abort", abortActiveGeneration, !activeChatId || !activeWork, "danger", activeWork ? "Cancel active Relay and Illustrator work." : "No active generation to abort."), button("Retry Failed", () => activeChatId && ctx.sendToBackend({ type: "retry_failed", chatId: activeChatId }), retryableFailed === 0, "subtle", retryableFailed ? "" : "No retryable failures."));
+    headerActions.append(button(rescanInProgress ? "Scanning…" : "Rescan", rescanChat, !activeChatId || rescanInProgress, "subtle", "Find semantic image requests missing from Relay state."), button("Abort All", abortActiveGeneration, !activeChatId || !activeWork, "danger", activeWork ? "Cancel queued, waiting, and active Relay work." : "No active generation to abort."), button("Retry Failed", () => activeChatId && ctx.sendToBackend({ type: "retry_failed", chatId: activeChatId }), retryableFailed === 0, "subtle", retryableFailed ? "" : "No retryable failures."));
     top.append(brand, headerActions);
     const overviewTitle = document.createElement("div");
     overviewTitle.className = "dg-overview-label";
@@ -137732,6 +137746,25 @@ ${candidate.error}` : ""}`;
     summary.className = "dg-summary";
     summary.append(countBox("Generating", counts.processing, "processing"), countBox("Ready", counts.readyToPlace, "completed"), countBox("Failed", counts.failed, "failed"), countBox("Completed", counts.completed, "completed"));
     head.append(top, overviewTitle, summary);
+    if (queueSafety.pausedBacklog && activeChatId) {
+      const backlog = document.createElement("div");
+      backlog.className = "dg-card dg-warning-card";
+      const copy2 = document.createElement("div");
+      copy2.className = "dg-copy";
+      const ageMinutes = Math.max(1, Math.round(queueSafety.oldestPendingAgeMs / 60000));
+      copy2.textContent = `Pending from earlier session: ${queueSafety.uniquePendingJobs}
+Oldest: ${ageMinutes}m
+Relay will not generate these without approval.`;
+      const actions = document.createElement("div");
+      actions.className = "dg-actions";
+      actions.append(button("Review Pending", () => {
+        activeTab = "slots";
+        slotFilter = "all";
+        renderPanel();
+      }, false, "subtle"), button("Generate Pending", () => activeChatId && ctx.sendToBackend({ type: "queue_action", chatId: activeChatId, action: "generate_pending" }), false, "primary"), button("Discard Pending", () => activeChatId && ctx.sendToBackend({ type: "queue_action", chatId: activeChatId, action: "discard_pending" }), false, "danger"), button("Export Queue Diagnostic", () => activeChatId && ctx.sendToBackend({ type: "export_queue_diagnostic", chatId: activeChatId }), false, "subtle"));
+      backlog.append(copy2, actions);
+      head.appendChild(backlog);
+    }
     return head;
   }
   function suiteSectionForTab(value) {
@@ -140921,6 +140954,45 @@ ${batch.mode} / ${batch.candidates.length} candidates / ${new Date(batch.updated
   }
   function renderSlotVersionHistory() {
     const box = document.createElement("div");
+    if (activeChatId && completedHistoryChatId !== activeChatId) {
+      completedHistoryChatId = activeChatId;
+      completedHistoryRows = [];
+      completedHistoryNextCursor = null;
+      ctx.sendToBackend({ type: "completed_history_page", chatId: activeChatId, cursor: 0, limit: 24 });
+    }
+    if (completedHistoryRows.length) {
+      const archivedTitle = document.createElement("h3");
+      archivedTitle.className = "dg-section-title";
+      archivedTitle.textContent = `Completed History · ${stats.completedTotal} lifetime`;
+      const archivedTrack = document.createElement("div");
+      archivedTrack.className = "dg-history-track";
+      for (const row of completedHistoryRows) {
+        const item = document.createElement("div");
+        item.className = "dg-history-item";
+        const imageUrl = String(row.imageUrl || "");
+        const image2 = imageUrl ? document.createElement("img") : document.createElement("div");
+        image2.className = imageUrl ? "dg-history-thumb" : "dg-history-thumb dg-thumb-empty";
+        if (image2 instanceof HTMLImageElement) {
+          image2.src = imageUrl.includes("?") ? `${imageUrl}&size=sm` : `${imageUrl}?size=sm`;
+          image2.alt = String(row.requestId || "Relay image");
+          image2.loading = "lazy";
+        } else
+          image2.textContent = "Image";
+        const copy = document.createElement("div");
+        copy.className = "dg-slot-meta";
+        copy.textContent = `${String(row.requestId || "")} / ${String(row.slot || "")}
+${new Date(Number(row.completedAt) || 0).toLocaleString()}`;
+        const actions = document.createElement("div");
+        actions.className = "dg-actions";
+        if (row.diagnosticArchiveId)
+          actions.append(button("Load Diagnostic", () => activeChatId && ctx.sendToBackend({ type: "completed_diagnostic", chatId: activeChatId, archiveId: String(row.diagnosticArchiveId) }), false, "subtle"));
+        item.append(image2, copy, actions);
+        archivedTrack.appendChild(item);
+      }
+      box.append(archivedTitle, archivedTrack);
+      if (completedHistoryNextCursor !== null && activeChatId)
+        box.append(button("Load 24 More", () => ctx.sendToBackend({ type: "completed_history_page", chatId: activeChatId, cursor: completedHistoryNextCursor || 0, limit: 24 }), false, "subtle"));
+    }
     box.appendChild(renderAssetLibrary());
     box.appendChild(renderSlotFilters(historyFilter, (value) => {
       historyFilter = value;
@@ -141129,8 +141201,8 @@ Slot state, messages, and image assets will remain.`, scope: `${logs.length} log
     const cleanup2 = document.createElement("div");
     cleanup2.className = "dg-actions";
     cleanup2.append(cleanupButton("Clear Failed", "Clear Failed Slots?", `This removes retry state and metadata for failed slots in this chat.
-Messages and generated image assets will remain.`, "clear_failed"), cleanupButton("Clear Completed", "Clear Completed Slots?", `This removes Relay metadata and history for completed slots in this chat.
-Messages and generated image assets will remain.`, "clear_completed"), cleanupButton("Clear Orphaned", "Clear Orphaned Slots?", `This removes Relay records whose source markers can no longer be found.
+Messages and generated image assets will remain.`, "clear_failed"), cleanupButton("Clear Completed from Relay History", "Clear Completed Relay History?", `This removes Relay history metadata for completed slots in this chat.
+Lifetime statistics, messages, and generated image assets remain.`, "clear_completed"), cleanupButton("Clear Orphaned", "Clear Orphaned Slots?", `This removes Relay records whose source markers can no longer be found.
 Messages and generated image assets will remain.`, "clear_orphaned"), cleanupButton("Clear Cancelled", "Clear Cancelled Slots?", `This removes cancelled Relay records from this chat.
 Messages and generated image assets will remain.`, "clear_cancelled"), cleanupButton("Clear All Relay State", "Clear All Relay State?", `This removes every Reverie Relay record for this chat.
 Generated image assets and message content will remain, but Relay history and metadata will be lost.`, "clear_all", true));
@@ -143487,7 +143559,7 @@ ${recovered} recovered / ${summary.imageUnavailable} unavailable / ${summary.exi
       processing: records.filter(isProcessing).length,
       readyToPlace: records.filter((record) => record.status === "placement-pending").length,
       failed: records.filter((record) => record.status === "failed" || record.status === "image-unavailable").length,
-      completed: records.filter((record) => record.status === "completed").length
+      completed: stats.completedTotal
     };
   }
   function canReparse(record) {
@@ -143628,6 +143700,7 @@ Original prompt metadata unavailable`;
     if (disposed)
       return;
     disposed = true;
+    ctx.sendToBackend({ type: "frontend_session", chatId: activeChatId, sessionId: frontendSessionId, connected: false, nativeSettingsAvailable: Boolean(Object.keys(nativeImageSettingsCache).length), platformClass: frontendPlatformClass });
     enforceNativeAutoGenerationGuard(true);
     streamPreviews.clear();
     completedPreviewGenerations.clear();

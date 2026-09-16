@@ -25,6 +25,9 @@ export const SLOT_LIFECYCLE: Readonly<Record<SlotStatus, SlotLifecycleSemantics>
   'recovered-pending': lifecycle(false, false, false),
   preparing: lifecycle(true, false, false),
   queued: lifecycle(true, false, false),
+  'awaiting-native-settings': lifecycle(true, false, false),
+  'paused-backlog': lifecycle(false, false, false, true),
+  superseded: lifecycle(false, false, true),
   parsing: lifecycle(true, false, false),
   generating: lifecycle(true, false, false),
   previewing: lifecycle(true, false, false),
@@ -60,6 +63,5 @@ export function canAbortSlotStatus(status: SlotStatus): boolean {
 export function isFailureRecoveryStatus(status: SlotStatus): boolean {
   return status === 'failed'
     || status === 'image-unavailable'
-    || status === 'cancelled'
     || status === 'placement-repair-needed'
 }

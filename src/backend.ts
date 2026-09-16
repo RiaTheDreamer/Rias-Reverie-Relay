@@ -111,6 +111,31 @@ import {
 } from './contracts'
 export type { RequestClassification } from './contracts'
 import { canAbortSlotStatus, isGenerationActiveStatus, isSlotLifecycleActive } from './slotLifecycle'
+import {
+  AUTO_DISPATCH_STALE_MS,
+  AUTO_RESUME_MAX_JOBS,
+  canonicalDispatchKey,
+  classifyBacklog,
+  classifyNativeSettings,
+  dispatchKeysForJob,
+  groupRecordsIntoJobs,
+  raceWithAbort,
+  throwIfAborted,
+  type DispatchLease,
+} from './queueSafety'
+import {
+  COMPLETED_HISTORY_PAGE_SIZE,
+  HOT_LOG_LIMIT,
+  RECENT_COMPLETED_HOT_LIMIT,
+  compactCompletedRecord,
+  completedArchiveId,
+  emptyRelayChatStats,
+  serializedBytes,
+  stripCompletedRecord,
+  type CompactCompletedRecord,
+  type CompletedArchiveRecord,
+  type RelayChatStats,
+} from './completedState'
 import { BoundedLruCache } from './boundedCache'
 import { abortableSlotKeys, C5B_CACHE_LIMITS, cancelMapKeysFromSnapshot, healthCheck, rememberBoundedMap, summarizeRelayHealth, type RelayHealthCheck } from './c5bReliability'
 import { c5aCastRequirements, enforceC5AKnownIdentity, resolveC5ANativeIdentityBinding, type C5ANativeIdentityBinding } from './c5aIdentity'
@@ -531,6 +556,19 @@ type StateFile = {
   clearedAt?: number
   suppressedContentFingerprints: Record<string, string>
   slots: Record<string, SlotRecord>
+  stats: RelayChatStats
+  countedCompletedKeys: Record<string, number>
+  recentCompleted: CompactCompletedRecord[]
+  completedArchive: Record<string, CompletedArchiveRecord>
+  dispatchLeases: Record<string, DispatchLease>
+  queueSafety: {
+    rawPendingRecords: number
+    uniquePendingJobs: number
+    duplicateRecordsCollapsed: number
+    oldestPendingAgeMs: number
+    pausedBacklog: boolean
+    updatedAt: number
+  }
   logs: RouterLogEntry[]
   lastReconciledAt: number
   lastReconciliation?: ReconciliationSummary
@@ -552,6 +590,9 @@ type BackendStateMessage = {
   type: 'state'
   chatId: string | null
   records: SlotRecord[]
+  stats: RelayChatStats
+  recentCompleted: CompactCompletedRecord[]
+  queueSafety: StateFile['queueSafety']
   config: RouterConfig
   parserConnections: ParserConnection[]
   imageConnections: ImageConnection[]
@@ -571,6 +612,7 @@ type BackendStateMessage = {
   schemaVersion: number
   revision: number
   build: BackendBuildInfo
+  performance?: { statePayloadBytes: number; serializationMs: number; recordsSent: number; completedLifetime: number; hotCompleted: number }
 }
 
 type BackendBuildInfo = {
@@ -591,7 +633,8 @@ type FrontendMessage =
     nativeImageSettings?: NativeImageSettings
     nativeSettingsCapturedAt?: number
   }
-  | { type: 'sync_native_settings'; chatId?: string | null; imageGeneration?: NativeImageSettings }
+  | { type: 'sync_native_settings'; chatId?: string | null; imageGeneration?: NativeImageSettings; nativeSettingsCapturedAt?: number; frontendSessionId?: string; platformClass?: 'mobile' | 'desktop' }
+  | { type: 'frontend_session'; chatId?: string | null; sessionId: string; connected: boolean; nativeSettingsAvailable: boolean; platformClass: 'mobile' | 'desktop' }
   | { type: 'set_config'; chatId?: string | null; patch: Partial<RouterConfig> }
   | { type: 'narrative_dlc_action'; chatId?: string | null; action: 'install' | 'repair' | 'inspect' | 'remove'; variant?: NarrativeRegexVariant }
   | { type: 'export_narrative_lorebook'; requestId: string; chatId: string; messageId: string; swipeId?: number; kind: NarrativeLorebookKind; occurrence?: number }
@@ -619,7 +662,10 @@ type FrontendMessage =
   | { type: 'relay_discard_batch'; chatId: string; batchId: string }
   | { type: 'relay_retry_candidate'; chatId: string; batchId: string; candidateKey: string; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
   | { type: 'relay_discard_candidate'; chatId: string; batchId: string; candidateKey: string }
-  | { type: 'queue_action'; chatId: string; action: 'pause_after_current' | 'resume' | 'cancel_selected' | 'skip_selected' | 'generate_selected_only' | 'abort_all'; selectedKeys?: string[]; concurrencyLimit?: number; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
+  | { type: 'queue_action'; chatId: string; action: 'pause_after_current' | 'resume' | 'cancel_selected' | 'skip_selected' | 'generate_selected_only' | 'abort_all' | 'generate_pending' | 'discard_pending'; selectedKeys?: string[]; concurrencyLimit?: number; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
+  | { type: 'export_queue_diagnostic'; chatId: string }
+  | { type: 'completed_history_page'; chatId: string; cursor?: number; limit?: number }
+  | { type: 'completed_diagnostic'; chatId: string; archiveId: string }
   | { type: 'asset_library_action'; chatId: string; action: 'favorite' | 'unfavorite' | 'mark_reference' | 'clear_reference' | 'tag' | 'untag' | 'compare' | 'clear_compare'; assetId?: string; otherAssetId?: string; tag?: string }
   | { type: 'reuse_asset_in_slot'; chatId: string; key: string; assetId: string }
   | { type: 'discover_lora_catalog'; requestId: string; connectionId?: string | null }
@@ -734,6 +780,7 @@ type ImageGenerationStreamContext = {
   slotKey?: string
   requestId?: string
   addToGallery?: boolean
+  attemptSignal?: AbortSignal
 }
 
 type JobTrigger = NonNullable<GenerationSnapshot['triggerType']>
@@ -842,7 +889,7 @@ const DEFAULT_GENERATION_PROFILE: GenerationProfile = {
 
 const CONFIG_PATH = 'config.json'
 const EXTENSION_ID = 'reverie_relay'
-const STATE_SCHEMA_VERSION = 34
+const STATE_SCHEMA_VERSION = 35
 const PROSE_OPPORTUNITY_PLANNER_VERSION = 'prose-opportunity-sidecar-v1'
 const PROSE_PROMPT_COMPOSER_VERSION = 'prose-prompt-composer-v1'
 const BACKEND_LOADED_AT = Date.now()
@@ -971,8 +1018,12 @@ async function withImageGenerationDeadline<T>(
       reject(error)
     }, boundedTimeoutMs)
   })
+  const aborted = new Promise<never>((_, reject) => {
+    if (controller.signal.aborted) { reject(abortError()); return }
+    controller.signal.addEventListener('abort', () => reject(abortError()), { once: true })
+  })
   try {
-    return await Promise.race([operation(), timeout])
+    return await Promise.race([operation(), timeout, aborted])
   } finally {
     if (timer) clearTimeout(timer)
   }
@@ -1104,6 +1155,62 @@ const deferredReparseRequests = new Map<string, { key: string; nativeSnapshot?: 
 const deferredRegenerateRequests = new Map<string, { key: string; nativeSnapshot?: NativeSettingsSnapshot; userId?: string; highResMode?: boolean; attempts: number; timer?: ReturnType<typeof setTimeout> }>()
 const abortableOperationSerials = new Map<string, number>()
 
+type RunJobOptions = {
+  replaceExisting: boolean
+  reparse: boolean
+  triggerType: JobTrigger
+  nativeSnapshot?: NativeSettingsSnapshot
+  highResMode?: boolean
+  forceImagePreview?: boolean
+  automaticDispatch?: boolean
+  placementBatch?: InitialPlacementBatch
+  signal?: AbortSignal
+  attemptId?: string
+  cancellationEpoch?: number
+  settingsSource?: string
+  settingsAgeMs?: number
+  dispatchReason?: string
+}
+
+type RelayDispatchQueueEntry = {
+  queueKey: string
+  job: RouterJob
+  options: RunJobOptions
+  userId?: string
+  epoch: number
+  resolve: () => void
+}
+
+type RelayDispatchQueue = {
+  pending: RelayDispatchQueueEntry[]
+  active: number
+  concurrency: number
+}
+
+type RelayAttemptCancellation = {
+  attemptId: string
+  chatId: string
+  jobKey: string
+  controller: AbortController
+  createdAt: number
+  abortedAt?: number
+  reason?: string
+}
+
+type NativeSettingsBrokerRuntime = {
+  refreshInFlight: boolean
+  refreshRequestedAt?: number
+  waiters: Set<string>
+  frontendSessions: Map<string, { sessionId: string; connected: boolean; nativeSettingsAvailable: boolean; lastSeenAt: number; platformClass: 'mobile' | 'desktop' }>
+}
+
+const relayDispatchQueues = new Map<string, RelayDispatchQueue>()
+const enqueuedRelayJobs = new Map<string, Promise<void>>()
+const activeRelayAttempts = new Map<string, RelayAttemptCancellation>()
+const queueCancellationEpochs = new Map<string, number>()
+const nativeSettingsBrokers = new Map<string, NativeSettingsBrokerRuntime>()
+const lastStateDispatchMetrics = new Map<string, NonNullable<BackendStateMessage['performance']>>()
+
 type RenderSnapshot = {
   studio: CustomSurfaceStudioState
   contractFingerprint: string
@@ -1205,7 +1312,7 @@ function cacheRenderSnapshot(chatId: string, userId: string | undefined, state: 
     autoGenerate: config.autoGenerate,
     generationPlaceholderEffect: config.generationPlaceholderEffect,
     narrativeVariant: narrativeVariantForSurfaceShellMode(config.surfaceDefaultShellMode),
-    records: Object.values(state.slots),
+    records: Object.values(state.slots).filter(record => record.status !== 'completed'),
     cachedAt: Date.now(),
   }
   renderSnapshotCache.set(renderScopeKey(chatId, userId), snapshot)
@@ -3536,8 +3643,38 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
     case 'scan_message':
       await scanAndGenerate(payload.chatId, payload.messageId ?? undefined, payload.swipeId, userId, snapshotFromPayload(payload), payload.sourceContent)
       return
+    case 'frontend_session': {
+      const broker = nativeSettingsBroker(userId)
+      broker.frontendSessions.set(payload.sessionId, {
+        sessionId: payload.sessionId,
+        connected: payload.connected,
+        nativeSettingsAvailable: payload.nativeSettingsAvailable,
+        lastSeenAt: Date.now(),
+        platformClass: payload.platformClass,
+      })
+      if (payload.chatId) await mutateState(payload.chatId, userId, state => appendStateLog(state, {
+        severity: 'info', stage: 'frontend-session', eventType: payload.connected ? 'frontend_connected' : 'frontend_disconnected', chatId: payload.chatId || undefined,
+        message: `${payload.platformClass} frontend ${payload.connected ? 'connected' : 'disconnected'}.`,
+        details: { sessionId: payload.sessionId, platformClass: payload.platformClass, nativeSettingsAvailable: payload.nativeSettingsAvailable },
+      }))
+      return
+    }
     case 'sync_native_settings':
-      await syncNativeSettings(payload.imageGeneration || {}, userId)
+      if (payload.frontendSessionId) {
+        const broker = nativeSettingsBroker(userId)
+        broker.frontendSessions.set(payload.frontendSessionId, {
+          sessionId: payload.frontendSessionId,
+          connected: true,
+          nativeSettingsAvailable: Boolean(Object.keys(payload.imageGeneration || {}).length),
+          lastSeenAt: Date.now(),
+          platformClass: payload.platformClass || 'desktop',
+        })
+      }
+      await syncNativeSettings(payload.imageGeneration || {}, userId, payload.nativeSettingsCapturedAt)
+      if (payload.chatId) await resumeNativeSettingsWaiters(payload.chatId, {
+        settings: cleanParameters(payload.imageGeneration) as NativeImageSettings,
+        capturedAt: Number(payload.nativeSettingsCapturedAt) || Date.now(),
+      }, userId)
       await sendState(userId, payload.chatId ?? undefined)
       return
     case 'set_config':
@@ -3695,6 +3832,15 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
       return
     case 'queue_action':
       await handleQueueAction(payload, snapshotFromPayload(payload), userId)
+      return
+    case 'export_queue_diagnostic':
+      await exportQueueDispatchDiagnostic(payload.chatId, userId)
+      return
+    case 'completed_history_page':
+      await sendCompletedHistoryPage(payload.chatId, payload.cursor, payload.limit, userId)
+      return
+    case 'completed_diagnostic':
+      await sendCompletedDiagnostic(payload.chatId, payload.archiveId, userId)
       return
     case 'asset_library_action':
       await handleAssetLibraryAction(payload, userId)
@@ -4106,14 +4252,267 @@ function inspectRawImageRequestTags(content: string): Array<{ id: string; target
 }
 
 
-function requestNativeSettingsSnapshot(chatId: string, messageId: string | undefined, swipeId: number | undefined, userId?: string, sourceContent?: string): void {
+function relayQueueScope(userId?: string): string {
+  return userId || '__default-user__'
+}
+
+function relayCancellationScope(chatId: string, userId?: string): string {
+  return `${relayQueueScope(userId)}:${chatId}`
+}
+
+function currentQueueCancellationEpoch(chatId: string, userId?: string): number {
+  return queueCancellationEpochs.get(relayCancellationScope(chatId, userId)) || 0
+}
+
+function relayQueueKey(job: RouterJob, userId?: string): string {
+  return `${relayQueueScope(userId)}:${jobCancellationKey(job)}`
+}
+
+function nativeSettingsBroker(userId?: string): NativeSettingsBrokerRuntime {
+  const scope = relayQueueScope(userId)
+  const broker = nativeSettingsBrokers.get(scope) || { refreshInFlight: false, waiters: new Set<string>(), frontendSessions: new Map() }
+  nativeSettingsBrokers.set(scope, broker)
+  return broker
+}
+
+function requestNativeSettingsSnapshot(chatId: string, messageId: string | undefined, swipeId: number | undefined, userId?: string, sourceContent?: string, waiterKeys: string[] = []): void {
+  const broker = nativeSettingsBroker(userId)
+  for (const key of waiterKeys) broker.waiters.add(key)
+  const now = Date.now()
+  if (broker.refreshInFlight && now - (broker.refreshRequestedAt || now) < 30_000) return
+  broker.refreshInFlight = true
+  broker.refreshRequestedAt = now
   spindle.sendToFrontend({
     type: 'native_snapshot_requested',
     chatId,
     messageId: messageId ?? null,
     swipeId: swipeId ?? null,
     sourceContent,
+    coalescedWaiterCount: broker.waiters.size,
   }, userId)
+}
+
+async function markJobsAwaitingNativeSettings(jobs: RouterJob[], userId?: string): Promise<void> {
+  if (!jobs.length) return
+  const now = Date.now()
+  const chatId = jobs[0].chatId
+  const waiterKeys = jobs.flatMap(dispatchKeysForJob)
+  await mutateState(chatId, userId, state => {
+    for (const job of jobs) for (const slot of job.slots) {
+      const record = state.slots[slotKey({ ...job, slot })]
+      if (!record || record.status === 'completed') continue
+      record.status = 'awaiting-native-settings'
+      record.updatedAt = now
+      const dispatchKey = canonicalDispatchKey({ ...job, slot })
+      const lease = state.dispatchLeases[dispatchKey]
+      if (lease) Object.assign(lease, { status: 'awaiting-native-settings', settingsSource: 'missing', settingsAgeMs: Number.MAX_SAFE_INTEGER })
+    }
+    updateQueueSafetySummary(state, now)
+    appendStateLog(state, {
+      severity: 'warning', stage: 'native-settings-broker', eventType: 'native_settings_refresh_requested', chatId,
+      message: `Waiting for one coalesced Native ImageGen settings refresh for ${waiterKeys.length} unique slot${waiterKeys.length === 1 ? '' : 's'}.`,
+      details: { coalescedWaiterCount: waiterKeys.length },
+    })
+  })
+  requestNativeSettingsSnapshot(chatId, jobs[0].messageId, jobs[0].swipeId, userId, undefined, waiterKeys)
+  await sendState(userId, chatId)
+}
+
+async function resumeNativeSettingsWaiters(chatId: string, snapshot: NativeSettingsSnapshot, userId?: string): Promise<void> {
+  if (!Object.keys(snapshot.settings || {}).length) return
+  const broker = nativeSettingsBroker(userId)
+  broker.refreshInFlight = false
+  broker.refreshRequestedAt = undefined
+  const state = await getState(chatId, userId)
+  const waiting = Object.values(state.slots).filter(record => record.status === 'awaiting-native-settings')
+  if (!waiting.length) { broker.waiters.clear(); return }
+  const now = Date.now()
+  const decision = classifyBacklog(waiting, now)
+  if (decision.pause) {
+    await mutateState(chatId, userId, next => {
+      for (const record of Object.values(next.slots)) {
+        if (record.status !== 'awaiting-native-settings') continue
+        record.status = 'paused-backlog'
+        record.updatedAt = now
+        const lease = next.dispatchLeases[canonicalDispatchKey(record)]
+        if (lease) lease.status = 'paused-backlog'
+      }
+      updateQueueSafetySummary(next, now)
+      appendStateLog(next, {
+        severity: 'warning', stage: 'native-settings-broker', eventType: 'backlog_paused', chatId,
+        message: `Paused ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? '' : 's'} instead of auto-dispatching an earlier-session backlog.`,
+        details: decision,
+      })
+    })
+    broker.waiters.clear()
+    spindle.sendToFrontend({
+      type: 'relay_notice', level: 'warning',
+      message: `Reverie Relay found ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? '' : 's'} from an earlier session. Review, generate, or discard them from Queue.`,
+    }, userId)
+    return
+  }
+
+  const validJobs: RouterJob[] = []
+  const supersededKeys = new Set<string>()
+  for (const job of groupRecordsIntoJobs(waiting)) {
+    const message = await resolveMessage(job.chatId, job.messageId)
+    const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : ''
+    const active = message ? activeSwipeId(message) === job.swipeId : false
+    const authored = Boolean(job.originalRequestXml && content.includes(job.originalRequestXml))
+      || parseSafeSurfaceImageRequests(content).some(request => request.id === job.requestId)
+    if (!active || !authored) {
+      for (const key of dispatchKeysForJob(job)) supersededKeys.add(key)
+      continue
+    }
+    validJobs.push(job)
+  }
+  if (supersededKeys.size) await mutateState(chatId, userId, next => {
+    for (const record of Object.values(next.slots)) {
+      if (!supersededKeys.has(canonicalDispatchKey(record))) continue
+      record.status = 'superseded'
+      record.updatedAt = now
+      const lease = next.dispatchLeases[canonicalDispatchKey(record)]
+      if (lease) lease.status = 'superseded'
+    }
+    updateQueueSafetySummary(next, now)
+  })
+  broker.waiters.clear()
+  await Promise.all(validJobs.map(job => enqueueRelayJob(job, {
+    replaceExisting: false,
+    reparse: true,
+    triggerType: 'initial',
+    nativeSnapshot: snapshot,
+    automaticDispatch: true,
+    settingsSource: 'fresh-after-coalesced-refresh',
+    settingsAgeMs: Math.max(0, Date.now() - snapshot.capturedAt),
+    dispatchReason: 'native-settings-restored-recent-small-backlog',
+  }, userId)))
+}
+
+function updateQueueSafetySummary(state: StateFile, now = Date.now()): void {
+  const pending = Object.values(state.slots).filter(record => ['queued', 'awaiting-native-settings', 'paused-backlog'].includes(record.status))
+  const decision = classifyBacklog(pending, now)
+  state.queueSafety = {
+    rawPendingRecords: decision.rawRecords,
+    uniquePendingJobs: decision.uniqueJobs,
+    duplicateRecordsCollapsed: decision.duplicateRecordsCollapsed,
+    oldestPendingAgeMs: decision.oldestPendingAgeMs,
+    pausedBacklog: pending.some(record => record.status === 'paused-backlog'),
+    updatedAt: now,
+  }
+}
+
+async function enqueueRelayJob(job: RouterJob, options: RunJobOptions, userId?: string): Promise<void> {
+  const queueKey = relayQueueKey(job, userId)
+  const existing = enqueuedRelayJobs.get(queueKey)
+  if (existing) return existing
+  const scope = relayQueueScope(userId)
+  const config = await getConfig(userId)
+  const queue = relayDispatchQueues.get(scope) || { pending: [], active: 0, concurrency: config.queueConcurrencyLimit }
+  queue.concurrency = Math.max(1, config.queueConcurrencyLimit)
+  relayDispatchQueues.set(scope, queue)
+  const epoch = currentQueueCancellationEpoch(job.chatId, userId)
+  const promise = new Promise<void>(resolve => {
+    queue.pending.push({ queueKey, job, options, userId, epoch, resolve })
+  })
+  enqueuedRelayJobs.set(queueKey, promise)
+  const now = Date.now()
+  await mutateState(job.chatId, userId, state => {
+    for (const slot of job.slots) {
+      const record = state.slots[slotKey({ ...job, slot })]
+      if (!record || record.status === 'completed') continue
+      record.status = 'queued'
+      record.queuedAt = now
+      record.updatedAt = now
+      const dispatchKey = canonicalDispatchKey({ ...job, slot })
+      const lease = state.dispatchLeases[dispatchKey]
+      if (lease) Object.assign(lease, { status: 'queued', queuedAt: now, dispatchEligibleAt: now, cancellationEpoch: epoch })
+    }
+    updateQueueSafetySummary(state, now)
+  })
+  void drainRelayDispatchQueue(scope)
+  return promise
+}
+
+async function drainRelayDispatchQueue(scope: string): Promise<void> {
+  const queue = relayDispatchQueues.get(scope)
+  if (!queue) return
+  while (queue.active < queue.concurrency && queue.pending.length) {
+    const entry = queue.pending.shift()!
+    if (entry.epoch !== currentQueueCancellationEpoch(entry.job.chatId, entry.userId)) {
+      enqueuedRelayJobs.delete(entry.queueKey)
+      entry.resolve()
+      continue
+    }
+    queue.active += 1
+    const attemptId = `${entry.queueKey}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`
+    const controller = new AbortController()
+    activeRelayAttempts.set(attemptId, { attemptId, chatId: entry.job.chatId, jobKey: entry.queueKey, controller, createdAt: Date.now() })
+    void (async () => {
+      try {
+        const now = Date.now()
+        const dispatchAllowed = await mutateState(entry.job.chatId, entry.userId, state => {
+          const duplicate = dispatchKeysForJob(entry.job).some(key => {
+            const lease = state.dispatchLeases[key]
+            return lease?.status === 'completed' || lease?.status === 'dispatched' && Boolean(lease.attemptId) && lease.attemptId !== attemptId
+          })
+          if (duplicate && entry.options.automaticDispatch) {
+            appendStateLog(state, {
+              severity: 'warning', stage: 'provider-dispatch', eventType: 'duplicate_auto_dispatch_suppressed', chatId: entry.job.chatId,
+              messageId: entry.job.messageId, swipeId: entry.job.swipeId, requestId: entry.job.requestId,
+              message: 'Suppressed an equivalent automatic provider dispatch before spend.',
+              details: { dispatchKeys: dispatchKeysForJob(entry.job), attemptId },
+            })
+            return false
+          }
+          for (const key of dispatchKeysForJob(entry.job)) {
+            const lease = state.dispatchLeases[key]
+            if (lease) Object.assign(lease, {
+              attemptId, status: 'dispatched', dispatchedAt: now, cancellationEpoch: entry.epoch,
+              settingsSource: entry.options.settingsSource, settingsAgeMs: entry.options.settingsAgeMs, dispatchReason: entry.options.dispatchReason,
+            })
+          }
+          updateQueueSafetySummary(state, now)
+          return true
+        })
+        if (!dispatchAllowed) return
+        await runJob(entry.job, { ...entry.options, signal: controller.signal, attemptId, cancellationEpoch: entry.epoch }, entry.userId)
+      } finally {
+        activeRelayAttempts.delete(attemptId)
+        enqueuedRelayJobs.delete(entry.queueKey)
+        queue.active = Math.max(0, queue.active - 1)
+        entry.resolve()
+        void drainRelayDispatchQueue(scope)
+      }
+    })().catch(error => spindle.log.error(`[Reverie Relay:dispatch_queue] ${error instanceof Error ? error.message : String(error)}`))
+  }
+}
+
+function cancelRelayDispatchScope(chatId: string, userId?: string): { queued: number; active: number; epoch: number } {
+  const cancellationScope = relayCancellationScope(chatId, userId)
+  const epoch = (queueCancellationEpochs.get(cancellationScope) || 0) + 1
+  queueCancellationEpochs.set(cancellationScope, epoch)
+  const queue = relayDispatchQueues.get(relayQueueScope(userId))
+  let queued = 0
+  if (queue) {
+    const retained: RelayDispatchQueueEntry[] = []
+    for (const entry of queue.pending) {
+      if (entry.job.chatId !== chatId) { retained.push(entry); continue }
+      queued += 1
+      enqueuedRelayJobs.delete(entry.queueKey)
+      entry.resolve()
+    }
+    queue.pending = retained
+  }
+  let active = 0
+  for (const attempt of activeRelayAttempts.values()) {
+    if (attempt.chatId !== chatId || attempt.controller.signal.aborted) continue
+    active += 1
+    attempt.abortedAt = Date.now()
+    attempt.reason = 'Cancelled by Abort All.'
+    attempt.controller.abort(attempt.reason)
+  }
+  return { queued, active, epoch }
 }
 
 export async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>): Promise<void> {
@@ -4470,6 +4869,19 @@ async function scanAndGenerate(
     return
   }
   messageLocks.add(lockKey)
+  let discoveryLockReleased = false
+  const releaseDiscoveryLock = (): void => {
+    if (discoveryLockReleased) return
+    discoveryLockReleased = true
+    messageLocks.delete(lockKey)
+    if (messageId) clearIdleCancellationKeys(chatId, messageId)
+    const deferred = deferredScans.get(lockKey)
+    if (!deferred) return
+    deferredScans.delete(lockKey)
+    queueMicrotask(() => {
+      void scanAndGenerate(...deferred).catch(error => spindle.log.error(`[Reverie Relay:deferred_scan] ${error instanceof Error ? error.message : String(error)}`))
+    })
+  }
 
   try {
     const config = await getConfig(userId)
@@ -4682,6 +5094,12 @@ async function scanAndGenerate(
           promptPipeline: previous?.promptPipeline ?? emptyPromptPipeline({ caption: req.caption, originalNegativePrompt: req.negative || '' }),
           history: previous?.history ?? [],
         }
+        const dispatchKey = canonicalDispatchKey({ ...job, slot })
+        if (!state.dispatchLeases[dispatchKey]) {
+          state.stats.discoveredTotal += 1
+          state.stats.updatedAt = now
+          state.dispatchLeases[dispatchKey] = { dispatchKey, attemptId: '', status: 'discovered', discoveredAt: previous?.discoveredAt ?? now }
+        }
       }
       logStage(config, 'request_registered', {
         chatId,
@@ -4697,6 +5115,7 @@ async function scanAndGenerate(
       })
         registeredJobs.push(job)
       }
+      updateQueueSafetySummary(state, now)
       return registeredJobs
     })
 
@@ -4709,6 +5128,9 @@ async function scanAndGenerate(
     pendingGenerationContent.delete(pendingContentKey(chatId, message.id))
     logSlotSummary(config, await getState(chatId, userId), chatId)
     await sendState(userId, chatId)
+    // Discovery registration is the only message-wide critical section. Native
+    // settings, model calls, provider work, and placement must not hold it.
+    releaseDiscoveryLock()
     if (registerOnly) {
       await mutateState(chatId, userId, state => appendStateLog(state, {
         severity: 'info', stage: 'request-registration', eventType: 'manual_slot_registered', chatId, messageId: message.id, swipeId,
@@ -4718,11 +5140,18 @@ async function scanAndGenerate(
       await sendState(userId, chatId)
       return
     }
-    if (config.followNativeImageGen && !nativeSnapshot && !nativeSnapshotFromConfig(config)) {
-      requestNativeSettingsSnapshot(chatId, message.id, swipeId, userId, content)
+    if (nativeSnapshot) await syncNativeSettings(nativeSnapshot.settings, userId, nativeSnapshot.capturedAt)
+    const storedSnapshot = nativeSnapshotFromConfig(await getConfig(userId))
+    const candidateSnapshot = nativeSnapshot || storedSnapshot
+    const freshness = classifyNativeSettings(candidateSnapshot?.capturedAt)
+    if (config.followNativeImageGen && (!candidateSnapshot || !freshness.usable)) {
+      await markJobsAwaitingNativeSettings(jobs, userId)
       return
     }
-    const effectiveSnapshot = nativeSnapshot || nativeSnapshotFromConfig(config)
+    if (config.followNativeImageGen && freshness.requestRefresh) {
+      requestNativeSettingsSnapshot(chatId, message.id, swipeId, userId, undefined, jobs.flatMap(dispatchKeysForJob))
+    }
+    const effectiveSnapshot = candidateSnapshot
     if (config.slotGenerationMode === 'prompt-preview') {
       for (const job of jobs) {
         const key = slotKey({ ...job, slot: job.slots[0] || 'image' })
@@ -4733,18 +5162,20 @@ async function scanAndGenerate(
     const placementBatch: InitialPlacementBatch | undefined = config.slotGenerationMode === 'auto-insert'
       ? { chatId, messageId: message.id, swipeId, sourceFingerprint: contentFingerprint(storedContent), entries: [] }
       : undefined
-    await runWithConcurrency(jobs, config.queueConcurrencyLimit, job => runJob(job, { replaceExisting: false, reparse: true, triggerType: 'initial', nativeSnapshot: effectiveSnapshot, automaticDispatch: true, placementBatch }, userId))
+    await Promise.all(jobs.map(job => enqueueRelayJob(job, {
+      replaceExisting: false,
+      reparse: true,
+      triggerType: 'initial',
+      nativeSnapshot: effectiveSnapshot,
+      automaticDispatch: true,
+      placementBatch,
+      settingsSource: freshness.source,
+      settingsAgeMs: freshness.ageMs,
+      dispatchReason: 'new-eligible-automatic-request',
+    }, userId)))
     if (placementBatch) await commitInitialPlacementBatch(placementBatch, userId)
   } finally {
-    messageLocks.delete(lockKey)
-    if (messageId) clearIdleCancellationKeys(chatId, messageId)
-    const deferred = deferredScans.get(lockKey)
-    if (deferred) {
-      deferredScans.delete(lockKey)
-      queueMicrotask(() => {
-        void scanAndGenerate(...deferred).catch(error => spindle.log.error(`[Reverie Relay:deferred_scan] ${error instanceof Error ? error.message : String(error)}`))
-      })
-    }
+    releaseDiscoveryLock()
   }
 }
 
@@ -4769,16 +5200,7 @@ async function assertPersonaPovDispatchAllowed(job: RouterJob, userId?: string):
   if (!context.available) throw new Error('Persona POV refused provider dispatch because no chat-bound or active host Persona resolved.')
 }
 
-async function runJob(job: RouterJob, options: {
-  replaceExisting: boolean
-  reparse: boolean
-  triggerType: JobTrigger
-  nativeSnapshot?: NativeSettingsSnapshot
-  highResMode?: boolean
-  forceImagePreview?: boolean
-  automaticDispatch?: boolean
-  placementBatch?: InitialPlacementBatch
-}, userId?: string): Promise<void> {
+async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): Promise<void> {
   const lockKey = `${job.chatId}:${job.messageId}:${job.swipeId}:${job.requestId}:${job.slots.join(',')}`
   if (slotLocks.has(lockKey)) return
   slotLocks.add(lockKey)
@@ -4787,6 +5209,8 @@ async function runJob(job: RouterJob, options: {
   const backgroundTaskId = `slot:${contentFingerprint(lockKey).slice(0, 20)}`
 
   try {
+    throwIfAborted(options.signal)
+    if (options.cancellationEpoch !== undefined && options.cancellationEpoch !== currentQueueCancellationEpoch(job.chatId, userId)) throw new JobCancelledError()
     if (isJobCancelled(job)) throw new JobCancelledError()
     await assertPersonaPovDispatchAllowed(job, userId)
     if (options.triggerType !== 'initial') await preflightJobReplacement(job)
@@ -4840,7 +5264,7 @@ async function runJob(job: RouterJob, options: {
       const highResMode = options.highResMode ?? (options.reparse ? config.highResMode : record.highResMode ?? config.highResMode)
 
       failureStage = 'provider-validation'
-      const imagePlan = await prepareImagePlan(config, job, record, options.nativeSnapshot, userId, highResMode)
+      const imagePlan = await raceWithAbort(prepareImagePlan(config, job, record, options.nativeSnapshot, userId, highResMode), options.signal)
       await mutateJobState(job, userId, state => stampImagePlan(state.slots[key], imagePlan))
       scheduleStateBroadcast(userId, job.chatId)
       if (isJobCancelled(job)) throw new JobCancelledError()
@@ -4849,7 +5273,7 @@ async function runJob(job: RouterJob, options: {
       failureStage = 'parser-failed'
       if (isJobCancelled(job)) throw new JobCancelledError()
       const prepared = options.reparse
-        ? await parseSlotPrompt(job, slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings as NativeImageSettings, highResMode, options.triggerType === 'reparse' || options.triggerType === 'intent-regeneration')
+        ? await raceWithAbort(parseSlotPrompt(job, slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings as NativeImageSettings, highResMode, options.triggerType === 'reparse' || options.triggerType === 'intent-regeneration'), options.signal)
         : resolvedPromptFromRecord(record, config)
       if (isJobCancelled(job)) throw new JobCancelledError()
       enrichPromptPipelineWithImagePlan(prepared.promptPipeline, imagePlan, prepared.prompt, prepared.negativePrompt)
@@ -4892,6 +5316,7 @@ async function runJob(job: RouterJob, options: {
         slotKey: key,
         requestId: job.requestId,
         addToGallery: config.galleryAutoLink,
+        attemptSignal: options.signal,
       })
       if (isJobCancelled(job)) throw new JobCancelledError()
       await mutateJobState(job, userId, state => updateBackgroundTask(state, backgroundTaskId, { stage: 'placing', statusText: 'Saving and placing 3/3', current: 3, total: 3 }))
@@ -4962,12 +5387,33 @@ async function runJob(job: RouterJob, options: {
 
     results.sort((left, right) => job.slots.indexOf(left.slot) - job.slots.indexOf(right.slot))
     if (isJobCancelled(job)) throw new JobCancelledError()
-    const placement = await applyJobSuccess(job, results, options.replaceExisting, userId, false, options.forceImagePreview === true, options.placementBatch)
+    throwIfAborted(options.signal)
+    const placement = await raceWithAbort(applyJobSuccess(job, results, options.replaceExisting, userId, false, options.forceImagePreview === true, options.placementBatch), options.signal)
+    throwIfAborted(options.signal)
     await enqueueGalleryLinksForResults(job, results, userId)
     await mutateState(job.chatId, userId, state => finishBackgroundTask(state, backgroundTaskId, placement === 'completed' ? 'Complete' : 'Ready to place'))
     spindle.sendToFrontend({ type: 'status', status: placement === 'completed' ? 'Generated' : 'Ready to Place', requestId: job.requestId }, userId)
   } catch (error) {
-    if (error instanceof JobCancelledError || isJobCancelled(job)) { await mutateState(job.chatId, userId, state => updateBackgroundTask(state, backgroundTaskId, { stage: 'cancelled', statusText: 'Cancelled', etaSeconds: null })).catch(() => undefined); return }
+    if (error instanceof JobCancelledError || isAbortError(error) || options.signal?.aborted || isJobCancelled(job)) {
+      await mutateState(job.chatId, userId, state => {
+        const now = Date.now()
+        updateBackgroundTask(state, backgroundTaskId, { stage: 'cancelled', statusText: 'Aborted', etaSeconds: null })
+        for (const slot of job.slots) {
+          const record = state.slots[slotKey({ ...job, slot })]
+          if (!record || record.status === 'completed') continue
+          if (record.status !== 'cancelled') state.stats.cancelledTotal += 1
+          record.status = 'cancelled'
+          record.cancelledAt = now
+          record.updatedAt = now
+          finishAttempt(record, 'cancelled', now, 'Cancelled by user.')
+          const lease = state.dispatchLeases[canonicalDispatchKey({ ...job, slot })]
+          if (lease) lease.status = 'cancelled'
+        }
+        state.stats.updatedAt = now
+        updateQueueSafetySummary(state, now)
+      }).catch(() => undefined)
+      return
+    }
     if (error instanceof ReplacementPreflightError) {
       await reportReplacementPreflightFailure(job, error.message, userId)
       return
@@ -6185,7 +6631,14 @@ async function cleanupState(payload: Extract<FrontendMessage, { type: 'cleanup' 
         appendStateLog(state, { severity: 'info', stage: 'manual-cleanup', eventType: 'error_cleared', chatId: payload.chatId, messageId: record.messageId, swipeId: record.swipeId, requestId: record.requestId, slot: record.slot, target: record.target, message: 'Cleared slot error state.' })
       }
     } else if (payload.action === 'clear_failed') removeSlotRecords(state, selected.filter(record => record.status === 'failed'))
-    else if (payload.action === 'clear_completed') removeSlotRecords(state, selected.filter(record => record.status === 'completed'))
+    else if (payload.action === 'clear_completed') {
+      removeSlotRecords(state, selected.filter(record => record.status === 'completed'))
+      for (const [key, archived] of Object.entries(state.completedArchive)) {
+        if (payload.scope === 'chat' || payload.scope === 'slot' && key === payload.key || payload.scope === 'message' && archived.messageId === payload.messageId) delete state.completedArchive[key]
+      }
+      state.recentCompleted = Object.values(state.completedArchive).sort((a, b) => b.completedAt - a.completedAt).slice(0, RECENT_COMPLETED_HOT_LIMIT)
+      // countedCompletedKeys and stats intentionally survive history cleanup.
+    }
     else if (payload.action === 'clear_cancelled') removeSlotRecords(state, selected.filter(record => record.status === 'cancelled'))
     else if (payload.action === 'clear_orphaned') removeSlotRecords(state, selected.filter(record => record.orphaned))
     else if (payload.action === 'clear_all') {
@@ -6937,27 +7390,111 @@ async function discardRelayCandidate(chatId: string, batchId: string, candidateK
 
 async function handleQueueAction(payload: Extract<FrontendMessage, { type: 'queue_action' }>, nativeSnapshot?: NativeSettingsSnapshot, userId?: string): Promise<void> {
   if (payload.action === 'abort_all') {
+    const queueAbort = cancelRelayDispatchScope(payload.chatId, userId)
     const stoppedStreams = abortAllImageStreams()
     cancelMapKeysFromSnapshot(abortableOperationSerials, cancelAbortableOperation)
+    for (const [key, scheduled] of [...scheduledAssistantScans.entries()]) {
+      if (scheduled.chatId !== payload.chatId) continue
+      if (scheduled.timer) clearTimeout(scheduled.timer)
+      scheduledAssistantScans.delete(key)
+    }
+    for (const [key, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
+      if (scheduled.chatId !== payload.chatId) continue
+      if (scheduled.timer) clearTimeout(scheduled.timer)
+      scheduledProseOpportunityScans.delete(key)
+    }
+    for (const key of [...deferredScans.keys()]) if (key.startsWith(`${payload.chatId}:`)) deferredScans.delete(key)
+    for (const [key, request] of [...deferredRegenerateRequests.entries()]) {
+      if (!key.startsWith(`${payload.chatId}:`)) continue
+      if (request.timer) clearTimeout(request.timer)
+      deferredRegenerateRequests.delete(key)
+    }
+    for (const [key, request] of [...deferredReparseRequests.entries()]) {
+      if (!key.startsWith(`${payload.chatId}:`)) continue
+      if (request.timer) clearTimeout(request.timer)
+      deferredReparseRequests.delete(key)
+    }
+    const broker = nativeSettingsBroker(userId)
     await mutateState(payload.chatId, userId, state => {
-      state.backgroundQueue.abortRequestedAt = Date.now()
-      state.backgroundQueue.updatedAt = Date.now()
+      const now = Date.now()
+      state.backgroundQueue.abortRequestedAt = now
+      state.backgroundQueue.updatedAt = now
       for (const record of Object.values(state.slots)) {
-        if (!isGenerationActiveStatus(record.status)) continue
+        if (!isGenerationActiveStatus(record.status) && record.status !== 'paused-backlog') continue
         cancelledJobs.add(jobCancellationKey(record))
+        broker.waiters.delete(canonicalDispatchKey(record))
+        if (record.status !== 'cancelled') state.stats.cancelledTotal += 1
         record.status = 'cancelled'
-        record.cancelledAt = Date.now()
-        record.updatedAt = Date.now()
-        finishAttempt(record, 'cancelled', Date.now(), 'Cancelled by global Abort All.')
+        record.cancelledAt = now
+        record.updatedAt = now
+        finishAttempt(record, 'cancelled', now, 'Cancelled by global Abort All.')
+        const lease = state.dispatchLeases[canonicalDispatchKey(record)]
+        if (lease) Object.assign(lease, { status: 'cancelled', cancellationEpoch: queueAbort.epoch })
       }
       for (const item of Object.values(state.backgroundQueue.items)) {
         if (['completed','failed','cancelled'].includes(item.stage)) continue
         updateBackgroundTask(state, item.id, { stage: 'cancelled', statusText: 'Cancelled by Abort All', etaSeconds: null })
       }
-      appendStateLog(state, { severity: 'warning', stage: 'background-queue', eventType: 'abort_all', chatId: payload.chatId, message: 'User cancelled all active Relay analysis and generation work.' })
+      state.stats.updatedAt = now
+      updateQueueSafetySummary(state, now)
+      appendStateLog(state, {
+        severity: 'warning', stage: 'background-queue', eventType: 'abort_all', chatId: payload.chatId,
+        message: 'User cancelled all queued, waiting, and active Relay work.',
+        details: { abortedQueued: queueAbort.queued, abortedActive: queueAbort.active, stoppedStreams, cancellationEpoch: queueAbort.epoch },
+      })
     })
     await sendState(userId, payload.chatId)
-    spindle.sendToFrontend({ type: 'relay_notice', level: 'info', message: stoppedStreams > 0 ? `Stopped ${stoppedStreams} active image generation stream${stoppedStreams === 1 ? '' : 's'}.` : 'Stopped active Relay work.' }, userId)
+    spindle.sendToFrontend({
+      type: 'queue_abort_ack',
+      abortedQueued: queueAbort.queued,
+      abortedActive: queueAbort.active,
+      remoteCancelRequested: 0,
+      alreadyStopped: queueAbort.queued + queueAbort.active + stoppedStreams === 0 ? 1 : 0,
+    }, userId)
+    spindle.sendToFrontend({ type: 'relay_notice', level: 'info', message: `Abort acknowledged: ${queueAbort.queued} queued and ${queueAbort.active || stoppedStreams} active Relay job${queueAbort.queued + queueAbort.active === 1 ? '' : 's'} stopped locally.` }, userId)
+    return
+  }
+  if (payload.action === 'generate_pending') {
+    const config = await getConfig(userId)
+    const snapshot = nativeSnapshot || nativeSnapshotFromConfig(config)
+    const freshness = classifyNativeSettings(snapshot?.capturedAt)
+    if (config.followNativeImageGen && (!snapshot || !freshness.usable)) {
+      requestNativeSettingsSnapshot(payload.chatId, undefined, undefined, userId)
+      spindle.sendToFrontend({ type: 'relay_notice', level: 'warning', message: 'Pending jobs remain paused until Relay has a usable Native ImageGen settings snapshot.' }, userId)
+      return
+    }
+    const state = await getState(payload.chatId, userId)
+    const selected = new Set(payload.selectedKeys || [])
+    const pending = Object.values(state.slots).filter(record => record.status === 'paused-backlog' && (!selected.size || selected.has(record.key)))
+    await Promise.all(groupRecordsIntoJobs(pending).map(job => enqueueRelayJob(job, {
+      replaceExisting: false,
+      reparse: true,
+      triggerType: 'initial',
+      nativeSnapshot: snapshot,
+      automaticDispatch: false,
+      settingsSource: freshness.source,
+      settingsAgeMs: freshness.ageMs,
+      dispatchReason: 'explicit-generate-pending',
+    }, userId)))
+    return
+  }
+  if (payload.action === 'discard_pending') {
+    const selected = new Set(payload.selectedKeys || [])
+    await mutateState(payload.chatId, userId, state => {
+      const now = Date.now()
+      for (const record of Object.values(state.slots)) {
+        if (!['paused-backlog', 'awaiting-native-settings'].includes(record.status) || selected.size && !selected.has(record.key)) continue
+        record.status = 'cancelled'
+        record.cancelledAt = now
+        record.updatedAt = now
+        state.stats.cancelledTotal += 1
+        const lease = state.dispatchLeases[canonicalDispatchKey(record)]
+        if (lease) lease.status = 'cancelled'
+      }
+      state.stats.updatedAt = now
+      updateQueueSafetySummary(state, now)
+    })
+    await sendState(userId, payload.chatId)
     return
   }
   if (payload.action === 'generate_selected_only' && payload.selectedKeys?.length) {
@@ -7695,7 +8232,7 @@ async function generateProseIllustrationPlan(chatId: string, planId: string, nat
     const autoRecord = latest.slots[proseSlotKey]
     if (!autoRecord) throw new Error('Relay-Planned could not resolve the synthetic prose slot after placement.')
     assertAbortableOperationCurrent(operationKey, operationSerial)
-    await runJob(jobFromRecord(autoRecord), {
+    await enqueueRelayJob(jobFromRecord(autoRecord), {
       replaceExisting: false,
       reparse: true,
       triggerType: 'initial',
@@ -7703,6 +8240,9 @@ async function generateProseIllustrationPlan(chatId: string, planId: string, nat
       highResMode: plan.highResolutionModifier ?? settings.highResolutionModifier,
       forceImagePreview: settings.relayInsertionMode === 'review',
       automaticDispatch: true,
+      settingsSource: classifyNativeSettings(nativeSnapshot?.capturedAt).source,
+      settingsAgeMs: classifyNativeSettings(nativeSnapshot?.capturedAt).ageMs,
+      dispatchReason: 'relay-planned-automatic-request',
     }, userId)
     return
   }
@@ -10460,10 +11000,9 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
     add_to_gallery: shouldLinkToGallery,
     gallery_caption: shouldLinkToGallery ? prepared.prompt.slice(0, 240) : undefined,
     generation_origin: source,
-    // Relay needs the bytes to recover safely when a host/provider returns an
-    // old persisted result ID. Do not let an ephemeral result URL become the
-    // only copy of an otherwise successful generation.
-    includeDataUrl: true,
+    // Lumiverse persists the generated asset. Relay keeps the stable ID/URL and
+    // must not bounce a full base64 copy through the worker for normal jobs.
+    includeDataUrl: false,
   }
   const resolvedStreamContext = streamContext || (chatId ? {
     chatId,
@@ -10730,7 +11269,7 @@ function nativeSnapshotFromConfig(config: RouterConfig): NativeSettingsSnapshot 
   if (!Object.keys(config.nativeImageSettingsSnapshot || {}).length) return undefined
   return {
     settings: cloneRecord(config.nativeImageSettingsSnapshot) as NativeImageSettings,
-    capturedAt: config.nativeSettingsCapturedAt || Date.now(),
+    capturedAt: config.nativeSettingsCapturedAt || 0,
   }
 }
 
@@ -11935,7 +12474,7 @@ function buildParserFallbackPrompt(
   }
 }
 
-async function syncNativeSettings(imageGeneration: NativeImageSettings, userId?: string): Promise<RouterConfig> {
+async function syncNativeSettings(imageGeneration: NativeImageSettings, userId?: string, capturedAt = Date.now()): Promise<RouterConfig> {
   const current = await getConfig(userId)
   if (!configStorageHydratedScopes.has(userConfigCacheKey(userId))) {
     spindle.log.warn('[Reverie Relay] Native settings sync deferred until persisted Relay configuration is available.')
@@ -11943,7 +12482,7 @@ async function syncNativeSettings(imageGeneration: NativeImageSettings, userId?:
   }
   const patch: Partial<RouterConfig> = {
     nativeImageSettingsSnapshot: cloneRecord(imageGeneration),
-    nativeSettingsCapturedAt: Date.now(),
+    nativeSettingsCapturedAt: Number.isFinite(capturedAt) && capturedAt > 0 ? capturedAt : Date.now(),
     nativePromptMode: cleanString(imageGeneration.promptMode),
     nativePromptPresetId: cleanNullableString(imageGeneration.activePromptPresetId),
     nativeCustomPrompt: cleanString(imageGeneration.customPrompt),
@@ -12412,6 +12951,12 @@ function emptyState(): StateFile {
     schemaVersion: STATE_SCHEMA_VERSION,
     revision: 0,
     slots: {},
+    stats: emptyRelayChatStats(),
+    countedCompletedKeys: {},
+    recentCompleted: [],
+    completedArchive: {},
+    dispatchLeases: {},
+    queueSafety: { rawPendingRecords: 0, uniquePendingJobs: 0, duplicateRecordsCollapsed: 0, oldestPendingAgeMs: 0, pausedBacklog: false, updatedAt: 0 },
     logs: [],
     lastReconciledAt: 0,
     candidateBatches: {},
@@ -12491,6 +13036,9 @@ export async function generateWithOptionalStream(
   timeoutMs = IMAGE_GENERATION_TIMEOUT_MS,
 ): Promise<any> {
   const controller = new AbortController()
+  const abortFromAttempt = () => controller.abort(context.attemptSignal?.reason || 'Cancelled by user.')
+  if (context.attemptSignal?.aborted) abortFromAttempt()
+  else context.attemptSignal?.addEventListener('abort', abortFromAttempt, { once: true })
   registerImageStream(context, controller)
   let releaseLane: (() => void) | null = null
   try {
@@ -12595,6 +13143,7 @@ export async function generateWithOptionalStream(
     sendImageStreamEvent(userId, context, { event: 'error', streaming: false, statusText: 'Generation failed.', error: message })
     throw error
   } finally {
+    context.attemptSignal?.removeEventListener('abort', abortFromAttempt)
     releaseLane?.()
     releaseImageStream(context, controller)
   }
@@ -12649,6 +13198,12 @@ function migrateState(raw: Partial<StateFile> | null | undefined): StateFile {
       ? base.suppressedContentFingerprints as Record<string, string>
       : {},
     slots,
+    stats: normalizeRelayChatStats((base as Partial<StateFile>).stats),
+    countedCompletedKeys: cleanParameters((base as Partial<StateFile>).countedCompletedKeys) as Record<string, number>,
+    recentCompleted: Array.isArray((base as Partial<StateFile>).recentCompleted) ? cloneValue((base as Partial<StateFile>).recentCompleted!) : [],
+    completedArchive: cleanParameters((base as Partial<StateFile>).completedArchive) as Record<string, CompletedArchiveRecord>,
+    dispatchLeases: cleanParameters((base as Partial<StateFile>).dispatchLeases) as Record<string, DispatchLease>,
+    queueSafety: normalizeQueueSafety((base as Partial<StateFile>).queueSafety),
     logs: Array.isArray(base.logs) ? base.logs as RouterLogEntry[] : [],
     lastReconciledAt: Number(base.lastReconciledAt) || 0,
     lastReconciliation: base.lastReconciliation,
@@ -12669,6 +13224,9 @@ function migrateState(raw: Partial<StateFile> | null | undefined): StateFile {
   const migrated = Number(base.schemaVersion) !== STATE_SCHEMA_VERSION
   if (!state.continuityVault.chatId) state.continuityVault.chatId = firstString(Object.values(slots)[0]?.chatId)
   for (const record of Object.values(state.slots)) migrateSlotRecord(record)
+  reconstructCompletionStats(state)
+  ensureDispatchLeases(state)
+  updateQueueSafetySummary(state)
   for (const batch of Object.values(state.candidateBatches)) for (const candidate of batch.candidates || []) candidate.imageIntent = normalizeImageIntent(candidate.imageIntent)
   rebuildAssetLibraryAndVersionTrees(state)
   for (const key of Object.keys(state.queueDirector.jobStatuses || {})) {
@@ -12681,6 +13239,136 @@ function migrateState(raw: Partial<StateFile> | null | undefined): StateFile {
     })
   }
   return state
+}
+
+async function exportQueueDispatchDiagnostic(chatId: string, userId?: string): Promise<void> {
+  const state = await getState(chatId, userId)
+  const config = await getConfig(userId)
+  const broker = nativeSettingsBroker(userId)
+  const snapshot = nativeSnapshotFromConfig(config)
+  const freshness = classifyNativeSettings(snapshot?.capturedAt)
+  const jobs = Object.values(state.slots)
+    .filter(record => ['queued', 'awaiting-native-settings', 'paused-backlog', 'parsing', 'generating'].includes(record.status))
+    .map(record => {
+      const lease = state.dispatchLeases[canonicalDispatchKey(record)]
+      return {
+        dispatchKey: lease?.dispatchKey || canonicalDispatchKey(record),
+        chatId: record.chatId,
+        messageId: record.messageId,
+        swipeId: record.swipeId,
+        requestId: record.requestId,
+        slot: record.slot,
+        status: record.status,
+        discoveredAt: record.discoveredAt || record.createdAt,
+        dispatchEligibleAt: lease?.dispatchEligibleAt || 0,
+        dispatchedAt: lease?.dispatchedAt || 0,
+        awaitingNativeSettingsMs: record.status === 'awaiting-native-settings' ? Math.max(0, Date.now() - (record.queuedAt || record.discoveredAt || record.createdAt)) : 0,
+        settingsSource: lease?.settingsSource || freshness.source,
+        settingsAgeMs: Number.isFinite(lease?.settingsAgeMs) ? lease!.settingsAgeMs : freshness.ageMs,
+        dispatchReason: lease?.dispatchReason || '',
+      }
+    })
+  spindle.sendToFrontend({
+    type: 'queue_dispatch_diagnostic',
+    diagnostic: {
+      generatedAt: Date.now(),
+      frontendSessions: [...broker.frontendSessions.values()].map(session => ({ ...session })),
+      nativeSettingsBroker: {
+        hasSnapshot: Boolean(snapshot),
+        capturedAt: snapshot?.capturedAt || 0,
+        ageMs: Number.isFinite(freshness.ageMs) ? freshness.ageMs : null,
+        refreshInFlight: broker.refreshInFlight,
+        waiterCount: broker.waiters.size,
+      },
+      queue: state.queueSafety,
+      stateDispatch: lastStateDispatchMetrics.get(`${userId || '__default__'}:${chatId}`) || null,
+      jobs,
+    },
+  }, userId)
+}
+
+async function sendCompletedHistoryPage(chatId: string, cursor = 0, limit = COMPLETED_HISTORY_PAGE_SIZE, userId?: string): Promise<void> {
+  await ensureCompletedStateCompacted(chatId, userId)
+  const state = await getState(chatId, userId)
+  const safeCursor = Math.max(0, Number(cursor) || 0)
+  const safeLimit = Math.max(1, Math.min(COMPLETED_HISTORY_PAGE_SIZE, Number(limit) || COMPLETED_HISTORY_PAGE_SIZE))
+  const rows = Object.values(state.completedArchive).sort((left, right) => right.completedAt - left.completedAt)
+  spindle.sendToFrontend({
+    type: 'completed_history_page', chatId, cursor: safeCursor, limit: safeLimit,
+    rows: rows.slice(safeCursor, safeCursor + safeLimit),
+    nextCursor: safeCursor + safeLimit < rows.length ? safeCursor + safeLimit : null,
+    total: rows.length,
+    completedLifetime: state.stats.completedTotal,
+  }, userId)
+}
+
+async function sendCompletedDiagnostic(chatId: string, archiveId: string, userId?: string): Promise<void> {
+  const diagnostic = await spindle.userStorage.getJson(completedDiagnosticPath(chatId, archiveId), { fallback: null, userId })
+  spindle.sendToFrontend({
+    type: 'completed_diagnostic', chatId, archiveId, diagnostic,
+    message: diagnostic ? 'Loaded one archived Relay diagnostic.' : 'Detailed Relay diagnostics were not retained for this historical image.',
+  }, userId)
+}
+
+function normalizeRelayChatStats(value: unknown): RelayChatStats {
+  const raw = cleanParameters(value)
+  return {
+    discoveredTotal: Math.max(0, Number(raw.discoveredTotal) || 0),
+    generatedTotal: Math.max(0, Number(raw.generatedTotal) || 0),
+    completedTotal: Math.max(0, Number(raw.completedTotal) || 0),
+    failedTotal: Math.max(0, Number(raw.failedTotal) || 0),
+    cancelledTotal: Math.max(0, Number(raw.cancelledTotal) || 0),
+    completedByTarget: Object.fromEntries(Object.entries(cleanParameters(raw.completedByTarget)).map(([key, count]) => [key, Math.max(0, Number(count) || 0)])),
+    updatedAt: Math.max(0, Number(raw.updatedAt) || 0),
+  }
+}
+
+function normalizeQueueSafety(value: unknown): StateFile['queueSafety'] {
+  const raw = cleanParameters(value)
+  return {
+    rawPendingRecords: Math.max(0, Number(raw.rawPendingRecords) || 0),
+    uniquePendingJobs: Math.max(0, Number(raw.uniquePendingJobs) || 0),
+    duplicateRecordsCollapsed: Math.max(0, Number(raw.duplicateRecordsCollapsed) || 0),
+    oldestPendingAgeMs: Math.max(0, Number(raw.oldestPendingAgeMs) || 0),
+    pausedBacklog: raw.pausedBacklog === true,
+    updatedAt: Math.max(0, Number(raw.updatedAt) || 0),
+  }
+}
+
+function reconstructCompletionStats(state: StateFile): void {
+  const completed = Object.values(state.slots).filter(record => record.status === 'completed' && Boolean(record.imageUrl || record.imageId))
+  for (const record of completed) {
+    if (state.countedCompletedKeys[record.key]) continue
+    state.countedCompletedKeys[record.key] = record.completedAt || record.updatedAt || Date.now()
+    state.stats.completedTotal += 1
+    state.stats.generatedTotal = Math.max(state.stats.generatedTotal, state.stats.completedTotal)
+    state.stats.completedByTarget[record.target] = (state.stats.completedByTarget[record.target] || 0) + 1
+    state.stats.updatedAt = Math.max(state.stats.updatedAt, record.completedAt || record.updatedAt || 0)
+  }
+  state.stats.discoveredTotal = Math.max(state.stats.discoveredTotal, Object.keys(state.slots).length, Object.keys(state.countedCompletedKeys).length)
+  state.stats.completedTotal = Math.max(state.stats.completedTotal, Object.keys(state.countedCompletedKeys).length)
+}
+
+function ensureDispatchLeases(state: StateFile): void {
+  for (const record of Object.values(state.slots)) {
+    const dispatchKey = canonicalDispatchKey(record)
+    if (state.dispatchLeases[dispatchKey]) continue
+    state.dispatchLeases[dispatchKey] = {
+      dispatchKey,
+      attemptId: record.attemptNumber ? `${dispatchKey}:legacy-${record.attemptNumber}` : '',
+      status: record.status === 'completed' ? 'completed'
+        : record.status === 'placement-repair-needed' ? 'placement-repair-needed'
+          : record.status === 'failed' ? 'failed'
+            : record.status === 'cancelled' ? 'cancelled'
+              : record.status === 'paused-backlog' ? 'paused-backlog'
+                : record.status === 'awaiting-native-settings' ? 'awaiting-native-settings'
+                  : 'discovered',
+      discoveredAt: record.discoveredAt || record.createdAt || Date.now(),
+      queuedAt: record.queuedAt,
+      dispatchedAt: record.generationStartedAt,
+      completedAt: record.completedAt,
+    }
+  }
 }
 
 function migrateSlotRecord(record: SlotRecord): void {
@@ -12696,8 +13384,10 @@ function migrateSlotRecord(record: SlotRecord): void {
     record.proseImageSize = ['small', 'medium', 'large', 'full'].includes(cleanString(record.proseImageSize)) ? record.proseImageSize : 'medium'
   }
   record.history = record.history.map(version => ({ ...version, imageIntent: normalizeImageIntent(version.imageIntent ?? record.imageIntent), promptPipeline: version.promptPipeline ? { ...version.promptPipeline, imageIntent: normalizeImageIntent(version.promptPipeline.imageIntent ?? version.imageIntent ?? record.imageIntent) } : version.promptPipeline }))
-  record.promptPipeline ||= emptyPromptPipeline(record)
-  record.promptPipeline.imageIntent = normalizeImageIntent(record.promptPipeline.imageIntent ?? record.imageIntent)
+  if (record.status !== 'completed' || record.originalSceneBrief) {
+    record.promptPipeline ||= emptyPromptPipeline(record)
+    record.promptPipeline.imageIntent = normalizeImageIntent(record.promptPipeline.imageIntent ?? record.imageIntent)
+  }
   if (record.recoverySource && !record.recoveryCompleteness) {
     record.recoveryCompleteness = record.recoverySource === 'unresolved-request' ? 'full' : 'marker-only'
   }
@@ -12715,9 +13405,9 @@ function migrateSlotRecord(record: SlotRecord): void {
     record.error = 'Recovered after the app closed or generation state became stale. Reparse or generate this slot again.'
     record.updatedAt = Date.now()
     finishAttempt(record, 'cancelled', record.updatedAt, 'Recovered stale processing state after restart.')
-  } else if (record.status === 'queued' && !activeInThisRuntime && processingAge > 90_000) {
-    record.status = canReparseRecord(record) ? 'recovered-pending' : 'failed'
-    record.error = 'Recovered a stale queued slot after restart.'
+  } else if ((record.status === 'queued' || record.status === 'awaiting-native-settings') && !activeInThisRuntime && processingAge > AUTO_DISPATCH_STALE_MS) {
+    record.status = 'paused-backlog'
+    record.error = undefined
     record.updatedAt = Date.now()
   }
 }
@@ -13359,7 +14049,69 @@ function appendStateLog(state: StateFile, entry: Omit<RouterLogEntry, 'id' | 'ti
 }
 
 function trimLogs(state: StateFile): void {
-  if (state.logs.length > 500) state.logs.splice(0, state.logs.length - 500)
+  if (state.logs.length > HOT_LOG_LIMIT) state.logs.splice(0, state.logs.length - HOT_LOG_LIMIT)
+}
+
+function completedDiagnosticPath(chatId: string, archiveId: string): string {
+  return `completed-history/${contentFingerprint(chatId).slice(0, 24)}/diagnostics/${archiveId}.json`
+}
+
+function completedRecordHasHeavyData(record: SlotRecord): boolean {
+  return Boolean(
+    record.promptPipeline || record.diagnostic || record.parserOutput || record.finalImageRequest || record.finalImageParameters
+    || record.nativeImageSettings || record.excludedContinuityFacts?.length || record.includedContinuityFacts?.length
+    || record.pendingPlacement || record.history?.length || record.attempts?.length,
+  )
+}
+
+async function ensureCompletedStateCompacted(chatId: string, userId?: string): Promise<void> {
+  const before = await getState(chatId, userId)
+  const completedBefore = Object.values(before.slots).filter(record => record.status === 'completed' && Boolean(record.imageUrl || record.imageId))
+  const needsCompaction = completedBefore.length > RECENT_COMPLETED_HOT_LIMIT
+    || completedBefore.some(completedRecordHasHeavyData)
+    || completedBefore.some(record => !before.completedArchive[record.key])
+    || before.logs.length > HOT_LOG_LIMIT
+  if (!needsCompaction) return
+  await mutateState(chatId, userId, async state => {
+    const oldBytes = serializedBytes({ records: Object.values(state.slots), logs: state.logs })
+    const completed = Object.values(state.slots)
+      .filter(record => record.status === 'completed' && Boolean(record.imageUrl || record.imageId))
+      .sort((left, right) => (right.completedAt || right.updatedAt) - (left.completedAt || left.updatedAt))
+    await spindle.userStorage.mkdir('completed-history', userId).catch(() => undefined)
+    for (const record of completed) {
+      const compact = compactCompletedRecord(record)
+      const existing = state.completedArchive[record.key]
+      if (!existing?.diagnosticArchivedAt && completedRecordHasHeavyData(record)) {
+        await spindle.userStorage.setJson(completedDiagnosticPath(chatId, compact.diagnosticArchiveId!), {
+          schemaVersion: 1,
+          archivedAt: Date.now(),
+          record,
+        }, { indent: 2, userId })
+        compact.diagnosticArchiveId = compact.diagnosticArchiveId || completedArchiveId(record)
+      }
+      state.completedArchive[record.key] = {
+        ...existing,
+        ...compact,
+        historyVersionIds: (record.history || []).map(version => version.versionId).filter((id): id is string => Boolean(id)),
+        diagnosticArchivedAt: existing?.diagnosticArchivedAt || (completedRecordHasHeavyData(record) ? Date.now() : undefined),
+      }
+    }
+    const hot = completed.slice(0, RECENT_COMPLETED_HOT_LIMIT)
+    const hotKeys = new Set(hot.map(record => record.key))
+    for (const record of completed) {
+      if (hotKeys.has(record.key)) state.slots[record.key] = stripCompletedRecord(record)
+      else delete state.slots[record.key]
+    }
+    state.recentCompleted = hot.map(compactCompletedRecord)
+    trimLogs(state)
+    reconstructCompletionStats(state)
+    const newBytes = serializedBytes({ records: Object.values(state.slots), logs: state.logs, stats: state.stats, recentCompleted: state.recentCompleted })
+    appendStateLog(state, {
+      severity: 'info', stage: 'completed-state-compaction', eventType: 'completed_state_compacted', chatId,
+      message: `Compacted ${completed.length} completed record${completed.length === 1 ? '' : 's'} to ${hot.length} hot summaries.`,
+      details: { completedLifetime: state.stats.completedTotal, hotCompleted: hot.length, oldPayloadBytes: oldBytes, newPayloadBytes: newBytes },
+    })
+  })
 }
 
 function backendBuildInfo(): BackendBuildInfo {
@@ -13461,6 +14213,7 @@ function scheduleStateBroadcast(userId?: string, chatId?: string, delayMs = 16):
 
 async function sendState(userId?: string, chatId?: string): Promise<void> {
   const config = await getConfig(userId)
+  if (chatId) await ensureCompletedStateCompacted(chatId, userId)
   let state = chatId ? await getState(chatId, userId) : emptyState()
   state.continuityVault.strength = config.vaultStrength
   if (chatId && Date.now() - state.lastReconciledAt > 5000) {
@@ -13472,11 +14225,16 @@ async function sendState(userId?: string, chatId?: string): Promise<void> {
     spindle.log.warn(`[Reverie Relay] Resolved-macro sync failed: ${error instanceof Error ? error.message : String(error)}`)
   })
   const records = Object.values(state.slots).sort((a, b) => b.updatedAt - a.updatedAt)
-  const globalAssets = await hostOwnedRelayAssetLibrary(state.assetLibrary, userId)
+  // Normal drawer state is hot-only. The host Images catalog and completed
+  // archive are queried by explicit paged actions, never on every status tick.
+  const globalAssets = compactAssetLibraryForState(state.assetLibrary)
   const message: BackendStateMessage = {
     type: 'state',
     chatId: chatId ?? null,
     records,
+    stats: state.stats,
+    recentCompleted: state.recentCompleted,
+    queueSafety: state.queueSafety,
     config,
     parserConnections: await getParserConnections(userId),
     imageConnections: await getImageConnections(userId),
@@ -13485,18 +14243,28 @@ async function sendState(userId?: string, chatId?: string): Promise<void> {
     candidateBatches: Object.values(state.candidateBatches || {}).sort((a, b) => b.updatedAt - a.updatedAt),
     queueDirector: state.queueDirector,
     assetLibrary: globalAssets,
-    versionTrees: Object.values(state.versionTrees || {}).sort((a, b) => b.updatedAt - a.updatedAt),
+    versionTrees: Object.values(state.versionTrees || {}).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, RECENT_COMPLETED_HOT_LIMIT),
     continuityVault: state.continuityVault,
     customSurfaces: state.customSurfaces,
     proseIllustrator: state.proseIllustrator,
     backgroundQueue: state.backgroundQueue,
-    galleryLinks: Object.values(state.galleryLinks).sort((a, b) => b.updatedAt - a.updatedAt),
+    galleryLinks: Object.values(state.galleryLinks).sort((a, b) => b.updatedAt - a.updatedAt).filter((link, index) => index < RECENT_COMPLETED_HOT_LIMIT || link.status === 'pending'),
     lastDryRun: state.lastDryRun,
     lastGenerationBlockers: state.lastGenerationBlockers,
     schemaVersion: state.schemaVersion,
     revision: state.revision,
     build: backendBuildInfo(),
   }
+  const serializationStartedAt = Date.now()
+  const statePayloadBytes = serializedBytes(message)
+  message.performance = {
+    statePayloadBytes,
+    serializationMs: Math.max(0, Date.now() - serializationStartedAt),
+    recordsSent: records.length,
+    completedLifetime: state.stats.completedTotal,
+    hotCompleted: records.filter(record => record.status === 'completed').length,
+  }
+  lastStateDispatchMetrics.set(`${userId || '__default__'}:${chatId || '__none__'}`, message.performance)
   lastBackendResponseAt = Date.now()
   spindle.sendToFrontend(message, userId)
 }
@@ -13859,12 +14627,39 @@ function applyGeneration(state: StateFile, record: SlotRecord, result: SlotGener
   record.triggerType = result.triggerType
   record.updatedAt = now
   record.completedAt = now
+  if (!state.countedCompletedKeys[record.key]) {
+    state.countedCompletedKeys[record.key] = now
+    state.stats.completedTotal += 1
+    state.stats.generatedTotal += 1
+    state.stats.completedByTarget[record.target] = (state.stats.completedByTarget[record.target] || 0) + 1
+    state.stats.updatedAt = now
+  }
+  const dispatchKey = canonicalDispatchKey(record)
+  const lease = state.dispatchLeases[dispatchKey]
+  if (lease) Object.assign(lease, { status: 'completed', completedAt: now })
   if (record.recoveryCompleteness === 'marker-only') {
     record.recoveryCompleteness = 'partial'
     record.missingRecoveryFields = ['originalSceneBrief', 'originalRequestXml'].filter(field => field === 'originalSceneBrief' ? !record.originalSceneBrief : !record.originalRequestXml)
   }
   commitSlotAssetVersion(state, record, result, snapshot, now)
   finishAttempt(record, 'completed', now)
+  updateQueueSafetySummary(state, now)
+}
+
+function compactAssetLibraryForState(library: AssetLibraryState): AssetLibraryState {
+  const pinned = new Set([library.compare?.leftAssetId, library.compare?.rightAssetId].filter((id): id is string => Boolean(id)))
+  const rows = Object.values(library.assets || {}).sort((left, right) => right.updatedAt - left.updatedAt)
+  const selected = rows.filter((asset, index) => index < RECENT_COMPLETED_HOT_LIMIT || asset.favorite || asset.visualReference || pinned.has(asset.assetId))
+  return {
+    ...library,
+    assets: Object.fromEntries(selected.map(asset => [asset.assetId, {
+      ...asset,
+      originalSceneBrief: '',
+      resolvedPositivePrompt: '',
+      resolvedNegativePrompt: '',
+      metadata: {},
+    }])),
+  }
 }
 
 function snapshotFromRecord(record: SlotRecord, now: number): GenerationSnapshot | null {

@@ -745,7 +745,7 @@ assert(manifest.permissions?.includes('interceptor') && manifest.permissions?.in
 const versionMatch = buildSource.match(/EXTENSION_VERSION = '([^']+)'/)
 const buildIdMatch = buildSource.match(/BUILD_ID = '([^']+)'/)
 assert(versionMatch?.[1] === manifest.version && new RegExp(`^\\d{8}-${String(manifest.version).replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}$`, 'i').test(buildIdMatch?.[1] || ''), 'expected shared current release identity')
-assert(backendSource.includes('STATE_SCHEMA_VERSION = 34'), 'expected state schema 34')
+assert(backendSource.includes('STATE_SCHEMA_VERSION = 35'), 'expected state schema 35')
 
 assert(frontendSource.includes("type SuiteSection = 'relay' | 'illustrator' | 'surfaces' | 'memory' | 'archive' | 'settings'"), 'expected six-part Surface Suite navigation')
 assert(frontendSource.includes('dg-suite-primary') && frontendSource.includes('dg-suite-secondary') && frontendSource.includes('Current Chat Overview'), 'expected clean hierarchical workspace')
@@ -796,7 +796,7 @@ assert(backendSource.includes('proseIllustrator') && backendSource.includes('gen
 assert(protocolsSource.includes('Sidecar Opportunity Discovery') && backendSource.includes('selectProseOpportunity') && backendSource.includes('composePromptForOpportunity'), 'expected bounded beat analysis and prompt composition through the Prompt Registry')
 assert(frontendSource.includes('Relay-Planned') && frontendSource.includes('Model-Placed') && frontendSource.includes('Illustrations per Response'), 'expected clear Illustrator modes and settings')
 assert(frontendSource.includes("mode: 'model-placed'") || frontendSource.includes("mode === 'model-placed'"), 'expected Model-Placed Illustrator path')
-assert(backendSource.includes('isHandsOffProseMode') && backendSource.includes('runJob(jobFromRecord(autoRecord)'), 'expected Relay-Planned to generate directly')
+assert(backendSource.includes('isHandsOffProseMode') && backendSource.includes('enqueueRelayJob(jobFromRecord(autoRecord)'), 'expected Relay-Planned to use the canonical bounded provider queue')
 assert(frontendSource.includes("'Prompt Profile',") && frontendSource.includes('config?.promptProfiles') && !frontendSource.includes("textInput('Prompt Profile', settings.defaultPromptProfileId"), 'expected Illustrator Prompt Profile dropdown')
 
 assert(backendSource.includes('purgeOwnedMessageState') && backendSource.includes('sourceDeletedAt') && backendSource.includes('image retained in Relay History'), 'expected deleted-message cleanup to archive completed images first')
