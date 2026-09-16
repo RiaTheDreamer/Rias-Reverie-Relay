@@ -10097,6 +10097,7 @@ function normalizeCustomSurfaceDefinition(surfaceId: string, value: unknown): Cu
       ? cleanString(raw.promptCategory) as SurfacePromptCategory
       : defaultSurfacePromptCategory(baseSurfaceId),
     promptModule: cleanString(raw.promptModule) || DEFAULT_SURFACE_PROMPT_MODULES[baseSurfaceId] || `SURFACE: ${cleanString(raw.displayName) || titleCase(baseSurfaceId)}\nUse [${wrapper || `${baseSurfaceId.replace(/-/g, '_')}_surface`}]...[/${wrapper || `${baseSurfaceId.replace(/-/g, '_')}_surface`}] only when this enabled Relay surface is appropriate.`,
+    triggerGuidance: cleanString(raw.triggerGuidance) || undefined,
     hybridOwner: ['relay', 'regex'].includes(cleanString(raw.hybridOwner)) ? cleanString(raw.hybridOwner) as CustomSurfaceDefinition['hybridOwner'] : undefined,
     hybridOwnerConfigured: raw.hybridOwnerConfigured === true,
     updatedAt: Number(raw.updatedAt) || Date.now(),
@@ -10153,6 +10154,19 @@ function sanitizeDeclarativeMarkup(value: string): string {
   return cleanString(value).replace(/<script[\s\S]*?<\/script>/gi, '').replace(/\son[a-z]+\s*=\s*(['"]).*?\1/gi, '').replace(/javascript:/gi, '')
 }
 
+function canonicalEditedSurfaceRoot(markup: string): string {
+  const source = String(markup || '').trim()
+  const raw = /^<([A-Za-z][A-Za-z0-9_-]*)\b/i.exec(source)?.[1]
+    || /^\[([A-Za-z][A-Za-z0-9_-]*)(?:\s+[^\]]*)?\]/i.exec(source)?.[1]
+    || ''
+  const normalized = raw.toLocaleLowerCase().replace(/-/g, '_')
+  const spec = SHIPPED_SURFACE_SPECS.find(row => {
+    const aliases = [row.wrapper, ...(row.normalization?.rootAliases || [])]
+    return aliases.some(alias => alias.toLocaleLowerCase().replace(/-/g, '_') === normalized)
+  })
+  return spec?.wrapper || normalized
+}
+
 async function handleNativeSurfaceAction(payload: Extract<FrontendMessage, { type: 'native_surface_action' }>, userId?: string): Promise<void> {
   const message = await resolveMessage(payload.chatId, payload.messageId)
   if (!message) throw new Error('Message not found.')
@@ -10165,9 +10179,9 @@ async function handleNativeSurfaceAction(payload: Extract<FrontendMessage, { typ
     const originalMarkup = cleanString(payload.originalMarkup)
     const replacementMarkup = sanitizeDeclarativeMarkup(payload.replacementMarkup || '')
     if (!originalMarkup || !replacementMarkup) throw new Error('Relay needs both the current and replacement surface markup.')
-    const originalRoot = /^<([A-Za-z][A-Za-z0-9_-]*)\b/i.exec(originalMarkup)?.[1] || ''
-    const replacementRoot = /^<([A-Za-z][A-Za-z0-9_-]*)\b/i.exec(replacementMarkup)?.[1] || ''
-    if (!originalRoot || replacementRoot.toLocaleLowerCase() !== originalRoot.toLocaleLowerCase()) throw new Error('The edited surface must keep the same outer wrapper.')
+    const originalRoot = canonicalEditedSurfaceRoot(originalMarkup)
+    const replacementRoot = canonicalEditedSurfaceRoot(replacementMarkup)
+    if (!originalRoot || !replacementRoot || replacementRoot !== originalRoot) throw new Error('The edited surface must keep the same canonical outer wrapper.')
     const exactIndex = next.indexOf(originalMarkup)
     if (exactIndex < 0) throw new Error('Relay could not locate the original surface markup in the active swipe. Reopen the editor and try again.')
     next = `${next.slice(0, exactIndex)}${replacementMarkup}${next.slice(exactIndex + originalMarkup.length)}`

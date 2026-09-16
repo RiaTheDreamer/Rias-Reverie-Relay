@@ -1,5 +1,6 @@
 import type { CustomSurfaceDefinition, ImageTarget, PromptProfileId, SurfacePromptCategory } from './contracts'
 import { bracketSurfacePromptModule } from './bracketSurfaceAuthoring'
+import { surfaceTriggerGuidance } from './shippedSurfaceDefinitions'
 
 type CatalogRow = {
   id: string
@@ -25,10 +26,11 @@ function runtimeUtilityPrompt(row: CatalogRow): string {
     target: row.target || 'custom.artifact-media',
     aspect: row.aspect || '4:3',
   })
-  if (row.id === 'album-cover') return `${module}
+  const guidance = surfaceTriggerGuidance(row.id, row.label)
+  if (row.id === 'album-cover') return `${guidance}\n\n${module}
 
 Album Cover contract note: a real album/release title is required in [title] before [artist], [release], and [artwork]. Do not use placeholders as the release title.`
-  if (row.id === 'smartphone') return `${module}
+  if (row.id === 'smartphone') return `${guidance}\n\n${module}
 
 Smartphone contract note: every scalar and message field must be explicitly closed. Never put XML-style attributes in bracket opening tags.
 
@@ -45,7 +47,7 @@ STRICT MESSAGE SHAPE
 [/messages]
 
 The shell fields are [sender]...[/sender], [initial]...[/initial], [time]...[/time], [day]...[/day], and [battery]...[/battery]. Never emit unclosed scalar fields, [battery]value], or [s_recv time="..."] / [s_sent time="..."].`
-  return module
+  return `${guidance}\n\n${module}`
 }
 
 const MEDIA_LIMITS: Record<string, readonly [number, number]> = {
@@ -94,6 +96,7 @@ export function r45SupplementalSurfaceDefinitions(now = Date.now()): CustomSurfa
     const mediaLimits = MEDIA_LIMITS[row.id] || [0, 0]
     const sampleAspects = [...row.sample.matchAll(/<image_request\b[^>]*\baspect="([^"]+)"/gi)].map(match => match[1])
     const supportedAspectRatios = [...new Set([...(row.aspect ? [row.aspect] : []), ...sampleAspects])]
+    const triggerGuidance = surfaceTriggerGuidance(row.id, row.label)
     return ({
     surfaceId: row.id,
     baseSurfaceId: row.id,
@@ -133,6 +136,7 @@ export function r45SupplementalSurfaceDefinitions(now = Date.now()): CustomSurfa
     promptEnabled: true,
     promptCategory: row.category,
     promptModule: runtimeUtilityPrompt(row),
+    triggerGuidance,
     hybridOwner: 'relay',
     hybridOwnerConfigured: false,
     updatedAt: now,

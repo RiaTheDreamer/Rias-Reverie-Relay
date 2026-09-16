@@ -33,7 +33,7 @@ assert(sanitized.runtimeArtifactsDetectedBefore, 'real-derived turn-one fixture 
 assert(!sanitized.runtimeArtifactsRemainAfter && !containsRelayRuntimeArtifacts(sanitized.text), 'turn-two Story Model history must contain zero Relay runtime transport artifacts')
 assert(sanitized.text.includes('Ordinary narrative prose before') && sanitized.text.includes('Playable historical branch g'), 'sanitization must preserve ordinary prose and Plot Spark hook_text')
 assert(!/<hook_media>\s*<\/hook_media>/i.test(sanitized.text), 'sanitization must not leave deceptive empty hook_media owners')
-assert(new RegExp(`<hook_media>\\s*${HISTORICAL_RELAY_MEDIA_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*<\\/hook_media>`, 'i').test(sanitized.text), 'removed historical hook media must become the neutral omission placeholder')
+assert(!sanitized.text.includes(HISTORICAL_RELAY_MEDIA_PLACEHOLDER), 'historical sanitation must never expose the readable omission sentinel')
 assert(sanitized.removed.ownershipComments === 8 && sanitized.removed.relayMarkdownResultImages === 8 && sanitized.removed.dataDgirImages === 8, 'real-derived fixture must exercise all hydrated ownership representations')
 
 const malformedTransport = sanitizeRelayPromptHistoryTextWithReport(`Before\ndata-dgir-image-id="fake" data-dgir-slot="fake"\nAfter`)
@@ -41,21 +41,21 @@ assert(!containsRelayRuntimeArtifacts(malformedTransport.text), 'post-sanitize f
 assert(malformedTransport.text.includes('Before') && malformedTransport.text.includes('After'), 'firebreak must preserve prose surrounding a malformed transport line')
 
 const canonicalIllustration = (slot: string) => `<reverie-illustration request="generate" slot="${slot}" aspect="4:3" cast="none" alt="Scene"><visual_prompt>Wide empty location at the current story beat, with coherent light and spatial detail.</visual_prompt></reverie-illustration>`
-const canonicalHook = (key: keyof typeof PLOT_SPARK_VECTOR_BY_KEY) => `<chaos_hook key="${key}" vector="${PLOT_SPARK_VECTOR_BY_KEY[key]}"><hook_text>Playable ${key} branch.</hook_text><hook_media>${canonicalIllustration(`chaos-${key}`)}</hook_media></chaos_hook>`
-const validPlot = `<chaos_payload id="valid-seven">${(Object.keys(PLOT_SPARK_VECTOR_BY_KEY) as Array<keyof typeof PLOT_SPARK_VECTOR_BY_KEY>).map(canonicalHook).join('')}</chaos_payload>`
+const canonicalHook = (key: keyof typeof PLOT_SPARK_VECTOR_BY_KEY) => `[Spark][Key]${key}[/Key][Vector]${PLOT_SPARK_VECTOR_BY_KEY[key]}[/Vector][Text]Playable ${key} branch.[/Text][Media]${canonicalIllustration(`plot-spark-${key}`)}[/Media][/Spark]`
+const validPlot = `[Plot_Sparks][ID]valid-seven[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${(Object.keys(PLOT_SPARK_VECTOR_BY_KEY) as Array<keyof typeof PLOT_SPARK_VECTOR_BY_KEY>).map(canonicalHook).join('')}[/Plot_Sparks]`
 const fourInline = ['one', 'two', 'three', 'four'].map(canonicalIllustration).join('\n')
 const valid = inspectStoryModelOutputContracts(`${fourInline}\n${validPlot}`, { expectedInlineIllustrations: 4, inlineCountMode: 'fixed', expectPlotSparks: true })
 assert(valid.valid && valid.inline.actualCanonicalIllustrations === 4 && valid.plotSparks.hookCount === 7, 'fixed Inline four plus canonical Plot Sparks A-G must validate')
 
-const partialPlot = `<chaos_payload id="broken-three">${canonicalHook('a')}${canonicalHook('b')}<chaos_hook key="c" vector="crash-in"><hook_text>Wrong C vector.</hook_text><hook_media>${canonicalIllustration('chaos-c')}</hook_media></chaos_hook></chaos_payload>`
+const partialPlot = `[Plot_Sparks][ID]broken-three[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${canonicalHook('a')}${canonicalHook('b')}[Spark][Key]c[/Key][Vector]crash-in[/Vector][Text]Wrong C vector.[/Text][Media]${canonicalIllustration('plot-spark-c')}[/Media][/Spark][/Plot_Sparks]`
 const partial = inspectStoryModelOutputContracts(`${fourInline}\n${partialPlot}`, { expectedInlineIllustrations: 4, inlineCountMode: 'fixed', expectPlotSparks: true })
 assert(partial.plotSparks.missingKeys.join('') === 'defg', 'broken A-C fixture must report missing D-G')
 assert(partial.plotSparks.vectorMismatches.some(row => row.key === 'c' && row.expected === 'wrongness' && row.actual === 'crash-in'), 'broken C fixture must report wrongness/crash-in mismatch')
 
-const duplicate = inspectStoryModelOutputContracts(`<chaos_payload>${canonicalHook('a')}${canonicalHook('b')}${canonicalHook('b')}${canonicalHook('c')}${canonicalHook('d')}${canonicalHook('e')}${canonicalHook('f')}${canonicalHook('g')}</chaos_payload>`, { expectPlotSparks: true })
+const duplicate = inspectStoryModelOutputContracts(`[Plot_Sparks][ID]duplicate[/ID][Lifecycle]Unused[/Lifecycle]${canonicalHook('a')}${canonicalHook('b')}${canonicalHook('b')}${canonicalHook('c')}${canonicalHook('d')}${canonicalHook('e')}${canonicalHook('f')}${canonicalHook('g')}[/Plot_Sparks]`, { expectPlotSparks: true })
 assert(duplicate.plotSparks.duplicateKeys.includes('b'), 'duplicate Plot Spark key must be diagnosed')
-const emptyMedia = inspectStoryModelOutputContracts(`<chaos_payload>${canonicalHook('a').replace(/<hook_media>[\s\S]*?<\/hook_media>/, '<hook_media></hook_media>')}${canonicalHook('b')}${canonicalHook('c')}${canonicalHook('d')}${canonicalHook('e')}${canonicalHook('f')}${canonicalHook('g')}</chaos_payload>`, { expectPlotSparks: true })
-assert(emptyMedia.plotSparks.missingMedia.includes('a'), 'empty hook_media must be diagnosed')
+const emptyMedia = inspectStoryModelOutputContracts(`[Plot_Sparks][ID]empty[/ID][Lifecycle]Unused[/Lifecycle]${canonicalHook('a').replace(/\[Media\][\s\S]*?\[\/Media\]/, '[Media][/Media]')}${canonicalHook('b')}${canonicalHook('c')}${canonicalHook('d')}${canonicalHook('e')}${canonicalHook('f')}${canonicalHook('g')}[/Plot_Sparks]`, { expectPlotSparks: true })
+assert(emptyMedia.plotSparks.missingMedia.includes('a'), 'empty Plot Spark Media must be diagnosed')
 
 const fakeRuntime = `Narrative.\n<!-- reverie-relay:image requestId="fake" -->\n![reverie-relay](/api/v1/image-gen/results/fake-id)`
 const fakeInspection = inspectStoryModelOutputContracts(fakeRuntime)

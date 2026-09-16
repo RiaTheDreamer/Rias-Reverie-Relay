@@ -16,6 +16,7 @@ export type ShippedSurfaceSpec = {
   maximumMediaCount?: number
   sampleXml: string
   promptModule: string
+  triggerGuidance?: string
   category: SurfacePromptCategory
   shellMode: SurfaceShellMode
   maxWidth: string
@@ -364,6 +365,23 @@ const R45_SUPPORTED_ASPECT_OVERRIDES: Partial<Record<ShippedSurfaceSpec['id'], s
   'dating-profile': ['1:1', '3:4'],
 }
 
+const SURFACE_TRIGGER_GUIDANCE: Partial<Record<ShippedSurfaceSpec['id'], string>> = {
+  smartphone: `TRIGGER POLICY — SMARTPHONE
+Use when separated characters actually text, a message/notification/screen is directly shown, phone content matters to the current beat, or the user explicitly requests it.
+Do not use when the same characters are physically together and speaking, when a phone is merely present, or when no exchange is established.
+Never interrupt an in-person conversation with a fabricated text exchange between the same co-present characters unless the story explicitly establishes a reason to communicate by phone instead of speaking.`,
+  'relationship-map': `TRIGGER POLICY — RELATIONSHIP MAP
+Use when a focal character has at least two simultaneously relevant relationships with distinct pressures; when three or more named people/factions have meaningful bonds; or when an alliance, rivalry, loyalty, suspicion, secret allegiance, or triangle changes.
+A valid minimum is focal + meaningful connection A + meaningful connection B.
+Do not use for one simple two-person relationship where a map adds nothing.`,
+}
+
+export function surfaceTriggerGuidance(id: string, label: string): string {
+  return SURFACE_TRIGGER_GUIDANCE[id] || `TRIGGER POLICY — ${label.toLocaleUpperCase()}
+Use when the response directly presents this in-world communication, document, object, network, or visual form and the form itself helps the reader understand the current beat.
+Do not invent an action, message, document, or media event merely to justify this Surface. Do not duplicate ordinary prose when the Surface adds no concrete in-world value.`
+}
+
 function applyR45Authority(spec: ShippedSurfaceSpec): ShippedSurfaceSpec {
   const sampleXml = R45_SAMPLE_OVERRIDES[spec.id] || spec.sampleXml
   const customArtifactXml = sampleXml.replace(/target="custom\.[^"]+"/g, 'target="custom.artifact-media"')
@@ -374,11 +392,13 @@ function applyR45Authority(spec: ShippedSurfaceSpec): ShippedSurfaceSpec {
     target: spec.target.startsWith('custom.') ? 'custom.artifact-media' : spec.target,
     aspect: R45_SUPPORTED_ASPECT_OVERRIDES[spec.id]?.[0] || spec.defaultAspect,
   })
+  const triggerGuidance = surfaceTriggerGuidance(spec.id, spec.label)
   return {
     ...spec,
     target: spec.target.startsWith('custom.') ? 'custom.artifact-media' : spec.target,
     sampleXml: customArtifactXml,
-    promptModule: promptXml,
+    triggerGuidance,
+    promptModule: `${triggerGuidance}\n\n${promptXml}`,
   }
 }
 
@@ -440,6 +460,7 @@ export function shippedSurfaceDefinitions(now = Date.now()): CustomSurfaceDefini
     promptEnabled: true,
     promptCategory: spec.category,
     promptModule: spec.promptModule,
+    triggerGuidance: spec.triggerGuidance,
     hybridOwner: 'relay',
     hybridOwnerConfigured: false,
     updatedAt: now,

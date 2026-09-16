@@ -171,7 +171,7 @@ for (const contract of [
   'current knowledge boundaries',
   'current emotional state',
   'current object state',
-  'original Hook Ledger owns the absolute end of the response',
+  'Place [Plot_Sparks] after the main narrative content for the response.',
 ]) {
   assert(plotSparksUtility.content.includes(contract), `model-facing Plot Sparks continuation contract missing: ${contract}`)
 }
@@ -184,13 +184,15 @@ for (const removed of [
 ]) {
   assert(!plotSparksUtility.content.includes(removed), `retired anti-continuation Plot Sparks rule leaked into runtime prompt: ${removed}`)
 }
-for (const token of ['<chaos_payload', '<chaos_hook', '<hook_text>', '<hook_media>', '<reverie-illustration', 'detonation', 'heartknife', 'wrongness', 'crash-in', 'matchstrike', 'reputation-fire', 'wildcard-collision']) {
-  assert(plotSparksUtility.content.includes(token), `Plot Sparks legacy renderer/image contract changed: ${token}`)
+for (const token of ['[Plot_Sparks]', '[Spark]', '[Text]', '[Media]', '<reverie-illustration', 'detonation', 'heartknife', 'wrongness', 'crash-in', 'matchstrike', 'reputation-fire', 'wildcard-collision']) {
+  assert(plotSparksUtility.content.includes(token), `Plot Sparks bracket renderer/image contract changed: ${token}`)
 }
-for (const exactCount of ['Exactly seven <chaos_hook> blocks exist', 'Exactly seven NON-EMPTY <hook_media> blocks exist', 'Exactly seven <reverie-illustration> blocks exist']) {
+for (const exactCount of ['Exactly seven [Spark] blocks exist', 'Each Spark contains exactly one non-empty [Media]', 'Exactly seven <reverie-illustration> blocks exist']) {
   assert(plotSparksUtility.content.includes(exactCount), `Plot Sparks must retain its seven-image structural requirement: ${exactCount}`)
 }
-assert(plotSparksUtility.content.indexOf('<chaos_payload>') < plotSparksUtility.content.indexOf('original <payload> Hook Ledger LAST'), 'Plot Sparks must remain before the original absolute-final Hook Ledger')
+for (const forbidden of ['hook ledger', 'chaos payload', 'chaos_payload', 'chaos hook', 'chaos_hook', 'hook_text', 'hook_media', '<payload>', 'two-ledger']) {
+  assert(!plotSparksUtility.content.toLocaleLowerCase().includes(forbidden), `active Plot Sparks Utility leaked legacy/cross-system terminology: ${forbidden}`)
+}
 const subset = buildNarrativeUtilityPrompt(['Scene Compass', 'Character Phone'])
 assert(subset.utilityNames.join('|') === 'Character Phone|Scene Compass', 'selected Utility prompt must preserve source order and contain only enabled contracts')
 assert(subset.content.includes(applyNarrativeDisplayNames(narrativeUtilityItems()[0].loomContent)) && subset.content.includes(applyNarrativeDisplayNames(narrativeUtilityItems()[3].loomContent)), 'selected Utility prompt omitted enabled complete contracts')
@@ -217,10 +219,10 @@ const completedDramatic = renderNarrativeRegex(dramaticFixture.replace(dramaticR
 assert(completedDramatic.includes('dg-dramatic-cutaway') && completedDramatic.includes('/api/v1/image-gen/results/cutaway-image'), 'completed Narrative media must survive a full rerender inside the original Surface')
 
 const plotVectors = ['detonation', 'heartknife', 'wrongness', 'crash-in', 'matchstrike', 'reputation-fire', 'wildcard-collision']
-const plotSparksFixture = `<chaos_payload id="nightmare_sat_02x" lifecycle="Unused plot sparks dissolve after this response.">${plotVectors.map((vector, index) => `<chaos_hook key="${String.fromCharCode(97 + index)}" vector="${vector}"><hook_text>Independent plot spark ${index + 1}.</hook_text><hook_media>image-${index + 1}</hook_media></chaos_hook>`).join('')}</chaos_payload>`
+const plotSparksFixture = `[Plot_Sparks][ID]nightmare_sat_02x[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${plotVectors.map((vector, index) => `[Spark][Key]${String.fromCharCode(97 + index)}[/Key][Vector]${vector}[/Vector][Text]Independent plot spark ${index + 1}.[/Text][Media]image-${index + 1}[/Media][/Spark]`).join('')}[/Plot_Sparks]`
 assert(containsNarrativeRegexMarkup(plotSparksFixture), 'Relay Narrative detection must include Plot Sparks semantic markup')
 const plotSparksRendered = renderNarrativeRegex(plotSparksFixture, 'sparkle-button', 'plot-sparks-runtime')
-assert(plotSparksRendered.includes('ch-og') && plotSparksRendered.includes('Plot Sparks') && !plotSparksRendered.includes('Chaos Hooks') && !plotSparksRendered.includes('<chaos_payload'), 'approved Plot Sparks renderer must consume tolerant payload IDs and expose only its accepted launcher label')
+assert(plotSparksRendered.includes('ch-og') && plotSparksRendered.includes('Plot Sparks') && !plotSparksRendered.includes('Chaos Hooks') && !plotSparksRendered.includes('[Plot_Sparks]'), 'approved Plot Sparks renderer must consume bracket payload IDs and expose only its accepted launcher label')
 
 const phoneApps = Array.from({ length: 8 }, (_, index) => `[cp_app][cp_slot]${index + 1}[/cp_slot][cp_name]App ${index + 1}[/cp_name][cp_icon]◇[/cp_icon][cp_tone]blue[/cp_tone][cp_badge]0[/cp_badge][cp_content][cp_row][cp_glyph]◇[/cp_glyph][cp_title]Row ${index + 1}[/cp_title][cp_meta]Meta[/cp_meta][cp_text]Text[/cp_text][/cp_row][/cp_content][/cp_app]`).join('')
 const missingWallpaperPhone = `[character_phone][cp_presentation]sparkling[/cp_presentation][cp_owner]Han Minjae[/cp_owner][cp_subtitle]Private phone[/cp_subtitle][cp_time]09:47[/cp_time][cp_day]Monday[/cp_day][cp_battery]63[/cp_battery][cp_apps]${phoneApps}[/cp_apps][/character_phone]`

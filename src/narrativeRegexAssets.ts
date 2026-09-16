@@ -5,6 +5,7 @@ import utilityPack from '../regex-packs/narrative-final/Reverie-Narrative-Utilit
 import dramaticCutawayPack from '../regex-packs/narrative-final/Reverie-Dramatic-Cutaway-BULLETPROOF-V8.json'
 import plotSparksPack from '../regex-packs/narrative-final/Reverie-Plot-Sparks-BULLETPROOF-V7.json'
 import { sceneCompassPresentation } from './sceneCompassPresentation'
+import { PLOT_SPARKS_V2_UTILITY } from './plotSparksV2'
 
 export type NarrativeRegexVariant = 'sparkle-button' | 'plain-button' | 'inline'
 
@@ -108,7 +109,7 @@ export const NARRATIVE_BLOCK_SPACING_STYLE = `<style data-reverie-narrative-bloc
 </style>`
 
 const safeMessageId = (value: string): string => String(value || 'narrative').replace(/[^A-Za-z0-9_-]+/g, '-') || 'narrative'
-const NARRATIVE_MARKUP = /\[(?:SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i
+const NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i
 
 export const NARRATIVE_UTILITY_PACK = utilityPack as NarrativeUtilityPack
 export const NARRATIVE_REGEX_VARIANTS: NarrativeRegexVariant[] = ['sparkle-button', 'plain-button', 'inline']
@@ -156,7 +157,23 @@ export function narrativeUtilityNames(): string[] {
 
 export function narrativeUtilityItems(): NarrativeUtilityItem[] {
   return (NARRATIVE_UTILITY_PACK.loomItems || []).map(item => {
-    const source = item.loomName === 'Parallel Current' ? PARALLEL_SCENE_UTILITY : item.loomContent
+    let source = item.loomName === 'Parallel Current'
+      ? PARALLEL_SCENE_UTILITY
+      : item.loomName === 'Chaos Hooks'
+        ? PLOT_SPARKS_V2_UTILITY
+        : item.loomContent
+    if (item.loomName === 'Cast Arrival') source = `TRIGGER POLICY — CAST INTRODUCTION
+Emit when a named non-user character appears on-page for the first time and this response establishes at least two of: role/occupation; physical appearance; relationship to existing cast; characteristic behavior/voice; immediate narrative function.
+Do not wait for proof that the character will become major. Do not repeat if history already contains their Cast Introduction.
+
+${source}`
+    if (item.loomName === 'Unified Archive Generator') source = `TRIGGER POLICY — ARCHIVE ENTRY
+Archive only durable canon milestones that pass BOTH gates.
+Gate A — durable canon: an irreversible or long-lived world-state change, formal relationship-state change with durable consequences, major knowledge-changing secret revelation, major faction/institutional event, transfer or destruction of a uniquely important object, or explicit user request.
+Gate B — future-reference value: the information is genuinely worth retrieving many turns later.
+Do not archive ordinary domestic beats, outfit changes, normal flirting, incremental closeness, visits, ordinary scene transitions, or a name alone. A specialized Surface wins unless the moment independently passes both gates.
+
+${source}`
     return { ...item, loomContent: applyNarrativeDisplayNames(source) }
   })
 }
@@ -263,8 +280,51 @@ function normalizeFlatArchiveDossiers(markup: string): string {
   })
 }
 
+function markupAttribute(source: string, name: string): string {
+  return new RegExp(`\\b${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, 'i').exec(source)?.[2]?.trim() || ''
+}
+
+/** Historical Chaos payloads remain readable, but are converted locally into
+ * the active semantic representation. This compatibility grammar is never
+ * included in model-facing Utility text. */
+export function normalizeLegacyPlotSparksMarkup(markup: string): string {
+  return String(markup || '').replace(/<chaos_payload\b([^>]*)>([\s\S]*?)<\/chaos_payload\s*>/gi, (full, attrs: string, body: string) => {
+    const hooks = [...body.matchAll(/<chaos_hook\b([^>]*)>([\s\S]*?)<\/chaos_hook\s*>/gi)]
+    if (hooks.length !== 7) return full
+    const id = markupAttribute(attrs, 'id')
+    const lifecycle = markupAttribute(attrs, 'lifecycle') || 'Unused Plot Sparks dissolve after this response.'
+    if (!id) return full
+    const sparks = hooks.map(match => {
+      const key = markupAttribute(match[1] || '', 'key')
+      const vector = markupAttribute(match[1] || '', 'vector')
+      const text = match[2]?.match(/<hook_text\b[^>]*>([\s\S]*?)<\/hook_text\s*>/i)?.[1]?.trim() || ''
+      const media = match[2]?.match(/<hook_media\b[^>]*>([\s\S]*?)<\/hook_media\s*>/i)?.[1]?.trim() || ''
+      if (!key || !vector || !text || !media) return ''
+      return `[Spark]\n[Key]${key}[/Key]\n[Vector]${vector}[/Vector]\n[Text]${text}[/Text]\n[Media]${media}[/Media]\n[/Spark]`
+    })
+    if (sparks.some(spark => !spark)) return full
+    return `[Plot_Sparks]\n[ID]${id}[/ID]\n[Lifecycle]${lifecycle}[/Lifecycle]\n\n${sparks.join('\n\n')}\n\n[/Plot_Sparks]`
+  })
+}
+
+/** Repair only the unambiguous known-owner blend inside Plot Sparks Media. */
+export function normalizePlotSparksMediaMarkup(markup: string): string {
+  return String(markup || '').replace(/\[Media\]([\s\S]*?)\[\/Media\]/gi, (full, media: string) => {
+    if ((media.match(/<reverie-illustration\b/gi) || []).length !== 1) return full
+    if (/<image_request\b/i.test(media)) return full
+    const sceneBriefs = media.match(/<scene_brief\b[^>]*>[\s\S]*?<\/scene_brief\s*>/gi) || []
+    const wrongClosers = media.match(/<\/image_request\s*>/gi) || []
+    if (sceneBriefs.length !== 1 || wrongClosers.length !== 1 || /<\/reverie-illustration\s*>/i.test(media)) return full
+    const repaired = media
+      .replace(/<scene_brief\b[^>]*>/i, '<visual_prompt>')
+      .replace(/<\/scene_brief\s*>/i, '</visual_prompt>')
+      .replace(/<\/image_request\s*>/i, '</reverie-illustration>')
+    return `[Media]${repaired}[/Media]`
+  })
+}
+
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
-  return normalizeFlatArchiveDossiers(String(markup || ''))
+  return normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(normalizeLegacyPlotSparksMarkup(String(markup || ''))))
     .replace(/<(character_phone|private_phone)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi, (_full, root: string, body: string) => {
       // A second observed phone drift uses an XML root around otherwise
       // canonical bracket fields. Convert only a complete, known phone root;

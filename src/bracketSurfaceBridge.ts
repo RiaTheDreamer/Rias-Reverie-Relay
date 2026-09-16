@@ -36,6 +36,38 @@ const attrCache = new Map<string, Map<string, Set<string>>>()
 
 const SMARTPHONE_HEADER_FIELDS = ['sender', 'initial', 'time', 'day', 'battery'] as const
 
+function knownTagsForSurface(spec: SurfaceNormalizationSpec): Set<string> {
+  const tags = new Set(surfaceRootAliases(spec).map(normalizeBracketName))
+  for (const field of spec.rootAttributes || []) tags.add(normalizeBracketName(field))
+  for (const field of spec.normalization?.allowedChildren || []) tags.add(normalizeBracketName(field))
+  const root = parseSurfaceXml(spec.sampleXml || `<${spec.wrapper}></${spec.wrapper}>`)
+  const visit = (node: SurfaceXmlNode) => {
+    tags.add(normalizeBracketName(node.tag))
+    for (const field of Object.keys(surfaceXmlAttributes(node.attrs))) tags.add(normalizeBracketName(field))
+    for (const child of xmlChildren(node)) visit(child)
+  }
+  if (root) visit(root)
+  return tags
+}
+
+/** Repair only delimiter contamination for semantic tags owned by this exact
+ * approved Surface. Ordinary prose and unknown bracket-like text are untouched. */
+export function normalizeKnownHybridClosingDelimiters(source: string, spec: SurfaceNormalizationSpec): { markup: string; warnings: string[] } {
+  const known = knownTagsForSurface(spec)
+  const warnings: string[] = []
+  let markup = String(source || '')
+  const repair = (full: string, rawName: string): string => {
+    const name = normalizeBracketName(rawName)
+    if (!known.has(name)) return full
+    const canonical = `[/${name}]`
+    warnings.push(`${spec.id}: normalized hybrid closing delimiter ${full} -> ${canonical}`)
+    return canonical
+  }
+  markup = markup.replace(/\[\/([A-Za-z][\w-]*)>/g, repair)
+  markup = markup.replace(/<\/([A-Za-z][\w-]*)\]/g, repair)
+  return { markup, warnings }
+}
+
 /**
  * Recover the narrow hybrid form produced when a model starts a Smartphone in
  * bracket syntax but writes its scalar header fields like unclosed XML text.
@@ -285,10 +317,15 @@ export function normalizeBracketSurfaceDocument(
     if (open.index! < cursor) continue
     const spec = aliases.find(row => row.alias.toLowerCase() === normalizeBracketName(open[1]).toLowerCase())?.spec
     if (!spec) continue
-    const block = parseBracketRootBlock(input, open.index!, surfaceRootAliases(spec))
+    const remainder = input.slice(open.index!)
+    const extentPreflight = normalizeKnownHybridClosingDelimiters(remainder, spec)
+    const extent = parseBracketRootBlock(extentPreflight.markup, 0, surfaceRootAliases(spec))
+    const block = { end: open.index! + extent.end, source: input.slice(open.index!, open.index! + extent.end), diagnostics: extent.diagnostics }
+    const delimiterNormalized = normalizeKnownHybridClosingDelimiters(block.source, spec)
     const preNormalized = spec.id === 'smartphone'
-      ? normalizeSmartphoneBracketDrift(block.source)
-      : { markup: block.source, warnings: [] as string[] }
+      ? normalizeSmartphoneBracketDrift(delimiterNormalized.markup)
+      : { markup: delimiterNormalized.markup, warnings: [] as string[] }
+    preNormalized.warnings.unshift(...delimiterNormalized.warnings)
     const parsed = parseBracketDocument(preNormalized.markup)
     const root = parsed.roots.find(row => surfaceRootAliases(spec).map(normalizeBracketName).includes(row.name))
     const rootDiagnostics = [...block.diagnostics, ...parsed.diagnostics.filter(row => !/Malformed child/.test(row))]

@@ -5,6 +5,7 @@ import { R45_UTILITY_CONTRACTS } from '../src/r45UtilityContracts'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { SHIPPED_SURFACE_SPECS } from '../src/shippedSurfaceDefinitions'
 import { completeSurfaceSpecs, normalizeSurfaceBlock } from '../src/surfaceXml'
+import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
 
@@ -65,15 +66,11 @@ assertPhoneRenders(
 
 const ambiguous = phone('<s_recv time="19:12"><rr_unclosed_noise>ambiguous nested corruption</s_sent><s_sent time="19:13">still not enough</s_sent>')
 const ambiguousRender = renderNativeSurfaceMarkup(ambiguous, studio, { chatId: 'offline-phone-repair', messageId: 'ambiguous-nesting' })
-assert(ambiguousRender.content.includes('Relay Surface needs repair'), 'ambiguous nested Smartphone corruption should still expose repair fallback')
+assert(ambiguousRender.content.includes('Format error') && ambiguousRender.content.includes('data-rrn-action="edit-surface"'), 'ambiguous nested Smartphone corruption should still expose the repair inspector')
 
 const utilityText = R45_UTILITY_CONTRACTS.smartphone
-const promptText = DEFAULT_SURFACE_PROMPT_MODULES.smartphone
-for (const source of [utilityText, promptText]) {
-  assert(source.includes('Every <s_recv> must close with </s_recv>'), 'Smartphone Utility must explicitly require matching s_recv close tags')
-  assert(source.includes('every <s_sent> must close with </s_sent>'), 'Smartphone Utility must explicitly require matching s_sent close tags')
-  assert(source.includes('all <s_recv>, <s_sent>, and <s_img> children must remain inside <messages>'), 'Smartphone Utility must keep all message children inside messages')
-  assert(source.includes('Do not invent alternate message closing structures'), 'Smartphone Utility must forbid alternate message closing structures')
-}
+const promptText = r45SupplementalSurfaceDefinitions().find(row => row.baseSurfaceId === 'smartphone')?.promptModule || DEFAULT_SURFACE_PROMPT_MODULES.smartphone
+assert(utilityText.includes('[smart_phone]') && utilityText.includes('[s_recv]') && utilityText.includes('[s_sent]') && utilityText.includes('[messages]'), 'R4.5 Smartphone Utility must teach the active bracket-native message contract')
+assert(promptText.includes('same co-present characters') && promptText.includes('[s_recv]') && promptText.includes('BRACKET ROOT'), 'active bracket Smartphone prompt must preserve both co-presence anti-trigger guidance and structural grammar')
 
 console.log('Smartphone message repair smoke passed: mismatched closers, missing close, orphan close, sibling isolation, fallback boundary, and Utility hardening verified.')

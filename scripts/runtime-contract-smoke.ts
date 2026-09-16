@@ -172,7 +172,7 @@ const sanitizedInterception = assembledText(await interceptor!([
   { role: 'user', content: 'Continue the scene.' },
 ], { chatId: 'history-firebreak-dry-run', userId: 'u1', isDryRun: true }))
 assert(sanitizedInterception.includes('Story prose remains.'))
-assert(sanitizedInterception.includes('[historical Relay illustration omitted]'))
+assert(!sanitizedInterception.includes('[historical Relay illustration omitted]') && !/data-dgir-|reverie-relay:image/i.test(sanitizedInterception), 'prompt interceptor must silently remove historical Relay media without exposing a readable sentinel')
 assert(!/reverie-relay:image|!\[reverie-relay\]|\/api\/v1\/image-gen\/results\/history-one|data-dgir-|reverie-artifact-media/i.test(sanitizedInterception))
 assert(!/<hook_media>\s*<\/hook_media>/i.test(sanitizedInterception))
 

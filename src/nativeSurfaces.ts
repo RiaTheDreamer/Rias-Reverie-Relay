@@ -541,7 +541,7 @@ function reviewedContractError(surfaceId: string, reason: string): string {
   // The recovery affordance remains usable in-place, but raw grammar and
   // implementation detail are intentionally withheld from reader-facing story
   // content. Relay Health/diagnostics owns the exact reason above.
-  return `<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed" data-reverie-surface-id="${escapeAttr(surfaceId)}"><b>Relay Surface needs repair</b><span>Its existing request was preserved.</span><div><button type="button" data-rrn-action="reparse">Reparse</button><button type="button" data-rrn-action="rescan">Rescan</button></div></aside>`
+  return `<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed" data-reverie-surface-id="${escapeAttr(surfaceId)}"><b>${escapeHtml(surfaceId)} · Format error</b><span>${escapeHtml(reason)}</span><small>Original markup and existing media were preserved.</small><div><button type="button" data-rrn-action="edit-surface">Inspect / Fix</button><button type="button" data-rrn-action="repair-surface">Repair</button><button type="button" data-rrn-action="reparse">Reparse</button><button type="button" data-rrn-action="rescan">Rescan</button></div></aside>`
 }
 function renderParityOwnedSurface(
   baseSurfaceId: string,
@@ -607,7 +607,7 @@ export function renderNativeSurfaceMarkup(
   const bracketNormalized = normalizeBracketSurfaceDocument(input, SHIPPED_SURFACE_SPECS, block => {
     bracketBlocks.push(block)
     return block.diagnostics.length
-      ? reviewedContractError(block.spec.id, block.diagnostics.join('; '))
+      ? editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join('; ')), block.original, block.spec.wrapper, block.spec.id, { ...renderContext, streamIslandOrdinal: bracketBlocks.length }, block.original)
       : block.markup
   })
   if (bracketBlocks.length) {

@@ -267,9 +267,7 @@ export function buildNarrativeUtilityPrompt(
         ? overrides[item.loomName]!
         : undefined
       const authoredContent = override ?? applyNarrativeDisplayNames(item.loomContent)
-      return item.loomName === 'Chaos Hooks'
-        ? { ...item, loomContent: `${authoredContent}\n\n${PLOT_SPARK_COMPLETION_LOCK}` }
-        : { ...item, loomContent: authoredContent }
+      return { ...item, loomContent: authoredContent }
     })
   return {
     content: items.length

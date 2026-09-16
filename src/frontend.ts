@@ -1884,8 +1884,8 @@ export function setup(ctx: SpindleFrontendContext) {
     const host = buttonEl.closest<HTMLElement>('[data-rrn-editable-surface]')
     const source = host?.querySelector<HTMLTextAreaElement>('.rrn-surface-source')?.value || ''
     const originalSource = host?.querySelector<HTMLTextAreaElement>('.rrn-surface-original')?.value || source
-    const chatId = buttonEl.dataset.rrnChatId || activeChatId || ''
-    const messageId = buttonEl.dataset.rrnMessageId || ''
+    const chatId = buttonEl.dataset.rrnChatId || host?.dataset.rrnChatId || activeChatId || ''
+    const messageId = buttonEl.dataset.rrnMessageId || host?.dataset.rrnMessageId || ''
     if (!host || !source || !chatId || !messageId) {
       showToast('warning', 'Relay could not open the editable source for this surface.')
       return
@@ -1893,7 +1893,9 @@ export function setup(ctx: SpindleFrontendContext) {
     const modal = ctx.ui.showModal({ title: `Edit ${buttonEl.dataset.rrnSurfaceId || 'Relay Surface'}`, width: 820, persistent: true })
     modal.root.classList.add('dg-router-panel', 'dg-modal-host')
     const body = document.createElement('div'); body.className = 'dg-modal-body'
-    const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = 'Edit the semantic surface markup. Relay keeps the same outer wrapper and rerenders the surface in this exact message position.'
+    const failed = host.querySelector<HTMLElement>('[data-reverie-surface-contract="failed"]')
+    const diagnostic = failed?.querySelector('span')?.textContent?.trim() || ''
+    const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = `${diagnostic ? `${diagnostic}\n\n` : ''}Edit the preserved semantic Surface markup. Safe delimiter repairs are already previewed in the editor. Relay keeps the canonical outer wrapper and rerenders this exact message position.`
     const editor = document.createElement('textarea'); editor.className = 'dg-textarea dg-textarea-tall'; editor.value = source; editor.spellcheck = false; editor.style.minHeight = '340px'
     const actions = document.createElement('div'); actions.className = 'dg-actions'
     actions.append(
@@ -1907,8 +1909,8 @@ export function setup(ctx: SpindleFrontendContext) {
       button('Save Surface', () => {
         ctx.sendToBackend({
           type: 'native_surface_action', chatId, messageId, action: 'edit',
-          rootTag: buttonEl.dataset.rrnRootTag || undefined,
-          surfaceId: buttonEl.dataset.rrnSurfaceId || undefined,
+          rootTag: buttonEl.dataset.rrnRootTag || host.dataset.rrnRootTag || undefined,
+          surfaceId: buttonEl.dataset.rrnSurfaceId || host.dataset.rrnSurfaceId || undefined,
           originalMarkup: originalSource, replacementMarkup: editor.value,
         })
         modal.dismiss()
@@ -1929,7 +1931,7 @@ export function setup(ctx: SpindleFrontendContext) {
     if (!buttonEl) return
     event.preventDefault()
     event.stopImmediatePropagation()
-    if (buttonEl.dataset.rrnAction === 'edit-surface') {
+    if (buttonEl.dataset.rrnAction === 'edit-surface' || buttonEl.dataset.rrnAction === 'repair-surface') {
       openSurfaceMarkupEditor(buttonEl)
       return
     }

@@ -975,6 +975,1008 @@ CANONICAL BRACKET EXAMPLE
 ${bracketExampleFromXml(input.sampleXml)}`;
 }
 
+// src/canonicalReviewedSurfaceContracts.ts
+var image = (id, target, slot, aspect, alt) => `<image_request id="${id}" target="${target}" slot="${slot}" aspect="${aspect}" alt="${alt}"><scene_brief>Scene-specific visual content.</scene_brief></image_request>`;
+var reviewed = (contract) => ({ ...contract, utilityPrompt: `REVIEWED ${contract.surfaceId.toUpperCase()} — CANONICAL XML
+${contract.rules}
+Emit only this canonical grammar for new content. Relay and Regex consume the same XML.
+
+CONTRACT EXAMPLE
+${contract.sampleXml}` });
+var CANONICAL_REVIEWED_SURFACE_CONTRACTS = [
+  reviewed({ surfaceId: "email-thread", wrapper: "email_thread", outerRegexScriptId: "surface_review_email", helperRegexScriptIds: ["surface_review_v2_xform_email_item"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <email_thread account="…" time="…">. Each <email_item slot="1-5" from="…" subject="…" preview="…" time="…"> contains <email_body> and optional <email_attachment filename="…">media</email_attachment>. Never use email_inbox or em_message.', sampleXml: `<email_thread account="Mailbox" time="08:30"><email_item slot="1" from="Sender" subject="Subject" preview="Preview" time="08:20"><email_body>Readable body.</email_body><email_attachment filename="attachment.png">${image("email-attachment-1", "custom.artifact-media", "email-attachment-1", "16:9", "Email attachment")}</email_attachment></email_item></email_thread>` }),
+  reviewed({ surfaceId: "newspaper", wrapper: "newspaper", outerRegexScriptId: "surface_review_newspaper", helperRegexScriptIds: [], imageTargets: [], defaultHybridOwner: "regex", rules: 'Use <newspaper name="…" date="…" headline="…" subhead="…">article content</newspaper>; all four root attributes are required.', sampleXml: '<newspaper name="Publication" date="Today" headline="Headline" subhead="Readable subhead">Concise editorial copy.</newspaper>' }),
+  reviewed({ surfaceId: "inline-chat", wrapper: "inline_chat", outerRegexScriptId: "surface_review_inline_chat", helperRegexScriptIds: ["surface_review_v2_xform_message", "surface_review_v3_xform_avatar_message", "surface_review_v2_xform_message_media"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <inline_chat header="…" time="…"> with chat_msg, avatar_msg, and chat_media helper seams. Never use generic message.', sampleXml: `<inline_chat header="Conversation" time="08:30"><chat_msg side="left" user="Person" avatar="P">Message.</chat_msg><avatar_msg side="right" user="Other"><avatar>A</avatar><text>Reply.</text></avatar_msg><chat_media side="left">${image("chat-media-1", "custom.artifact-media", "chat-media-1", "16:9", "Chat attachment")}</chat_media></inline_chat>` }),
+  reviewed({ surfaceId: "dating-profile", wrapper: "tinder", outerRegexScriptId: "surface_review_tinder", helperRegexScriptIds: ["surface_review_tinder_user_seam", "surface_review_tinder_profile_seam"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <tinder> with one <user><name/><avatar/></user> and <profiles> containing exactly three <profile slot="…" prev="…" next="…"> blocks. Child order is name, age, subtitle, role, tags, bio, photo. Never emit dating_profile or profile id/name/age attributes.', sampleXml: `<tinder><user><name>Viewer</name><avatar>${image("tinder-user-1", "custom.artifact-media", "tinder-user-1", "1:1", "User avatar")}</avatar></user><profiles><profile slot="1" prev="3" next="2"><name>Profile One</name><age>28</age><subtitle>Nearby</subtitle><role>Artist</role><tags>music · books</tags><bio>Short bio.</bio><photo>${image("tinder-profile-1", "custom.artifact-media", "tinder-profile-1", "3:4", "Dating portrait")}</photo></profile><profile slot="2" prev="1" next="3"><name>Profile Two</name><age>29</age><subtitle>Nearby</subtitle><role>Designer</role><tags>film · walks</tags><bio>Short bio.</bio><photo>${image("tinder-profile-2", "custom.artifact-media", "tinder-profile-2", "3:4", "Dating portrait")}</photo></profile><profile slot="3" prev="2" next="1"><name>Profile Three</name><age>30</age><subtitle>Nearby</subtitle><role>Writer</role><tags>tea · art</tags><bio>Short bio.</bio><photo>${image("tinder-profile-3", "custom.artifact-media", "tinder-profile-3", "3:4", "Dating portrait")}</photo></profile></profiles></tinder>` }),
+  reviewed({ surfaceId: "livestream", wrapper: "livestream", outerRegexScriptId: "surface_review_twitch", helperRegexScriptIds: ["surface_review_v2_xform_live_msg", "surface_review_v2_xform_live_donation", "surface_review_v2_xform_live_poll", "surface_review_v2_xform_live_mod"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: "Use <livestream>, never twitch_stream. Use live_media, live_chat with live_msg/live_donation/live_poll, and live_mods with live_mod.", sampleXml: `<livestream title="Live title" channel="Channel" viewers="2.4K" category="Category" status="LIVE"><live_media>${image("live-frame-1", "custom.artifact-media", "live-frame-1", "16:9", "Live frame")}</live_media><live_chat><live_msg user="Viewer" avatar="V">Message.</live_msg><live_donation user="Supporter" amount="$5">Thanks.</live_donation><live_poll question="Question?"><poll_option>Yes</poll_option><poll_option>No</poll_option></live_poll></live_chat><live_mods><live_mod user="Mod" role="Moderator" avatar="M"/></live_mods></livestream>` }),
+  reviewed({ surfaceId: "instagram-dm", wrapper: "instagram_dm", outerRegexScriptId: "surface_review_instagram_dm", helperRegexScriptIds: ["surface_review_v2_xform_message", "surface_review_v3_xform_avatar_message", "surface_review_v2_xform_message_media"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <instagram_dm name="…" handle="…" time="…"> with dm_msg, avatar_msg, and dm_media helper seams.', sampleXml: `<instagram_dm name="Person" handle="@person" time="08:30"><avatar_msg side="left" user="Person"><avatar>A</avatar><text>Message.</text></avatar_msg><dm_msg side="right" user="You" avatar="Y">Reply.</dm_msg><dm_media side="left">${image("instagram-media-1", "custom.artifact-media", "instagram-media-1", "4:5", "DM attachment")}</dm_media></instagram_dm>` }),
+  reviewed({ surfaceId: "x-dm", wrapper: "x_dm", outerRegexScriptId: "surface_review_x_dm", helperRegexScriptIds: ["surface_review_v2_xform_message", "surface_review_v3_xform_avatar_message", "surface_review_v2_xform_message_media"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <x_dm name="…" handle="…" time="…"> with dm_msg, avatar_msg, and dm_media helper seams. Do not teach twitter_dm.', sampleXml: '<x_dm name="Person" handle="@person" time="08:30"><dm_msg side="left" user="Person" avatar="P">Message.</dm_msg></x_dm>' }),
+  reviewed({ surfaceId: "discord-dm", wrapper: "discord_dm", outerRegexScriptId: "surface_review_discord_dm", helperRegexScriptIds: ["surface_review_v2_xform_discord_msg", "surface_review_v3_xform_discord_avatar_message", "surface_review_v2_xform_message_media"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <discord_dm name="…" status="…" time="…"> with discord_msg or discord_avatar_msg helper seams.', sampleXml: '<discord_dm name="Person" status="Online" time="08:30"><discord_avatar_msg user="Person" time="08:30"><avatar>A</avatar><text>Message.</text></discord_avatar_msg><discord_msg user="Other" avatar="O" time="08:31">Reply.</discord_msg></discord_dm>' }),
+  reviewed({ surfaceId: "discord-server", wrapper: "discord_server", outerRegexScriptId: "surface_review_discord_server", helperRegexScriptIds: ["reverie_relay_c4_xform_server_msg_avatar", "surface_review_v2_xform_discord_msg", "surface_review_v3_xform_server_avatar_message", "surface_review_v2_xform_discord_media", "surface_review_v2_xform_discord_channel"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <discord_server server="…" topic="…" members="…" online="…">; members and online are optional for legacy messages but populate them for new Surfaces. Write exactly four server_channel siblings with slot/name/description. Recurring participants, including the local participant when identity detail is sufficient, use server_avatar_msg with one reusable 1:1 image_request; repeat the same stable id and slot for that participant, never a second avatar request. Use server_msg only when sufficient visual identity information does not exist. Never emit users/channels/channel/message.', sampleXml: `<discord_server server="Server" topic="Topic" members="1,284" online="318"><server_channel slot="1" name="general" description="General chat"><server_avatar_msg user="Guide" time="08:30"><avatar>${image("discord-server-avatar-guide", "custom.artifact-media", "discord-server-avatar-guide", "1:1", "Avatar of Guide")}</avatar><text>Message.</text></server_avatar_msg><server_avatar_msg user="Local" time="08:31"><avatar>${image("discord-server-avatar-local", "custom.artifact-media", "discord-server-avatar-local", "1:1", "Avatar of Local")}</avatar><text>Reply.</text></server_avatar_msg><server_media>${image("server-media-1", "custom.artifact-media", "server-media-1", "16:9", "Server attachment")}</server_media></server_channel><server_channel slot="2" name="art-share" description="Visual work"><server_avatar_msg user="Guide" time="08:32"><avatar>${image("discord-server-avatar-guide", "custom.artifact-media", "discord-server-avatar-guide", "1:1", "Avatar of Guide")}</avatar><text>Shared update.</text></server_avatar_msg></server_channel><server_channel slot="3" name="spoiler-zone" description="Private discussion"><server_avatar_msg user="Local" time="08:33"><avatar>${image("discord-server-avatar-local", "custom.artifact-media", "discord-server-avatar-local", "1:1", "Avatar of Local")}</avatar><text>Reply.</text></server_avatar_msg></server_channel><server_channel slot="4" name="off-topic" description="Casual conversation"><server_avatar_msg user="Guide" time="08:34"><avatar>${image("discord-server-avatar-guide", "custom.artifact-media", "discord-server-avatar-guide", "1:1", "Avatar of Guide")}</avatar><text>See you there.</text></server_avatar_msg></server_channel></discord_server>` }),
+  reviewed({ surfaceId: "google-images", wrapper: "google_image_search", outerRegexScriptId: "surface_review_google_images", helperRegexScriptIds: ["surface_review_v2_xform_google_result"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <google_image_search query="…"> and gis_result slot/title/source. Never use result index or gallery_item.', sampleXml: `<google_image_search query="Search phrase"><gis_result slot="1" title="Result" source="Source">${image("google-result-1", "custom.artifact-media", "google-result-1", "4:3", "Search result")}</gis_result></google_image_search>` }),
+  reviewed({ surfaceId: "phone-gallery", wrapper: "phone_gallery", outerRegexScriptId: "surface_review_phone_gallery", helperRegexScriptIds: ["surface_review_v2_xform_gallery_item"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <phone_gallery album="…" time="…"> and gallery_item slot/title/time/location/size. Every saved moment uses its own 1:1 image_request with a square-safe composition and the focal subject inside the central 70%. Grid thumbnails may fill their cells; the enlarged state preserves the full image. Never use photo id/caption.', sampleXml: `<phone_gallery album="Camera" time="08:30"><gallery_item slot="1" title="Photo" time="08:25" location="Place" size="2 MB">${image("gallery-photo-1", "custom.artifact-media", "gallery-photo-1", "1:1", "Gallery photo")}</gallery_item></phone_gallery>` }),
+  reviewed({ surfaceId: "naver-article", wrapper: "naver_news", outerRegexScriptId: "interactive_v3_15_naver", helperRegexScriptIds: ["reverie_relay_c4_xform_naver_comment"], imageTargets: ["custom.naver-article"], defaultHybridOwner: "regex", rules: 'Use <naver_news category="…" headline="…" source="…" byline="…" timestamp="…" comments="…">. Keep article media only in nv_media, followed once by nv_body and then nv_comments. nv_comments is a list of distinct sibling nv_comment elements, never flattened prose: every comment MUST have non-empty user and time attributes and its body is only the element text. Emit exactly the requested comment count; never repeat nv_body or article prose inside nv_comments.', sampleXml: `<naver_news category="Local" headline="Article headline" source="News Desk" byline="Reporter" timestamp="2026.08.18 08:30" comments="3"><nv_media>${image("naver-media-1", "custom.naver-article", "naver-media-1", "16:9", "Article hero")}</nv_media><nv_body>Article copy.</nv_body><nv_comments><nv_comment user="Citizen_77" time="10m ago">Comment one.</nv_comment><nv_comment user="Archivist_K" time="25m ago">Comment two.</nv_comment><nv_comment user="NightOwl" time="1h ago">Comment three.</nv_comment></nv_comments></naver_news>` })
+];
+var CANONICAL_REVIEWED_SURFACE_BY_ID = new Map(CANONICAL_REVIEWED_SURFACE_CONTRACTS.map((contract) => [contract.surfaceId, contract]));
+var CANONICAL_REVIEWED_SURFACE_BY_WRAPPER = new Map(CANONICAL_REVIEWED_SURFACE_CONTRACTS.map((contract) => [contract.wrapper, contract]));
+var CANONICAL_REVIEWED_SURFACE_PROMPT_MODULES = Object.fromEntries(CANONICAL_REVIEWED_SURFACE_CONTRACTS.map((contract) => [contract.surfaceId, contract.utilityPrompt]));
+
+// src/shippedSurfaceDefinitions.ts
+var LEGACY_SHIPPED_SURFACE_SPECS = [
+  {
+    index: 2,
+    id: "forum-thread",
+    label: "Forum / Reddit Thread",
+    icon: "\uD83E\uDDF5",
+    wrapper: "forum_thread",
+    target: "custom.forum-thread",
+    defaultAspect: "16:9",
+    supportedAspects: ["16:9"],
+    rootAttributes: ["community", "user", "time", "score", "title"],
+    requiredMediaCount: 1,
+    sampleXml: `<forum_thread community="community_name" user="poster_name" time="3 hours ago" score="4.8K" title="Thread title">
+<fm_body>Opening post text.</fm_body>
+<fm_media>
+<image_request id="forum-thread-001" target="custom.forum-thread" slot="thread-media" aspect="16:9" alt="Forum attachment">
+<scene_brief>A believable attached image relevant to the thread. Compose the attachment as a visual-only image.</scene_brief>
+</image_request>
+</fm_media>
+<details><summary>View discussion</summary><fm_comments>
+<fm_comment user="reply_one">Reply.</fm_comment>
+<fm_comment user="reply_two">Reply.</fm_comment>
+</fm_comments></details>
+</forum_thread>`,
+    promptModule: `SURFACE: FORUM / REDDIT THREAD
+Use <forum_thread> with target="custom.forum-thread". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 16:9, and visible scene briefs. Place readable interface text in the semantic child tags.
+
+CONTRACT EXAMPLE
+<forum_thread community="community_name" user="poster_name" time="3 hours ago" score="4.8K" title="Thread title">
+<fm_body>Opening post text.</fm_body>
+<fm_media>
+<image_request id="forum-thread-001" target="custom.forum-thread" slot="thread-media" aspect="16:9" alt="Forum attachment">
+<scene_brief>A believable attached image relevant to the thread. Compose the attachment as a visual-only image.</scene_brief>
+</image_request>
+</fm_media>
+<details><summary>View discussion</summary><fm_comments>
+<fm_comment user="reply_one">Reply.</fm_comment>
+<fm_comment user="reply_two">Reply.</fm_comment>
+</fm_comments></details>
+</forum_thread>`,
+    category: "social-messaging",
+    shellMode: "collapsible",
+    maxWidth: "760px",
+    mediaFit: "cover",
+    peoplePolicy: "allow",
+    profile: "social-candid"
+  },
+  {
+    index: 3,
+    id: "email-thread",
+    label: "Email Thread",
+    icon: "✉️",
+    wrapper: "email_thread",
+    target: "custom.email-thread",
+    defaultAspect: "16:9",
+    supportedAspects: ["16:9"],
+    rootAttributes: ["subject", "account", "time", "messages", "attachments"],
+    requiredMediaCount: 1,
+    sampleXml: `<email_thread subject="Email subject" account="Primary Inbox" time="08:37" messages="2" attachments="1">
+<em_message from="Sender Name" to="Recipient Name" time="08:14">Message body.</em_message>
+<em_message from="Recipient Name" to="Sender Name" time="08:37">Reply body.</em_message>
+<em_attachment>
+<image_request id="email-thread-001" target="custom.email-thread" slot="attachment-preview" aspect="16:9" alt="Email attachment preview">
+<scene_brief>A realistic visual attachment referenced by the email. Keep all readable email text in the surrounding interface.</scene_brief>
+</image_request>
+</em_attachment>
+<em_files><em_file>attachment.pdf</em_file></em_files>
+</email_thread>`,
+    promptModule: `SURFACE: EMAIL THREAD
+Use <email_thread> with target="custom.email-thread". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 16:9, and visible scene briefs. Place readable interface text in the semantic child tags.
+
+CONTRACT EXAMPLE
+<email_thread subject="Email subject" account="Primary Inbox" time="08:37" messages="2" attachments="1">
+<em_message from="Sender Name" to="Recipient Name" time="08:14">Message body.</em_message>
+<em_message from="Recipient Name" to="Sender Name" time="08:37">Reply body.</em_message>
+<em_attachment>
+<image_request id="email-thread-001" target="custom.email-thread" slot="attachment-preview" aspect="16:9" alt="Email attachment preview">
+<scene_brief>A realistic visual attachment referenced by the email. Keep all readable email text in the surrounding interface.</scene_brief>
+</image_request>
+</em_attachment>
+<em_files><em_file>attachment.pdf</em_file></em_files>
+</email_thread>`,
+    category: "social-messaging",
+    shellMode: "collapsible",
+    maxWidth: "760px",
+    mediaFit: "cover",
+    peoplePolicy: "allow",
+    profile: "social-candid"
+  },
+  {
+    index: 4,
+    id: "imessage-chat",
+    label: "iMessage Group Chat",
+    icon: "\uD83D\uDCAC",
+    wrapper: "imessage_chat",
+    target: "custom.imessage-chat",
+    defaultAspect: "16:9",
+    supportedAspects: ["16:9"],
+    rootAttributes: ["title", "participants", "time", "status", "unread"],
+    requiredMediaCount: 1,
+    sampleXml: `<imessage_chat title="Weekend Survivors" participants="Character A, Character B, Character C, You" time="Today 7:14 PM" status="Delivered" unread="0">
+<im_messages>
+<im_msg from="Character A" side="left">Message.</im_msg>
+<im_msg from="You" side="right">Reply.</im_msg>
+<im_media>
+<image_request id="imessage-chat-001" target="custom.imessage-chat" slot="shared-image" aspect="16:9" alt="Shared iMessage photograph">
+<scene_brief>A wide shared photograph shown inside the chat. Preserve the full composition in a contained wide frame.</scene_brief>
+</image_request>
+</im_media>
+<im_msg from="Character C" side="left">Message after the image.<im_reaction>\uD83D\uDE02 4</im_reaction></im_msg>
+<im_system>Group name changed.</im_system>
+</im_messages>
+<details><summary>Group information</summary><im_group_info><im_member>Character A</im_member><im_member>Character B</im_member><im_member>Character C</im_member><im_member>You</im_member></im_group_info></details>
+</imessage_chat>`,
+    promptModule: `SURFACE: IMESSAGE GROUP CHAT
+Use <imessage_chat> with target="custom.imessage-chat". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 16:9, and visible scene briefs. Place readable interface text in the semantic child tags.
+
+CONTRACT EXAMPLE
+<imessage_chat title="Weekend Survivors" participants="Character A, Character B, Character C, You" time="Today 7:14 PM" status="Delivered" unread="0">
+<im_messages>
+<im_msg from="Character A" side="left">Message.</im_msg>
+<im_msg from="You" side="right">Reply.</im_msg>
+<im_media>
+<image_request id="imessage-chat-001" target="custom.imessage-chat" slot="shared-image" aspect="16:9" alt="Shared iMessage photograph">
+<scene_brief>A wide shared photograph shown inside the chat. Preserve the full composition in a contained wide frame.</scene_brief>
+</image_request>
+</im_media>
+<im_msg from="Character C" side="left">Message after the image.<im_reaction>\uD83D\uDE02 4</im_reaction></im_msg>
+<im_system>Group name changed.</im_system>
+</im_messages>
+<details><summary>Group information</summary><im_group_info><im_member>Character A</im_member><im_member>Character B</im_member><im_member>Character C</im_member><im_member>You</im_member></im_group_info></details>
+</imessage_chat>`,
+    category: "social-messaging",
+    shellMode: "collapsible",
+    maxWidth: "460px",
+    mediaFit: "contain",
+    peoplePolicy: "allow",
+    profile: "social-candid"
+  },
+  {
+    index: 5,
+    id: "workspace-chat",
+    label: "Workspace / Discord-Style Chat",
+    icon: "\uD83D\uDDE8️",
+    wrapper: "workspace_chat",
+    target: "custom.workspace-chat",
+    defaultAspect: "16:9",
+    supportedAspects: ["16:9"],
+    rootAttributes: ["workspace", "channel", "topic", "members", "time"],
+    requiredMediaCount: 1,
+    sampleXml: `<workspace_chat workspace="Expedition Team" channel="field-chat" topic="Coordination and live updates" members="5" time="11:36 PM">
+<ws_messages>
+<ws_msg user="Character A" time="11:32 PM">Message.</ws_msg>
+<ws_msg user="Character B" time="11:33 PM">Reply.</ws_msg>
+<ws_msg user="Character A" time="11:33 PM">Shared image:<ws_media>
+<image_request id="workspace-chat-001" target="custom.workspace-chat" slot="shared-media" aspect="16:9" alt="Workspace shared image">
+<scene_brief>A full uncropped shared image relevant to the channel conversation.</scene_brief>
+</image_request>
+</ws_media></ws_msg>
+<ws_msg user="Character C" time="11:35 PM">Voice upload.<ws_voice>▶ 00:31</ws_voice></ws_msg>
+</ws_messages>
+<details><summary>Members</summary><ws_members><ws_member>Character A</ws_member><ws_member>Character B</ws_member><ws_member>Character C</ws_member><ws_member>You</ws_member></ws_members></details>
+</workspace_chat>`,
+    promptModule: `SURFACE: WORKSPACE / DISCORD-STYLE CHAT
+Use <workspace_chat> with target="custom.workspace-chat". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 16:9, and visible scene briefs. Place readable interface text in the semantic child tags.
+
+CONTRACT EXAMPLE
+<workspace_chat workspace="Expedition Team" channel="field-chat" topic="Coordination and live updates" members="5" time="11:36 PM">
+<ws_messages>
+<ws_msg user="Character A" time="11:32 PM">Message.</ws_msg>
+<ws_msg user="Character B" time="11:33 PM">Reply.</ws_msg>
+<ws_msg user="Character A" time="11:33 PM">Shared image:<ws_media>
+<image_request id="workspace-chat-001" target="custom.workspace-chat" slot="shared-media" aspect="16:9" alt="Workspace shared image">
+<scene_brief>A full uncropped shared image relevant to the channel conversation.</scene_brief>
+</image_request>
+</ws_media></ws_msg>
+<ws_msg user="Character C" time="11:35 PM">Voice upload.<ws_voice>▶ 00:31</ws_voice></ws_msg>
+</ws_messages>
+<details><summary>Members</summary><ws_members><ws_member>Character A</ws_member><ws_member>Character B</ws_member><ws_member>Character C</ws_member><ws_member>You</ws_member></ws_members></details>
+</workspace_chat>`,
+    category: "social-messaging",
+    shellMode: "collapsible",
+    maxWidth: "760px",
+    mediaFit: "contain",
+    peoplePolicy: "allow",
+    profile: "social-candid"
+  },
+  {
+    index: 6,
+    id: "livestream",
+    label: "Twitch Livestream + Live Chat",
+    icon: "\uD83D\uDCE1",
+    wrapper: "livestream",
+    target: "custom.livestream",
+    defaultAspect: "16:9",
+    supportedAspects: ["16:9"],
+    rootAttributes: ["title", "channel", "viewers", "category", "status"],
+    requiredMediaCount: 1,
+    sampleXml: `<livestream title="Stream title" channel="Channel Name" viewers="18.4K" category="Urban Exploration" status="LIVE">
+<live_layout><live_main><live_media>
+<image_request id="livestream-001" target="custom.livestream" slot="video-frame" aspect="16:9" alt="Livestream frame">
+<scene_brief>A cinematic but believable 16:9 live video frame from the exact broadcast moment.</scene_brief>
+</image_request>
+</live_media></live_main>
+<live_chat>
+<live_msg user="viewer_one">Chat message.</live_msg>
+<live_donation>$20.00 from Supporter — Donation message.</live_donation>
+<live_poll>Poll question.<live_option>Option A · 68%</live_option><live_option>Option B · 32%</live_option></live_poll>
+</live_chat></live_layout>
+</livestream>`,
+    promptModule: `SURFACE: TWITCH LIVESTREAM + LIVE CHAT
+Use <livestream> with target="custom.livestream". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 16:9, and visible scene briefs. Place readable interface text in the semantic child tags.
+
+CONTRACT EXAMPLE
+<livestream title="Stream title" channel="Channel Name" viewers="18.4K" category="Urban Exploration" status="LIVE">
+<live_layout><live_main><live_media>
+<image_request id="livestream-001" target="custom.livestream" slot="video-frame" aspect="16:9" alt="Livestream frame">
+<scene_brief>A cinematic but believable 16:9 live video frame from the exact broadcast moment.</scene_brief>
+</image_request>
+</live_media></live_main>
+<live_chat>
+<live_msg user="viewer_one">Chat message.</live_msg>
+<live_donation>$20.00 from Supporter — Donation message.</live_donation>
+<live_poll>Poll question.<live_option>Option A · 68%</live_option><live_option>Option B · 32%</live_option></live_poll>
+</live_chat></live_layout>
+</livestream>`,
+    category: "social-messaging",
+    shellMode: "collapsible",
+    maxWidth: "920px",
+    mediaFit: "cover",
+    peoplePolicy: "allow",
+    profile: "social-candid"
+  },
+  {
+    index: 7,
+    id: "dating-profile",
+    label: "Tinder Dating Profile",
+    icon: "\uD83D\uDC98",
+    wrapper: "dating_profile",
+    target: "custom.dating-profile",
+    defaultAspect: "4:5",
+    supportedAspects: ["4:5"],
+    rootAttributes: ["name", "age", "distance", "occupation", "verified"],
+    requiredMediaCount: 1,
+    sampleXml: `<dating_profile name="Profile Subject" age="29" distance="4 km" occupation="Museum conservator" verified="yes">
+<dt_media>
+<image_request id="dating-profile-001" target="custom.dating-profile" slot="profile-photo" aspect="4:5" alt="Dating profile portrait">
+<scene_brief>A flattering but believable vertical dating profile photograph in a scene-specific setting.</scene_brief>
+</image_request>
+</dt_media>
+<dt_profile><dt_bio>Profile bio.</dt_bio><dt_tags><dt_tag>Books</dt_tag><dt_tag>Night walks</dt_tag></dt_tags><dt_prompt question="A perfect Sunday">Answer.</dt_prompt></dt_profile>
+</dating_profile>`,
+    promptModule: `SURFACE: TINDER DATING PROFILE
+Use <dating_profile> with target="custom.dating-profile". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 4:5, and visible scene briefs. Place readable interface text in the semantic child tags.
+
+CONTRACT EXAMPLE
+<dating_profile name="Profile Subject" age="29" distance="4 km" occupation="Museum conservator" verified="yes">
+<dt_media>
+<image_request id="dating-profile-001" target="custom.dating-profile" slot="profile-photo" aspect="4:5" alt="Dating profile portrait">
+<scene_brief>A flattering but believable vertical dating profile photograph in a scene-specific setting.</scene_brief>
+</image_request>
+</dt_media>
+<dt_profile><dt_bio>Profile bio.</dt_bio><dt_tags><dt_tag>Books</dt_tag><dt_tag>Night walks</dt_tag></dt_tags><dt_prompt question="A perfect Sunday">Answer.</dt_prompt></dt_profile>
+</dating_profile>`,
+    category: "social-messaging",
+    shellMode: "inline",
+    maxWidth: "460px",
+    mediaFit: "cover",
+    peoplePolicy: "allow",
+    profile: "character-portrait"
+  },
+  {
+    index: 8,
+    id: "public-bulletin",
+    label: "News Article / Public Bulletin",
+    icon: "\uD83D\uDDDE️",
+    wrapper: "public_bulletin",
+    target: "custom.public-bulletin",
+    defaultAspect: "16:9",
+    supportedAspects: ["16:9"],
+    rootAttributes: ["authority", "level", "headline", "timestamp", "district"],
+    requiredMediaCount: 1,
+    sampleXml: `<public_bulletin authority="Municipal Authority" level="Emergency Notice" headline="Headline" timestamp="22:10" district="Riverside District">
+<pb_media>
+<image_request id="public-bulletin-001" target="custom.public-bulletin" slot="bulletin-image" aspect="16:9" alt="Public bulletin image">
+<scene_brief>A wide documentary image of the exact public event or affected location. Compose the attachment as a visual-only image.</scene_brief>
+</image_request>
+</pb_media>
+<pb_body>Official bulletin copy.</pb_body><pb_instructions><pb_rule>Instruction one.</pb_rule><pb_rule>Instruction two.</pb_rule></pb_instructions>
+</public_bulletin>`,
+    promptModule: `SURFACE: NEWS ARTICLE / PUBLIC BULLETIN
+Use <public_bulletin> with target="custom.public-bulletin". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 16:9, and visible scene briefs. Place readable interface text in the semantic child tags.
+
+CONTRACT EXAMPLE
+<public_bulletin authority="Municipal Authority" level="Emergency Notice" headline="Headline" timestamp="22:10" district="Riverside District">
+<pb_media>
+<image_request id="public-bulletin-001" target="custom.public-bulletin" slot="bulletin-image" aspect="16:9" alt="Public bulletin image">
+<scene_brief>A wide documentary image of the exact public event or affected location. Compose the attachment as a visual-only image.</scene_brief>
+</image_request>
+</pb_media>
+<pb_body>Official bulletin copy.</pb_body><pb_instructions><pb_rule>Instruction one.</pb_rule><pb_rule>Instruction two.</pb_rule></pb_instructions>
+</public_bulletin>`,
+    category: "evidence-editorial",
+    shellMode: "collapsible",
+    maxWidth: "920px",
+    mediaFit: "cover",
+    peoplePolicy: "allow",
+    profile: "evidence-surveillance"
+  },
+  {
+    index: 9,
+    id: "case-file",
+    label: "Case File / Classified Dossier",
+    icon: "\uD83D\uDCC1",
+    wrapper: "case_file",
+    target: "custom.case-file",
+    defaultAspect: "3:4",
+    supportedAspects: ["3:4"],
+    rootAttributes: ["case", "subject", "status", "last_seen", "risk", "agent"],
+    requiredMediaCount: 1,
+    sampleXml: `<case_file case="04-17" subject="Subject A" status="Missing" last_seen="Platform Four" risk="Elevated" agent="REDACTED">
+<cf_tab>SUBJECT</cf_tab><cf_tab>EVIDENCE</cf_tab><cf_tab>TIMELINE</cf_tab>
+<cf_sheet><cf_media>
+<image_request id="case-file-001" target="custom.case-file" slot="subject-photo" aspect="3:4" alt="Case file photograph">
+<scene_brief>A contained vertical subject photograph or evidence photograph suitable for a dossier.</scene_brief>
+</image_request>
+</cf_media><cf_facts><cf_fact label="STATUS" value="MISSING"></cf_fact><cf_fact label="LAST SEEN" value="PLATFORM FOUR"></cf_fact><cf_fact label="RISK LEVEL" value="ELEVATED"></cf_fact></cf_facts></cf_sheet>
+<details><summary>Case notes</summary><cf_notes>Investigation notes.</cf_notes></details>
+</case_file>`,
+    promptModule: `SURFACE: CASE FILE / CLASSIFIED DOSSIER
+Use <case_file> with target="custom.case-file". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 3:4, and visible scene briefs. Place readable interface text in the semantic child tags.
+
+CONTRACT EXAMPLE
+<case_file case="04-17" subject="Subject A" status="Missing" last_seen="Platform Four" risk="Elevated" agent="REDACTED">
+<cf_tab>SUBJECT</cf_tab><cf_tab>EVIDENCE</cf_tab><cf_tab>TIMELINE</cf_tab>
+<cf_sheet><cf_media>
+<image_request id="case-file-001" target="custom.case-file" slot="subject-photo" aspect="3:4" alt="Case file photograph">
+<scene_brief>A contained vertical subject photograph or evidence photograph suitable for a dossier.</scene_brief>
+</image_request>
+</cf_media><cf_facts><cf_fact label="STATUS" value="MISSING"></cf_fact><cf_fact label="LAST SEEN" value="PLATFORM FOUR"></cf_fact><cf_fact label="RISK LEVEL" value="ELEVATED"></cf_fact></cf_facts></cf_sheet>
+<details><summary>Case notes</summary><cf_notes>Investigation notes.</cf_notes></details>
+</case_file>`,
+    category: "evidence-editorial",
+    shellMode: "collapsible",
+    maxWidth: "760px",
+    mediaFit: "contain",
+    peoplePolicy: "allow",
+    profile: "evidence-surveillance"
+  },
+  {
+    index: 10,
+    id: "relationship-map",
+    label: "Relationship Map",
+    icon: "\uD83D\uDD78️",
+    wrapper: "relationship_map",
+    target: "custom.artifact-media",
+    defaultAspect: "1:1",
+    supportedAspects: ["1:1"],
+    rootAttributes: ["id"],
+    requiredMediaCount: 3,
+    maximumMediaCount: 5,
+    sampleXml: `<relationship_map id="relationship-map-01">
+<title>Pressure Lines</title>
+<subtitle>Current relationship landscape from the focal character’s viewpoint</subtitle>
+<character_one><portrait><image_request id="relationship-map-01-focal" target="custom.artifact-media" slot="relationship-map-01-focal" aspect="1:1" alt="Portrait of Focal Character"><scene_brief>Polished square relationship-board portrait using only visible established appearance, current clothing, expression, age vibe, scene lighting, and no readable text.</scene_brief></image_request></portrait><name>Focal Character</name><role>Center of the conflict</role><status>Focal</status><summary>The current focal viewpoint and the person carrying the map’s central pressure.</summary><relationship>Self</relationship><strength>95</strength><pressure>Must decide whom to trust.</pressure></character_one>
+<character_two><portrait><image_request id="relationship-map-01-ally" target="custom.artifact-media" slot="relationship-map-01-ally" aspect="1:1" alt="Portrait of Trusted Ally"><scene_brief>Polished square relationship-board portrait using only visible established appearance, current clothing, expression, age vibe, scene lighting, and no readable text.</scene_brief></image_request></portrait><name>Trusted Ally</name><role>Closest bond</role><status>Trusted</status><summary>The strongest currently established ally.</summary><relationship>Protective trust</relationship><strength>90</strength><pressure>Trust is being tested.</pressure></character_two>
+<character_three><portrait><image_request id="relationship-map-01-observer" target="custom.artifact-media" slot="relationship-map-01-observer" aspect="1:1" alt="Portrait of Suspicious Observer"><scene_brief>Polished square relationship-board portrait using only visible established appearance, current clothing, expression, age vibe, scene lighting, and no readable text.</scene_brief></image_request></portrait><name>Suspicious Observer</name><role>Rival or watcher</role><status>Strained</status><summary>A figure whose motives remain difficult to read.</summary><relationship>Mutual scrutiny</relationship><strength>62</strength><pressure>May know more than they admit.</pressure></character_three>
+<connections><one_two>trusted bond</one_two><one_three>mutual suspicion</one_three></connections>
+<insight>The trusted bond is strongest, but uncertainty around the observer keeps the focal character exposed.</insight>
+</relationship_map>`,
+    promptModule: `<relationship_map_utility>
+[RELATIONSHIP MAP — REVERIE RELAY UTILITY]
+
+Use this surface when the social web around a focal character becomes narratively important and the reader would benefit from seeing the current relationship landscape at a glance.
+
+This is not a document, chat, or app surface. It is a dramatic character network board for bonds, suspicions, threats, alliances, and pressure points.
+
+Use it for:
+- escalating social tension
+- secret-identity pressure
+- rivalries and alliances
+- faction dynamics
+- cast-orientation moments
+- “who matters right now?” recaps
+
+Do not use it for:
+- casual background casts
+- fewer than three meaningful relationships
+- moments where the map adds no clarity
+- information unavailable to the focal viewpoint
+
+VIEWPOINT RULES
+
+Everything shown must reflect only what the focal viewpoint currently knows, suspects, or can reasonably infer.
+Do not reveal hidden truths as established facts unless the focal viewpoint already knows them.
+An obscured connection may express uncertainty or suspicion, but it must not spoil unavailable truth.
+
+STRUCTURE RULES — FLEXIBLE 3 TO 5 NODES
+
+Use at least three and no more than five character nodes.
+Never invent filler characters merely to reach five.
+
+Required:
+- character_one = focal character
+- character_two = closest trusted bond or strongest ally
+- character_three = rival, observer, suspicious figure, or second major relationship
+
+Optional:
+- character_four = danger, destabilizer, likely threat, or additional major pressure
+- character_five = protector, anchor, family figure, or emotionally important stabilizer
+
+Omit character_four and character_five entirely when they are not meaningful. Do not output empty character blocks.
+
+IMAGE RULES
+
+Every included character block must contain exactly one complete Reverie Relay <image_request> inside <portrait>.
+A three-node map therefore contains exactly three portrait requests; a four-node map contains four; a five-node map contains five.
+
+For every portrait:
+- use target="custom.artifact-media"
+- use aspect="1:1"
+- give the request a unique id
+- give it a matching unique slot
+- describe only visible or established appearance
+- describe expression, clothing, age vibe, framing, lighting, and visual tone
+- request a polished character portrait suitable for a relationship board
+- do not request text, labels, or typography inside the image
+
+Do not use another illustration lane for this surface.
+
+FIELD RULES
+
+<title> Short dramatic title.
+<subtitle> Short orientation line naming the focal viewpoint or scope.
+
+For every included character block:
+<name> Character name
+<role> Short scene-relevant role label
+<status> Short tag such as Focal, Trusted, Strained, Danger, Protector, Unknown
+<summary> One or two sentences describing the current read on this person
+<relationship> Primary relationship to the focal character
+<strength> Numeric value from 0 to 100
+<pressure> One current tension, vulnerability, or pressure point
+
+CONNECTION RULES
+
+Always include:
+<one_two> focal ↔ character_two
+<one_three> focal ↔ character_three
+
+Include only when the related optional character exists:
+<one_four> focal ↔ character_four
+<one_five> focal ↔ character_five
+<three_four> obscured or secondary connection between character_three and character_four
+
+Omit optional connection fields entirely when their character node is absent. Do not output empty connection fields.
+
+<insight> One short dramatic summary of the overall pressure point.
+
+OUTPUT FORMAT — EXACT
+
+Output raw XML only. No markdown fence, HTML explanation, or prose label.
+
+Minimum three-node form:
+
+<relationship_map id="unique-map-id">
+<title>Map title</title>
+<subtitle>Current scope or focal viewpoint</subtitle>
+
+<character_one>
+<portrait>
+<image_request id="unique-id-1" target="custom.artifact-media" slot="unique-id-1" aspect="1:1" alt="Portrait of Character name">
+<scene_brief>Polished square relationship-board portrait using only visible or established appearance, current clothing, expression, age vibe, framing, lighting, and visual tone. No readable text.</scene_brief>
+</image_request>
+</portrait>
+<name>Character name</name>
+<role>Short role</role>
+<status>Focal</status>
+<summary>Current understanding of this person.</summary>
+<relationship>Self or central position in the current web.</relationship>
+<strength>95</strength>
+<pressure>Current tension or vulnerability.</pressure>
+</character_one>
+
+<character_two>
+<portrait>
+<image_request id="unique-id-2" target="custom.artifact-media" slot="unique-id-2" aspect="1:1" alt="Portrait of Character name">
+<scene_brief>Polished square relationship-board portrait using only visible or established appearance, current clothing, expression, age vibe, framing, lighting, and visual tone. No readable text.</scene_brief>
+</image_request>
+</portrait>
+<name>Character name</name>
+<role>Short role</role>
+<status>Trusted</status>
+<summary>Current understanding of this person.</summary>
+<relationship>Primary relationship to the focal character.</relationship>
+<strength>90</strength>
+<pressure>Current tension or vulnerability.</pressure>
+</character_two>
+
+<character_three>
+<portrait>
+<image_request id="unique-id-3" target="custom.artifact-media" slot="unique-id-3" aspect="1:1" alt="Portrait of Character name">
+<scene_brief>Polished square relationship-board portrait using only visible or established appearance, current clothing, expression, age vibe, framing, lighting, and visual tone. No readable text.</scene_brief>
+</image_request>
+</portrait>
+<name>Character name</name>
+<role>Short role</role>
+<status>Strained</status>
+<summary>Current understanding of this person.</summary>
+<relationship>Primary relationship to the focal character.</relationship>
+<strength>62</strength>
+<pressure>Current tension or vulnerability.</pressure>
+</character_three>
+
+<connections>
+<one_two>Short visible connection label</one_two>
+<one_three>Short visible connection label</one_three>
+</connections>
+
+<insight>One short dramatic summary of the current pressure point.</insight>
+</relationship_map>
+
+OPTIONAL CHARACTER FOUR BLOCK
+Insert this complete block after character_three only when a fourth node is meaningful:
+
+<character_four>
+<portrait>
+<image_request id="unique-id-4" target="custom.artifact-media" slot="unique-id-4" aspect="1:1" alt="Portrait of Character name">
+<scene_brief>Polished square relationship-board portrait using only visible or established appearance, current clothing, expression, age vibe, framing, lighting, and visual tone. No readable text.</scene_brief>
+</image_request>
+</portrait>
+<name>Character name</name>
+<role>Short role</role>
+<status>Danger</status>
+<summary>Current understanding of this person.</summary>
+<relationship>Primary relationship to the focal character.</relationship>
+<strength>78</strength>
+<pressure>Current tension or vulnerability.</pressure>
+</character_four>
+
+When character_four exists, add <one_four> inside <connections>. Add <three_four> only when an obscured or secondary connection is currently inferable.
+
+OPTIONAL CHARACTER FIVE BLOCK
+Insert this complete block after character_four, or after character_three when character_four is absent, only when a fifth node is meaningful:
+
+<character_five>
+<portrait>
+<image_request id="unique-id-5" target="custom.artifact-media" slot="unique-id-5" aspect="1:1" alt="Portrait of Character name">
+<scene_brief>Polished square relationship-board portrait using only visible or established appearance, current clothing, expression, age vibe, framing, lighting, and visual tone. No readable text.</scene_brief>
+</image_request>
+</portrait>
+<name>Character name</name>
+<role>Short role</role>
+<status>Protector</status>
+<summary>Current understanding of this person.</summary>
+<relationship>Primary relationship to the focal character.</relationship>
+<strength>88</strength>
+<pressure>Current tension or vulnerability.</pressure>
+</character_five>
+
+When character_five exists, add <one_five> inside <connections>.
+</relationship_map_utility>
+`,
+    category: "narrative-visuals",
+    shellMode: "inline",
+    maxWidth: "920px",
+    mediaFit: "cover",
+    peoplePolicy: "require",
+    profile: "character-portrait"
+  },
+  {
+    index: 11,
+    id: "instagram-dm",
+    label: "Instagram Direct Messages",
+    icon: "◎",
+    wrapper: "instagram_dm",
+    target: "custom.instagram-dm",
+    defaultAspect: "4:5",
+    supportedAspects: ["1:1", "4:5"],
+    rootAttributes: ["name", "handle", "time"],
+    requiredMediaCount: 0,
+    maximumMediaCount: 1,
+    sampleXml: '<instagram_dm name="Display Name" handle="@username" time="21:14"><dm_msg side="left" user="@friend" time="21:13">Incoming message</dm_msg><dm_msg side="right" user="@username" time="21:14">Outgoing message</dm_msg></instagram_dm>',
+    promptModule: `SURFACE: INSTAGRAM DIRECT MESSAGES
+Use the accepted Regex contract exactly. Required root attributes are name, handle, and time. Use dm_msg children with side, user, and time attributes. Optional media uses dm_media containing one image_request target="custom.instagram-dm" with a unique id and slot.
+
+<instagram_dm name="Display Name" handle="@username" time="21:14"><dm_msg side="left" user="@friend" time="21:13">Incoming message</dm_msg><dm_msg side="right" user="@username" time="21:14">Outgoing message</dm_msg></instagram_dm>`,
+    category: "social-messaging",
+    shellMode: "inline",
+    maxWidth: "410px",
+    mediaFit: "contain",
+    peoplePolicy: "forbid",
+    profile: "auto"
+  },
+  {
+    index: 12,
+    id: "x-dm",
+    label: "X Direct Messages",
+    icon: "\uD835\uDD4F",
+    wrapper: "x_dm",
+    target: "custom.x-dm",
+    defaultAspect: "4:5",
+    supportedAspects: ["1:1", "4:5"],
+    rootAttributes: ["name", "handle", "time"],
+    requiredMediaCount: 0,
+    maximumMediaCount: 1,
+    sampleXml: '<x_dm name="Display Name" handle="@username" time="21:14"><dm_msg side="left" user="@friend" time="21:13">Incoming DM</dm_msg><dm_msg side="right" user="@username" time="21:14">Outgoing DM</dm_msg></x_dm>',
+    promptModule: `SURFACE: X DIRECT MESSAGES
+Use the accepted Regex contract exactly. Required root attributes are name, handle, and time. The wrapper may be x_dm; use dm_msg children with side, user, and time attributes. Optional media uses dm_media containing one image_request target="custom.x-dm" with a unique id and slot.
+
+<x_dm name="Display Name" handle="@username" time="21:14"><dm_msg side="left" user="@friend" time="21:13">Incoming DM</dm_msg><dm_msg side="right" user="@username" time="21:14">Outgoing DM</dm_msg></x_dm>`,
+    category: "social-messaging",
+    shellMode: "inline",
+    maxWidth: "410px",
+    mediaFit: "contain",
+    peoplePolicy: "forbid",
+    profile: "auto"
+  },
+  {
+    index: 13,
+    id: "discord-dm",
+    label: "Discord Direct Messages",
+    icon: "◉",
+    wrapper: "discord_dm",
+    target: "custom.discord-dm",
+    defaultAspect: "4:5",
+    supportedAspects: ["1:1", "4:5"],
+    rootAttributes: ["name", "status", "time"],
+    requiredMediaCount: 0,
+    maximumMediaCount: 1,
+    sampleXml: '<discord_dm name="Display Name" status="Online" time="21:14"><discord_msg user="friend" time="21:13">Incoming message</discord_msg><discord_msg user="you" time="21:14">Outgoing message</discord_msg></discord_dm>',
+    promptModule: `SURFACE: DISCORD DIRECT MESSAGES
+Use the accepted Regex contract exactly. Required root attributes are name, status, and time. Use discord_msg children with user and time attributes. Optional media uses dm_media containing one image_request target="custom.discord-dm" with a unique id and slot.
+
+<discord_dm name="Display Name" status="Online" time="21:14"><discord_msg user="friend" time="21:13">Incoming message</discord_msg><discord_msg user="you" time="21:14">Outgoing message</discord_msg></discord_dm>`,
+    category: "social-messaging",
+    shellMode: "inline",
+    maxWidth: "410px",
+    mediaFit: "contain",
+    peoplePolicy: "forbid",
+    profile: "auto"
+  },
+  {
+    index: 14,
+    id: "discord-server",
+    label: "Discord Server",
+    icon: "#",
+    wrapper: "discord_server",
+    target: "custom.artifact-media",
+    defaultAspect: "1:1",
+    supportedAspects: ["1:1", "4:3", "16:9"],
+    rootAttributes: ["server", "topic"],
+    requiredMediaCount: 0,
+    maximumMediaCount: 12,
+    sampleXml: '<discord_server server="Server Name" topic="Late-night chat" members="1,284" online="318"><server_channel slot="1" name="general" description="General chat"><server_avatar_msg user="Guide" time="21:13"><avatar><image_request id="discord-avatar-guide" target="custom.artifact-media" slot="discord-avatar-guide" aspect="1:1" alt="Avatar of Guide"><scene_brief>Centered reusable portrait avatar of Guide.</scene_brief></image_request></avatar><text>First message.</text></server_avatar_msg></server_channel><server_channel slot="2" name="updates" description="Project updates"><server_avatar_msg user="Guide" time="21:14"><avatar><image_request id="discord-avatar-guide" target="custom.artifact-media" slot="discord-avatar-guide" aspect="1:1" alt="Avatar of Guide"><scene_brief>Centered reusable portrait avatar of Guide.</scene_brief></image_request></avatar><text>Second message.</text></server_avatar_msg></server_channel><server_channel slot="3" name="archive" description="Older messages"><server_msg user="Visitor" time="21:15">Historical initials-only message.</server_msg></server_channel></discord_server>',
+    promptModule: `SURFACE: DISCORD SERVER CHAT
+Use the accepted Regex contract exactly. Required root attributes are server, channel, and topic. Optional channels contains server_channel children. Required messages contains server_msg children with user and time attributes. Optional media uses server_media containing one image_request target="custom.discord-server" with a unique id and slot.
+
+<discord_server server="Server Name" channel="midnight-lounge" topic="Late-night chat"><channels><server_channel>#general</server_channel><server_channel>#midnight-lounge</server_channel></channels><messages><server_msg user="User One" time="21:13">First message</server_msg><server_msg user="User Two" time="21:14">Reply</server_msg></messages></discord_server>`,
+    category: "social-messaging",
+    shellMode: "collapsible",
+    maxWidth: "700px",
+    mediaFit: "contain",
+    peoplePolicy: "forbid",
+    profile: "auto"
+  },
+  {
+    index: 15,
+    id: "google-images",
+    label: "Google Image Search",
+    icon: "G",
+    wrapper: "google_image_search",
+    target: "custom.artifact-media",
+    defaultAspect: "4:3",
+    supportedAspects: ["4:3"],
+    rootAttributes: ["query"],
+    requiredMediaCount: 1,
+    maximumMediaCount: 6,
+    sampleXml: '<google_image_search query="search phrase"><gis_result slot="1" title="First result" source="Example source"><image_request id="google-result-1" target="custom.artifact-media" slot="google-result-1" aspect="4:3" alt="First image result"><scene_brief>Plausible visual result for this exact search query.</scene_brief></image_request></gis_result></google_image_search>',
+    promptModule: `SURFACE: GOOGLE IMAGE SEARCH RESULTS
+Use the accepted Regex contract exactly. The canonical wrapper is google_image_search, never an abbreviated substitute. Required root attributes are query and results. Use one gallery_item per visible result. Each gallery_item contains one image_request target="custom.google-images" with a unique id and slot, followed by a concise caption.
+
+<google_image_search query="search phrase" results="1"><gallery_item><image_request id="google-result-1" target="custom.google-images" slot="google-result-1" aspect="4:3" alt="Image result"><scene_brief>Complete visual result prompt.</scene_brief></image_request><caption>Result caption</caption></gallery_item></google_image_search>`,
+    category: "evidence-editorial",
+    shellMode: "collapsible",
+    maxWidth: "920px",
+    mediaFit: "cover",
+    peoplePolicy: "forbid",
+    profile: "auto"
+  },
+  {
+    index: 16,
+    id: "phone-gallery",
+    label: "Phone Gallery",
+    icon: "▦",
+    wrapper: "phone_gallery",
+    target: "custom.phone-gallery",
+    defaultAspect: "1:1",
+    supportedAspects: ["1:1"],
+    rootAttributes: ["album", "time"],
+    requiredMediaCount: 1,
+    maximumMediaCount: 6,
+    sampleXml: '<phone_gallery album="Recents" time="21:14"><gallery_item slot="1" title="First photo" time="21:12" location="Park" size="2 MB"><image_request id="gallery-photo-1" target="custom.artifact-media" slot="gallery-photo-1" aspect="1:1" alt="First gallery photo"><scene_brief>Distinct square-safe saved phone photo; focal subject inside the central 70%.</scene_brief></image_request></gallery_item></phone_gallery>',
+    promptModule: `SURFACE: PHONE PHOTO GALLERY
+Use <phone_gallery album="…" time="…"> with one <gallery_item slot="…" title="…" time="…" location="…" size="…"> per saved photo. Each item contains one unique image_request target="custom.artifact-media" using aspect="1:1". Describe each saved moment independently and keep its focal subject inside the central 70%. Grid thumbnails may fill their cells; the enlarged state preserves the full image. Never use photo id/caption or reuse one request between unrelated items.
+
+<phone_gallery album="Recents" time="21:14"><gallery_item slot="1" title="Photo" time="21:12" location="Park" size="2 MB"><image_request id="gallery-photo-1" target="custom.artifact-media" slot="gallery-photo-1" aspect="1:1" alt="Gallery photo"><scene_brief>Distinct square-safe saved phone photo; focal subject inside the central 70%.</scene_brief></image_request></gallery_item></phone_gallery>`,
+    category: "photography-keepsakes",
+    shellMode: "inline",
+    maxWidth: "460px",
+    mediaFit: "cover",
+    peoplePolicy: "forbid",
+    profile: "auto"
+  },
+  {
+    index: 17,
+    id: "tiktok-post",
+    label: "TikTok Post",
+    icon: "♪",
+    wrapper: "tiktok_post",
+    target: "custom.tiktok-post",
+    defaultAspect: "9:16",
+    supportedAspects: ["9:16"],
+    rootAttributes: ["user", "likes", "comments", "sound"],
+    requiredMediaCount: 1,
+    maximumMediaCount: 1,
+    sampleXml: '<tiktok_post user="@creator" likes="12.4K" comments="384" sound="Original sound"><tt_media><image_request id="tiktok-media-1" target="custom.tiktok-post" slot="tiktok-media-1" aspect="9:16" alt="TikTok video frame"><scene_brief>Vertical TikTok video frame.</scene_brief></image_request></tt_media><tt_caption>Short caption</tt_caption><tt_comments><tt_comment user="@viewer" time="2m">First comment</tt_comment></tt_comments></tiktok_post>',
+    promptModule: `SURFACE: TIKTOK POST AND COMMENT DRAWER
+Use the accepted Regex contract exactly. Required root attributes are user, likes, comments, and sound. Required order: tt_media, tt_caption, optional tt_comments. tt_media contains one image_request target="custom.tiktok-post" with a unique id and slot and aspect="9:16". Use tt_comment children with user and time attributes.
+
+<tiktok_post user="@creator" likes="12.4K" comments="384" sound="Original sound"><tt_media><image_request id="tiktok-media-1" target="custom.tiktok-post" slot="tiktok-media-1" aspect="9:16" alt="TikTok video frame"><scene_brief>Complete vertical video-frame prompt.</scene_brief></image_request></tt_media><tt_caption>Short caption</tt_caption><tt_comments><tt_comment user="@viewer" time="2m">Comment</tt_comment></tt_comments></tiktok_post>`,
+    category: "social-messaging",
+    shellMode: "inline",
+    maxWidth: "460px",
+    mediaFit: "cover",
+    peoplePolicy: "forbid",
+    profile: "auto"
+  },
+  {
+    index: 18,
+    id: "naver-article",
+    label: "Naver-Style News Article",
+    icon: "N",
+    wrapper: "naver_news",
+    target: "custom.naver-article",
+    defaultAspect: "16:9",
+    supportedAspects: ["16:9", "4:3"],
+    rootAttributes: ["category", "headline", "source", "byline", "timestamp", "comments"],
+    requiredMediaCount: 0,
+    maximumMediaCount: 1,
+    sampleXml: '<naver_news category="Entertainment" headline="Article headline" source="News Desk" byline="Staff Reporter" timestamp="2026.08.09 14:22" comments="128"><nv_media><image_request id="naver-media-1" target="custom.naver-article" slot="naver-media-1" aspect="16:9" alt="Article photograph"><scene_brief>Publication-ready article photograph.</scene_brief></image_request></nv_media><nv_body>First paragraph. Second paragraph.</nv_body><nv_comments><nv_comment user="reader" time="2m">Reader comment.</nv_comment></nv_comments></naver_news>',
+    promptModule: `SURFACE: NAVER-STYLE NEWS ARTICLE
+Use the accepted Regex contract exactly. The canonical wrapper is naver_news, never an article substitute. Required root attributes are category, headline, source, byline, timestamp, and comments. Use optional nv_media containing one image_request target="custom.naver-article" with a unique id and slot, nv_body for article copy, and optional nv_comments containing nv_comment children with user and time attributes.
+
+<naver_news category="Entertainment" headline="Article headline" source="News Desk" byline="Staff Reporter" timestamp="2026.08.09 14:22" comments="128"><nv_media><image_request id="naver-media-1" target="custom.naver-article" slot="naver-media-1" aspect="16:9" alt="Article photograph"><scene_brief>Complete article photograph prompt.</scene_brief></image_request></nv_media><nv_body>Article body.</nv_body><nv_comments><nv_comment user="reader" time="2m">Comment.</nv_comment></nv_comments></naver_news>`,
+    category: "evidence-editorial",
+    shellMode: "collapsible",
+    maxWidth: "920px",
+    mediaFit: "contain",
+    peoplePolicy: "forbid",
+    profile: "auto"
+  }
+];
+var UNIFIED_SHIPPED_SURFACE_SPECS = LEGACY_SHIPPED_SURFACE_SPECS.map((spec) => {
+  const canonical = CANONICAL_REVIEWED_SURFACE_BY_ID.get(spec.id);
+  if (!canonical)
+    return spec;
+  const target = canonical.imageTargets[0] || spec.target;
+  const rootAttributes = [...new Set((canonical.sampleXml.match(/<[^\s>/]+\s+([^>]+)>/)?.[1].match(/\b([\w-]+)=/g) || []).map((value) => value.slice(0, -1)))];
+  return { ...spec, wrapper: canonical.wrapper, target, rootAttributes, sampleXml: canonical.sampleXml, promptModule: canonical.utilityPrompt };
+});
+var REVIEWED_ONLY_SURFACE_SPECS = ["newspaper", "inline-chat"].map((surfaceId, offset) => {
+  const canonical = CANONICAL_REVIEWED_SURFACE_BY_ID.get(surfaceId);
+  return {
+    index: 100 + offset,
+    id: canonical.surfaceId,
+    label: surfaceId === "newspaper" ? "Newspaper" : "Inline Chat",
+    icon: surfaceId === "newspaper" ? "\uD83D\uDDDE️" : "\uD83D\uDCAC",
+    wrapper: canonical.wrapper,
+    target: canonical.imageTargets[0] || "custom.artifact-media",
+    defaultAspect: "16:9",
+    supportedAspects: ["16:9", "4:3"],
+    rootAttributes: [],
+    requiredMediaCount: 0,
+    maximumMediaCount: 1,
+    sampleXml: canonical.sampleXml,
+    promptModule: canonical.utilityPrompt,
+    category: "social-messaging",
+    shellMode: "collapsible",
+    maxWidth: "920px",
+    mediaFit: "contain",
+    peoplePolicy: "allow",
+    profile: "auto"
+  };
+});
+var RESTORED_EVIDENCE_PHOTO_SPEC = {
+  index: 102,
+  id: "evidence-photo",
+  label: "Evidence Photo",
+  icon: "\uD83D\uDCF7",
+  wrapper: "evidence_photo",
+  target: "custom.evidence-photo",
+  defaultAspect: "4:3",
+  supportedAspects: ["4:3", "3:4"],
+  rootAttributes: [],
+  requiredMediaCount: 1,
+  maximumMediaCount: 1,
+  sampleXml: '<evidence_photo><image_request id="evidence-photo-001" target="custom.evidence-photo" slot="evidence-image" aspect="4:3" alt="Documentary evidence photograph"><scene_brief>Complete documentary evidence photograph with the exact visible subject matter.</scene_brief></image_request></evidence_photo>',
+  promptModule: `SURFACE: EVIDENCE PHOTO
+Use exactly one balanced <evidence_photo> wrapper containing one image_request with target="custom.evidence-photo", a unique id, slot="evidence-image", aspect="4:3", accessible alt text, and a complete documentary scene_brief. Preserve the exact visible subject matter; do not invent forensic labels or readable evidence text inside the generated image.
+
+<evidence_photo><image_request id="evidence-photo-UNIQUE-ID" target="custom.evidence-photo" slot="evidence-image" aspect="4:3" alt="Accessible evidence-photo description"><scene_brief>Complete documentary evidence photograph with the exact visible subject matter.</scene_brief></image_request></evidence_photo>`,
+  category: "evidence-editorial",
+  shellMode: "collapsible",
+  maxWidth: "760px",
+  mediaFit: "contain",
+  peoplePolicy: "allow",
+  profile: "evidence-surveillance"
+};
+function derivedNormalization(spec) {
+  const rootAliases = [...new Set([spec.wrapper.replace(/_/g, "-"), spec.wrapper.replace(/_/g, "")].filter((alias) => alias && alias !== spec.wrapper))];
+  const rootAttributeSource = new RegExp(`^\\s*<${spec.wrapper}\\b([^>]*)>`, "i").exec(spec.sampleXml)?.[1] || "";
+  const sampleRootAttributes = [...rootAttributeSource.matchAll(/([A-Za-z_:][A-Za-z0-9_.:-]*)\s*=/g)].map((match) => match[1]);
+  const canonicalRootAttributes = [...new Set([...spec.rootAttributes, ...sampleRootAttributes])];
+  const body = spec.sampleXml.replace(new RegExp(`^\\s*<${spec.wrapper}\\b[^>]*>|</${spec.wrapper}>\\s*$`, "gi"), "");
+  const directChildren = [];
+  let depth = 0;
+  for (const token of body.match(/<\/?[A-Za-z][^>]*>/g) || []) {
+    const close = /^<\//.test(token);
+    const tag = /^<\/?\s*([A-Za-z][\w:-]*)/.exec(token)?.[1]?.toLowerCase();
+    if (!tag)
+      continue;
+    const voidElement = /\/$/.test(token) || ["img", "br", "hr", "input", "meta", "link"].includes(tag);
+    if (close) {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth === 0 && !directChildren.includes(tag))
+      directChildren.push(tag);
+    if (!voidElement)
+      depth += 1;
+  }
+  const attributeAliases = Object.fromEntries(canonicalRootAttributes.flatMap((attribute) => [
+    [attribute.replace(/_/g, "-"), attribute],
+    [attribute.replace(/_/g, ""), attribute]
+  ]).filter(([alias, canonical]) => alias !== canonical));
+  const childAliases = Object.fromEntries(directChildren.flatMap((child) => [
+    [child.replace(/_/g, "-"), child],
+    [child.replace(/_/g, ""), child]
+  ]).filter(([alias, canonical]) => alias !== canonical));
+  const uniqueParents = {};
+  if (spec.id === "case-file")
+    uniqueParents.image_request = "cf_media";
+  if (spec.id === "relationship-map")
+    uniqueParents.image_request = "portrait";
+  return {
+    rootAliases,
+    attributeAliases,
+    allowedChildren: directChildren,
+    canonicalChildOrder: directChildren,
+    childAliases,
+    uniqueParents,
+    optionalMeta: sampleRootAttributes.filter((key) => !["id", "slot", "target", "aspect", "members", "online"].includes(key))
+  };
+}
+var R45_SAMPLE_OVERRIDES = {
+  "forum-thread": '<forum_thread community="r/fieldnotes" user="archive_user" time="3 hours ago" score="4.8K" title="What did the station camera capture?"><fm_body>The north platform was empty when the signal changed.</fm_body><fm_media><image_request id="forum-media-1" target="custom.artifact-media" slot="forum-media-1" aspect="16:9" alt="Station camera attachment"><scene_brief>Wide documentary photograph of an empty station platform at night, full platform visible, no interface or readable text.</scene_brief></image_request></fm_media><fm_comments><fm_comment user="reader_one">The service light is on.</fm_comment><fm_comment user="reader_two">Check the far gate.</fm_comment></fm_comments></forum_thread>',
+  "imessage-chat": '<imessage_chat title="Weekend Group" participants="Character A, Character B, You" time="Today 7:14 PM" status="Delivered" unread="0"><im_messages><im_msg from="Character A" side="left">Are you there?</im_msg><im_msg from="You" side="right">Almost.</im_msg><im_media><image_request id="imessage-media-1" target="custom.artifact-media" slot="imessage-media-1" aspect="4:3" alt="Shared iMessage photograph"><scene_brief>Landscape phone photograph of the station entrance at dusk, entrance and surroundings fully visible, no phone UI or readable text.</scene_brief></image_request></im_media><im_msg from="Character B" side="left">I recognize that entrance.</im_msg></im_messages></imessage_chat>',
+  "workspace-chat": '<workspace_chat workspace="Field Team" members="5" time="11:36 PM" active="1"><ws_channels><ws_channel slot="1" name="field-chat" description="Live coordination"><ws_messages><ws_msg user="Character A" time="11:32 PM">Check the north gate.</ws_msg><ws_msg user="Character B" time="11:33 PM">Uploading the photograph.<ws_media><image_request id="workspace-media-1" target="custom.artifact-media" slot="workspace-media-1" aspect="4:3" alt="Workspace shared photograph"><scene_brief>Documentary photograph of the north gate being discussed, entire gate visible, no workspace UI or readable text.</scene_brief></image_request></ws_media></ws_msg></ws_messages></ws_channel><ws_channel slot="2" name="evidence" description="Reviewed evidence"><ws_messages><ws_msg user="Character C" time="11:34 PM">File received.</ws_msg></ws_messages></ws_channel><ws_channel slot="3" name="planning" description="Next actions"><ws_messages><ws_msg user="Character A" time="11:35 PM">Meet at dawn.</ws_msg></ws_messages></ws_channel><ws_channel slot="4" name="archive" description="Older updates"><ws_messages><ws_msg user="Character B" time="11:36 PM">Archived.</ws_msg></ws_messages></ws_channel></ws_channels></workspace_chat>',
+  "dating-profile": '<tinder><user><name>You</name><avatar><image_request id="tinder-user-avatar" target="custom.artifact-media" slot="tinder-user-avatar" aspect="1:1" alt="Local dating avatar"><scene_brief>Centered reusable dating-app avatar of the local participant, face and shoulders visible with generous headroom, no app UI or text.</scene_brief></image_request></avatar></user><profiles><profile slot="1" prev="3" next="2"><name>Profile A</name><age>27</age><subtitle>2 km away</subtitle><role>Designer</role><tags>coffee · museums · late walks</tags><bio>Short profile bio.</bio><photo><image_request id="tinder-profile-1" target="custom.artifact-media" slot="tinder-profile-1" aspect="3:4" alt="Dating profile portrait"><scene_brief>Centered face and upper torso dating portrait of Profile A, full hair visible, generous headroom, subject centered inside portrait-safe area, no app UI or text.</scene_brief></image_request></photo></profile><profile slot="2" prev="1" next="3"><name>Profile B</name><age>28</age><subtitle>4 km away</subtitle><role>Developer</role><tags>games · music · night markets</tags><bio>Short profile bio.</bio><photo><image_request id="tinder-profile-2" target="custom.artifact-media" slot="tinder-profile-2" aspect="3:4" alt="Dating profile portrait"><scene_brief>Centered face and upper torso dating portrait of Profile B, full hair visible, generous headroom, subject centered inside portrait-safe area, no app UI or text.</scene_brief></image_request></photo></profile><profile slot="3" prev="2" next="1"><name>Profile C</name><age>29</age><subtitle>6 km away</subtitle><role>Musician</role><tags>records · dogs · rainy days</tags><bio>Short profile bio.</bio><photo><image_request id="tinder-profile-3" target="custom.artifact-media" slot="tinder-profile-3" aspect="3:4" alt="Dating profile portrait"><scene_brief>Centered face and upper torso dating portrait of Profile C, full hair visible, generous headroom, subject centered inside portrait-safe area, no app UI or text.</scene_brief></image_request></photo></profile></profiles></tinder>',
+  "case-file": '<case_file case="04-17" subject="Subject A" status="Open" last_seen="Platform Four" risk="Elevated" agent="Field Agent"><cf_sheet><cf_media><image_request id="case-media-1" target="custom.artifact-media" slot="case-media-1" aspect="3:4" alt="Case subject photograph"><scene_brief>Contained vertical identification photograph of Subject A in current clothing, neutral evidentiary framing, no dossier UI or readable text.</scene_brief></image_request></cf_media><cf_facts><cf_fact label="STATUS" value="OPEN"></cf_fact><cf_fact label="LAST SEEN" value="PLATFORM FOUR"></cf_fact><cf_fact label="RISK" value="ELEVATED"></cf_fact></cf_facts></cf_sheet><cf_timeline><cf_event date="Today" title="Evidence received">A photograph was added to the case.</cf_event></cf_timeline><cf_notes>Verify the north entrance before closing the lead.</cf_notes></case_file>',
+  "discord-server": '<discord_server server="Field Server" topic="Live coordination" members="1,284" online="318"><server_channel slot="1" name="general" description="General chat"><server_avatar_msg user="Participant A" time="08:30"><avatar><image_request id="discord-avatar-a" target="custom.artifact-media" slot="discord-avatar-a" aspect="1:1" alt="Avatar of Participant A"><scene_brief>Centered reusable portrait avatar of Participant A, stable identity, current appearance, simple background, no text.</scene_brief></image_request></avatar><text>Morning.</text></server_avatar_msg><server_avatar_msg user="You" time="08:31"><avatar><image_request id="discord-avatar-you" target="custom.artifact-media" slot="discord-avatar-you" aspect="1:1" alt="Avatar of the local participant"><scene_brief>Centered reusable portrait avatar of the local participant using established Persona appearance, simple background, no text.</scene_brief></image_request></avatar><text>I am here.</text></server_avatar_msg></server_channel><server_channel slot="2" name="updates" description="Project updates"><server_avatar_msg user="Participant A" time="08:32"><avatar><image_request id="discord-avatar-a" target="custom.artifact-media" slot="discord-avatar-a" aspect="1:1" alt="Avatar of Participant A"><scene_brief>Centered reusable portrait avatar of Participant A, stable identity, current appearance, simple background, no text.</scene_brief></image_request></avatar><text>The gate is open.</text></server_avatar_msg></server_channel><server_channel slot="3" name="media" description="Shared files"><server_media><image_request id="discord-media-1" target="custom.artifact-media" slot="discord-media-1" aspect="4:3" alt="Shared server photograph"><scene_brief>Landscape photograph of the gate being discussed, full subject visible, no Discord interface or readable text.</scene_brief></image_request></server_media></server_channel><server_channel slot="4" name="archive" description="Older messages"><server_avatar_msg user="You" time="08:33"><avatar><image_request id="discord-avatar-you" target="custom.artifact-media" slot="discord-avatar-you" aspect="1:1" alt="Avatar of the local participant"><scene_brief>Centered reusable portrait avatar of the local participant using established Persona appearance, simple background, no text.</scene_brief></image_request></avatar><text>Saved.</text></server_avatar_msg></server_channel></discord_server>',
+  "evidence-photo": '<evidence_photo case="EV-104" label="North gate" timestamp="22:14" source="Camera A"><photo><image_request id="evidence-photo-1" target="custom.artifact-media" slot="evidence-photo-1" aspect="4:3" alt="North gate evidence photograph"><scene_brief>Documentary evidentiary view of the north gate at night, full gate and nearby ground visible, no labels, timestamps, or interface.</scene_brief></image_request></photo><caption>North gate after closing.</caption><note>Light visible near the service entrance.</note></evidence_photo>',
+  "album-cover": '<album_cover><title>Midnight Signal</title><artist>Fictional Artist</artist><release>Single</release><artwork><image_request id="album-art-1" target="custom.artifact-media" slot="album-art-1" aspect="1:1" alt="Midnight Signal album artwork"><scene_brief>Square art-first release artwork matching the title Midnight Signal and its nocturnal radio concept, strong centered composition, no interface chrome or readable text.</scene_brief></image_request></artwork></album_cover>',
+  "magazine-cover": '<magazine_cover><masthead>FIELD</masthead><issue>Autumn Issue</issue><kicker>Special Report</kicker><headline>The Last Platform</headline><subhead>Inside the city after midnight</subhead><image_request id="magazine-art-1" target="custom.artifact-media" slot="magazine-art-1" aspect="4:5" alt="Editorial station cover photograph"><scene_brief>Vertical editorial photograph of an illuminated station platform at night with deliberate headline-safe space, no masthead or readable text in the image.</scene_brief></image_request></magazine_cover>',
+  "photo-booth-strip": '<photo_booth_strip title="After Midnight" date="Tonight"><booth_frame><image_request id="booth-frame-1" target="custom.artifact-media" slot="booth-frame-1" aspect="2:5" alt="First photo booth pose"><scene_brief>First pose in one coherent vertical photo-booth session, same participants, wardrobe, booth, and lighting, no text.</scene_brief></image_request></booth_frame><booth_frame><image_request id="booth-frame-2" target="custom.artifact-media" slot="booth-frame-2" aspect="2:5" alt="Second photo booth pose"><scene_brief>Second pose in the same coherent vertical photo-booth session, identities and wardrobe unchanged, no text.</scene_brief></image_request></booth_frame><booth_frame><image_request id="booth-frame-3" target="custom.artifact-media" slot="booth-frame-3" aspect="2:5" alt="Third photo booth pose"><scene_brief>Third pose in the same coherent vertical photo-booth session, identities and wardrobe unchanged, no text.</scene_brief></image_request></booth_frame><booth_frame><image_request id="booth-frame-4" target="custom.artifact-media" slot="booth-frame-4" aspect="2:5" alt="Fourth photo booth pose"><scene_brief>Fourth pose in the same coherent vertical photo-booth session, identities and wardrobe unchanged, no text.</scene_brief></image_request></booth_frame><caption>Four frames after midnight.</caption></photo_booth_strip>',
+  polaroid: '<polaroid_frame date="Tonight" location="North Pier"><photo><image_request id="polaroid-photo-1" target="custom.artifact-media" slot="polaroid-photo-1" aspect="1:1" alt="North Pier instant photograph"><scene_brief>Square candid instant photograph at North Pier after rain, full photographed scene visible, no paper border or readable text.</scene_brief></image_request></photo><caption>After the rain.</caption></polaroid_frame>',
+  "youtube-thumbnail": '<yt_thumbnail channel="Field Archive" title="The Last Train at North Pier" views="18K views" age="2 hours ago" subscribers="84K subscribers"><yt_media><image_request id="youtube-frame-1" target="custom.artifact-media" slot="youtube-frame-1" aspect="16:9" alt="Video frame at North Pier"><scene_brief>Wide frame from the authored video showing the last train arriving at North Pier, key action inside the center-safe area, no YouTube logo, play icon, UI, or readable text.</scene_brief></image_request></yt_media><yt_comments><yt_comment user="viewer_one" time="12m" likes="28">The platform light changed.</yt_comment><yt_comment user="viewer_two" time="4m" likes="9">Look near the far gate.</yt_comment></yt_comments></yt_thumbnail>'
+};
+var R45_SUPPORTED_ASPECT_OVERRIDES = {
+  "imessage-chat": ["4:3"],
+  "workspace-chat": ["4:3"],
+  "dating-profile": ["1:1", "3:4"]
+};
+var SURFACE_TRIGGER_GUIDANCE = {
+  smartphone: `TRIGGER POLICY — SMARTPHONE
+Use when separated characters actually text, a message/notification/screen is directly shown, phone content matters to the current beat, or the user explicitly requests it.
+Do not use when the same characters are physically together and speaking, when a phone is merely present, or when no exchange is established.
+Never interrupt an in-person conversation with a fabricated text exchange between the same co-present characters unless the story explicitly establishes a reason to communicate by phone instead of speaking.`,
+  "relationship-map": `TRIGGER POLICY — RELATIONSHIP MAP
+Use when a focal character has at least two simultaneously relevant relationships with distinct pressures; when three or more named people/factions have meaningful bonds; or when an alliance, rivalry, loyalty, suspicion, secret allegiance, or triangle changes.
+A valid minimum is focal + meaningful connection A + meaningful connection B.
+Do not use for one simple two-person relationship where a map adds nothing.`
+};
+function surfaceTriggerGuidance(id, label) {
+  return SURFACE_TRIGGER_GUIDANCE[id] || `TRIGGER POLICY — ${label.toLocaleUpperCase()}
+Use when the response directly presents this in-world communication, document, object, network, or visual form and the form itself helps the reader understand the current beat.
+Do not invent an action, message, document, or media event merely to justify this Surface. Do not duplicate ordinary prose when the Surface adds no concrete in-world value.`;
+}
+function applyR45Authority(spec) {
+  const sampleXml = R45_SAMPLE_OVERRIDES[spec.id] || spec.sampleXml;
+  const customArtifactXml = sampleXml.replace(/target="custom\.[^"]+"/g, 'target="custom.artifact-media"');
+  const promptXml = bracketSurfacePromptModule({
+    label: spec.label,
+    root: spec.wrapper,
+    sampleXml: customArtifactXml,
+    target: spec.target.startsWith("custom.") ? "custom.artifact-media" : spec.target,
+    aspect: R45_SUPPORTED_ASPECT_OVERRIDES[spec.id]?.[0] || spec.defaultAspect
+  });
+  const triggerGuidance = surfaceTriggerGuidance(spec.id, spec.label);
+  return {
+    ...spec,
+    target: spec.target.startsWith("custom.") ? "custom.artifact-media" : spec.target,
+    sampleXml: customArtifactXml,
+    triggerGuidance,
+    promptModule: `${triggerGuidance}
+
+${promptXml}`
+  };
+}
+var SHIPPED_SURFACE_SPECS = [...UNIFIED_SHIPPED_SURFACE_SPECS, ...REVIEWED_ONLY_SURFACE_SPECS, RESTORED_EVIDENCE_PHOTO_SPEC].filter((spec) => spec.id !== "weverse-post").map(applyR45Authority).map((spec) => ({ ...spec, normalization: derivedNormalization(spec) }));
+var SHIPPED_SURFACE_BY_ID = new Map(SHIPPED_SURFACE_SPECS.map((spec) => [spec.id, spec]));
+var SHIPPED_SURFACE_BY_WRAPPER = new Map(SHIPPED_SURFACE_SPECS.map((spec) => [spec.wrapper, spec]));
+var SHIPPED_SURFACE_ROOT_TAGS = SHIPPED_SURFACE_SPECS.map((spec) => spec.wrapper);
+var REVIEWED_REGEX_SURFACE_IDS = new Set;
+function hybridSurfaceOwner(definition) {
+  if (definition?.hybridOwnerConfigured === true && definition.hybridOwner)
+    return definition.hybridOwner;
+  return "relay";
+}
+function shippedSurfaceDefinitions(now = Date.now()) {
+  const imageFormat = '<img src="{{imageUrl}}" alt="{{alt}}" data-dgir-key="{{slotKey}}" data-dgir-request-id="{{requestId}}" data-dgir-slot="{{slot}}" data-dgir-custom-target="{{target}}" data-dgir-image-id="{{imageId}}">';
+  return SHIPPED_SURFACE_SPECS.map((spec) => ({
+    surfaceId: spec.id,
+    baseSurfaceId: spec.id,
+    presetName: "Relay Default",
+    shellMode: spec.shellMode,
+    defaultOpen: false,
+    launcherLabel: `${spec.icon} ${spec.label}`,
+    density: "comfortable",
+    maxWidth: spec.maxWidth,
+    mediaFit: spec.mediaFit,
+    accentMode: "theme",
+    customAccent: "#c24b78",
+    typography: ["letter-dispatch", "diary-page", "court-transcript", "public-bulletin"].includes(spec.id) ? "editorial" : "mixed",
+    advancedCss: "",
+    displayName: spec.label,
+    icon: spec.icon,
+    targetId: spec.target,
+    canonicalOuterWrapper: spec.wrapper,
+    imageSlotSelector: "img",
+    resolvedImageChildFormat: imageFormat,
+    supportedAspectRatios: R45_SUPPORTED_ASPECT_OVERRIDES[spec.id] || spec.supportedAspects,
+    defaultPromptProfileId: spec.profile,
+    peoplePolicy: spec.peoplePolicy,
+    captionSupport: true,
+    altTextSupport: true,
+    defaultCandidateCount: 1,
+    compatibleRegenerationIntents: ["new-angle", "better-expression", "preserve-composition-improve-quality", "full-reimagining"],
+    declarativeLayoutFields: { shellMode: "inline|collapsible", renderer: "relay", wrapper: spec.wrapper },
+    validationRules: ["balanced-wrapper", "safe-static-markup", "stable-request-ownership", `required-media:${spec.requiredMediaCount}`, ...spec.maximumMediaCount ? [`maximum-media:${spec.maximumMediaCount}`] : []],
+    sampleXml: spec.sampleXml,
+    deterministicPreviewFixture: { title: spec.label, targetId: spec.target, wrapper: spec.wrapper, requiredMediaCount: spec.requiredMediaCount, maximumMediaCount: spec.maximumMediaCount },
+    builtIn: true,
+    enabled: true,
+    promptEnabled: true,
+    promptCategory: spec.category,
+    promptModule: spec.promptModule,
+    triggerGuidance: spec.triggerGuidance,
+    hybridOwner: "relay",
+    hybridOwnerConfigured: false,
+    updatedAt: now
+  }));
+}
+
 // src/r45SurfaceCatalog.ts
 var request = (id, target = "custom.artifact-media", aspect = "4:3", brief = "A context-specific visual composed for this exact Surface region, without interface chrome or generated text.") => `<image_request id="${id}" target="${target}" slot="${id}" aspect="${aspect}" alt="Surface media"><scene_brief>${brief}</scene_brief></image_request>`;
 function runtimeUtilityPrompt(row) {
@@ -985,12 +1987,17 @@ function runtimeUtilityPrompt(row) {
     target: row.target || "custom.artifact-media",
     aspect: row.aspect || "4:3"
   });
+  const guidance = surfaceTriggerGuidance(row.id, row.label);
   if (row.id === "album-cover")
-    return `${module}
+    return `${guidance}
+
+${module}
 
 Album Cover contract note: a real album/release title is required in [title] before [artist], [release], and [artwork]. Do not use placeholders as the release title.`;
   if (row.id === "smartphone")
-    return `${module}
+    return `${guidance}
+
+${module}
 
 Smartphone contract note: every scalar and message field must be explicitly closed. Never put XML-style attributes in bracket opening tags.
 
@@ -1007,7 +2014,9 @@ STRICT MESSAGE SHAPE
 [/messages]
 
 The shell fields are [sender]...[/sender], [initial]...[/initial], [time]...[/time], [day]...[/day], and [battery]...[/battery]. Never emit unclosed scalar fields, [battery]value], or [s_recv time="..."] / [s_sent time="..."].`;
-  return module;
+  return `${guidance}
+
+${module}`;
 }
 var MEDIA_LIMITS = {
   smartphone: [0, 8],
@@ -1071,6 +2080,7 @@ function r45SupplementalSurfaceDefinitions(now = Date.now()) {
     const mediaLimits = MEDIA_LIMITS[row.id] || [0, 0];
     const sampleAspects = [...row.sample.matchAll(/<image_request\b[^>]*\baspect="([^"]+)"/gi)].map((match) => match[1]);
     const supportedAspectRatios = [...new Set([...row.aspect ? [row.aspect] : [], ...sampleAspects])];
+    const triggerGuidance = surfaceTriggerGuidance(row.id, row.label);
     return {
       surfaceId: row.id,
       baseSurfaceId: row.id,
@@ -1113,6 +2123,7 @@ function r45SupplementalSurfaceDefinitions(now = Date.now()) {
       promptEnabled: true,
       promptCategory: row.category,
       promptModule: runtimeUtilityPrompt(row),
+      triggerGuidance,
       hybridOwner: "relay",
       hybridOwnerConfigured: false,
       updatedAt: now
@@ -2469,6 +3480,9 @@ function parseBracketDocument(source) {
         diagnostics.push(`Unmatched closing bracket [/${rawName}].`);
         continue;
       }
+      for (const unclosed of stack.slice(openIndex + 1)) {
+        diagnostics.push(`[${unclosed.name}] was still open when [/${rawName}] was encountered.`);
+      }
       stack.splice(openIndex);
       continue;
     }
@@ -2493,6 +3507,40 @@ function parseBracketDocument(source) {
 var escapeRe2 = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 var attrCache = new Map;
 var SMARTPHONE_HEADER_FIELDS = ["sender", "initial", "time", "day", "battery"];
+function knownTagsForSurface(spec) {
+  const tags = new Set(surfaceRootAliases(spec).map(normalizeBracketName));
+  for (const field of spec.rootAttributes || [])
+    tags.add(normalizeBracketName(field));
+  for (const field of spec.normalization?.allowedChildren || [])
+    tags.add(normalizeBracketName(field));
+  const root = parseSurfaceXml(spec.sampleXml || `<${spec.wrapper}></${spec.wrapper}>`);
+  const visit = (node) => {
+    tags.add(normalizeBracketName(node.tag));
+    for (const field of Object.keys(surfaceXmlAttributes(node.attrs)))
+      tags.add(normalizeBracketName(field));
+    for (const child of xmlChildren(node))
+      visit(child);
+  };
+  if (root)
+    visit(root);
+  return tags;
+}
+function normalizeKnownHybridClosingDelimiters(source, spec) {
+  const known = knownTagsForSurface(spec);
+  const warnings = [];
+  let markup = String(source || "");
+  const repair = (full, rawName) => {
+    const name = normalizeBracketName(rawName);
+    if (!known.has(name))
+      return full;
+    const canonical = `[/${name}]`;
+    warnings.push(`${spec.id}: normalized hybrid closing delimiter ${full} -> ${canonical}`);
+    return canonical;
+  };
+  markup = markup.replace(/\[\/([A-Za-z][\w-]*)>/g, repair);
+  markup = markup.replace(/<\/([A-Za-z][\w-]*)\]/g, repair);
+  return { markup, warnings };
+}
 function normalizeSmartphoneBracketDrift(source) {
   const input = String(source || "");
   if (!/^\s*\[smart_phone(?:\s+[^\]]*)?\]/i.test(input))
@@ -2741,8 +3789,13 @@ function normalizeBracketSurfaceDocument(input, supplied, render) {
     const spec = aliases.find((row) => row.alias.toLowerCase() === normalizeBracketName(open[1]).toLowerCase())?.spec;
     if (!spec)
       continue;
-    const block = parseBracketRootBlock(input, open.index, surfaceRootAliases(spec));
-    const preNormalized = spec.id === "smartphone" ? normalizeSmartphoneBracketDrift(block.source) : { markup: block.source, warnings: [] };
+    const remainder = input.slice(open.index);
+    const extentPreflight = normalizeKnownHybridClosingDelimiters(remainder, spec);
+    const extent = parseBracketRootBlock(extentPreflight.markup, 0, surfaceRootAliases(spec));
+    const block = { end: open.index + extent.end, source: input.slice(open.index, open.index + extent.end), diagnostics: extent.diagnostics };
+    const delimiterNormalized = normalizeKnownHybridClosingDelimiters(block.source, spec);
+    const preNormalized = spec.id === "smartphone" ? normalizeSmartphoneBracketDrift(delimiterNormalized.markup) : { markup: delimiterNormalized.markup, warnings: [] };
+    preNormalized.warnings.unshift(...delimiterNormalized.warnings);
     const parsed = parseBracketDocument(preNormalized.markup);
     const root = parsed.roots.find((row) => surfaceRootAliases(spec).map(normalizeBracketName).includes(row.name));
     const rootDiagnostics = [...block.diagnostics, ...parsed.diagnostics.filter((row) => !/Malformed child/.test(row))];
@@ -2766,988 +3819,6 @@ function normalizeBracketSurfaceDocument(input, supplied, render) {
   }
   output += input.slice(cursor);
   return { markup: output, changed: output !== input, diagnostics };
-}
-
-// src/canonicalReviewedSurfaceContracts.ts
-var image = (id, target, slot, aspect, alt) => `<image_request id="${id}" target="${target}" slot="${slot}" aspect="${aspect}" alt="${alt}"><scene_brief>Scene-specific visual content.</scene_brief></image_request>`;
-var reviewed = (contract) => ({ ...contract, utilityPrompt: `REVIEWED ${contract.surfaceId.toUpperCase()} — CANONICAL XML
-${contract.rules}
-Emit only this canonical grammar for new content. Relay and Regex consume the same XML.
-
-CONTRACT EXAMPLE
-${contract.sampleXml}` });
-var CANONICAL_REVIEWED_SURFACE_CONTRACTS = [
-  reviewed({ surfaceId: "email-thread", wrapper: "email_thread", outerRegexScriptId: "surface_review_email", helperRegexScriptIds: ["surface_review_v2_xform_email_item"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <email_thread account="…" time="…">. Each <email_item slot="1-5" from="…" subject="…" preview="…" time="…"> contains <email_body> and optional <email_attachment filename="…">media</email_attachment>. Never use email_inbox or em_message.', sampleXml: `<email_thread account="Mailbox" time="08:30"><email_item slot="1" from="Sender" subject="Subject" preview="Preview" time="08:20"><email_body>Readable body.</email_body><email_attachment filename="attachment.png">${image("email-attachment-1", "custom.artifact-media", "email-attachment-1", "16:9", "Email attachment")}</email_attachment></email_item></email_thread>` }),
-  reviewed({ surfaceId: "newspaper", wrapper: "newspaper", outerRegexScriptId: "surface_review_newspaper", helperRegexScriptIds: [], imageTargets: [], defaultHybridOwner: "regex", rules: 'Use <newspaper name="…" date="…" headline="…" subhead="…">article content</newspaper>; all four root attributes are required.', sampleXml: '<newspaper name="Publication" date="Today" headline="Headline" subhead="Readable subhead">Concise editorial copy.</newspaper>' }),
-  reviewed({ surfaceId: "inline-chat", wrapper: "inline_chat", outerRegexScriptId: "surface_review_inline_chat", helperRegexScriptIds: ["surface_review_v2_xform_message", "surface_review_v3_xform_avatar_message", "surface_review_v2_xform_message_media"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <inline_chat header="…" time="…"> with chat_msg, avatar_msg, and chat_media helper seams. Never use generic message.', sampleXml: `<inline_chat header="Conversation" time="08:30"><chat_msg side="left" user="Person" avatar="P">Message.</chat_msg><avatar_msg side="right" user="Other"><avatar>A</avatar><text>Reply.</text></avatar_msg><chat_media side="left">${image("chat-media-1", "custom.artifact-media", "chat-media-1", "16:9", "Chat attachment")}</chat_media></inline_chat>` }),
-  reviewed({ surfaceId: "dating-profile", wrapper: "tinder", outerRegexScriptId: "surface_review_tinder", helperRegexScriptIds: ["surface_review_tinder_user_seam", "surface_review_tinder_profile_seam"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <tinder> with one <user><name/><avatar/></user> and <profiles> containing exactly three <profile slot="…" prev="…" next="…"> blocks. Child order is name, age, subtitle, role, tags, bio, photo. Never emit dating_profile or profile id/name/age attributes.', sampleXml: `<tinder><user><name>Viewer</name><avatar>${image("tinder-user-1", "custom.artifact-media", "tinder-user-1", "1:1", "User avatar")}</avatar></user><profiles><profile slot="1" prev="3" next="2"><name>Profile One</name><age>28</age><subtitle>Nearby</subtitle><role>Artist</role><tags>music · books</tags><bio>Short bio.</bio><photo>${image("tinder-profile-1", "custom.artifact-media", "tinder-profile-1", "3:4", "Dating portrait")}</photo></profile><profile slot="2" prev="1" next="3"><name>Profile Two</name><age>29</age><subtitle>Nearby</subtitle><role>Designer</role><tags>film · walks</tags><bio>Short bio.</bio><photo>${image("tinder-profile-2", "custom.artifact-media", "tinder-profile-2", "3:4", "Dating portrait")}</photo></profile><profile slot="3" prev="2" next="1"><name>Profile Three</name><age>30</age><subtitle>Nearby</subtitle><role>Writer</role><tags>tea · art</tags><bio>Short bio.</bio><photo>${image("tinder-profile-3", "custom.artifact-media", "tinder-profile-3", "3:4", "Dating portrait")}</photo></profile></profiles></tinder>` }),
-  reviewed({ surfaceId: "livestream", wrapper: "livestream", outerRegexScriptId: "surface_review_twitch", helperRegexScriptIds: ["surface_review_v2_xform_live_msg", "surface_review_v2_xform_live_donation", "surface_review_v2_xform_live_poll", "surface_review_v2_xform_live_mod"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: "Use <livestream>, never twitch_stream. Use live_media, live_chat with live_msg/live_donation/live_poll, and live_mods with live_mod.", sampleXml: `<livestream title="Live title" channel="Channel" viewers="2.4K" category="Category" status="LIVE"><live_media>${image("live-frame-1", "custom.artifact-media", "live-frame-1", "16:9", "Live frame")}</live_media><live_chat><live_msg user="Viewer" avatar="V">Message.</live_msg><live_donation user="Supporter" amount="$5">Thanks.</live_donation><live_poll question="Question?"><poll_option>Yes</poll_option><poll_option>No</poll_option></live_poll></live_chat><live_mods><live_mod user="Mod" role="Moderator" avatar="M"/></live_mods></livestream>` }),
-  reviewed({ surfaceId: "instagram-dm", wrapper: "instagram_dm", outerRegexScriptId: "surface_review_instagram_dm", helperRegexScriptIds: ["surface_review_v2_xform_message", "surface_review_v3_xform_avatar_message", "surface_review_v2_xform_message_media"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <instagram_dm name="…" handle="…" time="…"> with dm_msg, avatar_msg, and dm_media helper seams.', sampleXml: `<instagram_dm name="Person" handle="@person" time="08:30"><avatar_msg side="left" user="Person"><avatar>A</avatar><text>Message.</text></avatar_msg><dm_msg side="right" user="You" avatar="Y">Reply.</dm_msg><dm_media side="left">${image("instagram-media-1", "custom.artifact-media", "instagram-media-1", "4:5", "DM attachment")}</dm_media></instagram_dm>` }),
-  reviewed({ surfaceId: "x-dm", wrapper: "x_dm", outerRegexScriptId: "surface_review_x_dm", helperRegexScriptIds: ["surface_review_v2_xform_message", "surface_review_v3_xform_avatar_message", "surface_review_v2_xform_message_media"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <x_dm name="…" handle="…" time="…"> with dm_msg, avatar_msg, and dm_media helper seams. Do not teach twitter_dm.', sampleXml: '<x_dm name="Person" handle="@person" time="08:30"><dm_msg side="left" user="Person" avatar="P">Message.</dm_msg></x_dm>' }),
-  reviewed({ surfaceId: "discord-dm", wrapper: "discord_dm", outerRegexScriptId: "surface_review_discord_dm", helperRegexScriptIds: ["surface_review_v2_xform_discord_msg", "surface_review_v3_xform_discord_avatar_message", "surface_review_v2_xform_message_media"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <discord_dm name="…" status="…" time="…"> with discord_msg or discord_avatar_msg helper seams.', sampleXml: '<discord_dm name="Person" status="Online" time="08:30"><discord_avatar_msg user="Person" time="08:30"><avatar>A</avatar><text>Message.</text></discord_avatar_msg><discord_msg user="Other" avatar="O" time="08:31">Reply.</discord_msg></discord_dm>' }),
-  reviewed({ surfaceId: "discord-server", wrapper: "discord_server", outerRegexScriptId: "surface_review_discord_server", helperRegexScriptIds: ["reverie_relay_c4_xform_server_msg_avatar", "surface_review_v2_xform_discord_msg", "surface_review_v3_xform_server_avatar_message", "surface_review_v2_xform_discord_media", "surface_review_v2_xform_discord_channel"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <discord_server server="…" topic="…" members="…" online="…">; members and online are optional for legacy messages but populate them for new Surfaces. Write exactly four server_channel siblings with slot/name/description. Recurring participants, including the local participant when identity detail is sufficient, use server_avatar_msg with one reusable 1:1 image_request; repeat the same stable id and slot for that participant, never a second avatar request. Use server_msg only when sufficient visual identity information does not exist. Never emit users/channels/channel/message.', sampleXml: `<discord_server server="Server" topic="Topic" members="1,284" online="318"><server_channel slot="1" name="general" description="General chat"><server_avatar_msg user="Guide" time="08:30"><avatar>${image("discord-server-avatar-guide", "custom.artifact-media", "discord-server-avatar-guide", "1:1", "Avatar of Guide")}</avatar><text>Message.</text></server_avatar_msg><server_avatar_msg user="Local" time="08:31"><avatar>${image("discord-server-avatar-local", "custom.artifact-media", "discord-server-avatar-local", "1:1", "Avatar of Local")}</avatar><text>Reply.</text></server_avatar_msg><server_media>${image("server-media-1", "custom.artifact-media", "server-media-1", "16:9", "Server attachment")}</server_media></server_channel><server_channel slot="2" name="art-share" description="Visual work"><server_avatar_msg user="Guide" time="08:32"><avatar>${image("discord-server-avatar-guide", "custom.artifact-media", "discord-server-avatar-guide", "1:1", "Avatar of Guide")}</avatar><text>Shared update.</text></server_avatar_msg></server_channel><server_channel slot="3" name="spoiler-zone" description="Private discussion"><server_avatar_msg user="Local" time="08:33"><avatar>${image("discord-server-avatar-local", "custom.artifact-media", "discord-server-avatar-local", "1:1", "Avatar of Local")}</avatar><text>Reply.</text></server_avatar_msg></server_channel><server_channel slot="4" name="off-topic" description="Casual conversation"><server_avatar_msg user="Guide" time="08:34"><avatar>${image("discord-server-avatar-guide", "custom.artifact-media", "discord-server-avatar-guide", "1:1", "Avatar of Guide")}</avatar><text>See you there.</text></server_avatar_msg></server_channel></discord_server>` }),
-  reviewed({ surfaceId: "google-images", wrapper: "google_image_search", outerRegexScriptId: "surface_review_google_images", helperRegexScriptIds: ["surface_review_v2_xform_google_result"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <google_image_search query="…"> and gis_result slot/title/source. Never use result index or gallery_item.', sampleXml: `<google_image_search query="Search phrase"><gis_result slot="1" title="Result" source="Source">${image("google-result-1", "custom.artifact-media", "google-result-1", "4:3", "Search result")}</gis_result></google_image_search>` }),
-  reviewed({ surfaceId: "phone-gallery", wrapper: "phone_gallery", outerRegexScriptId: "surface_review_phone_gallery", helperRegexScriptIds: ["surface_review_v2_xform_gallery_item"], imageTargets: ["custom.artifact-media"], defaultHybridOwner: "regex", rules: 'Use <phone_gallery album="…" time="…"> and gallery_item slot/title/time/location/size. Every saved moment uses its own 1:1 image_request with a square-safe composition and the focal subject inside the central 70%. Grid thumbnails may fill their cells; the enlarged state preserves the full image. Never use photo id/caption.', sampleXml: `<phone_gallery album="Camera" time="08:30"><gallery_item slot="1" title="Photo" time="08:25" location="Place" size="2 MB">${image("gallery-photo-1", "custom.artifact-media", "gallery-photo-1", "1:1", "Gallery photo")}</gallery_item></phone_gallery>` }),
-  reviewed({ surfaceId: "naver-article", wrapper: "naver_news", outerRegexScriptId: "interactive_v3_15_naver", helperRegexScriptIds: ["reverie_relay_c4_xform_naver_comment"], imageTargets: ["custom.naver-article"], defaultHybridOwner: "regex", rules: 'Use <naver_news category="…" headline="…" source="…" byline="…" timestamp="…" comments="…">. Keep article media only in nv_media, followed once by nv_body and then nv_comments. nv_comments is a list of distinct sibling nv_comment elements, never flattened prose: every comment MUST have non-empty user and time attributes and its body is only the element text. Emit exactly the requested comment count; never repeat nv_body or article prose inside nv_comments.', sampleXml: `<naver_news category="Local" headline="Article headline" source="News Desk" byline="Reporter" timestamp="2026.08.18 08:30" comments="3"><nv_media>${image("naver-media-1", "custom.naver-article", "naver-media-1", "16:9", "Article hero")}</nv_media><nv_body>Article copy.</nv_body><nv_comments><nv_comment user="Citizen_77" time="10m ago">Comment one.</nv_comment><nv_comment user="Archivist_K" time="25m ago">Comment two.</nv_comment><nv_comment user="NightOwl" time="1h ago">Comment three.</nv_comment></nv_comments></naver_news>` })
-];
-var CANONICAL_REVIEWED_SURFACE_BY_ID = new Map(CANONICAL_REVIEWED_SURFACE_CONTRACTS.map((contract) => [contract.surfaceId, contract]));
-var CANONICAL_REVIEWED_SURFACE_BY_WRAPPER = new Map(CANONICAL_REVIEWED_SURFACE_CONTRACTS.map((contract) => [contract.wrapper, contract]));
-var CANONICAL_REVIEWED_SURFACE_PROMPT_MODULES = Object.fromEntries(CANONICAL_REVIEWED_SURFACE_CONTRACTS.map((contract) => [contract.surfaceId, contract.utilityPrompt]));
-
-// src/shippedSurfaceDefinitions.ts
-var LEGACY_SHIPPED_SURFACE_SPECS = [
-  {
-    index: 2,
-    id: "forum-thread",
-    label: "Forum / Reddit Thread",
-    icon: "\uD83E\uDDF5",
-    wrapper: "forum_thread",
-    target: "custom.forum-thread",
-    defaultAspect: "16:9",
-    supportedAspects: ["16:9"],
-    rootAttributes: ["community", "user", "time", "score", "title"],
-    requiredMediaCount: 1,
-    sampleXml: `<forum_thread community="community_name" user="poster_name" time="3 hours ago" score="4.8K" title="Thread title">
-<fm_body>Opening post text.</fm_body>
-<fm_media>
-<image_request id="forum-thread-001" target="custom.forum-thread" slot="thread-media" aspect="16:9" alt="Forum attachment">
-<scene_brief>A believable attached image relevant to the thread. Compose the attachment as a visual-only image.</scene_brief>
-</image_request>
-</fm_media>
-<details><summary>View discussion</summary><fm_comments>
-<fm_comment user="reply_one">Reply.</fm_comment>
-<fm_comment user="reply_two">Reply.</fm_comment>
-</fm_comments></details>
-</forum_thread>`,
-    promptModule: `SURFACE: FORUM / REDDIT THREAD
-Use <forum_thread> with target="custom.forum-thread". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 16:9, and visible scene briefs. Place readable interface text in the semantic child tags.
-
-CONTRACT EXAMPLE
-<forum_thread community="community_name" user="poster_name" time="3 hours ago" score="4.8K" title="Thread title">
-<fm_body>Opening post text.</fm_body>
-<fm_media>
-<image_request id="forum-thread-001" target="custom.forum-thread" slot="thread-media" aspect="16:9" alt="Forum attachment">
-<scene_brief>A believable attached image relevant to the thread. Compose the attachment as a visual-only image.</scene_brief>
-</image_request>
-</fm_media>
-<details><summary>View discussion</summary><fm_comments>
-<fm_comment user="reply_one">Reply.</fm_comment>
-<fm_comment user="reply_two">Reply.</fm_comment>
-</fm_comments></details>
-</forum_thread>`,
-    category: "social-messaging",
-    shellMode: "collapsible",
-    maxWidth: "760px",
-    mediaFit: "cover",
-    peoplePolicy: "allow",
-    profile: "social-candid"
-  },
-  {
-    index: 3,
-    id: "email-thread",
-    label: "Email Thread",
-    icon: "✉️",
-    wrapper: "email_thread",
-    target: "custom.email-thread",
-    defaultAspect: "16:9",
-    supportedAspects: ["16:9"],
-    rootAttributes: ["subject", "account", "time", "messages", "attachments"],
-    requiredMediaCount: 1,
-    sampleXml: `<email_thread subject="Email subject" account="Primary Inbox" time="08:37" messages="2" attachments="1">
-<em_message from="Sender Name" to="Recipient Name" time="08:14">Message body.</em_message>
-<em_message from="Recipient Name" to="Sender Name" time="08:37">Reply body.</em_message>
-<em_attachment>
-<image_request id="email-thread-001" target="custom.email-thread" slot="attachment-preview" aspect="16:9" alt="Email attachment preview">
-<scene_brief>A realistic visual attachment referenced by the email. Keep all readable email text in the surrounding interface.</scene_brief>
-</image_request>
-</em_attachment>
-<em_files><em_file>attachment.pdf</em_file></em_files>
-</email_thread>`,
-    promptModule: `SURFACE: EMAIL THREAD
-Use <email_thread> with target="custom.email-thread". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 16:9, and visible scene briefs. Place readable interface text in the semantic child tags.
-
-CONTRACT EXAMPLE
-<email_thread subject="Email subject" account="Primary Inbox" time="08:37" messages="2" attachments="1">
-<em_message from="Sender Name" to="Recipient Name" time="08:14">Message body.</em_message>
-<em_message from="Recipient Name" to="Sender Name" time="08:37">Reply body.</em_message>
-<em_attachment>
-<image_request id="email-thread-001" target="custom.email-thread" slot="attachment-preview" aspect="16:9" alt="Email attachment preview">
-<scene_brief>A realistic visual attachment referenced by the email. Keep all readable email text in the surrounding interface.</scene_brief>
-</image_request>
-</em_attachment>
-<em_files><em_file>attachment.pdf</em_file></em_files>
-</email_thread>`,
-    category: "social-messaging",
-    shellMode: "collapsible",
-    maxWidth: "760px",
-    mediaFit: "cover",
-    peoplePolicy: "allow",
-    profile: "social-candid"
-  },
-  {
-    index: 4,
-    id: "imessage-chat",
-    label: "iMessage Group Chat",
-    icon: "\uD83D\uDCAC",
-    wrapper: "imessage_chat",
-    target: "custom.imessage-chat",
-    defaultAspect: "16:9",
-    supportedAspects: ["16:9"],
-    rootAttributes: ["title", "participants", "time", "status", "unread"],
-    requiredMediaCount: 1,
-    sampleXml: `<imessage_chat title="Weekend Survivors" participants="Character A, Character B, Character C, You" time="Today 7:14 PM" status="Delivered" unread="0">
-<im_messages>
-<im_msg from="Character A" side="left">Message.</im_msg>
-<im_msg from="You" side="right">Reply.</im_msg>
-<im_media>
-<image_request id="imessage-chat-001" target="custom.imessage-chat" slot="shared-image" aspect="16:9" alt="Shared iMessage photograph">
-<scene_brief>A wide shared photograph shown inside the chat. Preserve the full composition in a contained wide frame.</scene_brief>
-</image_request>
-</im_media>
-<im_msg from="Character C" side="left">Message after the image.<im_reaction>\uD83D\uDE02 4</im_reaction></im_msg>
-<im_system>Group name changed.</im_system>
-</im_messages>
-<details><summary>Group information</summary><im_group_info><im_member>Character A</im_member><im_member>Character B</im_member><im_member>Character C</im_member><im_member>You</im_member></im_group_info></details>
-</imessage_chat>`,
-    promptModule: `SURFACE: IMESSAGE GROUP CHAT
-Use <imessage_chat> with target="custom.imessage-chat". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 16:9, and visible scene briefs. Place readable interface text in the semantic child tags.
-
-CONTRACT EXAMPLE
-<imessage_chat title="Weekend Survivors" participants="Character A, Character B, Character C, You" time="Today 7:14 PM" status="Delivered" unread="0">
-<im_messages>
-<im_msg from="Character A" side="left">Message.</im_msg>
-<im_msg from="You" side="right">Reply.</im_msg>
-<im_media>
-<image_request id="imessage-chat-001" target="custom.imessage-chat" slot="shared-image" aspect="16:9" alt="Shared iMessage photograph">
-<scene_brief>A wide shared photograph shown inside the chat. Preserve the full composition in a contained wide frame.</scene_brief>
-</image_request>
-</im_media>
-<im_msg from="Character C" side="left">Message after the image.<im_reaction>\uD83D\uDE02 4</im_reaction></im_msg>
-<im_system>Group name changed.</im_system>
-</im_messages>
-<details><summary>Group information</summary><im_group_info><im_member>Character A</im_member><im_member>Character B</im_member><im_member>Character C</im_member><im_member>You</im_member></im_group_info></details>
-</imessage_chat>`,
-    category: "social-messaging",
-    shellMode: "collapsible",
-    maxWidth: "460px",
-    mediaFit: "contain",
-    peoplePolicy: "allow",
-    profile: "social-candid"
-  },
-  {
-    index: 5,
-    id: "workspace-chat",
-    label: "Workspace / Discord-Style Chat",
-    icon: "\uD83D\uDDE8️",
-    wrapper: "workspace_chat",
-    target: "custom.workspace-chat",
-    defaultAspect: "16:9",
-    supportedAspects: ["16:9"],
-    rootAttributes: ["workspace", "channel", "topic", "members", "time"],
-    requiredMediaCount: 1,
-    sampleXml: `<workspace_chat workspace="Expedition Team" channel="field-chat" topic="Coordination and live updates" members="5" time="11:36 PM">
-<ws_messages>
-<ws_msg user="Character A" time="11:32 PM">Message.</ws_msg>
-<ws_msg user="Character B" time="11:33 PM">Reply.</ws_msg>
-<ws_msg user="Character A" time="11:33 PM">Shared image:<ws_media>
-<image_request id="workspace-chat-001" target="custom.workspace-chat" slot="shared-media" aspect="16:9" alt="Workspace shared image">
-<scene_brief>A full uncropped shared image relevant to the channel conversation.</scene_brief>
-</image_request>
-</ws_media></ws_msg>
-<ws_msg user="Character C" time="11:35 PM">Voice upload.<ws_voice>▶ 00:31</ws_voice></ws_msg>
-</ws_messages>
-<details><summary>Members</summary><ws_members><ws_member>Character A</ws_member><ws_member>Character B</ws_member><ws_member>Character C</ws_member><ws_member>You</ws_member></ws_members></details>
-</workspace_chat>`,
-    promptModule: `SURFACE: WORKSPACE / DISCORD-STYLE CHAT
-Use <workspace_chat> with target="custom.workspace-chat". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 16:9, and visible scene briefs. Place readable interface text in the semantic child tags.
-
-CONTRACT EXAMPLE
-<workspace_chat workspace="Expedition Team" channel="field-chat" topic="Coordination and live updates" members="5" time="11:36 PM">
-<ws_messages>
-<ws_msg user="Character A" time="11:32 PM">Message.</ws_msg>
-<ws_msg user="Character B" time="11:33 PM">Reply.</ws_msg>
-<ws_msg user="Character A" time="11:33 PM">Shared image:<ws_media>
-<image_request id="workspace-chat-001" target="custom.workspace-chat" slot="shared-media" aspect="16:9" alt="Workspace shared image">
-<scene_brief>A full uncropped shared image relevant to the channel conversation.</scene_brief>
-</image_request>
-</ws_media></ws_msg>
-<ws_msg user="Character C" time="11:35 PM">Voice upload.<ws_voice>▶ 00:31</ws_voice></ws_msg>
-</ws_messages>
-<details><summary>Members</summary><ws_members><ws_member>Character A</ws_member><ws_member>Character B</ws_member><ws_member>Character C</ws_member><ws_member>You</ws_member></ws_members></details>
-</workspace_chat>`,
-    category: "social-messaging",
-    shellMode: "collapsible",
-    maxWidth: "760px",
-    mediaFit: "contain",
-    peoplePolicy: "allow",
-    profile: "social-candid"
-  },
-  {
-    index: 6,
-    id: "livestream",
-    label: "Twitch Livestream + Live Chat",
-    icon: "\uD83D\uDCE1",
-    wrapper: "livestream",
-    target: "custom.livestream",
-    defaultAspect: "16:9",
-    supportedAspects: ["16:9"],
-    rootAttributes: ["title", "channel", "viewers", "category", "status"],
-    requiredMediaCount: 1,
-    sampleXml: `<livestream title="Stream title" channel="Channel Name" viewers="18.4K" category="Urban Exploration" status="LIVE">
-<live_layout><live_main><live_media>
-<image_request id="livestream-001" target="custom.livestream" slot="video-frame" aspect="16:9" alt="Livestream frame">
-<scene_brief>A cinematic but believable 16:9 live video frame from the exact broadcast moment.</scene_brief>
-</image_request>
-</live_media></live_main>
-<live_chat>
-<live_msg user="viewer_one">Chat message.</live_msg>
-<live_donation>$20.00 from Supporter — Donation message.</live_donation>
-<live_poll>Poll question.<live_option>Option A · 68%</live_option><live_option>Option B · 32%</live_option></live_poll>
-</live_chat></live_layout>
-</livestream>`,
-    promptModule: `SURFACE: TWITCH LIVESTREAM + LIVE CHAT
-Use <livestream> with target="custom.livestream". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 16:9, and visible scene briefs. Place readable interface text in the semantic child tags.
-
-CONTRACT EXAMPLE
-<livestream title="Stream title" channel="Channel Name" viewers="18.4K" category="Urban Exploration" status="LIVE">
-<live_layout><live_main><live_media>
-<image_request id="livestream-001" target="custom.livestream" slot="video-frame" aspect="16:9" alt="Livestream frame">
-<scene_brief>A cinematic but believable 16:9 live video frame from the exact broadcast moment.</scene_brief>
-</image_request>
-</live_media></live_main>
-<live_chat>
-<live_msg user="viewer_one">Chat message.</live_msg>
-<live_donation>$20.00 from Supporter — Donation message.</live_donation>
-<live_poll>Poll question.<live_option>Option A · 68%</live_option><live_option>Option B · 32%</live_option></live_poll>
-</live_chat></live_layout>
-</livestream>`,
-    category: "social-messaging",
-    shellMode: "collapsible",
-    maxWidth: "920px",
-    mediaFit: "cover",
-    peoplePolicy: "allow",
-    profile: "social-candid"
-  },
-  {
-    index: 7,
-    id: "dating-profile",
-    label: "Tinder Dating Profile",
-    icon: "\uD83D\uDC98",
-    wrapper: "dating_profile",
-    target: "custom.dating-profile",
-    defaultAspect: "4:5",
-    supportedAspects: ["4:5"],
-    rootAttributes: ["name", "age", "distance", "occupation", "verified"],
-    requiredMediaCount: 1,
-    sampleXml: `<dating_profile name="Profile Subject" age="29" distance="4 km" occupation="Museum conservator" verified="yes">
-<dt_media>
-<image_request id="dating-profile-001" target="custom.dating-profile" slot="profile-photo" aspect="4:5" alt="Dating profile portrait">
-<scene_brief>A flattering but believable vertical dating profile photograph in a scene-specific setting.</scene_brief>
-</image_request>
-</dt_media>
-<dt_profile><dt_bio>Profile bio.</dt_bio><dt_tags><dt_tag>Books</dt_tag><dt_tag>Night walks</dt_tag></dt_tags><dt_prompt question="A perfect Sunday">Answer.</dt_prompt></dt_profile>
-</dating_profile>`,
-    promptModule: `SURFACE: TINDER DATING PROFILE
-Use <dating_profile> with target="custom.dating-profile". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 4:5, and visible scene briefs. Place readable interface text in the semantic child tags.
-
-CONTRACT EXAMPLE
-<dating_profile name="Profile Subject" age="29" distance="4 km" occupation="Museum conservator" verified="yes">
-<dt_media>
-<image_request id="dating-profile-001" target="custom.dating-profile" slot="profile-photo" aspect="4:5" alt="Dating profile portrait">
-<scene_brief>A flattering but believable vertical dating profile photograph in a scene-specific setting.</scene_brief>
-</image_request>
-</dt_media>
-<dt_profile><dt_bio>Profile bio.</dt_bio><dt_tags><dt_tag>Books</dt_tag><dt_tag>Night walks</dt_tag></dt_tags><dt_prompt question="A perfect Sunday">Answer.</dt_prompt></dt_profile>
-</dating_profile>`,
-    category: "social-messaging",
-    shellMode: "inline",
-    maxWidth: "460px",
-    mediaFit: "cover",
-    peoplePolicy: "allow",
-    profile: "character-portrait"
-  },
-  {
-    index: 8,
-    id: "public-bulletin",
-    label: "News Article / Public Bulletin",
-    icon: "\uD83D\uDDDE️",
-    wrapper: "public_bulletin",
-    target: "custom.public-bulletin",
-    defaultAspect: "16:9",
-    supportedAspects: ["16:9"],
-    rootAttributes: ["authority", "level", "headline", "timestamp", "district"],
-    requiredMediaCount: 1,
-    sampleXml: `<public_bulletin authority="Municipal Authority" level="Emergency Notice" headline="Headline" timestamp="22:10" district="Riverside District">
-<pb_media>
-<image_request id="public-bulletin-001" target="custom.public-bulletin" slot="bulletin-image" aspect="16:9" alt="Public bulletin image">
-<scene_brief>A wide documentary image of the exact public event or affected location. Compose the attachment as a visual-only image.</scene_brief>
-</image_request>
-</pb_media>
-<pb_body>Official bulletin copy.</pb_body><pb_instructions><pb_rule>Instruction one.</pb_rule><pb_rule>Instruction two.</pb_rule></pb_instructions>
-</public_bulletin>`,
-    promptModule: `SURFACE: NEWS ARTICLE / PUBLIC BULLETIN
-Use <public_bulletin> with target="custom.public-bulletin". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 16:9, and visible scene briefs. Place readable interface text in the semantic child tags.
-
-CONTRACT EXAMPLE
-<public_bulletin authority="Municipal Authority" level="Emergency Notice" headline="Headline" timestamp="22:10" district="Riverside District">
-<pb_media>
-<image_request id="public-bulletin-001" target="custom.public-bulletin" slot="bulletin-image" aspect="16:9" alt="Public bulletin image">
-<scene_brief>A wide documentary image of the exact public event or affected location. Compose the attachment as a visual-only image.</scene_brief>
-</image_request>
-</pb_media>
-<pb_body>Official bulletin copy.</pb_body><pb_instructions><pb_rule>Instruction one.</pb_rule><pb_rule>Instruction two.</pb_rule></pb_instructions>
-</public_bulletin>`,
-    category: "evidence-editorial",
-    shellMode: "collapsible",
-    maxWidth: "920px",
-    mediaFit: "cover",
-    peoplePolicy: "allow",
-    profile: "evidence-surveillance"
-  },
-  {
-    index: 9,
-    id: "case-file",
-    label: "Case File / Classified Dossier",
-    icon: "\uD83D\uDCC1",
-    wrapper: "case_file",
-    target: "custom.case-file",
-    defaultAspect: "3:4",
-    supportedAspects: ["3:4"],
-    rootAttributes: ["case", "subject", "status", "last_seen", "risk", "agent"],
-    requiredMediaCount: 1,
-    sampleXml: `<case_file case="04-17" subject="Subject A" status="Missing" last_seen="Platform Four" risk="Elevated" agent="REDACTED">
-<cf_tab>SUBJECT</cf_tab><cf_tab>EVIDENCE</cf_tab><cf_tab>TIMELINE</cf_tab>
-<cf_sheet><cf_media>
-<image_request id="case-file-001" target="custom.case-file" slot="subject-photo" aspect="3:4" alt="Case file photograph">
-<scene_brief>A contained vertical subject photograph or evidence photograph suitable for a dossier.</scene_brief>
-</image_request>
-</cf_media><cf_facts><cf_fact label="STATUS" value="MISSING"></cf_fact><cf_fact label="LAST SEEN" value="PLATFORM FOUR"></cf_fact><cf_fact label="RISK LEVEL" value="ELEVATED"></cf_fact></cf_facts></cf_sheet>
-<details><summary>Case notes</summary><cf_notes>Investigation notes.</cf_notes></details>
-</case_file>`,
-    promptModule: `SURFACE: CASE FILE / CLASSIFIED DOSSIER
-Use <case_file> with target="custom.case-file". Include 1 complete image request in authored order, using unique ids, meaningful slots, accessible alt text, aspect 3:4, and visible scene briefs. Place readable interface text in the semantic child tags.
-
-CONTRACT EXAMPLE
-<case_file case="04-17" subject="Subject A" status="Missing" last_seen="Platform Four" risk="Elevated" agent="REDACTED">
-<cf_tab>SUBJECT</cf_tab><cf_tab>EVIDENCE</cf_tab><cf_tab>TIMELINE</cf_tab>
-<cf_sheet><cf_media>
-<image_request id="case-file-001" target="custom.case-file" slot="subject-photo" aspect="3:4" alt="Case file photograph">
-<scene_brief>A contained vertical subject photograph or evidence photograph suitable for a dossier.</scene_brief>
-</image_request>
-</cf_media><cf_facts><cf_fact label="STATUS" value="MISSING"></cf_fact><cf_fact label="LAST SEEN" value="PLATFORM FOUR"></cf_fact><cf_fact label="RISK LEVEL" value="ELEVATED"></cf_fact></cf_facts></cf_sheet>
-<details><summary>Case notes</summary><cf_notes>Investigation notes.</cf_notes></details>
-</case_file>`,
-    category: "evidence-editorial",
-    shellMode: "collapsible",
-    maxWidth: "760px",
-    mediaFit: "contain",
-    peoplePolicy: "allow",
-    profile: "evidence-surveillance"
-  },
-  {
-    index: 10,
-    id: "relationship-map",
-    label: "Relationship Map",
-    icon: "\uD83D\uDD78️",
-    wrapper: "relationship_map",
-    target: "custom.artifact-media",
-    defaultAspect: "1:1",
-    supportedAspects: ["1:1"],
-    rootAttributes: ["id"],
-    requiredMediaCount: 3,
-    maximumMediaCount: 5,
-    sampleXml: `<relationship_map id="relationship-map-01">
-<title>Pressure Lines</title>
-<subtitle>Current relationship landscape from the focal character’s viewpoint</subtitle>
-<character_one><portrait><image_request id="relationship-map-01-focal" target="custom.artifact-media" slot="relationship-map-01-focal" aspect="1:1" alt="Portrait of Focal Character"><scene_brief>Polished square relationship-board portrait using only visible established appearance, current clothing, expression, age vibe, scene lighting, and no readable text.</scene_brief></image_request></portrait><name>Focal Character</name><role>Center of the conflict</role><status>Focal</status><summary>The current focal viewpoint and the person carrying the map’s central pressure.</summary><relationship>Self</relationship><strength>95</strength><pressure>Must decide whom to trust.</pressure></character_one>
-<character_two><portrait><image_request id="relationship-map-01-ally" target="custom.artifact-media" slot="relationship-map-01-ally" aspect="1:1" alt="Portrait of Trusted Ally"><scene_brief>Polished square relationship-board portrait using only visible established appearance, current clothing, expression, age vibe, scene lighting, and no readable text.</scene_brief></image_request></portrait><name>Trusted Ally</name><role>Closest bond</role><status>Trusted</status><summary>The strongest currently established ally.</summary><relationship>Protective trust</relationship><strength>90</strength><pressure>Trust is being tested.</pressure></character_two>
-<character_three><portrait><image_request id="relationship-map-01-observer" target="custom.artifact-media" slot="relationship-map-01-observer" aspect="1:1" alt="Portrait of Suspicious Observer"><scene_brief>Polished square relationship-board portrait using only visible established appearance, current clothing, expression, age vibe, scene lighting, and no readable text.</scene_brief></image_request></portrait><name>Suspicious Observer</name><role>Rival or watcher</role><status>Strained</status><summary>A figure whose motives remain difficult to read.</summary><relationship>Mutual scrutiny</relationship><strength>62</strength><pressure>May know more than they admit.</pressure></character_three>
-<connections><one_two>trusted bond</one_two><one_three>mutual suspicion</one_three></connections>
-<insight>The trusted bond is strongest, but uncertainty around the observer keeps the focal character exposed.</insight>
-</relationship_map>`,
-    promptModule: `<relationship_map_utility>
-[RELATIONSHIP MAP — REVERIE RELAY UTILITY]
-
-Use this surface when the social web around a focal character becomes narratively important and the reader would benefit from seeing the current relationship landscape at a glance.
-
-This is not a document, chat, or app surface. It is a dramatic character network board for bonds, suspicions, threats, alliances, and pressure points.
-
-Use it for:
-- escalating social tension
-- secret-identity pressure
-- rivalries and alliances
-- faction dynamics
-- cast-orientation moments
-- “who matters right now?” recaps
-
-Do not use it for:
-- casual background casts
-- fewer than three meaningful relationships
-- moments where the map adds no clarity
-- information unavailable to the focal viewpoint
-
-VIEWPOINT RULES
-
-Everything shown must reflect only what the focal viewpoint currently knows, suspects, or can reasonably infer.
-Do not reveal hidden truths as established facts unless the focal viewpoint already knows them.
-An obscured connection may express uncertainty or suspicion, but it must not spoil unavailable truth.
-
-STRUCTURE RULES — FLEXIBLE 3 TO 5 NODES
-
-Use at least three and no more than five character nodes.
-Never invent filler characters merely to reach five.
-
-Required:
-- character_one = focal character
-- character_two = closest trusted bond or strongest ally
-- character_three = rival, observer, suspicious figure, or second major relationship
-
-Optional:
-- character_four = danger, destabilizer, likely threat, or additional major pressure
-- character_five = protector, anchor, family figure, or emotionally important stabilizer
-
-Omit character_four and character_five entirely when they are not meaningful. Do not output empty character blocks.
-
-IMAGE RULES
-
-Every included character block must contain exactly one complete Reverie Relay <image_request> inside <portrait>.
-A three-node map therefore contains exactly three portrait requests; a four-node map contains four; a five-node map contains five.
-
-For every portrait:
-- use target="custom.artifact-media"
-- use aspect="1:1"
-- give the request a unique id
-- give it a matching unique slot
-- describe only visible or established appearance
-- describe expression, clothing, age vibe, framing, lighting, and visual tone
-- request a polished character portrait suitable for a relationship board
-- do not request text, labels, or typography inside the image
-
-Do not use another illustration lane for this surface.
-
-FIELD RULES
-
-<title> Short dramatic title.
-<subtitle> Short orientation line naming the focal viewpoint or scope.
-
-For every included character block:
-<name> Character name
-<role> Short scene-relevant role label
-<status> Short tag such as Focal, Trusted, Strained, Danger, Protector, Unknown
-<summary> One or two sentences describing the current read on this person
-<relationship> Primary relationship to the focal character
-<strength> Numeric value from 0 to 100
-<pressure> One current tension, vulnerability, or pressure point
-
-CONNECTION RULES
-
-Always include:
-<one_two> focal ↔ character_two
-<one_three> focal ↔ character_three
-
-Include only when the related optional character exists:
-<one_four> focal ↔ character_four
-<one_five> focal ↔ character_five
-<three_four> obscured or secondary connection between character_three and character_four
-
-Omit optional connection fields entirely when their character node is absent. Do not output empty connection fields.
-
-<insight> One short dramatic summary of the overall pressure point.
-
-OUTPUT FORMAT — EXACT
-
-Output raw XML only. No markdown fence, HTML explanation, or prose label.
-
-Minimum three-node form:
-
-<relationship_map id="unique-map-id">
-<title>Map title</title>
-<subtitle>Current scope or focal viewpoint</subtitle>
-
-<character_one>
-<portrait>
-<image_request id="unique-id-1" target="custom.artifact-media" slot="unique-id-1" aspect="1:1" alt="Portrait of Character name">
-<scene_brief>Polished square relationship-board portrait using only visible or established appearance, current clothing, expression, age vibe, framing, lighting, and visual tone. No readable text.</scene_brief>
-</image_request>
-</portrait>
-<name>Character name</name>
-<role>Short role</role>
-<status>Focal</status>
-<summary>Current understanding of this person.</summary>
-<relationship>Self or central position in the current web.</relationship>
-<strength>95</strength>
-<pressure>Current tension or vulnerability.</pressure>
-</character_one>
-
-<character_two>
-<portrait>
-<image_request id="unique-id-2" target="custom.artifact-media" slot="unique-id-2" aspect="1:1" alt="Portrait of Character name">
-<scene_brief>Polished square relationship-board portrait using only visible or established appearance, current clothing, expression, age vibe, framing, lighting, and visual tone. No readable text.</scene_brief>
-</image_request>
-</portrait>
-<name>Character name</name>
-<role>Short role</role>
-<status>Trusted</status>
-<summary>Current understanding of this person.</summary>
-<relationship>Primary relationship to the focal character.</relationship>
-<strength>90</strength>
-<pressure>Current tension or vulnerability.</pressure>
-</character_two>
-
-<character_three>
-<portrait>
-<image_request id="unique-id-3" target="custom.artifact-media" slot="unique-id-3" aspect="1:1" alt="Portrait of Character name">
-<scene_brief>Polished square relationship-board portrait using only visible or established appearance, current clothing, expression, age vibe, framing, lighting, and visual tone. No readable text.</scene_brief>
-</image_request>
-</portrait>
-<name>Character name</name>
-<role>Short role</role>
-<status>Strained</status>
-<summary>Current understanding of this person.</summary>
-<relationship>Primary relationship to the focal character.</relationship>
-<strength>62</strength>
-<pressure>Current tension or vulnerability.</pressure>
-</character_three>
-
-<connections>
-<one_two>Short visible connection label</one_two>
-<one_three>Short visible connection label</one_three>
-</connections>
-
-<insight>One short dramatic summary of the current pressure point.</insight>
-</relationship_map>
-
-OPTIONAL CHARACTER FOUR BLOCK
-Insert this complete block after character_three only when a fourth node is meaningful:
-
-<character_four>
-<portrait>
-<image_request id="unique-id-4" target="custom.artifact-media" slot="unique-id-4" aspect="1:1" alt="Portrait of Character name">
-<scene_brief>Polished square relationship-board portrait using only visible or established appearance, current clothing, expression, age vibe, framing, lighting, and visual tone. No readable text.</scene_brief>
-</image_request>
-</portrait>
-<name>Character name</name>
-<role>Short role</role>
-<status>Danger</status>
-<summary>Current understanding of this person.</summary>
-<relationship>Primary relationship to the focal character.</relationship>
-<strength>78</strength>
-<pressure>Current tension or vulnerability.</pressure>
-</character_four>
-
-When character_four exists, add <one_four> inside <connections>. Add <three_four> only when an obscured or secondary connection is currently inferable.
-
-OPTIONAL CHARACTER FIVE BLOCK
-Insert this complete block after character_four, or after character_three when character_four is absent, only when a fifth node is meaningful:
-
-<character_five>
-<portrait>
-<image_request id="unique-id-5" target="custom.artifact-media" slot="unique-id-5" aspect="1:1" alt="Portrait of Character name">
-<scene_brief>Polished square relationship-board portrait using only visible or established appearance, current clothing, expression, age vibe, framing, lighting, and visual tone. No readable text.</scene_brief>
-</image_request>
-</portrait>
-<name>Character name</name>
-<role>Short role</role>
-<status>Protector</status>
-<summary>Current understanding of this person.</summary>
-<relationship>Primary relationship to the focal character.</relationship>
-<strength>88</strength>
-<pressure>Current tension or vulnerability.</pressure>
-</character_five>
-
-When character_five exists, add <one_five> inside <connections>.
-</relationship_map_utility>
-`,
-    category: "narrative-visuals",
-    shellMode: "inline",
-    maxWidth: "920px",
-    mediaFit: "cover",
-    peoplePolicy: "require",
-    profile: "character-portrait"
-  },
-  {
-    index: 11,
-    id: "instagram-dm",
-    label: "Instagram Direct Messages",
-    icon: "◎",
-    wrapper: "instagram_dm",
-    target: "custom.instagram-dm",
-    defaultAspect: "4:5",
-    supportedAspects: ["1:1", "4:5"],
-    rootAttributes: ["name", "handle", "time"],
-    requiredMediaCount: 0,
-    maximumMediaCount: 1,
-    sampleXml: '<instagram_dm name="Display Name" handle="@username" time="21:14"><dm_msg side="left" user="@friend" time="21:13">Incoming message</dm_msg><dm_msg side="right" user="@username" time="21:14">Outgoing message</dm_msg></instagram_dm>',
-    promptModule: `SURFACE: INSTAGRAM DIRECT MESSAGES
-Use the accepted Regex contract exactly. Required root attributes are name, handle, and time. Use dm_msg children with side, user, and time attributes. Optional media uses dm_media containing one image_request target="custom.instagram-dm" with a unique id and slot.
-
-<instagram_dm name="Display Name" handle="@username" time="21:14"><dm_msg side="left" user="@friend" time="21:13">Incoming message</dm_msg><dm_msg side="right" user="@username" time="21:14">Outgoing message</dm_msg></instagram_dm>`,
-    category: "social-messaging",
-    shellMode: "inline",
-    maxWidth: "410px",
-    mediaFit: "contain",
-    peoplePolicy: "forbid",
-    profile: "auto"
-  },
-  {
-    index: 12,
-    id: "x-dm",
-    label: "X Direct Messages",
-    icon: "\uD835\uDD4F",
-    wrapper: "x_dm",
-    target: "custom.x-dm",
-    defaultAspect: "4:5",
-    supportedAspects: ["1:1", "4:5"],
-    rootAttributes: ["name", "handle", "time"],
-    requiredMediaCount: 0,
-    maximumMediaCount: 1,
-    sampleXml: '<x_dm name="Display Name" handle="@username" time="21:14"><dm_msg side="left" user="@friend" time="21:13">Incoming DM</dm_msg><dm_msg side="right" user="@username" time="21:14">Outgoing DM</dm_msg></x_dm>',
-    promptModule: `SURFACE: X DIRECT MESSAGES
-Use the accepted Regex contract exactly. Required root attributes are name, handle, and time. The wrapper may be x_dm; use dm_msg children with side, user, and time attributes. Optional media uses dm_media containing one image_request target="custom.x-dm" with a unique id and slot.
-
-<x_dm name="Display Name" handle="@username" time="21:14"><dm_msg side="left" user="@friend" time="21:13">Incoming DM</dm_msg><dm_msg side="right" user="@username" time="21:14">Outgoing DM</dm_msg></x_dm>`,
-    category: "social-messaging",
-    shellMode: "inline",
-    maxWidth: "410px",
-    mediaFit: "contain",
-    peoplePolicy: "forbid",
-    profile: "auto"
-  },
-  {
-    index: 13,
-    id: "discord-dm",
-    label: "Discord Direct Messages",
-    icon: "◉",
-    wrapper: "discord_dm",
-    target: "custom.discord-dm",
-    defaultAspect: "4:5",
-    supportedAspects: ["1:1", "4:5"],
-    rootAttributes: ["name", "status", "time"],
-    requiredMediaCount: 0,
-    maximumMediaCount: 1,
-    sampleXml: '<discord_dm name="Display Name" status="Online" time="21:14"><discord_msg user="friend" time="21:13">Incoming message</discord_msg><discord_msg user="you" time="21:14">Outgoing message</discord_msg></discord_dm>',
-    promptModule: `SURFACE: DISCORD DIRECT MESSAGES
-Use the accepted Regex contract exactly. Required root attributes are name, status, and time. Use discord_msg children with user and time attributes. Optional media uses dm_media containing one image_request target="custom.discord-dm" with a unique id and slot.
-
-<discord_dm name="Display Name" status="Online" time="21:14"><discord_msg user="friend" time="21:13">Incoming message</discord_msg><discord_msg user="you" time="21:14">Outgoing message</discord_msg></discord_dm>`,
-    category: "social-messaging",
-    shellMode: "inline",
-    maxWidth: "410px",
-    mediaFit: "contain",
-    peoplePolicy: "forbid",
-    profile: "auto"
-  },
-  {
-    index: 14,
-    id: "discord-server",
-    label: "Discord Server",
-    icon: "#",
-    wrapper: "discord_server",
-    target: "custom.artifact-media",
-    defaultAspect: "1:1",
-    supportedAspects: ["1:1", "4:3", "16:9"],
-    rootAttributes: ["server", "topic"],
-    requiredMediaCount: 0,
-    maximumMediaCount: 12,
-    sampleXml: '<discord_server server="Server Name" topic="Late-night chat" members="1,284" online="318"><server_channel slot="1" name="general" description="General chat"><server_avatar_msg user="Guide" time="21:13"><avatar><image_request id="discord-avatar-guide" target="custom.artifact-media" slot="discord-avatar-guide" aspect="1:1" alt="Avatar of Guide"><scene_brief>Centered reusable portrait avatar of Guide.</scene_brief></image_request></avatar><text>First message.</text></server_avatar_msg></server_channel><server_channel slot="2" name="updates" description="Project updates"><server_avatar_msg user="Guide" time="21:14"><avatar><image_request id="discord-avatar-guide" target="custom.artifact-media" slot="discord-avatar-guide" aspect="1:1" alt="Avatar of Guide"><scene_brief>Centered reusable portrait avatar of Guide.</scene_brief></image_request></avatar><text>Second message.</text></server_avatar_msg></server_channel><server_channel slot="3" name="archive" description="Older messages"><server_msg user="Visitor" time="21:15">Historical initials-only message.</server_msg></server_channel></discord_server>',
-    promptModule: `SURFACE: DISCORD SERVER CHAT
-Use the accepted Regex contract exactly. Required root attributes are server, channel, and topic. Optional channels contains server_channel children. Required messages contains server_msg children with user and time attributes. Optional media uses server_media containing one image_request target="custom.discord-server" with a unique id and slot.
-
-<discord_server server="Server Name" channel="midnight-lounge" topic="Late-night chat"><channels><server_channel>#general</server_channel><server_channel>#midnight-lounge</server_channel></channels><messages><server_msg user="User One" time="21:13">First message</server_msg><server_msg user="User Two" time="21:14">Reply</server_msg></messages></discord_server>`,
-    category: "social-messaging",
-    shellMode: "collapsible",
-    maxWidth: "700px",
-    mediaFit: "contain",
-    peoplePolicy: "forbid",
-    profile: "auto"
-  },
-  {
-    index: 15,
-    id: "google-images",
-    label: "Google Image Search",
-    icon: "G",
-    wrapper: "google_image_search",
-    target: "custom.artifact-media",
-    defaultAspect: "4:3",
-    supportedAspects: ["4:3"],
-    rootAttributes: ["query"],
-    requiredMediaCount: 1,
-    maximumMediaCount: 6,
-    sampleXml: '<google_image_search query="search phrase"><gis_result slot="1" title="First result" source="Example source"><image_request id="google-result-1" target="custom.artifact-media" slot="google-result-1" aspect="4:3" alt="First image result"><scene_brief>Plausible visual result for this exact search query.</scene_brief></image_request></gis_result></google_image_search>',
-    promptModule: `SURFACE: GOOGLE IMAGE SEARCH RESULTS
-Use the accepted Regex contract exactly. The canonical wrapper is google_image_search, never an abbreviated substitute. Required root attributes are query and results. Use one gallery_item per visible result. Each gallery_item contains one image_request target="custom.google-images" with a unique id and slot, followed by a concise caption.
-
-<google_image_search query="search phrase" results="1"><gallery_item><image_request id="google-result-1" target="custom.google-images" slot="google-result-1" aspect="4:3" alt="Image result"><scene_brief>Complete visual result prompt.</scene_brief></image_request><caption>Result caption</caption></gallery_item></google_image_search>`,
-    category: "evidence-editorial",
-    shellMode: "collapsible",
-    maxWidth: "920px",
-    mediaFit: "cover",
-    peoplePolicy: "forbid",
-    profile: "auto"
-  },
-  {
-    index: 16,
-    id: "phone-gallery",
-    label: "Phone Gallery",
-    icon: "▦",
-    wrapper: "phone_gallery",
-    target: "custom.phone-gallery",
-    defaultAspect: "1:1",
-    supportedAspects: ["1:1"],
-    rootAttributes: ["album", "time"],
-    requiredMediaCount: 1,
-    maximumMediaCount: 6,
-    sampleXml: '<phone_gallery album="Recents" time="21:14"><gallery_item slot="1" title="First photo" time="21:12" location="Park" size="2 MB"><image_request id="gallery-photo-1" target="custom.artifact-media" slot="gallery-photo-1" aspect="1:1" alt="First gallery photo"><scene_brief>Distinct square-safe saved phone photo; focal subject inside the central 70%.</scene_brief></image_request></gallery_item></phone_gallery>',
-    promptModule: `SURFACE: PHONE PHOTO GALLERY
-Use <phone_gallery album="…" time="…"> with one <gallery_item slot="…" title="…" time="…" location="…" size="…"> per saved photo. Each item contains one unique image_request target="custom.artifact-media" using aspect="1:1". Describe each saved moment independently and keep its focal subject inside the central 70%. Grid thumbnails may fill their cells; the enlarged state preserves the full image. Never use photo id/caption or reuse one request between unrelated items.
-
-<phone_gallery album="Recents" time="21:14"><gallery_item slot="1" title="Photo" time="21:12" location="Park" size="2 MB"><image_request id="gallery-photo-1" target="custom.artifact-media" slot="gallery-photo-1" aspect="1:1" alt="Gallery photo"><scene_brief>Distinct square-safe saved phone photo; focal subject inside the central 70%.</scene_brief></image_request></gallery_item></phone_gallery>`,
-    category: "photography-keepsakes",
-    shellMode: "inline",
-    maxWidth: "460px",
-    mediaFit: "cover",
-    peoplePolicy: "forbid",
-    profile: "auto"
-  },
-  {
-    index: 17,
-    id: "tiktok-post",
-    label: "TikTok Post",
-    icon: "♪",
-    wrapper: "tiktok_post",
-    target: "custom.tiktok-post",
-    defaultAspect: "9:16",
-    supportedAspects: ["9:16"],
-    rootAttributes: ["user", "likes", "comments", "sound"],
-    requiredMediaCount: 1,
-    maximumMediaCount: 1,
-    sampleXml: '<tiktok_post user="@creator" likes="12.4K" comments="384" sound="Original sound"><tt_media><image_request id="tiktok-media-1" target="custom.tiktok-post" slot="tiktok-media-1" aspect="9:16" alt="TikTok video frame"><scene_brief>Vertical TikTok video frame.</scene_brief></image_request></tt_media><tt_caption>Short caption</tt_caption><tt_comments><tt_comment user="@viewer" time="2m">First comment</tt_comment></tt_comments></tiktok_post>',
-    promptModule: `SURFACE: TIKTOK POST AND COMMENT DRAWER
-Use the accepted Regex contract exactly. Required root attributes are user, likes, comments, and sound. Required order: tt_media, tt_caption, optional tt_comments. tt_media contains one image_request target="custom.tiktok-post" with a unique id and slot and aspect="9:16". Use tt_comment children with user and time attributes.
-
-<tiktok_post user="@creator" likes="12.4K" comments="384" sound="Original sound"><tt_media><image_request id="tiktok-media-1" target="custom.tiktok-post" slot="tiktok-media-1" aspect="9:16" alt="TikTok video frame"><scene_brief>Complete vertical video-frame prompt.</scene_brief></image_request></tt_media><tt_caption>Short caption</tt_caption><tt_comments><tt_comment user="@viewer" time="2m">Comment</tt_comment></tt_comments></tiktok_post>`,
-    category: "social-messaging",
-    shellMode: "inline",
-    maxWidth: "460px",
-    mediaFit: "cover",
-    peoplePolicy: "forbid",
-    profile: "auto"
-  },
-  {
-    index: 18,
-    id: "naver-article",
-    label: "Naver-Style News Article",
-    icon: "N",
-    wrapper: "naver_news",
-    target: "custom.naver-article",
-    defaultAspect: "16:9",
-    supportedAspects: ["16:9", "4:3"],
-    rootAttributes: ["category", "headline", "source", "byline", "timestamp", "comments"],
-    requiredMediaCount: 0,
-    maximumMediaCount: 1,
-    sampleXml: '<naver_news category="Entertainment" headline="Article headline" source="News Desk" byline="Staff Reporter" timestamp="2026.08.09 14:22" comments="128"><nv_media><image_request id="naver-media-1" target="custom.naver-article" slot="naver-media-1" aspect="16:9" alt="Article photograph"><scene_brief>Publication-ready article photograph.</scene_brief></image_request></nv_media><nv_body>First paragraph. Second paragraph.</nv_body><nv_comments><nv_comment user="reader" time="2m">Reader comment.</nv_comment></nv_comments></naver_news>',
-    promptModule: `SURFACE: NAVER-STYLE NEWS ARTICLE
-Use the accepted Regex contract exactly. The canonical wrapper is naver_news, never an article substitute. Required root attributes are category, headline, source, byline, timestamp, and comments. Use optional nv_media containing one image_request target="custom.naver-article" with a unique id and slot, nv_body for article copy, and optional nv_comments containing nv_comment children with user and time attributes.
-
-<naver_news category="Entertainment" headline="Article headline" source="News Desk" byline="Staff Reporter" timestamp="2026.08.09 14:22" comments="128"><nv_media><image_request id="naver-media-1" target="custom.naver-article" slot="naver-media-1" aspect="16:9" alt="Article photograph"><scene_brief>Complete article photograph prompt.</scene_brief></image_request></nv_media><nv_body>Article body.</nv_body><nv_comments><nv_comment user="reader" time="2m">Comment.</nv_comment></nv_comments></naver_news>`,
-    category: "evidence-editorial",
-    shellMode: "collapsible",
-    maxWidth: "920px",
-    mediaFit: "contain",
-    peoplePolicy: "forbid",
-    profile: "auto"
-  }
-];
-var UNIFIED_SHIPPED_SURFACE_SPECS = LEGACY_SHIPPED_SURFACE_SPECS.map((spec) => {
-  const canonical = CANONICAL_REVIEWED_SURFACE_BY_ID.get(spec.id);
-  if (!canonical)
-    return spec;
-  const target = canonical.imageTargets[0] || spec.target;
-  const rootAttributes = [...new Set((canonical.sampleXml.match(/<[^\s>/]+\s+([^>]+)>/)?.[1].match(/\b([\w-]+)=/g) || []).map((value) => value.slice(0, -1)))];
-  return { ...spec, wrapper: canonical.wrapper, target, rootAttributes, sampleXml: canonical.sampleXml, promptModule: canonical.utilityPrompt };
-});
-var REVIEWED_ONLY_SURFACE_SPECS = ["newspaper", "inline-chat"].map((surfaceId, offset) => {
-  const canonical = CANONICAL_REVIEWED_SURFACE_BY_ID.get(surfaceId);
-  return {
-    index: 100 + offset,
-    id: canonical.surfaceId,
-    label: surfaceId === "newspaper" ? "Newspaper" : "Inline Chat",
-    icon: surfaceId === "newspaper" ? "\uD83D\uDDDE️" : "\uD83D\uDCAC",
-    wrapper: canonical.wrapper,
-    target: canonical.imageTargets[0] || "custom.artifact-media",
-    defaultAspect: "16:9",
-    supportedAspects: ["16:9", "4:3"],
-    rootAttributes: [],
-    requiredMediaCount: 0,
-    maximumMediaCount: 1,
-    sampleXml: canonical.sampleXml,
-    promptModule: canonical.utilityPrompt,
-    category: "social-messaging",
-    shellMode: "collapsible",
-    maxWidth: "920px",
-    mediaFit: "contain",
-    peoplePolicy: "allow",
-    profile: "auto"
-  };
-});
-var RESTORED_EVIDENCE_PHOTO_SPEC = {
-  index: 102,
-  id: "evidence-photo",
-  label: "Evidence Photo",
-  icon: "\uD83D\uDCF7",
-  wrapper: "evidence_photo",
-  target: "custom.evidence-photo",
-  defaultAspect: "4:3",
-  supportedAspects: ["4:3", "3:4"],
-  rootAttributes: [],
-  requiredMediaCount: 1,
-  maximumMediaCount: 1,
-  sampleXml: '<evidence_photo><image_request id="evidence-photo-001" target="custom.evidence-photo" slot="evidence-image" aspect="4:3" alt="Documentary evidence photograph"><scene_brief>Complete documentary evidence photograph with the exact visible subject matter.</scene_brief></image_request></evidence_photo>',
-  promptModule: `SURFACE: EVIDENCE PHOTO
-Use exactly one balanced <evidence_photo> wrapper containing one image_request with target="custom.evidence-photo", a unique id, slot="evidence-image", aspect="4:3", accessible alt text, and a complete documentary scene_brief. Preserve the exact visible subject matter; do not invent forensic labels or readable evidence text inside the generated image.
-
-<evidence_photo><image_request id="evidence-photo-UNIQUE-ID" target="custom.evidence-photo" slot="evidence-image" aspect="4:3" alt="Accessible evidence-photo description"><scene_brief>Complete documentary evidence photograph with the exact visible subject matter.</scene_brief></image_request></evidence_photo>`,
-  category: "evidence-editorial",
-  shellMode: "collapsible",
-  maxWidth: "760px",
-  mediaFit: "contain",
-  peoplePolicy: "allow",
-  profile: "evidence-surveillance"
-};
-function derivedNormalization(spec) {
-  const rootAliases = [...new Set([spec.wrapper.replace(/_/g, "-"), spec.wrapper.replace(/_/g, "")].filter((alias) => alias && alias !== spec.wrapper))];
-  const rootAttributeSource = new RegExp(`^\\s*<${spec.wrapper}\\b([^>]*)>`, "i").exec(spec.sampleXml)?.[1] || "";
-  const sampleRootAttributes = [...rootAttributeSource.matchAll(/([A-Za-z_:][A-Za-z0-9_.:-]*)\s*=/g)].map((match) => match[1]);
-  const canonicalRootAttributes = [...new Set([...spec.rootAttributes, ...sampleRootAttributes])];
-  const body = spec.sampleXml.replace(new RegExp(`^\\s*<${spec.wrapper}\\b[^>]*>|</${spec.wrapper}>\\s*$`, "gi"), "");
-  const directChildren = [];
-  let depth = 0;
-  for (const token of body.match(/<\/?[A-Za-z][^>]*>/g) || []) {
-    const close = /^<\//.test(token);
-    const tag = /^<\/?\s*([A-Za-z][\w:-]*)/.exec(token)?.[1]?.toLowerCase();
-    if (!tag)
-      continue;
-    const voidElement = /\/$/.test(token) || ["img", "br", "hr", "input", "meta", "link"].includes(tag);
-    if (close) {
-      depth = Math.max(0, depth - 1);
-      continue;
-    }
-    if (depth === 0 && !directChildren.includes(tag))
-      directChildren.push(tag);
-    if (!voidElement)
-      depth += 1;
-  }
-  const attributeAliases = Object.fromEntries(canonicalRootAttributes.flatMap((attribute) => [
-    [attribute.replace(/_/g, "-"), attribute],
-    [attribute.replace(/_/g, ""), attribute]
-  ]).filter(([alias, canonical]) => alias !== canonical));
-  const childAliases = Object.fromEntries(directChildren.flatMap((child) => [
-    [child.replace(/_/g, "-"), child],
-    [child.replace(/_/g, ""), child]
-  ]).filter(([alias, canonical]) => alias !== canonical));
-  const uniqueParents = {};
-  if (spec.id === "case-file")
-    uniqueParents.image_request = "cf_media";
-  if (spec.id === "relationship-map")
-    uniqueParents.image_request = "portrait";
-  return {
-    rootAliases,
-    attributeAliases,
-    allowedChildren: directChildren,
-    canonicalChildOrder: directChildren,
-    childAliases,
-    uniqueParents,
-    optionalMeta: sampleRootAttributes.filter((key) => !["id", "slot", "target", "aspect", "members", "online"].includes(key))
-  };
-}
-var R45_SAMPLE_OVERRIDES = {
-  "forum-thread": '<forum_thread community="r/fieldnotes" user="archive_user" time="3 hours ago" score="4.8K" title="What did the station camera capture?"><fm_body>The north platform was empty when the signal changed.</fm_body><fm_media><image_request id="forum-media-1" target="custom.artifact-media" slot="forum-media-1" aspect="16:9" alt="Station camera attachment"><scene_brief>Wide documentary photograph of an empty station platform at night, full platform visible, no interface or readable text.</scene_brief></image_request></fm_media><fm_comments><fm_comment user="reader_one">The service light is on.</fm_comment><fm_comment user="reader_two">Check the far gate.</fm_comment></fm_comments></forum_thread>',
-  "imessage-chat": '<imessage_chat title="Weekend Group" participants="Character A, Character B, You" time="Today 7:14 PM" status="Delivered" unread="0"><im_messages><im_msg from="Character A" side="left">Are you there?</im_msg><im_msg from="You" side="right">Almost.</im_msg><im_media><image_request id="imessage-media-1" target="custom.artifact-media" slot="imessage-media-1" aspect="4:3" alt="Shared iMessage photograph"><scene_brief>Landscape phone photograph of the station entrance at dusk, entrance and surroundings fully visible, no phone UI or readable text.</scene_brief></image_request></im_media><im_msg from="Character B" side="left">I recognize that entrance.</im_msg></im_messages></imessage_chat>',
-  "workspace-chat": '<workspace_chat workspace="Field Team" members="5" time="11:36 PM" active="1"><ws_channels><ws_channel slot="1" name="field-chat" description="Live coordination"><ws_messages><ws_msg user="Character A" time="11:32 PM">Check the north gate.</ws_msg><ws_msg user="Character B" time="11:33 PM">Uploading the photograph.<ws_media><image_request id="workspace-media-1" target="custom.artifact-media" slot="workspace-media-1" aspect="4:3" alt="Workspace shared photograph"><scene_brief>Documentary photograph of the north gate being discussed, entire gate visible, no workspace UI or readable text.</scene_brief></image_request></ws_media></ws_msg></ws_messages></ws_channel><ws_channel slot="2" name="evidence" description="Reviewed evidence"><ws_messages><ws_msg user="Character C" time="11:34 PM">File received.</ws_msg></ws_messages></ws_channel><ws_channel slot="3" name="planning" description="Next actions"><ws_messages><ws_msg user="Character A" time="11:35 PM">Meet at dawn.</ws_msg></ws_messages></ws_channel><ws_channel slot="4" name="archive" description="Older updates"><ws_messages><ws_msg user="Character B" time="11:36 PM">Archived.</ws_msg></ws_messages></ws_channel></ws_channels></workspace_chat>',
-  "dating-profile": '<tinder><user><name>You</name><avatar><image_request id="tinder-user-avatar" target="custom.artifact-media" slot="tinder-user-avatar" aspect="1:1" alt="Local dating avatar"><scene_brief>Centered reusable dating-app avatar of the local participant, face and shoulders visible with generous headroom, no app UI or text.</scene_brief></image_request></avatar></user><profiles><profile slot="1" prev="3" next="2"><name>Profile A</name><age>27</age><subtitle>2 km away</subtitle><role>Designer</role><tags>coffee · museums · late walks</tags><bio>Short profile bio.</bio><photo><image_request id="tinder-profile-1" target="custom.artifact-media" slot="tinder-profile-1" aspect="3:4" alt="Dating profile portrait"><scene_brief>Centered face and upper torso dating portrait of Profile A, full hair visible, generous headroom, subject centered inside portrait-safe area, no app UI or text.</scene_brief></image_request></photo></profile><profile slot="2" prev="1" next="3"><name>Profile B</name><age>28</age><subtitle>4 km away</subtitle><role>Developer</role><tags>games · music · night markets</tags><bio>Short profile bio.</bio><photo><image_request id="tinder-profile-2" target="custom.artifact-media" slot="tinder-profile-2" aspect="3:4" alt="Dating profile portrait"><scene_brief>Centered face and upper torso dating portrait of Profile B, full hair visible, generous headroom, subject centered inside portrait-safe area, no app UI or text.</scene_brief></image_request></photo></profile><profile slot="3" prev="2" next="1"><name>Profile C</name><age>29</age><subtitle>6 km away</subtitle><role>Musician</role><tags>records · dogs · rainy days</tags><bio>Short profile bio.</bio><photo><image_request id="tinder-profile-3" target="custom.artifact-media" slot="tinder-profile-3" aspect="3:4" alt="Dating profile portrait"><scene_brief>Centered face and upper torso dating portrait of Profile C, full hair visible, generous headroom, subject centered inside portrait-safe area, no app UI or text.</scene_brief></image_request></photo></profile></profiles></tinder>',
-  "case-file": '<case_file case="04-17" subject="Subject A" status="Open" last_seen="Platform Four" risk="Elevated" agent="Field Agent"><cf_sheet><cf_media><image_request id="case-media-1" target="custom.artifact-media" slot="case-media-1" aspect="3:4" alt="Case subject photograph"><scene_brief>Contained vertical identification photograph of Subject A in current clothing, neutral evidentiary framing, no dossier UI or readable text.</scene_brief></image_request></cf_media><cf_facts><cf_fact label="STATUS" value="OPEN"></cf_fact><cf_fact label="LAST SEEN" value="PLATFORM FOUR"></cf_fact><cf_fact label="RISK" value="ELEVATED"></cf_fact></cf_facts></cf_sheet><cf_timeline><cf_event date="Today" title="Evidence received">A photograph was added to the case.</cf_event></cf_timeline><cf_notes>Verify the north entrance before closing the lead.</cf_notes></case_file>',
-  "discord-server": '<discord_server server="Field Server" topic="Live coordination" members="1,284" online="318"><server_channel slot="1" name="general" description="General chat"><server_avatar_msg user="Participant A" time="08:30"><avatar><image_request id="discord-avatar-a" target="custom.artifact-media" slot="discord-avatar-a" aspect="1:1" alt="Avatar of Participant A"><scene_brief>Centered reusable portrait avatar of Participant A, stable identity, current appearance, simple background, no text.</scene_brief></image_request></avatar><text>Morning.</text></server_avatar_msg><server_avatar_msg user="You" time="08:31"><avatar><image_request id="discord-avatar-you" target="custom.artifact-media" slot="discord-avatar-you" aspect="1:1" alt="Avatar of the local participant"><scene_brief>Centered reusable portrait avatar of the local participant using established Persona appearance, simple background, no text.</scene_brief></image_request></avatar><text>I am here.</text></server_avatar_msg></server_channel><server_channel slot="2" name="updates" description="Project updates"><server_avatar_msg user="Participant A" time="08:32"><avatar><image_request id="discord-avatar-a" target="custom.artifact-media" slot="discord-avatar-a" aspect="1:1" alt="Avatar of Participant A"><scene_brief>Centered reusable portrait avatar of Participant A, stable identity, current appearance, simple background, no text.</scene_brief></image_request></avatar><text>The gate is open.</text></server_avatar_msg></server_channel><server_channel slot="3" name="media" description="Shared files"><server_media><image_request id="discord-media-1" target="custom.artifact-media" slot="discord-media-1" aspect="4:3" alt="Shared server photograph"><scene_brief>Landscape photograph of the gate being discussed, full subject visible, no Discord interface or readable text.</scene_brief></image_request></server_media></server_channel><server_channel slot="4" name="archive" description="Older messages"><server_avatar_msg user="You" time="08:33"><avatar><image_request id="discord-avatar-you" target="custom.artifact-media" slot="discord-avatar-you" aspect="1:1" alt="Avatar of the local participant"><scene_brief>Centered reusable portrait avatar of the local participant using established Persona appearance, simple background, no text.</scene_brief></image_request></avatar><text>Saved.</text></server_avatar_msg></server_channel></discord_server>',
-  "evidence-photo": '<evidence_photo case="EV-104" label="North gate" timestamp="22:14" source="Camera A"><photo><image_request id="evidence-photo-1" target="custom.artifact-media" slot="evidence-photo-1" aspect="4:3" alt="North gate evidence photograph"><scene_brief>Documentary evidentiary view of the north gate at night, full gate and nearby ground visible, no labels, timestamps, or interface.</scene_brief></image_request></photo><caption>North gate after closing.</caption><note>Light visible near the service entrance.</note></evidence_photo>',
-  "album-cover": '<album_cover><title>Midnight Signal</title><artist>Fictional Artist</artist><release>Single</release><artwork><image_request id="album-art-1" target="custom.artifact-media" slot="album-art-1" aspect="1:1" alt="Midnight Signal album artwork"><scene_brief>Square art-first release artwork matching the title Midnight Signal and its nocturnal radio concept, strong centered composition, no interface chrome or readable text.</scene_brief></image_request></artwork></album_cover>',
-  "magazine-cover": '<magazine_cover><masthead>FIELD</masthead><issue>Autumn Issue</issue><kicker>Special Report</kicker><headline>The Last Platform</headline><subhead>Inside the city after midnight</subhead><image_request id="magazine-art-1" target="custom.artifact-media" slot="magazine-art-1" aspect="4:5" alt="Editorial station cover photograph"><scene_brief>Vertical editorial photograph of an illuminated station platform at night with deliberate headline-safe space, no masthead or readable text in the image.</scene_brief></image_request></magazine_cover>',
-  "photo-booth-strip": '<photo_booth_strip title="After Midnight" date="Tonight"><booth_frame><image_request id="booth-frame-1" target="custom.artifact-media" slot="booth-frame-1" aspect="2:5" alt="First photo booth pose"><scene_brief>First pose in one coherent vertical photo-booth session, same participants, wardrobe, booth, and lighting, no text.</scene_brief></image_request></booth_frame><booth_frame><image_request id="booth-frame-2" target="custom.artifact-media" slot="booth-frame-2" aspect="2:5" alt="Second photo booth pose"><scene_brief>Second pose in the same coherent vertical photo-booth session, identities and wardrobe unchanged, no text.</scene_brief></image_request></booth_frame><booth_frame><image_request id="booth-frame-3" target="custom.artifact-media" slot="booth-frame-3" aspect="2:5" alt="Third photo booth pose"><scene_brief>Third pose in the same coherent vertical photo-booth session, identities and wardrobe unchanged, no text.</scene_brief></image_request></booth_frame><booth_frame><image_request id="booth-frame-4" target="custom.artifact-media" slot="booth-frame-4" aspect="2:5" alt="Fourth photo booth pose"><scene_brief>Fourth pose in the same coherent vertical photo-booth session, identities and wardrobe unchanged, no text.</scene_brief></image_request></booth_frame><caption>Four frames after midnight.</caption></photo_booth_strip>',
-  polaroid: '<polaroid_frame date="Tonight" location="North Pier"><photo><image_request id="polaroid-photo-1" target="custom.artifact-media" slot="polaroid-photo-1" aspect="1:1" alt="North Pier instant photograph"><scene_brief>Square candid instant photograph at North Pier after rain, full photographed scene visible, no paper border or readable text.</scene_brief></image_request></photo><caption>After the rain.</caption></polaroid_frame>',
-  "youtube-thumbnail": '<yt_thumbnail channel="Field Archive" title="The Last Train at North Pier" views="18K views" age="2 hours ago" subscribers="84K subscribers"><yt_media><image_request id="youtube-frame-1" target="custom.artifact-media" slot="youtube-frame-1" aspect="16:9" alt="Video frame at North Pier"><scene_brief>Wide frame from the authored video showing the last train arriving at North Pier, key action inside the center-safe area, no YouTube logo, play icon, UI, or readable text.</scene_brief></image_request></yt_media><yt_comments><yt_comment user="viewer_one" time="12m" likes="28">The platform light changed.</yt_comment><yt_comment user="viewer_two" time="4m" likes="9">Look near the far gate.</yt_comment></yt_comments></yt_thumbnail>'
-};
-var R45_SUPPORTED_ASPECT_OVERRIDES = {
-  "imessage-chat": ["4:3"],
-  "workspace-chat": ["4:3"],
-  "dating-profile": ["1:1", "3:4"]
-};
-function applyR45Authority(spec) {
-  const sampleXml = R45_SAMPLE_OVERRIDES[spec.id] || spec.sampleXml;
-  const customArtifactXml = sampleXml.replace(/target="custom\.[^"]+"/g, 'target="custom.artifact-media"');
-  const promptXml = bracketSurfacePromptModule({
-    label: spec.label,
-    root: spec.wrapper,
-    sampleXml: customArtifactXml,
-    target: spec.target.startsWith("custom.") ? "custom.artifact-media" : spec.target,
-    aspect: R45_SUPPORTED_ASPECT_OVERRIDES[spec.id]?.[0] || spec.defaultAspect
-  });
-  return {
-    ...spec,
-    target: spec.target.startsWith("custom.") ? "custom.artifact-media" : spec.target,
-    sampleXml: customArtifactXml,
-    promptModule: promptXml
-  };
-}
-var SHIPPED_SURFACE_SPECS = [...UNIFIED_SHIPPED_SURFACE_SPECS, ...REVIEWED_ONLY_SURFACE_SPECS, RESTORED_EVIDENCE_PHOTO_SPEC].filter((spec) => spec.id !== "weverse-post").map(applyR45Authority).map((spec) => ({ ...spec, normalization: derivedNormalization(spec) }));
-var SHIPPED_SURFACE_BY_ID = new Map(SHIPPED_SURFACE_SPECS.map((spec) => [spec.id, spec]));
-var SHIPPED_SURFACE_BY_WRAPPER = new Map(SHIPPED_SURFACE_SPECS.map((spec) => [spec.wrapper, spec]));
-var SHIPPED_SURFACE_ROOT_TAGS = SHIPPED_SURFACE_SPECS.map((spec) => spec.wrapper);
-var REVIEWED_REGEX_SURFACE_IDS = new Set;
-function hybridSurfaceOwner(definition) {
-  if (definition?.hybridOwnerConfigured === true && definition.hybridOwner)
-    return definition.hybridOwner;
-  return "relay";
-}
-function shippedSurfaceDefinitions(now = Date.now()) {
-  const imageFormat = '<img src="{{imageUrl}}" alt="{{alt}}" data-dgir-key="{{slotKey}}" data-dgir-request-id="{{requestId}}" data-dgir-slot="{{slot}}" data-dgir-custom-target="{{target}}" data-dgir-image-id="{{imageId}}">';
-  return SHIPPED_SURFACE_SPECS.map((spec) => ({
-    surfaceId: spec.id,
-    baseSurfaceId: spec.id,
-    presetName: "Relay Default",
-    shellMode: spec.shellMode,
-    defaultOpen: false,
-    launcherLabel: `${spec.icon} ${spec.label}`,
-    density: "comfortable",
-    maxWidth: spec.maxWidth,
-    mediaFit: spec.mediaFit,
-    accentMode: "theme",
-    customAccent: "#c24b78",
-    typography: ["letter-dispatch", "diary-page", "court-transcript", "public-bulletin"].includes(spec.id) ? "editorial" : "mixed",
-    advancedCss: "",
-    displayName: spec.label,
-    icon: spec.icon,
-    targetId: spec.target,
-    canonicalOuterWrapper: spec.wrapper,
-    imageSlotSelector: "img",
-    resolvedImageChildFormat: imageFormat,
-    supportedAspectRatios: R45_SUPPORTED_ASPECT_OVERRIDES[spec.id] || spec.supportedAspects,
-    defaultPromptProfileId: spec.profile,
-    peoplePolicy: spec.peoplePolicy,
-    captionSupport: true,
-    altTextSupport: true,
-    defaultCandidateCount: 1,
-    compatibleRegenerationIntents: ["new-angle", "better-expression", "preserve-composition-improve-quality", "full-reimagining"],
-    declarativeLayoutFields: { shellMode: "inline|collapsible", renderer: "relay", wrapper: spec.wrapper },
-    validationRules: ["balanced-wrapper", "safe-static-markup", "stable-request-ownership", `required-media:${spec.requiredMediaCount}`, ...spec.maximumMediaCount ? [`maximum-media:${spec.maximumMediaCount}`] : []],
-    sampleXml: spec.sampleXml,
-    deterministicPreviewFixture: { title: spec.label, targetId: spec.target, wrapper: spec.wrapper, requiredMediaCount: spec.requiredMediaCount, maximumMediaCount: spec.maximumMediaCount },
-    builtIn: true,
-    enabled: true,
-    promptEnabled: true,
-    promptCategory: spec.category,
-    promptModule: spec.promptModule,
-    hybridOwner: "relay",
-    hybridOwnerConfigured: false,
-    updatedAt: now
-  }));
 }
 // regex-packs/r45/Reverie-Surfaces-R4.5-INLINE-REALISTIC.json
 var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
@@ -133530,7 +133601,7 @@ function reviewedContractError(surfaceId, reason) {
   recordSurfacePipelineDiagnostic(surfaceId, "final", `repair fallback: ${reason}`);
   while (reviewedSurfaceDiagnostics.size > 128)
     reviewedSurfaceDiagnostics.delete(reviewedSurfaceDiagnostics.keys().next().value);
-  return `<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed" data-reverie-surface-id="${escapeAttr(surfaceId)}"><b>Relay Surface needs repair</b><span>Its existing request was preserved.</span><div><button type="button" data-rrn-action="reparse">Reparse</button><button type="button" data-rrn-action="rescan">Rescan</button></div></aside>`;
+  return `<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed" data-reverie-surface-id="${escapeAttr(surfaceId)}"><b>${escapeHtml(surfaceId)} · Format error</b><span>${escapeHtml(reason)}</span><small>Original markup and existing media were preserved.</small><div><button type="button" data-rrn-action="edit-surface">Inspect / Fix</button><button type="button" data-rrn-action="repair-surface">Repair</button><button type="button" data-rrn-action="reparse">Reparse</button><button type="button" data-rrn-action="rescan">Rescan</button></div></aside>`;
 }
 function renderParityOwnedSurface(baseSurfaceId, rootTag, fullMarkup, preset, context) {
   recordSurfacePipelineDiagnostic(baseSurfaceId, "detected-root", `<${rootTag}>`);
@@ -133570,7 +133641,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
   const bracketBlocks = [];
   const bracketNormalized = normalizeBracketSurfaceDocument(input, SHIPPED_SURFACE_SPECS, (block) => {
     bracketBlocks.push(block);
-    return block.diagnostics.length ? reviewedContractError(block.spec.id, block.diagnostics.join("; ")) : block.markup;
+    return block.diagnostics.length ? editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join("; ")), block.original, block.spec.wrapper, block.spec.id, { ...renderContext, streamIslandOrdinal: bracketBlocks.length }, block.original) : block.markup;
   });
   if (bracketBlocks.length) {
     bracketRenderedCount = bracketBlocks.length;
@@ -134510,6 +134581,510 @@ var SETTING_HELP = {
 function settingHelp(label, fallback = "") {
   return SETTING_HELP[label] || fallback || `${label} controls this Relay setting. Change it only when you want to override the current default.`;
 }
+// src/plotSparksV2.ts
+var PLOT_SPARKS_V2_UTILITY = `
+[PLOT SPARKS — CURRENT-SCENE BRANCH BOARD]
+
+PURPOSE
+
+Plot Sparks are seven possible NEXT BRANCHES growing directly from the current scene.
+
+They answer:
+
+"What could naturally happen next from the exact people, actions, objects, information, tension, location, and unfinished business already present right now?"
+
+Every Spark begins from the scene as it currently exists.
+
+A Plot Spark may introduce a new reaction, interruption, consequence, realization, decision, arrival, discovery, mistake, opportunity, or complication — but it must be causally reachable from the active scene.
+
+The goal is divergence without disconnection.
+
+GOOD:
+"Of course that could happen next."
+
+BAD:
+"Where did that plotline come from?"
+
+SCENE-CONTINUATION LAW — MANDATORY
+
+Every Plot Spark MUST preserve the current scene as its launch point.
+
+Before generating the seven Sparks, silently identify the active scene state:
+
+• who is physically present
+• where everyone is
+• what each relevant person is doing
+• the most recent spoken/action beat
+• active emotional tensions
+• unfinished actions
+• visible or recently handled objects
+• established immediate obligations
+• information that has just been revealed, hidden, misunderstood, or noticed
+• nearby people or systems already established as capable of affecting the scene
+• the current location and time
+• anything the scene has obviously placed in motion but has not resolved
+
+Each Spark must connect to at least TWO of those active anchors.
+
+At least ONE anchor should come from the immediate current response rather than distant lore.
+
+Do not abandon the scene merely to create novelty.
+
+IMMEDIACY
+
+Plot Sparks are immediate or near-immediate continuations.
+
+Prefer branches playable:
+
+• in the next action
+• in the next exchange
+• within the next few minutes
+• before the characters naturally leave the location
+• as the direct consequence of what just occurred
+
+A short natural transition is allowed.
+
+Avoid major time skips unless the current scene itself is already ending or explicitly creates one.
+
+Do not jump to:
+• tomorrow
+• next week
+• months later
+• an unrelated location
+• a distant subplot
+
+just to make a Spark different.
+
+BRANCH, DO NOT RESOLVE
+
+Each Spark is a possible continuation, not established canon.
+
+Describe the opening move of the branch.
+
+Do not write the entire outcome.
+
+A good Spark creates a playable next beat and leaves room for characters to respond.
+
+Do not predetermine:
+• relationship outcomes
+• confessions succeeding
+• fights being won
+• secrets being fully exposed
+• investigations being solved
+• characters agreeing
+• permanent consequences
+
+unless the current scene has already made that outcome unavoidable.
+
+CURRENT CHARACTERS FIRST
+
+Prefer using the people already participating in the scene.
+
+Existing nearby or already-established characters may enter when naturally motivated.
+
+A new arrival is valid only if the active scene gives them a plausible reason to appear now.
+
+Do NOT introduce a stranger, authority figure, relative, employee, rival, institution, delivery, emergency, rumor, or external crisis solely because one of the seven lenses needs variety.
+
+External elements must connect to something already active.
+
+OBJECT AND DETAIL CONTINUITY
+
+Treat recently mentioned objects and physical details as live story pieces.
+
+A Spark may naturally branch from:
+• a phone that just buzzed
+• an unfinished message
+• something dropped
+• a door left open
+• damaged equipment
+• clothing or belongings
+• food or drink
+• paperwork
+• a vehicle
+• a recording
+• a photograph
+• a tool
+• a key
+• something overheard
+• an interrupted task
+
+Do not invent evidence retroactively.
+
+Use what the scene has actually established.
+
+EMOTIONAL CONTINUITY
+
+Character behavior must follow the emotional state already established.
+
+Do not reset characters to neutral between the prose and the Plot Sparks.
+
+If someone is:
+• furious
+• embarrassed
+• scared
+• exhausted
+• flirting
+• avoiding eye contact
+• physically close
+• withdrawing
+• protective
+• suspicious
+• overwhelmed
+
+the Spark begins with that state still true unless the branch itself creates the change.
+
+Do not make someone casually joke, confess, attack, leave, forgive, kiss, expose a secret, or become calm without a believable immediate trigger.
+
+SURPRISE WITHOUT RANDOMNESS
+
+A Plot Spark can be unexpected.
+
+Unexpected does NOT mean unrelated.
+
+Find surprising consequences hidden inside the existing scene.
+
+Prefer:
+• an overlooked implication becoming important
+• one character interpreting the last action differently
+• an unfinished physical action going wrong
+• a nearby object changing the interaction
+• someone choosing not to do the expected thing
+• a previously established obligation becoming relevant at the worst moment
+• an established person entering at an inconvenient moment
+• the current environment complicating what someone is trying to do
+• a private thought becoming behavior
+• a misunderstanding forming from something actually visible
+• an attempted escape creating another problem
+• a small practical detail becoming emotionally significant
+
+The strongest Sparks make the reader realize that the possibility was already latent in the scene.
+
+DIVERSITY LAW
+
+The seven Plot Sparks must branch in meaningfully different directions while remaining rooted in the same scene.
+
+Avoid seven variations of the same:
+• interruption
+• confession
+• misunderstanding
+• physical accident
+• phone notification
+• discovery
+• romantic escalation
+
+Difference should come from a different reaction, trigger, interaction, consequence, decision, use of an existing object, environmental pressure, or interpretation of the same moment.
+
+Variation of BRANCH is required.
+
+Variation of UNIVERSE is not.
+
+SEVEN BRANCH LENSES
+
+A — vector="detonation" — THE CURRENT SITUATION SLIPS
+
+Something already happening in the scene becomes harder to contain.
+
+A physical action, object, environment detail, mistake, technical problem, emotional restraint, lie, interruption, or unstable situation crosses a threshold.
+
+This must grow from something already active.
+
+Examples:
+• the equipment they are using finally fails
+• the door someone forgot to lock opens
+• the thing being hidden falls into view
+• someone who was trying not to react visibly reacts
+• the argument becomes audible outside the room
+• a physical attempt to leave or intervene causes another immediate problem
+
+Do not create an unrelated disaster.
+
+B — vector="heartknife" — A CHARACTER MAKES THE UNEXPECTED PERSONAL MOVE
+
+Someone already emotionally connected to the moment chooses a revealing, vulnerable, defensive, jealous, tender, frightened, selfish, restrained, or contradictory response.
+
+The action should emerge from their established current emotional state.
+
+Prefer a response that changes the shape of the scene without resolving it.
+
+Examples:
+• they ask the question they were avoiding
+• they deliberately misunderstand an offer
+• they let go when the other person expected them to hold on
+• they admit a smaller truth to avoid the larger one
+• they quietly set a boundary
+• they choose tenderness at the worst possible moment
+
+Do not manufacture an unsupported confession or personality reversal.
+
+C — vector="wrongness" — SOMETHING ALREADY PRESENT DOESN'T ADD UP
+
+A detail in the current environment, conversation, object state, timing, behavior, message, recording, possession, or physical evidence creates a new question.
+
+The anomaly must be compatible with established scene information.
+
+It may be newly noticed.
+
+It may NOT be retroactively invented as though it had always existed.
+
+Examples:
+• a timestamp conflicts with what was just said
+• an object is somewhere it should not be
+• a device shows a state that contradicts an assumption
+• someone recognizes a detail they had overlooked
+• a belonging reveals that another person was recently here
+
+Keep the discovery close enough to the current scene to act on immediately.
+
+D — vector="crash-in" — THE SCENE'S EXISTING WORLD INTERRUPTS
+
+A person, call, knock, message, obligation, service, coworker, friend, family member, staff member, classmate, neighbor, or other already-plausible influence intersects the scene NOW.
+
+The interruption must have a reason grounded in current context or established routine.
+
+Prefer already-established people or systems.
+
+The interruption should collide with what the characters are currently doing rather than replace the scene with a different plot.
+
+E — vector="matchstrike" — THE CURRENT MOMENT FORCES A DECISION
+
+Something already pending can no longer remain deferred.
+
+A deadline, promise, choice, invitation, departure, task, appointment, plan, boundary, unfinished message, request, or practical constraint forces someone to act.
+
+The pressure should already exist or follow naturally from the current scene.
+
+Examples:
+• someone has to decide whether to leave now
+• the unsent message becomes impossible to ignore
+• transportation is about to depart
+• a rehearsal/class/shift they already knew about starts soon
+• someone must answer a direct question instead of stalling
+
+Do not import a brand-new arbitrary deadline.
+
+F — vector="reputation-fire" — THE CURRENT SCENE CAN BE MISREAD
+
+Something visible, audible, recorded, overheard, messaged, photographed, or contextually ambiguous in the CURRENT scene could be interpreted by another person or community in a consequential way.
+
+The misread must originate from an actual current-scene signal.
+
+Examples:
+• someone walks in at precisely the wrong visual moment
+• a partial message gives the wrong impression
+• a nearby person hears one sentence without context
+• an existing photo/video captures something misleading
+• an observed gesture appears more intimate/hostile/suspicious than intended
+
+Do not jump immediately to viral fame, press coverage, mass gossip, or public scandal unless those systems are already active in the story.
+
+Keep the first consequence close to the scene.
+
+G — vector="wildcard-collision" — THE STRANGEST NATURAL NEXT BEAT
+
+Choose the least obvious continuation that still grows cleanly from the scene.
+
+This is the creative wildcard, not the randomness slot.
+
+Recombine existing:
+• characters
+• objects
+• physical positions
+• unfinished tasks
+• location features
+• established nearby influences
+• emotional tensions
+
+in a way the other six branches did not.
+
+The branch may be funny, awkward, strangely mundane, eerie, tender, inconvenient, or chaotic.
+
+But if you cannot explain its causal connection to the current scene in one sentence, reject it.
+
+SCENE ROOT TEST
+
+For EACH of the seven Sparks, silently complete:
+
+"This can happen next because ________ is already true in the current scene."
+
+If the blank requires invented backstory, a random external event, an unrelated new subplot, or an unsupported coincidence, reject the Spark and replace it.
+
+CONTINUITY TEST
+
+Each Spark must preserve:
+• current location unless the next action naturally exits it
+• current time
+• current wardrobe/injury/physical state
+• current relationships
+• current knowledge boundaries
+• current emotional state
+• current object state
+• established character behavior
+
+Do not teleport characters emotionally, spatially, or informationally.
+
+NO OMNISCIENT LEAKAGE
+
+A character cannot react to information they do not know.
+
+Plot Sparks may speculate about what COULD happen next, but every proposed character action must use information that character could actually possess at that point.
+
+SPECULATIVE LIFECYCLE
+
+Unused Plot Sparks dissolve after this response.
+
+They are possibilities, not canon.
+
+Do not store unused Sparks as:
+• memories
+• lore
+• character knowledge
+• completed events
+• future facts
+• off-screen developments
+
+unless the Human explicitly selects or manifests one in the actual story.
+
+IMAGE CONTRACT — MANDATORY AND NON-OPTIONAL
+
+EVERY Plot Spark MUST contain exactly one complete <reverie-illustration> inside [Media].
+
+EMPTY [Media] IS INVALID OUTPUT.
+
+A [Plot_Sparks] block with fewer than SEVEN <reverie-illustration> blocks is INVALID.
+
+Before emitting [/Plot_Sparks], count them:
+
+A image + B image + C image + D image + E image + F image + G image = exactly 7.
+
+The image must depict the OPENING INSTANT of that possible continuation.
+
+It should visually remain connected to the current scene through:
+• location
+• people
+• props
+• lighting
+• wardrobe
+• spatial continuity
+
+unless the Spark itself naturally changes one of those.
+
+Use this exact compact schema inside every [Media] field:
+
+[Media]<reverie-illustration request="generate" slot="plot-spark-a-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[short accessible description]"><visual_prompt>[25–60 word cinematic still of the first playable instant of this scene branch. Preserve current-scene continuity. No UI, labels, captions, borders, or readable text.]</visual_prompt></reverie-illustration>[/Media]
+
+For B–G, change the slot letter accordingly.
+
+Never emit an empty [Media].
+
+Never use <image_request> or <scene_brief> inside Plot Sparks.
+
+Never omit </reverie-illustration>.
+
+CAST RULE
+
+The cast attribute refers only to active bound Character / Persona identities.
+
+Do not use cast="char+user" merely because two people are visible.
+
+Additional NPCs or other named characters belong explicitly in <visual_prompt>.
+
+OUTPUT FORMAT — EXACT
+
+[Plot_Sparks]
+[ID][fresh lowercase id][/ID]
+[Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]
+
+[Spark]
+[Key]a[/Key]
+[Vector]detonation[/Vector]
+[Text][Current situation slips — one concise playable continuation.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-a-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
+
+[Spark]
+[Key]b[/Key]
+[Vector]heartknife[/Vector]
+[Text][Unexpected personal move.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-b-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
+
+[Spark]
+[Key]c[/Key]
+[Vector]wrongness[/Vector]
+[Text][Current detail does not add up.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-c-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
+
+[Spark]
+[Key]d[/Key]
+[Vector]crash-in[/Vector]
+[Text][Grounded interruption from the existing world.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-d-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
+
+[Spark]
+[Key]e[/Key]
+[Vector]matchstrike[/Vector]
+[Text][Existing pressure forces a decision.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-e-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
+
+[Spark]
+[Key]f[/Key]
+[Vector]reputation-fire[/Vector]
+[Text][Current moment creates a plausible misread.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-f-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
+
+[Spark]
+[Key]g[/Key]
+[Vector]wildcard-collision[/Vector]
+[Text][Least obvious but still causally natural branch.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-g-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
+
+[/Plot_Sparks]
+
+PLACEMENT
+
+Place [Plot_Sparks] after the main narrative content for the response.
+
+Do not inject Plot Sparks into the middle of a prose paragraph.
+
+Do not place unrelated content inside [Plot_Sparks].
+
+FINAL VALIDATION
+
+Before sending, silently verify:
+
+1. All seven Sparks branch directly from the current active scene.
+2. Every Spark can complete: "This happens next because ___ is already true."
+3. Every Spark uses at least two current-scene anchors.
+4. At least one anchor per Spark comes from the immediate current response.
+5. No Spark requires an unrelated subplot to begin.
+6. No Spark makes a large time/location jump without scene support.
+7. The seven Sparks are meaningfully distinct from one another.
+8. Character knowledge and emotional state remain continuous.
+9. Exactly one [Plot_Sparks] root exists.
+10. [ID] exists exactly once.
+11. [Lifecycle] exists exactly once.
+12. Exactly seven [Spark] blocks exist.
+13. Keys a, b, c, d, e, f, g each exist exactly once.
+14. Each Spark contains exactly one [Vector].
+15. Each Spark contains exactly one non-empty [Text].
+16. Each Spark contains exactly one non-empty [Media].
+17. Exactly seven <reverie-illustration> blocks exist.
+18. Every <reverie-illustration> contains exactly one <visual_prompt>.
+19. Every <reverie-illustration> closes with </reverie-illustration>.
+20. No Plot Spark uses <image_request>, <scene_brief>, or legacy Plot Sparks syntax.
+
+If structural checks fail, repair the Plot Sparks block before sending.
+
+If a narrative-continuity check fails, replace the offending Spark rather than weakening the rule.
+
+`.slice(1, -1);
+
 // src/narrativeRegexAssets.ts
 var NARRATIVE_UTILITY_DISPLAY_NAMES = {
   "Character Profile": "Cast Sheet",
@@ -136175,8 +136750,8 @@ ${message.prompt}`;
     const host = buttonEl.closest("[data-rrn-editable-surface]");
     const source = host?.querySelector(".rrn-surface-source")?.value || "";
     const originalSource = host?.querySelector(".rrn-surface-original")?.value || source;
-    const chatId = buttonEl.dataset.rrnChatId || activeChatId || "";
-    const messageId = buttonEl.dataset.rrnMessageId || "";
+    const chatId = buttonEl.dataset.rrnChatId || host?.dataset.rrnChatId || activeChatId || "";
+    const messageId = buttonEl.dataset.rrnMessageId || host?.dataset.rrnMessageId || "";
     if (!host || !source || !chatId || !messageId) {
       showToast("warning", "Relay could not open the editable source for this surface.");
       return;
@@ -136185,9 +136760,13 @@ ${message.prompt}`;
     modal.root.classList.add("dg-router-panel", "dg-modal-host");
     const body = document.createElement("div");
     body.className = "dg-modal-body";
+    const failed = host.querySelector('[data-reverie-surface-contract="failed"]');
+    const diagnostic = failed?.querySelector("span")?.textContent?.trim() || "";
     const note = document.createElement("div");
     note.className = "dg-recovery-note";
-    note.textContent = "Edit the semantic surface markup. Relay keeps the same outer wrapper and rerenders the surface in this exact message position.";
+    note.textContent = `${diagnostic ? `${diagnostic}
+
+` : ""}Edit the preserved semantic Surface markup. Safe delimiter repairs are already previewed in the editor. Relay keeps the canonical outer wrapper and rerenders this exact message position.`;
     const editor = document.createElement("textarea");
     editor.className = "dg-textarea dg-textarea-tall";
     editor.value = source;
@@ -136209,8 +136788,8 @@ ${message.prompt}`;
         chatId,
         messageId,
         action: "edit",
-        rootTag: buttonEl.dataset.rrnRootTag || undefined,
-        surfaceId: buttonEl.dataset.rrnSurfaceId || undefined,
+        rootTag: buttonEl.dataset.rrnRootTag || host.dataset.rrnRootTag || undefined,
+        surfaceId: buttonEl.dataset.rrnSurfaceId || host.dataset.rrnSurfaceId || undefined,
         originalMarkup: originalSource,
         replacementMarkup: editor.value
       });
@@ -136230,7 +136809,7 @@ ${message.prompt}`;
       return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (buttonEl.dataset.rrnAction === "edit-surface") {
+    if (buttonEl.dataset.rrnAction === "edit-surface" || buttonEl.dataset.rrnAction === "repair-surface") {
       openSurfaceMarkupEditor(buttonEl);
       return;
     }

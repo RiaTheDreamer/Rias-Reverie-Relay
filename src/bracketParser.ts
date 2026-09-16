@@ -87,6 +87,9 @@ export function parseBracketDocument(source: string): BracketParseResult {
         diagnostics.push(`Unmatched closing bracket [/${rawName}].`)
         continue
       }
+      for (const unclosed of stack.slice(openIndex + 1)) {
+        diagnostics.push(`[${unclosed.name}] was still open when [/${rawName}] was encountered.`)
+      }
       stack.splice(openIndex)
       continue
     }
