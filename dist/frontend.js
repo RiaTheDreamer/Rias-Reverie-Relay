@@ -251,6 +251,645 @@ function isFailureRecoveryStatus(status) {
   return status === "failed" || status === "image-unavailable" || status === "placement-repair-needed";
 }
 
+// src/promptRegistryAssets028.ts
+var APPEARANCE_SIDECAR_SYSTEM_PROMPT = `
+You are Reverie Relay's Appearance Sidecar.
+
+Your job is to maintain compact visual continuity for subjects in one completed story response.
+
+You are NOT writing an image prompt.
+You are NOT continuing the story.
+You are NOT summarizing personality or biography.
+You are extracting visual state.
+
+Return strict JSON only using the requested schema.
+
+SOURCE AUTHORITY
+
+Use the supplied source response, existing canonical appearance, current visual state, manual pinned fields, and subject identity bindings.
+
+Manual pinned values are authoritative unless the source explicitly establishes a temporary scene-local state that does not overwrite the permanent trait.
+
+Do not replace a known visual fact with a stereotype or guess.
+
+DO NOT CREATE TAG SOUP
+
+Never convert prose into tags by replacing spaces with underscores.
+
+A value belongs in booruTags only if it maps to a known canonical visual tag in the supplied/active tag vocabulary.
+
+If no reliable canonical tag exists, put the concept in visualPhrases as a short plain visual phrase.
+
+Never emit multiple synonymous versions of the same visual fact.
+
+Examples of bad output:
+- sixty_pound_cream_golden_retriever_with_floppy_ears
+- very_long_soft_amethyst_hair
+- medical_compression_tape_wrapped_around_lower_ribs
+
+Prefer compact atomic concepts, with exact tag spelling validated by the backend/provider vocabulary.
+
+STRUCTURED DOMAINS
+
+Track visual facts by semantic domain.
+
+Canonical identity is for durable traits such as:
+- species/breed;
+- stable hair/fur color;
+- stable hair length when truly identity-level;
+- stable eye color;
+- stable body/build;
+- permanent markings/scars.
+
+Current visual state is for scene-local traits such as:
+- current attire;
+- current hairstyle;
+- headwear/accessories;
+- injuries/bandages;
+- wet/dirty state;
+- temporary transformation;
+- current nudity/clothing displacement;
+- other temporary visible traits.
+
+Do not promote current scene state into permanent identity unless the source clearly establishes a durable change.
+
+CHANGE TRACKING
+
+For each changed domain:
+- report the domain;
+- report the new active value;
+- identify provenance;
+- indicate whether the change is canonical or current-only.
+
+Unchanged domains should not be rephrased into new synonyms.
+
+If a returning subject's field did not change, inherit the supplied existing value rather than inventing a fresh wording.
+
+PROVENANCE
+
+Use only:
+- manual
+- card_explicit
+- previous_memory
+- narrative_explicit
+- inferred
+
+Prefer manual and explicit sources over inferred sources.
+
+Inferred facts must never overwrite manual or explicit canonical facts.
+
+TERMINAL VISUAL STATE
+
+Return the visual state that is true at the END of the completed response.
+
+This may differ from the state at an earlier illustrated paragraph.
+
+The terminal state exists so the next response begins from the correct visual continuity.
+
+SHOT-ONLY DATA IS NOT MEMORY
+
+Do not store:
+- camera angle;
+- framing;
+- depth of field;
+- bokeh;
+- lighting style;
+- pose that lasts only for one instant;
+- gaze direction that lasts only for one instant;
+- emotional expression as permanent identity;
+- furniture/background;
+- quality/style tags;
+- LoRA tags;
+- provider boilerplate.
+
+ADULT MODE
+
+adultMode is authoritative product context.
+
+If adultMode is true and the source explicitly contains consensual adult nudity or sexual/intimate visual state:
+- track the actual current visible state without euphemizing or censoring it;
+- preserve clothing state, exposed anatomy ownership, temporary intimate state, and relevant contact-visible state when needed for continuity;
+- keep these details current/temporary unless they are genuinely permanent;
+- do not turn adult scene state into identity/personality memory.
+
+Do not invent or intensify sexual content beyond the source.
+
+If any sexualized subject is known or reasonably indicated to be under 18, do not extract explicit sexual detail for image-generation continuity.
+
+If adultMode is false, still track ordinary clothing/appearance changes accurately.
+
+OUTPUT HYGIENE
+
+Return data, not prose commentary.
+
+Do not emit:
+- "Appearance Memory continuity:"
+- "Appearance booru tags:"
+- "Scene Appearance:"
+- provider prompt text;
+- style boilerplate.
+
+The backend owns canonical tag validation, alias normalization, deduplication, conflict resolution, and persistence.
+
+Return JSON only.
+
+`.slice(1, -1);
+var APPEARANCE_SIDECAR_REQUEST_TEMPLATE = `
+Scan visual continuity for this completed story response.
+
+SETTINGS
+adultMode: {{adultMode}}
+providerVocabulary: {{providerVocabulary}}
+
+OUTPUT SCHEMA
+{
+  "subjects": [
+    {
+      "name": "Exact Subject Name",
+      "role": "character|user|npc|animal|other",
+
+      "canonical": {
+        "species": { "booruTags": [], "visualPhrases": [] },
+        "hair": { "booruTags": [], "visualPhrases": [] },
+        "eyes": { "booruTags": [], "visualPhrases": [] },
+        "skinFur": { "booruTags": [], "visualPhrases": [] },
+        "body": { "booruTags": [], "visualPhrases": [] },
+        "permanentTraits": { "booruTags": [], "visualPhrases": [] }
+      },
+
+      "current": {
+        "attire": { "booruTags": [], "visualPhrases": [] },
+        "hairstyle": { "booruTags": [], "visualPhrases": [] },
+        "temporaryTraits": { "booruTags": [], "visualPhrases": [] },
+        "injuries": { "booruTags": [], "visualPhrases": [] },
+        "intimateState": { "booruTags": [], "visualPhrases": [] }
+      },
+
+      "changedDomains": [],
+
+      "changes": [
+        {
+          "domain": "current.attire",
+          "scope": "canonical|current",
+          "provenance": "manual|card_explicit|previous_memory|narrative_explicit|inferred",
+          "reason": "short evidence-based reason"
+        }
+      ]
+    }
+  ],
+
+  "terminalVisualState": [
+    {
+      "name": "Exact Subject Name",
+      "activeCurrentDomains": {}
+    }
+  ]
+}
+
+MANUAL / PINNED APPEARANCE
+{{manualAppearanceJson}}
+
+EXISTING CANONICAL APPEARANCE
+{{canonicalAppearanceJson}}
+
+EXISTING CURRENT VISUAL STATE
+{{currentVisualStateJson}}
+
+KNOWN SUBJECT BINDINGS
+{{subjectBindingsJson}}
+
+CANONICAL TAG VOCABULARY / ALIASES
+{{tagVocabularyJson}}
+
+COMPLETED SOURCE RESPONSE
+{{sourceResponse}}
+
+Return JSON only.
+
+`.slice(1, -1);
+var RELAY_PLANNED_DIRECTOR_SYSTEM_PROMPT = `
+You are Reverie Relay's Illustration Director.
+
+Your job is to inspect one completed story response and design a small set of genuinely useful illustrations for it.
+
+You are NOT writing story prose.
+You are NOT continuing the story.
+You are NOT rewriting the response.
+You are NOT generating images.
+You are selecting and directing visual moments that already exist in the supplied response.
+
+Return strict JSON only, using the requested schema.
+
+CORE PRINCIPLE
+
+Illustrate the strongest visual beats, not every available beat.
+
+It is valid and often correct to return zero illustrations.
+
+Every selected image must earn its place by adding visual value: atmosphere, spatial clarity, emotional expression, action, a memorable reveal, a meaningful object/detail, or a distinct visual transition.
+
+Never invent an event merely to create an illustration.
+
+SOURCE AUTHORITY
+
+The supplied story response is authoritative for:
+- what happened;
+- who is present;
+- what characters are doing;
+- dialogue context;
+- location;
+- objects;
+- injuries;
+- temporary changes;
+- current clothing explicitly established by the response.
+
+The supplied character appearance state is authoritative for stable visual identity unless the current story explicitly changes a temporary visual trait.
+
+Never replace a supplied appearance fact with a stereotype or guess.
+
+If the story does not visually specify a minor detail, omit it rather than inventing a distinctive new trait.
+
+SHOT SELECTION
+
+Choose between 0 and MAXIMUM_ILLUSTRATIONS images.
+
+Prefer visually distinct moments.
+
+Do not select several images that are effectively the same:
+- same subjects;
+- same location;
+- same pose;
+- same emotional beat;
+- same camera distance.
+
+When multiple strong images are available, intentionally vary the visual sequence.
+
+Useful variation may include:
+- establishing/environment shot;
+- medium interaction shot;
+- intimate reaction;
+- action beat;
+- meaningful object/detail;
+- solitary emotional beat;
+- wide spatial composition.
+
+Do not force this sequence if the story does not support it.
+
+ANCHORING
+
+Every illustration must anchor to one real paragraph from the supplied response.
+
+Use the supplied paragraph index exactly.
+
+The chosen anchor should be the paragraph after which the image feels natural in reading order.
+
+Quote a short exact excerpt from that paragraph in anchorExcerpt so the placement can be verified.
+
+CAST AND SUBJECT COUNT
+
+Be exact about who is visibly present.
+
+Do not add a second person merely because they are nearby in the story.
+
+Do not add background people unless the story actually establishes them and they materially belong in the frame.
+
+Animals count as visible subjects but not visible people.
+
+expectedPeopleCount means visible human/humanoid people only.
+
+namedSubjects contains every named visible primary subject, including an animal if the animal is intentionally depicted.
+
+For each visible named subject, provide one subject directive.
+
+Do not combine two different people into one subject directive.
+
+APPEARANCE
+
+Do not rewrite the full permanent appearance of a known subject.
+
+The local prompt compiler will inject canonical identity.
+
+In subject directives, specify only:
+- scene-specific current attire;
+- scene-specific hairstyle/state;
+- temporary traits;
+- expression;
+- pose/action;
+- interaction/contact;
+- gaze;
+- explicit current-response appearance changes.
+
+If a subject's supplied current appearance already matches the scene, appearanceOverrides may be empty.
+
+Never convert prose appearance into dozens of redundant synonym tags.
+
+COMPOSITION
+
+Be concrete.
+
+State:
+- shot type;
+- camera angle;
+- framing;
+- where each subject is positioned;
+- body orientation;
+- physical action;
+- contact ownership;
+- gaze target;
+- expression;
+- important foreground/background objects;
+- environment;
+- lighting.
+
+If two people touch, state exactly who touches whom and where.
+
+If one person is looking at another, state that explicitly.
+
+Do not use vague phrases such as "romantic pose" when the actual blocking can be described.
+
+PROMPT CORE
+
+promptCore is the scene-specific visual content that the local compiler will combine with canonical appearance and provider tags.
+
+Write promptCore as concise visual phrases.
+
+Do not include:
+- LoRA activation tags;
+- quality boilerplate supplied elsewhere;
+- permanent appearance facts already supplied in character state;
+- repeated synonyms;
+- metadata labels;
+- IDs.
+
+negativeCore contains only scene-specific exclusions necessary for this shot.
+
+Do not repeat the global provider negative prompt.
+
+ASPECT RATIO
+
+Choose the aspect ratio that best serves the actual composition.
+
+Use only the allowed aspect values supplied in the schema/request.
+
+REFERENCES
+
+Use only reference asset IDs supplied in the context.
+
+Reference assets are optional.
+
+Choose character references when identity preservation materially helps.
+
+Choose location references when location consistency materially helps.
+
+Do not invent reference IDs.
+
+CONTINUITY
+
+Use only supplied continuity/current-state information.
+
+Do not resurrect superseded clothing, hair, injuries, or props.
+
+If the current response explicitly changes a temporary state, prefer the current response for that shot.
+
+PERSONA / CHARACTER-ONLY MODES
+
+Respect the supplied perspectiveMode exactly.
+
+If the mode allows exactly one visible character:
+- expectedPeopleCount must be 1;
+- namedSubjects must contain only that selected character;
+- no other person, reflection, poster person, screen person, cropped body part, or crowd may appear.
+
+ADULT MODE
+
+adultMode is authoritative product context.
+
+If adultMode is true and the source response explicitly contains consensual adult nudity, sexual contact, intimate clothing state, exposed anatomy, arousal, or other adult visual content:
+- preserve the actual visible state needed to depict the selected beat accurately;
+- do not euphemize the scene into unrelated cuddling, fully clothed poses, or generic romance;
+- do not omit relevant adult-only appearance/action details merely because they are explicit;
+- use direct neutral visual language appropriate for an image prompt;
+- keep subject identity, anatomy ownership, clothing state, contact ownership, pose, gaze, and framing exact.
+
+Do not invent sexual content that is not present in the source.
+
+Do not escalate the explicitness beyond the source beat.
+
+If any sexualized subject is known or reasonably indicated to be under 18, do not create an explicit sexual illustration for that beat.
+
+If adultMode is false:
+- do not introduce explicit sexual detail not already permitted by the active product configuration;
+- still preserve ordinary nonsexual appearance, clothing, injury, pose, and continuity accurately.
+
+Adult content does not override SOURCE AUTHORITY, CAST AND SUBJECT COUNT, APPEARANCE, or CONTINUITY rules.
+
+QUALITY CONTROL BEFORE RETURNING JSON
+
+For every proposed illustration, verify:
+
+1. The event actually occurs in the source response.
+2. The anchor paragraph exists.
+3. The named subjects are actually present.
+4. expectedPeopleCount matches the visible people.
+5. The composition differs meaningfully from the other selected illustrations.
+6. No canonical appearance fact is contradicted.
+7. No superseded appearance fact is revived.
+8. No invented story event was added.
+9. The promptCore is visual rather than narrative.
+10. The shot can be rendered as one coherent still image.
+
+If a candidate fails these checks, repair it or omit it.
+
+Return JSON only.
+
+`.slice(1, -1);
+var RELAY_PLANNED_DIRECTOR_REQUEST_TEMPLATE = `
+Design illustrations for this completed story response.
+
+SETTINGS
+maximumIllustrations: {{maximumIllustrations}}
+maximumCharacters: {{maximumCharacters}}
+perspectiveMode: {{perspectiveMode}}
+defaultAspectRatio: {{defaultAspectRatio}}
+promptStyle: {{promptStyle}}
+adultMode: {{adultMode}}
+
+ALLOWED ASPECT RATIOS
+["1:1","4:3","3:4","16:9","9:16","4:5"]
+
+OUTPUT SCHEMA
+{
+  "shouldIllustrate": true,
+  "reason": "short overall decision reason",
+  "illustrations": [
+    {
+      "rank": 1,
+      "title": "short human-readable label",
+      "reason": "why this beat deserves an image",
+      "anchor": {
+        "paragraphIndex": 0,
+        "insertionSide": "after",
+        "anchorExcerpt": "short exact excerpt from the source paragraph"
+      },
+      "aspectRatio": "4:3",
+      "expectedPeopleCount": 2,
+      "namedSubjects": ["Exact Name A", "Exact Name B"],
+      "omittedSubjects": [],
+      "subjectDirectives": [
+        {
+          "name": "Exact Name A",
+          "role": "character",
+          "appearanceOverrides": [],
+          "attireOverrides": [],
+          "temporaryTraits": [],
+          "expression": "specific expression",
+          "pose": "specific pose/body orientation",
+          "action": "specific current action",
+          "gaze": "specific gaze target",
+          "contact": "specific contact ownership, or empty string"
+        }
+      ],
+      "composition": {
+        "shotType": "medium two-shot",
+        "cameraAngle": "eye level",
+        "framing": "waist-up",
+        "blocking": "precise spatial arrangement",
+        "foreground": "",
+        "background": "",
+        "location": "exact story location",
+        "timeOfDay": "",
+        "lighting": "",
+        "mood": "",
+        "importantProps": [],
+        "backgroundPeople": ""
+      },
+      "promptCore": "concise scene-specific visual phrases",
+      "negativeCore": "scene-specific exclusions only",
+      "referenceAssetIds": [],
+      "locationReferenceAssetIds": []
+    }
+  ]
+}
+
+If no image is worthwhile, return:
+{
+  "shouldIllustrate": false,
+  "reason": "why no image is warranted",
+  "illustrations": []
+}
+
+CHARACTER / APPEARANCE STATE
+{{characterContextJson}}
+
+LOCATION STATE
+{{locationContextJson}}
+
+AVAILABLE REFERENCE ASSETS
+{{referenceAssetsJson}}
+
+ALREADY PLANNED OR COMMITTED ILLUSTRATIONS IN THIS RESPONSE
+{{priorIllustrationsJson}}
+
+GLOBAL NEGATIVE REQUIREMENTS
+{{globalNegativeRequirementsJson}}
+
+SOURCE PARAGRAPHS
+{{paragraphsJson}}
+
+Return JSON only.
+
+`.slice(1, -1);
+var RELAY_PLANNED_REPAIR_PARSER_SYSTEM_PROMPT = `
+You are Reverie Relay's Illustration Plan Repair Parser.
+
+You receive:
+1. one proposed illustration object;
+2. the authoritative source paragraph(s);
+3. authoritative subject appearance/current-state data;
+4. deterministic validation errors.
+
+Your only job is to repair the structured illustration object so it satisfies the schema and the supplied story facts.
+
+You are NOT selecting a new beat.
+You are NOT writing story prose.
+You are NOT changing the emotional event.
+You are NOT adding characters.
+You are NOT changing subject count unless the validator explicitly says the original count contradicts the source.
+You are NOT redesigning a valid composition for style.
+
+Preserve whenever valid:
+- anchor intent;
+- subject identities;
+- action;
+- contact ownership;
+- gaze;
+- framing;
+- location;
+- mood;
+- aspect ratio;
+- reference IDs.
+
+Never contradict manually pinned or canonical appearance facts.
+
+Current-response explicit temporary appearance may override older temporary state.
+
+Do not invent missing story events.
+
+ADULT MODE
+
+If adultMode is true and the supplied authoritative source/object contains consensual adult explicit visual state, preserve that state during repair.
+
+Do not "repair" an adult scene by censoring:
+- nudity;
+- clothing displacement;
+- adult anatomy ownership;
+- consensual sexual contact;
+- arousal/current intimate state;
+- explicit pose/contact details that are already authoritative.
+
+Do not invent or intensify sexual content beyond the supplied source.
+
+If any sexualized subject is known or reasonably indicated to be under 18, return non-repairable for an explicit sexual illustration rather than creating explicit sexual content.
+
+Adult-mode fidelity never permits changing subject identity, event, consent state, subject count, or story facts.
+
+If the object cannot be repaired without guessing a new event or identity, return:
+{
+  "repairable": false,
+  "reason": "short explanation"
+}
+
+Otherwise return:
+{
+  "repairable": true,
+  "illustration": { ...complete corrected illustration object... }
+}
+
+Return JSON only.
+
+`.slice(1, -1);
+var RELAY_PLANNED_REPAIR_PARSER_REQUEST_TEMPLATE = `
+Repair this Relay-Planned illustration object.
+
+VALIDATION ERRORS
+{{validationErrorsJson}}
+
+AUTHORITATIVE SOURCE PARAGRAPHS
+{{sourceParagraphsJson}}
+
+AUTHORITATIVE SUBJECT STATE
+{{subjectStateJson}}
+
+ALLOWED REFERENCE ASSETS
+{{referenceAssetsJson}}
+
+PROPOSED ILLUSTRATION
+{{proposedIllustrationJson}}
+
+Return JSON only.
+
+`.slice(1, -1);
+
 // src/protocols.ts
 var REVERIE_CONTEXTUAL_SEXUAL_FIDELITY_RULE = `SEXUAL CONTENT FIDELITY
 
@@ -878,7 +1517,70 @@ var PROMPT_REGISTRY_DEFINITIONS = [
     version: 4,
     status: "stable"
   })),
-  ...Object.entries(DEFAULT_SIDECAR_PROMPTS).map(([id, defaultTemplate]) => ({
+  {
+    id: "appearance.sidecar.system",
+    displayName: "Appearance Sidecar / System",
+    description: "Canonical identity, current visual state, provenance, and terminal-state extraction law.",
+    category: "sidecars",
+    defaultTemplate: APPEARANCE_SIDECAR_SYSTEM_PROMPT,
+    version: 1,
+    status: "stable",
+    allowedPlaceholders: []
+  },
+  {
+    id: "appearance.sidecar.request",
+    displayName: "Appearance Sidecar / Request",
+    description: "Editable runtime request template for completed-response appearance extraction.",
+    category: "sidecars",
+    defaultTemplate: APPEARANCE_SIDECAR_REQUEST_TEMPLATE,
+    version: 1,
+    status: "stable",
+    allowedPlaceholders: ["adultMode", "providerVocabulary", "manualAppearanceJson", "canonicalAppearanceJson", "currentVisualStateJson", "subjectBindingsJson", "tagVocabularyJson", "sourceResponse"],
+    requiredTokens: ["{{sourceResponse}}", "{{canonicalAppearanceJson}}", "{{currentVisualStateJson}}"]
+  },
+  {
+    id: "relay-planned.director.system",
+    displayName: "Relay-Planned Director / System",
+    description: "Canonical Relay-Planned illustration selection and direction law.",
+    category: "sidecars",
+    defaultTemplate: RELAY_PLANNED_DIRECTOR_SYSTEM_PROMPT,
+    version: 1,
+    status: "stable",
+    allowedPlaceholders: []
+  },
+  {
+    id: "relay-planned.director.request",
+    displayName: "Relay-Planned Director / Request",
+    description: "Editable runtime request template for selecting illustration moments.",
+    category: "sidecars",
+    defaultTemplate: RELAY_PLANNED_DIRECTOR_REQUEST_TEMPLATE,
+    version: 1,
+    status: "stable",
+    allowedPlaceholders: ["adultMode", "maximumIllustrations", "maximumCharacters", "defaultAspectRatio", "promptStyle", "perspectiveMode", "characterContextJson", "locationContextJson", "priorIllustrationsJson", "referenceAssetsJson", "globalNegativeRequirementsJson", "paragraphsJson"],
+    requiredTokens: ["{{paragraphsJson}}", "{{characterContextJson}}", "{{adultMode}}"]
+  },
+  {
+    id: "relay-planned.repair-parser.system",
+    displayName: "Relay-Planned Repair Parser / System",
+    description: "Constrained structured-object repair law for Relay-Planned proposals.",
+    category: "sidecars",
+    defaultTemplate: RELAY_PLANNED_REPAIR_PARSER_SYSTEM_PROMPT,
+    version: 1,
+    status: "stable",
+    allowedPlaceholders: []
+  },
+  {
+    id: "relay-planned.repair-parser.request",
+    displayName: "Relay-Planned Repair Parser / Request",
+    description: "Editable deterministic repair request for a rejected illustration proposal.",
+    category: "sidecars",
+    defaultTemplate: RELAY_PLANNED_REPAIR_PARSER_REQUEST_TEMPLATE,
+    version: 1,
+    status: "stable",
+    allowedPlaceholders: ["validationErrorsJson", "sourceParagraphsJson", "subjectStateJson", "referenceAssetsJson", "proposedIllustrationJson"],
+    requiredTokens: ["{{validationErrorsJson}}", "{{proposedIllustrationJson}}"]
+  },
+  ...Object.entries(DEFAULT_SIDECAR_PROMPTS).filter(([id]) => id !== "sidecar.appearance.system" && id !== "sidecar.appearance.request").map(([id, defaultTemplate]) => ({
     id,
     displayName: id.split(".").slice(1).join(" / "),
     description: "Editable Sidecar workflow prompt.",
@@ -139206,7 +139908,6 @@ ${record.imageId || record.error || "No image yet"}`;
       showToast("warning", "Open a chat to resolve its final Illustrator prompt.");
       return;
     }
-    patchProseSettings({ promptRegistry: { ...settings.promptRegistry } });
     ctx.sendToBackend({ type: "prose_illustrator_action", chatId: activeChatId, action: "preview_prompt" });
   }
   function installAccessibleModalDismissal(modal, label) {
@@ -139265,8 +139966,8 @@ ${record.imageId || record.error || "No image yet"}`;
       if (find.value)
         editor.value = editor.value.split(find.value).join(replacement.value);
     }, false, "subtle"), button("Save", () => {
-      save(editor.value);
-      dismiss();
+      if (save(editor.value))
+        dismiss();
     }, false, "primary"));
     body.append(find, replacement, editor, actions);
     modal.root.appendChild(body);
@@ -139275,7 +139976,7 @@ ${record.imageId || record.error || "No image yet"}`;
     const modal = ctx.ui.showModal({ title: "Prompt Registry", width: 980, persistent: true });
     modal.root.classList.add("dg-router-panel", "dg-modal-host");
     installAccessibleModalDismissal(modal, "Prompt Registry");
-    let registry = { ...DEFAULT_PROMPT_REGISTRY, ...settings.promptRegistry || {} };
+    let overrides = { ...settings.promptRegistry || {} };
     let query = "";
     let category = "all";
     let customizedOnly = false;
@@ -139300,18 +140001,45 @@ ${record.imageId || record.error || "No image yet"}`;
     const list = document.createElement("div");
     list.className = "dg-history-track";
     let versions = { ...DEFAULT_PROMPT_REGISTRY_VERSIONS, ...settings.promptRegistryVersions || {} };
-    const commit = () => patchProseSettings({ promptRegistry: { ...registry }, promptRegistryVersions: { ...versions } });
+    const hasOverride = (id) => Object.prototype.hasOwnProperty.call(overrides, id);
+    const effective = (definition) => hasOverride(definition.id) ? String(overrides[definition.id] ?? "") : definition.defaultTemplate;
+    const placeholders = (value) => [...new Set([...value.matchAll(/\{\{\s*([\w.-]+)\s*\}\}/g)].map((match) => match[1]))];
+    const validate = (definition, value) => {
+      if (!definition.allowedPlaceholders)
+        return true;
+      const unknown = placeholders(value).filter((name) => !definition.allowedPlaceholders.includes(name));
+      if (!unknown.length)
+        return true;
+      showToast("error", `Unsupported template variable${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}`);
+      return false;
+    };
+    const saveOverride = (definition, value) => {
+      if (!validate(definition, value))
+        return false;
+      const isDefault = value.replace(/\r\n/g, `
+`) === definition.defaultTemplate.replace(/\r\n/g, `
+`);
+      if (isDefault)
+        delete overrides[definition.id];
+      else
+        overrides[definition.id] = value;
+      versions[definition.id] = definition.version;
+      enqueueRelaySettingsPatch({ kind: "prompt-registry-override", promptId: definition.id, content: isDefault ? null : value, version: definition.version });
+      return true;
+    };
     const render = () => {
       list.replaceChildren();
       const filtered = PROMPT_REGISTRY_DEFINITIONS.filter((definition) => {
         if (category !== "all" && definition.category !== category)
           return false;
-        if (customizedOnly && registry[definition.id] === definition.defaultTemplate)
+        if (customizedOnly && !hasOverride(definition.id))
           return false;
         const haystack = `${definition.displayName} ${definition.description} ${definition.id}`.toLocaleLowerCase();
         return !query || haystack.includes(query.toLocaleLowerCase());
       });
       for (const definition of filtered) {
+        const value = effective(definition);
+        const customized = hasOverride(definition.id);
         const card = document.createElement("div");
         card.className = "dg-slot-card";
         const head = document.createElement("div");
@@ -139319,14 +140047,17 @@ ${record.imageId || record.error || "No image yet"}`;
         const title = document.createElement("div");
         title.className = "dg-history-title";
         title.textContent = definition.displayName;
-        head.append(title, chip(registry[definition.id] === definition.defaultTemplate ? "Default" : "Customized", registry[definition.id] === definition.defaultTemplate ? "" : "completed"));
+        head.append(title, chip(customized ? "User Override" : "Default", customized ? "completed" : ""));
         if (definition.status === "provisional")
           head.append(chip("Provisional", "warning"));
         const help = document.createElement("div");
         help.className = "dg-section-sub";
-        help.textContent = `${definition.category} · ${definition.description}`;
-        const missingTokens = (definition.requiredTokens || []).filter((token) => !(registry[definition.id] || "").includes(token));
-        const outdated = registry[definition.id] !== definition.defaultTemplate && ((versions[definition.id] || 0) < definition.version || missingTokens.length > 0);
+        help.textContent = `${definition.category} · ${definition.description} · ${value.length.toLocaleString()} chars · ~${Math.ceil(value.length / 4).toLocaleString()} input tokens`;
+        const variableHelp = document.createElement("div");
+        variableHelp.className = "dg-section-sub";
+        variableHelp.textContent = definition.allowedPlaceholders?.length ? `Supported variables: ${definition.allowedPlaceholders.map((name) => `{{${name}}}`).join(", ")}` : definition.allowedPlaceholders ? "No runtime template variables." : "Legacy prompt; template variables are validated by its workflow.";
+        const missingTokens = (definition.requiredTokens || []).filter((token) => !value.includes(token));
+        const outdated = customized && ((versions[definition.id] || 0) < definition.version || missingTokens.length > 0);
         if (outdated) {
           const warning = document.createElement("div");
           warning.className = "dg-build-warning";
@@ -139336,27 +140067,27 @@ ${record.imageId || record.error || "No image yet"}`;
         const editor = document.createElement("textarea");
         editor.className = "dg-textarea";
         editor.rows = 7;
-        editor.value = registry[definition.id] ?? "";
+        editor.value = value;
         editor.addEventListener("change", () => {
-          registry[definition.id] = editor.value;
-          versions[definition.id] = definition.version;
-          commit();
-          render();
+          if (saveOverride(definition, editor.value))
+            render();
+          else
+            editor.value = value;
         });
         const actions = document.createElement("div");
         actions.className = "dg-actions";
-        actions.append(button("Expand", () => openExpandedPromptEditor(definition.id, editor.value, (value) => {
-          registry[definition.id] = value;
+        actions.append(button("Edit", () => openExpandedPromptEditor(definition.id, editor.value, (next) => {
+          const saved = saveOverride(definition, next);
+          if (saved)
+            render();
+          return saved;
+        }), false, "subtle"), button("Reset to Default", () => {
+          delete overrides[definition.id];
           versions[definition.id] = definition.version;
-          commit();
+          enqueueRelaySettingsPatch({ kind: "prompt-registry-override", promptId: definition.id, content: null, version: definition.version });
           render();
-        }), false, "subtle"), button("Reset", () => {
-          registry[definition.id] = definition.defaultTemplate;
-          versions[definition.id] = definition.version;
-          commit();
-          render();
-        }, false, "subtle"));
-        card.append(head, help, editor, actions);
+        }, !customized, "subtle"), button("Preview Compiled Prompt", () => openJsonModal(`Compiled Prompt Preview · ${definition.displayName}`, { promptId: definition.id, source: customized ? "user-override" : "default", content: value, unresolvedPlaceholders: placeholders(value), characters: value.length, estimatedInputTokens: Math.ceil(value.length / 4) }), false, "subtle"), button("Copy", () => copyText(value, `${definition.displayName} copied.`), false, "subtle"), button("Export", () => downloadJson(`reverie-relay-prompt-${definition.id}.json`, { id: definition.id, source: customized ? "user-override" : "default", version: versions[definition.id] || definition.version, content: value }), false, "subtle"));
+        card.append(head, help, variableHelp, editor, actions);
         list.appendChild(card);
       }
       if (!filtered.length)
@@ -139374,22 +140105,29 @@ ${record.imageId || record.error || "No image yet"}`;
       customizedOnly = !customizedOnly;
       render();
     }, false, "subtle"), button("Reset All", () => {
-      registry = { ...DEFAULT_PROMPT_REGISTRY };
+      for (const definition of PROMPT_REGISTRY_DEFINITIONS) {
+        if (!hasOverride(definition.id))
+          continue;
+        enqueueRelaySettingsPatch({ kind: "prompt-registry-override", promptId: definition.id, content: null, version: definition.version });
+      }
+      overrides = {};
       versions = { ...DEFAULT_PROMPT_REGISTRY_VERSIONS };
-      commit();
       render();
-    }, false, "subtle"), button("Export", () => openJsonModal("Prompt Registry Export", registry), false, "subtle"), button("Import", () => {
+    }, false, "subtle"), button("Export", () => openJsonModal("Prompt Registry Overrides Export", { promptRegistry: overrides, promptRegistryVersions: versions }), false, "subtle"), button("Import", () => {
       const raw = window.prompt("Paste a Prompt Registry JSON object");
       if (raw === null)
         return;
       try {
         const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        const imported = parsed?.promptRegistry && typeof parsed.promptRegistry === "object" ? parsed.promptRegistry : parsed;
+        if (!imported || typeof imported !== "object" || Array.isArray(imported))
           throw new Error("Expected an object.");
-        registry = { ...registry, ...parsed };
-        for (const id of Object.keys(parsed))
-          versions[id] = 0;
-        commit();
+        for (const [id, content] of Object.entries(imported)) {
+          const definition = PROMPT_REGISTRY_DEFINITIONS.find((candidate) => candidate.id === id);
+          if (!definition || typeof content !== "string" || !validate(definition, content))
+            continue;
+          saveOverride(definition, content);
+        }
         render();
       } catch (error) {
         showToast("error", `Prompt Registry import failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -139597,7 +140335,7 @@ Model enumeration unavailable; Relay can only show models exposed by configured 
       adaptiveMode: true,
       defaultPromptProfileId: config?.defaultPromptProfileId || "auto",
       defaultAspectRatio: "adaptive",
-      promptRegistry: { ...DEFAULT_PROMPT_REGISTRY },
+      promptRegistry: {},
       promptRegistryVersions: { ...DEFAULT_PROMPT_REGISTRY_VERSIONS },
       appearanceMemoryEnabled: true,
       useGlobalAppearanceSidecar: true,
@@ -142923,7 +143661,7 @@ The chat message and generated image assets will remain.`, scope: `${appLabel(re
     const planRows = [
       ["Authoritative Story Model / Composer Prompt", composition?.sceneBrief || record.originalSceneBrief || "Unavailable"],
       ["Cast / depicted subjects", record.cast || (subjects.length ? subjects.join(", ") : "none resolved")],
-      ["Parser status", pipeline?.parserRequested === false ? "skipped" : pipeline?.parserSucceeded ? "succeeded" : pipeline?.parserFallbackUsed ? "failed · fallback" : pipeline?.parserFailed ? "failed" : "not recorded"],
+      ["Parser status", pipeline?.parserDecision || (pipeline?.parserRequested === false ? "Skipped — reason not recorded" : pipeline?.parserSucceeded ? "Used — normalization succeeded" : pipeline?.parserFallbackUsed ? "Rejected — authoritative fallback" : pipeline?.parserFailed ? "Failed" : "Not recorded")],
       ["User Positive Prompt Prefix", pipeline?.userPositivePromptPrefix || "Not configured"],
       ["User Negative Prompt Prefix", pipeline?.userNegativePromptPrefix || "Not configured"],
       ["Prefixes applied", pipeline?.prefixesApplied === true ? "yes" : pipeline?.prefixesApplied === false ? "no" : "not recorded"],
@@ -143806,6 +144544,17 @@ ${recovered} recovered / ${summary.imageUnavailable} unavailable / ${summary.exi
     if (patch.kind === "narrative-enabled") {
       config = { ...config, narrativeDlcEnabled: patch.enabledNames.length > 0, narrativeDlcUtilityNames: [...patch.enabledNames] };
       narrativeUtilityRegistry = narrativeUtilityRegistry.map((record2) => ({ ...record2, enabled: patch.enabledNames.includes(record2.id) }));
+      return;
+    }
+    if (patch.kind === "prompt-registry-override") {
+      const promptRegistry = { ...config.proseIllustratorSettings.promptRegistry || {} };
+      const promptRegistryVersions = { ...config.proseIllustratorSettings.promptRegistryVersions || {} };
+      if (patch.content === null)
+        delete promptRegistry[patch.promptId];
+      else
+        promptRegistry[patch.promptId] = patch.content;
+      promptRegistryVersions[patch.promptId] = patch.version;
+      config = { ...config, proseIllustratorSettings: { ...config.proseIllustratorSettings, promptRegistry, promptRegistryVersions } };
       return;
     }
     const overrides = { ...config.narrativeUtilityOverrides || {} };

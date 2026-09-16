@@ -120,6 +120,7 @@ type AddAppearanceFactInput = {
   characterId: string
   category: AppearanceFactCategory
   value: string
+  valueKind?: AppearanceVaultFact['valueKind']
   /** Opaque Sidecar or user-confirmed semantic replacement key. */
   conflictDomain?: string
   sourceType: AppearanceSourceType
@@ -153,6 +154,7 @@ type CanonicalAppearanceRow = {
   layer: AppearanceVaultLayer
   category: AppearanceFactCategory
   value: string
+  valueKind?: AppearanceVaultFact['valueKind']
   conflictDomain?: string
 }
 
@@ -302,8 +304,8 @@ function serializeCanonicalTagList(value: unknown): string {
 }
 
 function addCanonicalRow(rows: CanonicalAppearanceRow[], row: CanonicalAppearanceRow): void {
-  const value = canonicalTag(row.value)
-  if (!value || value.length < 2 || value.length > 64) return
+  const value = row.valueKind === 'visual-phrase' ? clean(row.value) : canonicalTag(row.value)
+  if (!value || value.length < 2 || value.length > (row.valueKind === 'visual-phrase' ? 160 : 64)) return
   const conflictDomain = row.conflictDomain ? row.conflictDomain.replace(/_/g, '-') : undefined
   const key = `${row.layer}:${row.category}:${conflictDomain || ''}:${value}`
   if (rows.some(existing => `${existing.layer}:${existing.category}:${existing.conflictDomain || ''}:${existing.value}` === key)) return
@@ -325,6 +327,17 @@ function canonicalRowsForSegment(segment: string, requestedLayer?: AppearanceVau
   const wardrobeCategoryOverride = requestedLayer === 'wardrobe' && requestedCategory && isCategoryAllowedForLayer('wardrobe', requestedCategory) ? requestedCategory : undefined
 
   if (allowStable && !/\b(?:bronze|golden)\b.+\b(?:sunset|lighting|lights?|under|looked)\b/i.test(lower)) {
+    // Small, audited aliases for recurring high-confidence concepts. These
+    // are vocabulary matches, not sentence-to-underscore conversion.
+    if (/\b(?:golden(?:\s+cream)?|cream(?:\s+golden)?|golden\s+cream)\s+(?:labrador\s+)?retriever(?:\s+puppy)?\b|\bgolden[_ ]retriever\b/i.test(text)) {
+      addCanonicalRow(rows, { layer: 'visual-identity', category: stableCategoryOverride || 'other', value: 'golden_retriever', conflictDomain: 'species-trait:breed' })
+    }
+    if (/\bcream(?:[-_ ]colored)?\s+(?:coat|fur)\b|\bcream_fur\b/i.test(text)) {
+      addCanonicalRow(rows, { layer: 'visual-identity', category: stableCategoryOverride || 'other', value: 'cream_fur', conflictDomain: 'skin-color' })
+    }
+    if (/\bfloppy(?:[-_ ]shaped)?\s+ears?\b|\bfloppy_ears\b/i.test(text)) {
+      addCanonicalRow(rows, { layer: 'visual-identity', category: stableCategoryOverride || 'other', value: 'floppy_ears', conflictDomain: 'species-trait:ears' })
+    }
     if (requestedCategory === 'hair-color') {
       if (/^(?:jet[- ]black|raven[- ]black|black)$/i.test(lower)) addCanonicalRow(rows, { layer: 'visual-identity', category: 'hair-color', value: 'black_hair', conflictDomain: 'hair-color' })
       else if (/^dark$/i.test(lower)) addCanonicalRow(rows, { layer: 'visual-identity', category: 'hair-color', value: 'dark_hair', conflictDomain: 'hair-color' })
@@ -387,9 +400,13 @@ function canonicalRowsForSegment(segment: string, requestedLayer?: AppearanceVau
     }
   }
 
-  if (allowCurrent && TEMPORARY_RE.test(text)) {
-    const tag = canonicalTag(text)
-    if (tag) addCanonicalRow(rows, { layer: 'current-appearance', category: requestedCategory && isCategoryAllowedForLayer('current-appearance', requestedCategory) ? requestedCategory : temporaryCategory(text), value: tag })
+  if (allowCurrent) {
+    if (/\b(?:medical|athletic)?\s*compression\s+tape\b.*\b(?:lower\s+)?ribs?\b|\bbandag(?:e|ed|ing)\b.*\b(?:lower\s+)?ribs?\b|\bbandaged_ribs\b/i.test(text)) {
+      addCanonicalRow(rows, { layer: 'current-appearance', category: 'temporary-injury', value: 'bandaged_ribs', conflictDomain: 'injury-wrap:ribs' })
+    } else if (TEMPORARY_RE.test(text)) {
+      const tag = canonicalTag(text)
+      if (tag) addCanonicalRow(rows, { layer: 'current-appearance', category: requestedCategory && isCategoryAllowedForLayer('current-appearance', requestedCategory) ? requestedCategory : temporaryCategory(text), value: tag })
+    }
   }
 
   return rows
@@ -408,16 +425,21 @@ function canonicalizeAppearanceFactInput(input: AddAppearanceFactInput): Canonic
     })
     if (segmentRows.length) continue
     if (input.semanticAuthority === 'legacy-migration' && hasRecognizedSegment) continue
-    const tag = canonicalTag(segment)
-    const tagLooksCanonical = /^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(tag) && tag.length <= 64
-    if (tagLooksCanonical) {
-      const text = tag.replace(/_/g, ' ')
+    const authored = clean(segment)
+    const authoredCanonicalTag = /^[a-z0-9]+(?:_[a-z0-9]+)*$/i.test(authored) && authored.length <= 64
+    const value = authoredCanonicalTag ? authored.toLocaleLowerCase() : authored
+    const authoredAuthority = Boolean(input.semanticAuthority) || input.sourceType === 'manual'
+    if (value && value.length <= 160 && (authoredCanonicalTag || authoredAuthority)) {
+      const text = value.replace(/_/g, ' ')
       const classification = classifyAppearanceValue(text, input.category)
       if (classification.layer === input.layer || Boolean(input.semanticAuthority)) {
         addCanonicalRow(rows, {
           layer: input.layer,
           category: isCategoryAllowedForLayer(input.layer, input.category) ? input.category : (classification.category || input.category),
-          value: tag,
+          // Unknown vocabulary stays a readable visual phrase. Never mint a
+          // sentence-shaped pseudo-Booru tag by replacing every space.
+          value,
+          valueKind: authoredCanonicalTag ? 'booru-tag' : 'visual-phrase',
           conflictDomain: segments.length === 1 ? clean(input.conflictDomain) || undefined : undefined,
         })
       }
@@ -844,6 +866,7 @@ function addCanonicalAppearanceFact(
     aliases: [...character.aliases],
     category: input.category,
     value,
+    valueKind: input.valueKind || existing?.valueKind || (/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(value) ? 'booru-tag' : 'visual-phrase'),
     conflictDomain: conflictDomain || existing?.conflictDomain,
     sourceType: input.sourceType,
     sourceReference,
@@ -892,6 +915,7 @@ function addCanonicalAppearanceRows(vault: ContinuityVaultState, input: AddAppea
       layer: row.layer,
       category: row.category,
       value: row.value,
+      valueKind: row.valueKind,
       conflictDomain: row.conflictDomain || input.conflictDomain,
       currentWardrobe: row.layer === 'wardrobe' ? input.currentWardrobe : undefined,
     }, preserveInputOrder ? now - index : now, { deferCurrentWardrobeSupersede: currentWardrobeBatch }))
@@ -1405,6 +1429,64 @@ export function formatSelectedAppearanceFacts(facts: AppearanceVaultFact[]): str
 
 export function formatProjectedAppearanceFacts(facts: AppearanceVaultFact[]): string {
   return formatSelectedAppearanceFacts(facts)
+}
+
+const FOOTWEAR_RE = /\b(?:boots?|shoes?|heels?|sandals?|sneakers?|slippers?|loafers?|footwear)\b/i
+const BAREFOOT_RE = /\b(?:barefoot|bare feet|shoeless)\b/i
+
+function normalizedPromptFragment(value: string): string {
+  return value.normalize('NFKC').toLocaleLowerCase().replace(/_/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+}
+
+/**
+ * Compiles resolved Appearance Memory once for the final provider prompt.
+ * Storage labels and provenance are intentionally excluded: providers receive
+ * canonical tags or readable visual phrases, grouped once per subject.
+ */
+export function compileAppearancePromptFacts(facts: AppearanceVaultFact[], authoritativeScene = ''): string {
+  const scene = authoritativeScene.replace(/_/g, ' ')
+  const sceneSaysBarefoot = BAREFOOT_RE.test(scene)
+  const sceneSaysFootwear = FOOTWEAR_RE.test(scene) && !sceneSaysBarefoot
+  const byCharacter = new Map<string, AppearanceVaultFact[]>()
+  for (const fact of dedupeResolvedAppearanceFacts(facts)) {
+    const readable = fact.value.replace(/_/g, ' ')
+    if (sceneSaysFootwear && BAREFOOT_RE.test(readable)) continue
+    if (sceneSaysBarefoot && FOOTWEAR_RE.test(readable)) continue
+    const rows = byCharacter.get(fact.canonicalCharacterId) || []
+    rows.push(fact)
+    byCharacter.set(fact.canonicalCharacterId, rows)
+  }
+  const blocks: string[] = []
+  for (const rows of byCharacter.values()) {
+    const seen = new Set<string>()
+    const descriptors: string[] = []
+    for (const fact of rows) {
+      const value = fact.value.trim()
+      const key = normalizedPromptFragment(value)
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      descriptors.push(value)
+    }
+    if (descriptors.length) blocks.push(`${rows[0]?.canonicalCharacterName || 'subject'}, ${descriptors.join(', ')}`)
+  }
+  return blocks.join('; ')
+}
+
+/** Adds only appearance fragments that are not already present in the prompt. */
+export function mergeAppearancePromptFacts(basePrompt: string, facts: AppearanceVaultFact[], authoritativeScene = ''): string {
+  const compiled = compileAppearancePromptFacts(facts, authoritativeScene)
+  if (!compiled) return basePrompt
+  const base = normalizedPromptFragment(basePrompt)
+  const additions = compiled.split(/\s*;\s*/).map(block => {
+    const [subject = '', ...rawDescriptors] = block.split(/\s*,\s*/)
+    const descriptors = rawDescriptors.filter(descriptor => {
+      const normalized = normalizedPromptFragment(descriptor)
+      return normalized && !base.includes(normalized)
+    })
+    if (!descriptors.length) return ''
+    return base.includes(normalizedPromptFragment(subject)) ? descriptors.join(', ') : `${subject}, ${descriptors.join(', ')}`
+  }).filter(Boolean)
+  return additions.length ? `${basePrompt.replace(/[\s,;]+$/g, '')}, ${additions.join('; ')}` : basePrompt
 }
 
 export function allAppearanceFacts(vault: ContinuityVaultState): AppearanceVaultFact[] {
@@ -2099,6 +2181,7 @@ function normalizeFactMap(value: unknown, layer: AppearanceVaultLayer, character
         aliases: unique([...character.aliases, ...stringList(raw.aliases), ...(existing?.aliases || [])]),
         category: row.category,
         value: row.value,
+        valueKind: row.valueKind || (clean(raw.valueKind) === 'visual-phrase' ? 'visual-phrase' : 'booru-tag'),
         conflictDomain: conflictDomain || existing?.conflictDomain,
         sourceType,
         sourceReference,

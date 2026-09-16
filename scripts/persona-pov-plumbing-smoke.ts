@@ -76,7 +76,7 @@ const migratedStockInline = backend.normalizeProseIllustratorSettings({
   promptRegistry: { 'story.inline-protocol': stockInlineV1 },
   promptRegistryVersions: { 'story.inline-protocol': 1 },
 })
-assert.equal(migratedStockInline.promptRegistry['story.inline-protocol'], inlineDefinition.defaultTemplate, 'exact stock Inline v1 must migrate to the v2 default')
+assert(!Object.prototype.hasOwnProperty.call(migratedStockInline.promptRegistry, 'story.inline-protocol'), 'exact stock Inline v1 must migrate by deleting the obsolete override')
 assert.equal(migratedStockInline.promptRegistryVersions['story.inline-protocol'], 2, 'migrated stock Inline prompt must record registry version 2')
 const customInline = `${stockInlineV1}\n\nCUSTOM USER CAMERA LAW: hold the authored diagonal.`
 const preservedCustomInline = backend.normalizeProseIllustratorSettings({

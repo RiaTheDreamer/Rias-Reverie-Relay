@@ -90,6 +90,56 @@ export function normalizeAppearanceSidecarOutput(raw: string): AppearanceSidecar
       facts,
     })
   }
+  if (!observations.length && Array.isArray(parsed.subjects)) {
+    const layerDomains: Array<{ path: ['canonical' | 'current', string]; layer: AppearanceVaultLayer; category: AppearanceFactCategory }> = [
+      { path: ['canonical', 'species'], layer: 'visual-identity', category: 'other' },
+      { path: ['canonical', 'hair'], layer: 'visual-identity', category: 'other' },
+      { path: ['canonical', 'eyes'], layer: 'visual-identity', category: 'other' },
+      { path: ['canonical', 'skinFur'], layer: 'visual-identity', category: 'other' },
+      { path: ['canonical', 'body'], layer: 'visual-identity', category: 'body-build' },
+      { path: ['canonical', 'permanentTraits'], layer: 'visual-identity', category: 'permanent-mark' },
+      { path: ['current', 'attire'], layer: 'wardrobe', category: 'current-outfit' },
+      { path: ['current', 'hairstyle'], layer: 'current-appearance', category: 'temporary-hair' },
+      { path: ['current', 'temporaryTraits'], layer: 'current-appearance', category: 'other' },
+      { path: ['current', 'injuries'], layer: 'current-appearance', category: 'temporary-injury' },
+      { path: ['current', 'intimateState'], layer: 'current-appearance', category: 'temporary-clothing-state' },
+    ]
+    for (const rawSubject of parsed.subjects.slice(0, 24)) {
+      const subject = asRecord(rawSubject)
+      const name = clean(subject.name)
+      const role = clean(subject.role)
+      if (!name || !isValidCanonicalCharacterName(name)) continue
+      const facts: AppearanceSidecarFact[] = []
+      for (const domain of layerDomains) {
+        const container = asRecord(asRecord(subject[domain.path[0]])[domain.path[1]])
+        const values = [...stringList(container.booruTags), ...stringList(container.visualPhrases)]
+          .map(value => value.trim())
+          .filter(value => value && value.length <= 160)
+          .slice(0, 16)
+        if (!values.length) continue
+        // One domain is one atomic set update. In particular, a current
+        // outfit containing a shirt, trousers, and shoes must not supersede
+        // itself three times while it is being ingested.
+        facts.push({
+          layer: domain.layer,
+          category: domain.category,
+          value: values.join(', '),
+          provenance: 'current-assistant-message',
+        })
+      }
+      if (!facts.length) continue
+      observations.push({
+        subject: {
+          name,
+          aliases: [],
+          role: role === 'user' ? 'persona' : role === 'character' ? 'character' : 'npc',
+          trustworthy: role === 'character' || role === 'user',
+        },
+        confidence: 1,
+        facts,
+      })
+    }
+  }
   return observations
 }
 
@@ -215,11 +265,9 @@ export function ingestAppearanceSidecarObservations(
     for (const fact of observation.facts) {
       // Native prompts are generation anchors, never a source to chop into facts.
       if (fact.provenance === 'native-character-preset' || fact.provenance === 'native-persona-preset') continue
-      const manualStableAuthority = fact.layer === 'visual-identity' && Object.values(vault.visualIdentity).some(existing =>
-        existing.canonicalCharacterId === canonical!.canonicalCharacterId && existing.status === 'active' && existing.userConfirmed)
       const manualCurrentOutfitAuthority = fact.layer === 'wardrobe' && fact.category === 'current-outfit' && Object.values(vault.wardrobe).some(existing =>
         existing.canonicalCharacterId === canonical!.canonicalCharacterId && existing.status === 'active' && existing.currentWardrobe && existing.userConfirmed)
-      if (manualStableAuthority || manualCurrentOutfitAuthority) continue
+      if (manualCurrentOutfitAuthority) continue
       try {
         const savedFacts = addAppearanceFacts(vault, {
           layer: fact.layer, characterId: canonical.canonicalCharacterId, category: fact.category, value: fact.value,

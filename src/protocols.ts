@@ -1,4 +1,12 @@
 import type { PromptRegistryDefinition } from './contracts'
+import {
+  APPEARANCE_SIDECAR_REQUEST_TEMPLATE,
+  APPEARANCE_SIDECAR_SYSTEM_PROMPT,
+  RELAY_PLANNED_DIRECTOR_REQUEST_TEMPLATE,
+  RELAY_PLANNED_DIRECTOR_SYSTEM_PROMPT,
+  RELAY_PLANNED_REPAIR_PARSER_REQUEST_TEMPLATE,
+  RELAY_PLANNED_REPAIR_PARSER_SYSTEM_PROMPT,
+} from './promptRegistryAssets028'
 
 export const REVERIE_CONTEXTUAL_SEXUAL_FIDELITY_RULE = `SEXUAL CONTENT FIDELITY
 
@@ -664,14 +672,79 @@ export const PROMPT_REGISTRY_DEFINITIONS: PromptRegistryDefinition[] = [
     version: 4,
     status: 'stable' as const,
   })),
-  ...Object.entries(DEFAULT_SIDECAR_PROMPTS).map(([id, defaultTemplate]) => ({
+  {
+    id: 'appearance.sidecar.system',
+    displayName: 'Appearance Sidecar / System',
+    description: 'Canonical identity, current visual state, provenance, and terminal-state extraction law.',
+    category: 'sidecars',
+    defaultTemplate: APPEARANCE_SIDECAR_SYSTEM_PROMPT,
+    version: 1,
+    status: 'stable',
+    allowedPlaceholders: [],
+  },
+  {
+    id: 'appearance.sidecar.request',
+    displayName: 'Appearance Sidecar / Request',
+    description: 'Editable runtime request template for completed-response appearance extraction.',
+    category: 'sidecars',
+    defaultTemplate: APPEARANCE_SIDECAR_REQUEST_TEMPLATE,
+    version: 1,
+    status: 'stable',
+    allowedPlaceholders: ['adultMode', 'providerVocabulary', 'manualAppearanceJson', 'canonicalAppearanceJson', 'currentVisualStateJson', 'subjectBindingsJson', 'tagVocabularyJson', 'sourceResponse'],
+    requiredTokens: ['{{sourceResponse}}', '{{canonicalAppearanceJson}}', '{{currentVisualStateJson}}'],
+  },
+  {
+    id: 'relay-planned.director.system',
+    displayName: 'Relay-Planned Director / System',
+    description: 'Canonical Relay-Planned illustration selection and direction law.',
+    category: 'sidecars',
+    defaultTemplate: RELAY_PLANNED_DIRECTOR_SYSTEM_PROMPT,
+    version: 1,
+    status: 'stable',
+    allowedPlaceholders: [],
+  },
+  {
+    id: 'relay-planned.director.request',
+    displayName: 'Relay-Planned Director / Request',
+    description: 'Editable runtime request template for selecting illustration moments.',
+    category: 'sidecars',
+    defaultTemplate: RELAY_PLANNED_DIRECTOR_REQUEST_TEMPLATE,
+    version: 1,
+    status: 'stable',
+    allowedPlaceholders: ['adultMode', 'maximumIllustrations', 'maximumCharacters', 'defaultAspectRatio', 'promptStyle', 'perspectiveMode', 'characterContextJson', 'locationContextJson', 'priorIllustrationsJson', 'referenceAssetsJson', 'globalNegativeRequirementsJson', 'paragraphsJson'],
+    requiredTokens: ['{{paragraphsJson}}', '{{characterContextJson}}', '{{adultMode}}'],
+  },
+  {
+    id: 'relay-planned.repair-parser.system',
+    displayName: 'Relay-Planned Repair Parser / System',
+    description: 'Constrained structured-object repair law for Relay-Planned proposals.',
+    category: 'sidecars',
+    defaultTemplate: RELAY_PLANNED_REPAIR_PARSER_SYSTEM_PROMPT,
+    version: 1,
+    status: 'stable',
+    allowedPlaceholders: [],
+  },
+  {
+    id: 'relay-planned.repair-parser.request',
+    displayName: 'Relay-Planned Repair Parser / Request',
+    description: 'Editable deterministic repair request for a rejected illustration proposal.',
+    category: 'sidecars',
+    defaultTemplate: RELAY_PLANNED_REPAIR_PARSER_REQUEST_TEMPLATE,
+    version: 1,
+    status: 'stable',
+    allowedPlaceholders: ['validationErrorsJson', 'sourceParagraphsJson', 'subjectStateJson', 'referenceAssetsJson', 'proposedIllustrationJson'],
+    requiredTokens: ['{{validationErrorsJson}}', '{{proposedIllustrationJson}}'],
+  },
+  ...Object.entries(DEFAULT_SIDECAR_PROMPTS)
+    .filter(([id]) => id !== 'sidecar.appearance.system' && id !== 'sidecar.appearance.request')
+    .map(([id, defaultTemplate]) => ({
     id,
     displayName: id.split('.').slice(1).join(' / '),
     description: 'Editable Sidecar workflow prompt.',
     category: 'sidecars' as const,
     defaultTemplate,
     version: id === 'sidecar.composer.request' ? 5 : id === 'sidecar.parser.request' ? 3 : id === 'sidecar.parser.repair' ? 2 : id === 'sidecar.appearance.field-refresh' ? 3 : id.startsWith('sidecar.appearance.') ? 2 : 1,
-  })),
+    })),
 ]
 
 export const DEFAULT_PROMPT_REGISTRY: Record<string, string> = Object.fromEntries(

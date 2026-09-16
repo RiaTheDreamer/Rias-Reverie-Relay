@@ -24,7 +24,7 @@
     "smoke:appearance": "bun scripts/appearance-canonicalization-smoke.ts",
     "smoke:appearance-sidecar-routing": "bun scripts/appearance-sidecar-routing-smoke.ts",
     "smoke:hygiene": "bun scripts/source-hygiene-smoke.mjs",
-    "test": "bun run typecheck && bun run build && bun run smoke:dist && bun run smoke:frontend-boot && bun run smoke && bun run smoke:vault && bun run smoke:native && bun run smoke:serialized && bun run smoke:slot-actions && bun run smoke:contracts && bun run smoke:narrative && bun run smoke:lorebook && bun run smoke:ux && bun run smoke:streaming && bun run smoke:placeholder && bun run smoke:live-regressions && bun run smoke:persona-pov && bun run smoke:character-phone && bun run smoke:appearance && bun run smoke:appearance-sidecar-routing && bun run smoke:runtime-contract && bun run smoke:phase1 && bun run smoke:phase2 && bun run smoke:phase3 && bun run smoke:phase4 && bun run smoke:message-edit && bun run smoke:story-history && bun run smoke:main-cleanup && bun run smoke:novelai-streaming && bun run smoke:hygiene",
+    "test": "bun run typecheck && bun run build && bun run smoke:dist && bun run smoke:frontend-boot && bun run smoke && bun run smoke:vault && bun run smoke:native && bun run smoke:serialized && bun run smoke:slot-actions && bun run smoke:contracts && bun run smoke:narrative && bun run smoke:lorebook && bun run smoke:ux && bun run smoke:streaming && bun run smoke:placeholder && bun run smoke:live-regressions && bun run smoke:persona-pov && bun run smoke:character-phone && bun run smoke:appearance && bun run smoke:appearance-sidecar-routing && bun run smoke:runtime-contract && bun run smoke:phase1 && bun run smoke:phase2 && bun run smoke:phase3 && bun run smoke:phase4 && bun run smoke:phase5 && bun run smoke:message-edit && bun run smoke:story-history && bun run smoke:main-cleanup && bun run smoke:novelai-streaming && bun run smoke:hygiene",
     "test:public": "bun run test",
     "smoke:main-cleanup": "bun scripts/main-cleanup-smoke.ts",
     "smoke:novelai-streaming": "bun scripts/novelai-streaming-smoke.ts",
@@ -33,6 +33,7 @@
     "smoke:phase2": "bun scripts/phase2-settings-vault-injection-smoke.ts",
     "smoke:phase3": "bun scripts/phase3-image-lifecycle-smoke.ts",
     "smoke:phase4": "bun scripts/phase4-syntax-plot-policy-smoke.ts",
+    "smoke:phase5": "bun scripts/phase5-appearance-parser-registry-smoke.ts",
     "smoke:message-edit": "bun scripts/message-edit-replay-smoke.ts",
     "smoke:story-history": "bun scripts/story-history-firebreak-smoke.ts"
   },

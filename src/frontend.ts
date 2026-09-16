@@ -229,6 +229,7 @@ type RelaySettingsPatch =
   | { kind: 'surface-prompt-enabled'; values: Record<string, boolean>; categoryId?: string }
   | { kind: 'narrative-enabled'; enabledNames: string[] }
   | { kind: 'narrative-override'; utilityName: string; content: string | null }
+  | { kind: 'prompt-registry-override'; promptId: string; content: string | null; version: number }
 
 type NarrativeUtilityInjectionRecord = {
   id: string
@@ -4369,7 +4370,6 @@ memory: [['genetics', 'Appearance Memory']],
 
   function openFinalPromptPreview(settings: ProseIllustratorSettings): void {
     if (!activeChatId) { showToast('warning', 'Open a chat to resolve its final Illustrator prompt.'); return }
-    patchProseSettings({ promptRegistry: { ...settings.promptRegistry } })
     ctx.sendToBackend({ type: 'prose_illustrator_action', chatId: activeChatId, action: 'preview_prompt' })
   }
 
@@ -4395,7 +4395,7 @@ memory: [['genetics', 'Appearance Memory']],
     return dismiss
   }
 
-  function openExpandedPromptEditor(definitionId: string, initialValue: string, save: (value: string) => void): void {
+  function openExpandedPromptEditor(definitionId: string, initialValue: string, save: (value: string) => boolean): void {
     const definition = PROMPT_REGISTRY_DEFINITIONS.find(item => item.id === definitionId)
     const modal = ctx.ui.showModal({ title: `Expand · ${definition?.displayName || definitionId}`, width: 960, persistent: true })
     modal.root.classList.add('dg-router-panel', 'dg-modal-host')
@@ -4407,7 +4407,7 @@ memory: [['genetics', 'Appearance Memory']],
     const actions = document.createElement('div'); actions.className = 'dg-actions'
     actions.append(
       button('Replace All', () => { if (find.value) editor.value = editor.value.split(find.value).join(replacement.value) }, false, 'subtle'),
-      button('Save', () => { save(editor.value); dismiss() }, false, 'primary'),
+      button('Save', () => { if (save(editor.value)) dismiss() }, false, 'primary'),
     )
     body.append(find, replacement, editor, actions); modal.root.appendChild(body)
   }
@@ -4416,7 +4416,7 @@ memory: [['genetics', 'Appearance Memory']],
     const modal = ctx.ui.showModal({ title: 'Prompt Registry', width: 980, persistent: true })
     modal.root.classList.add('dg-router-panel', 'dg-modal-host')
     installAccessibleModalDismissal(modal, 'Prompt Registry')
-    let registry = { ...DEFAULT_PROMPT_REGISTRY, ...(settings.promptRegistry || {}) }
+    let overrides = { ...(settings.promptRegistry || {}) }
     let query = ''
     let category = 'all'
     let customizedOnly = false
@@ -4433,37 +4433,66 @@ memory: [['genetics', 'Appearance Memory']],
     }
     const list = document.createElement('div'); list.className = 'dg-history-track'
     let versions = { ...DEFAULT_PROMPT_REGISTRY_VERSIONS, ...(settings.promptRegistryVersions || {}) }
-    const commit = () => patchProseSettings({ promptRegistry: { ...registry }, promptRegistryVersions: { ...versions } })
+    const hasOverride = (id: string) => Object.prototype.hasOwnProperty.call(overrides, id)
+    const effective = (definition: typeof PROMPT_REGISTRY_DEFINITIONS[number]) => hasOverride(definition.id)
+      ? String(overrides[definition.id] ?? '')
+      : definition.defaultTemplate
+    const placeholders = (value: string) => [...new Set([...value.matchAll(/\{\{\s*([\w.-]+)\s*\}\}/g)].map(match => match[1]))]
+    const validate = (definition: typeof PROMPT_REGISTRY_DEFINITIONS[number], value: string): boolean => {
+      if (!definition.allowedPlaceholders) return true
+      const unknown = placeholders(value).filter(name => !definition.allowedPlaceholders!.includes(name))
+      if (!unknown.length) return true
+      showToast('error', `Unsupported template variable${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')}`)
+      return false
+    }
+    const saveOverride = (definition: typeof PROMPT_REGISTRY_DEFINITIONS[number], value: string): boolean => {
+      if (!validate(definition, value)) return false
+      const isDefault = value.replace(/\r\n/g, '\n') === definition.defaultTemplate.replace(/\r\n/g, '\n')
+      if (isDefault) delete overrides[definition.id]
+      else overrides[definition.id] = value
+      versions[definition.id] = definition.version
+      enqueueRelaySettingsPatch({ kind: 'prompt-registry-override', promptId: definition.id, content: isDefault ? null : value, version: definition.version })
+      return true
+    }
     const render = () => {
       list.replaceChildren()
       const filtered = PROMPT_REGISTRY_DEFINITIONS.filter(definition => {
         if (category !== 'all' && definition.category !== category) return false
-        if (customizedOnly && registry[definition.id] === definition.defaultTemplate) return false
+        if (customizedOnly && !hasOverride(definition.id)) return false
         const haystack = `${definition.displayName} ${definition.description} ${definition.id}`.toLocaleLowerCase()
         return !query || haystack.includes(query.toLocaleLowerCase())
       })
       for (const definition of filtered) {
+        const value = effective(definition)
+        const customized = hasOverride(definition.id)
         const card = document.createElement('div'); card.className = 'dg-slot-card'
         const head = document.createElement('div'); head.className = 'dg-history-head'
         const title = document.createElement('div'); title.className = 'dg-history-title'; title.textContent = definition.displayName
-        head.append(title, chip(registry[definition.id] === definition.defaultTemplate ? 'Default' : 'Customized', registry[definition.id] === definition.defaultTemplate ? '' : 'completed'))
+        head.append(title, chip(customized ? 'User Override' : 'Default', customized ? 'completed' : ''))
         if (definition.status === 'provisional') head.append(chip('Provisional', 'warning'))
-        const help = document.createElement('div'); help.className = 'dg-section-sub'; help.textContent = `${definition.category} · ${definition.description}`
-        const missingTokens = (definition.requiredTokens || []).filter(token => !(registry[definition.id] || '').includes(token))
-        const outdated = registry[definition.id] !== definition.defaultTemplate && ((versions[definition.id] || 0) < definition.version || missingTokens.length > 0)
+        const help = document.createElement('div'); help.className = 'dg-section-sub'; help.textContent = `${definition.category} · ${definition.description} · ${value.length.toLocaleString()} chars · ~${Math.ceil(value.length / 4).toLocaleString()} input tokens`
+        const variableHelp = document.createElement('div'); variableHelp.className = 'dg-section-sub'
+        variableHelp.textContent = definition.allowedPlaceholders?.length
+          ? `Supported variables: ${definition.allowedPlaceholders.map(name => `{{${name}}}`).join(', ')}`
+          : definition.allowedPlaceholders ? 'No runtime template variables.' : 'Legacy prompt; template variables are validated by its workflow.'
+        const missingTokens = (definition.requiredTokens || []).filter(token => !value.includes(token))
+        const outdated = customized && ((versions[definition.id] || 0) < definition.version || missingTokens.length > 0)
         if (outdated) {
           const warning = document.createElement('div'); warning.className = 'dg-build-warning'
           warning.textContent = `Custom prompt uses an older schema${missingTokens.length ? ` and is missing required tokens: ${missingTokens.join(', ')}` : ''}. It was preserved; review or reset it to migrate safely.`
           card.appendChild(warning)
         }
-        const editor = document.createElement('textarea'); editor.className = 'dg-textarea'; editor.rows = 7; editor.value = registry[definition.id] ?? ''
-        editor.addEventListener('change', () => { registry[definition.id] = editor.value; versions[definition.id] = definition.version; commit(); render() })
+        const editor = document.createElement('textarea'); editor.className = 'dg-textarea'; editor.rows = 7; editor.value = value
+        editor.addEventListener('change', () => { if (saveOverride(definition, editor.value)) render(); else editor.value = value })
         const actions = document.createElement('div'); actions.className = 'dg-actions'
         actions.append(
-          button('Expand', () => openExpandedPromptEditor(definition.id, editor.value, value => { registry[definition.id] = value; versions[definition.id] = definition.version; commit(); render() }), false, 'subtle'),
-          button('Reset', () => { registry[definition.id] = definition.defaultTemplate; versions[definition.id] = definition.version; commit(); render() }, false, 'subtle'),
+          button('Edit', () => openExpandedPromptEditor(definition.id, editor.value, next => { const saved = saveOverride(definition, next); if (saved) render(); return saved }), false, 'subtle'),
+          button('Reset to Default', () => { delete overrides[definition.id]; versions[definition.id] = definition.version; enqueueRelaySettingsPatch({ kind: 'prompt-registry-override', promptId: definition.id, content: null, version: definition.version }); render() }, !customized, 'subtle'),
+          button('Preview Compiled Prompt', () => openJsonModal(`Compiled Prompt Preview · ${definition.displayName}`, { promptId: definition.id, source: customized ? 'user-override' : 'default', content: value, unresolvedPlaceholders: placeholders(value), characters: value.length, estimatedInputTokens: Math.ceil(value.length / 4) }), false, 'subtle'),
+          button('Copy', () => copyText(value, `${definition.displayName} copied.`), false, 'subtle'),
+          button('Export', () => downloadJson(`reverie-relay-prompt-${definition.id}.json`, { id: definition.id, source: customized ? 'user-override' : 'default', version: versions[definition.id] || definition.version, content: value }), false, 'subtle'),
         )
-        card.append(head, help, editor, actions); list.appendChild(card)
+        card.append(head, help, variableHelp, editor, actions); list.appendChild(card)
       }
       if (!filtered.length) list.appendChild(empty('No prompts match these filters.'))
     }
@@ -4471,12 +4500,30 @@ memory: [['genetics', 'Appearance Memory']],
     categorySelect.addEventListener('change', () => { category = categorySelect.value; render() })
     toolbar.append(search, categorySelect,
       button('Customized Only', () => { customizedOnly = !customizedOnly; render() }, false, 'subtle'),
-      button('Reset All', () => { registry = { ...DEFAULT_PROMPT_REGISTRY }; versions = { ...DEFAULT_PROMPT_REGISTRY_VERSIONS }; commit(); render() }, false, 'subtle'),
-      button('Export', () => openJsonModal('Prompt Registry Export', registry), false, 'subtle'),
+      button('Reset All', () => {
+        for (const definition of PROMPT_REGISTRY_DEFINITIONS) {
+          if (!hasOverride(definition.id)) continue
+          enqueueRelaySettingsPatch({ kind: 'prompt-registry-override', promptId: definition.id, content: null, version: definition.version })
+        }
+        overrides = {}
+        versions = { ...DEFAULT_PROMPT_REGISTRY_VERSIONS }
+        render()
+      }, false, 'subtle'),
+      button('Export', () => openJsonModal('Prompt Registry Overrides Export', { promptRegistry: overrides, promptRegistryVersions: versions }), false, 'subtle'),
       button('Import', () => {
         const raw = window.prompt('Paste a Prompt Registry JSON object')
         if (raw === null) return
-        try { const parsed = JSON.parse(raw); if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Expected an object.'); registry = { ...registry, ...parsed }; for (const id of Object.keys(parsed)) versions[id] = 0; commit(); render() }
+        try {
+          const parsed = JSON.parse(raw)
+          const imported = parsed?.promptRegistry && typeof parsed.promptRegistry === 'object' ? parsed.promptRegistry : parsed
+          if (!imported || typeof imported !== 'object' || Array.isArray(imported)) throw new Error('Expected an object.')
+          for (const [id, content] of Object.entries(imported)) {
+            const definition = PROMPT_REGISTRY_DEFINITIONS.find(candidate => candidate.id === id)
+            if (!definition || typeof content !== 'string' || !validate(definition, content)) continue
+            saveOverride(definition, content)
+          }
+          render()
+        }
         catch (error) { showToast('error', `Prompt Registry import failed: ${error instanceof Error ? error.message : String(error)}`) }
       }, false, 'subtle'),
     )
@@ -4682,7 +4729,7 @@ memory: [['genetics', 'Appearance Memory']],
       plannerParameters: {}, contextMessageCount: 4, maximumCharacters: 2, frequencyMode: 'key-moments',
       everyNEligibleMessages: 3, maximumOpportunitiesPerMessage: 3, maximumIllustrationsPerMessage: 3, illustrationsPerRun: 1,
       minimumImages: 1, maximumImages: 3, modelPlacedCountMode: 'fixed', perspectiveMode: 'scene-snapshot', imageAlignment: 'center', imageSize: 'medium', adaptiveMode: true,
-      defaultPromptProfileId: config?.defaultPromptProfileId || 'auto', defaultAspectRatio: 'adaptive', promptRegistry: { ...DEFAULT_PROMPT_REGISTRY }, promptRegistryVersions: { ...DEFAULT_PROMPT_REGISTRY_VERSIONS }, appearanceMemoryEnabled: true, useGlobalAppearanceSidecar: true, appearanceSidecarConnectionId: null, appearanceSidecarModel: '', appearanceSidecarParameters: {},
+      defaultPromptProfileId: config?.defaultPromptProfileId || 'auto', defaultAspectRatio: 'adaptive', promptRegistry: {}, promptRegistryVersions: { ...DEFAULT_PROMPT_REGISTRY_VERSIONS }, appearanceMemoryEnabled: true, useGlobalAppearanceSidecar: true, appearanceSidecarConnectionId: null, appearanceSidecarModel: '', appearanceSidecarParameters: {},
       customPromptPrefix: '', customNegativePrefix: '', stripGenericStyleBoilerplate: true,
       defaultCandidateCount: config?.defaultCandidateCount || 1, continuityStrength: config?.vaultStrength || 'medium', appearanceMemoryOverride: 'global',
       reuseAcceptedReferences: true, reuseLocationReferences: true, placementPolicy: 'after-beat', relayInsertionMode: 'auto',
@@ -8047,7 +8094,7 @@ ${bracketFixture}`)
     const planRows: Array<[string, unknown]> = [
       ['Authoritative Story Model / Composer Prompt', composition?.sceneBrief || record.originalSceneBrief || 'Unavailable'],
       ['Cast / depicted subjects', record.cast || (subjects.length ? subjects.join(', ') : 'none resolved')],
-      ['Parser status', pipeline?.parserRequested === false ? 'skipped' : pipeline?.parserSucceeded ? 'succeeded' : pipeline?.parserFallbackUsed ? 'failed · fallback' : pipeline?.parserFailed ? 'failed' : 'not recorded'],
+      ['Parser status', pipeline?.parserDecision || (pipeline?.parserRequested === false ? 'Skipped — reason not recorded' : pipeline?.parserSucceeded ? 'Used — normalization succeeded' : pipeline?.parserFallbackUsed ? 'Rejected — authoritative fallback' : pipeline?.parserFailed ? 'Failed' : 'Not recorded')],
       ['User Positive Prompt Prefix', pipeline?.userPositivePromptPrefix || 'Not configured'],
       ['User Negative Prompt Prefix', pipeline?.userNegativePromptPrefix || 'Not configured'],
       ['Prefixes applied', pipeline?.prefixesApplied === true ? 'yes' : pipeline?.prefixesApplied === false ? 'no' : 'not recorded'],
@@ -8819,6 +8866,15 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     if (patch.kind === 'narrative-enabled') {
       config = { ...config, narrativeDlcEnabled: patch.enabledNames.length > 0, narrativeDlcUtilityNames: [...patch.enabledNames] }
       narrativeUtilityRegistry = narrativeUtilityRegistry.map(record => ({ ...record, enabled: patch.enabledNames.includes(record.id) }))
+      return
+    }
+    if (patch.kind === 'prompt-registry-override') {
+      const promptRegistry = { ...(config.proseIllustratorSettings.promptRegistry || {}) }
+      const promptRegistryVersions = { ...(config.proseIllustratorSettings.promptRegistryVersions || {}) }
+      if (patch.content === null) delete promptRegistry[patch.promptId]
+      else promptRegistry[patch.promptId] = patch.content
+      promptRegistryVersions[patch.promptId] = patch.version
+      config = { ...config, proseIllustratorSettings: { ...config.proseIllustratorSettings, promptRegistry, promptRegistryVersions } }
       return
     }
     const overrides = { ...(config.narrativeUtilityOverrides || {}) }

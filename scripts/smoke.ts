@@ -324,10 +324,11 @@ assert(artifactMarkup.includes('data-reverie-artifact-media="true"') && artifact
 }
 
 const quality = await import('../src/backend')
+const promptDefaults = (await import('../src/protocols')).DEFAULT_PROMPT_REGISTRY
 const registrySettings = quality.defaultProseIllustratorSettings()
-assert(registrySettings.promptRegistry['sidecar.composer.request'].includes('camera location, height, angle, and shot size') && registrySettings.promptRegistry['sidecar.composer.request'].includes('Direct lens gaze is allowed only when the authoritative scene establishes interaction'), 'expected the runtime Sidecar composer prompt to put concrete Scene-Led composition before appearance detail')
-assert(registrySettings.promptRegistry['sidecar.composer.request'].includes('Appearance Memory is a reference library, not a checklist') && registrySettings.promptRegistry['sidecar.composer.request'].includes('sleeping, closed eyes, a hidden face, or back-turned framing'), 'expected Sidecar composer to treat Appearance Memory as frame-visible reference material')
-assert(registrySettings.promptRegistry['sidecar.appearance.field-refresh'].includes('exclude open/closed eye state, gaze direction, expression, pose, action, camera, composition'), 'expected stable Appearance refresh contract to reject transient scene state')
+assert(promptDefaults['sidecar.composer.request'].includes('camera location, height, angle, and shot size') && promptDefaults['sidecar.composer.request'].includes('Direct lens gaze is allowed only when the authoritative scene establishes interaction'), 'expected the runtime Sidecar composer prompt to put concrete Scene-Led composition before appearance detail')
+assert(promptDefaults['sidecar.composer.request'].includes('Appearance Memory is a reference library, not a checklist') && promptDefaults['sidecar.composer.request'].includes('sleeping, closed eyes, a hidden face, or back-turned framing'), 'expected Sidecar composer to treat Appearance Memory as frame-visible reference material')
+assert(promptDefaults['sidecar.appearance.field-refresh'].includes('exclude open/closed eye state, gaze direction, expression, pose, action, camera, composition'), 'expected stable Appearance refresh contract to reject transient scene state')
 const resolvedStoryPrompt = quality.resolveIllustratorStoryPrompt(registrySettings, [{ role: 'assistant', content: 'Prior response' } as any])
 assert(resolvedStoryPrompt.includes('[REVERIE RELAY — MODEL-PLACED ILLUSTRATION PROTOCOL]'), 'expected final Story Model prompt to use the registered Model-Placed workflow')
 assert(resolvedStoryPrompt.includes('SCENE SNAPSHOT FRAMING'), 'expected selected framing module in final Story Model prompt')

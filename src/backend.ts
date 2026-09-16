@@ -177,6 +177,7 @@ import {
   findAppearanceFact,
   formatProjectedAppearanceFacts,
   formatSelectedAppearanceFacts,
+  mergeAppearancePromptFacts,
   appearanceFactDescriptor,
   isValidCanonicalCharacterName,
   mergeAppearanceFacts,
@@ -628,6 +629,7 @@ export type RelaySettingsPatch =
   | { kind: 'surface-prompt-enabled'; values: Record<string, boolean>; categoryId?: string }
   | { kind: 'narrative-enabled'; enabledNames: string[] }
   | { kind: 'narrative-override'; utilityName: string; content: string | null }
+  | { kind: 'prompt-registry-override'; promptId: string; content: string | null; version: number }
 
 type FrontendMessage =
   | { type: 'list_state'; chatId?: string | null }
@@ -4275,6 +4277,27 @@ function relayQueueScope(userId?: string): string {
   return userId || '__default-user__'
 }
 
+function expandModelPromptTemplate(template: string, values: Record<string, unknown>): string {
+  const allowed = new Set(Object.keys(values))
+  const unknown = [...String(template || '').matchAll(/\{\{\s*([\w.-]+)\s*\}\}/g)]
+    .map(match => match[1])
+    .filter(key => !allowed.has(key))
+  if (unknown.length) throw new Error(`Prompt template contains unsupported variables: ${[...new Set(unknown)].join(', ')}`)
+  return String(template || '').replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_match, key: string) => {
+    const value = values[key]
+    return value === undefined || value === null ? '' : String(value)
+  })
+}
+
+function adultModeFromSettings(config: RouterConfig, nativeSettings: Record<string, unknown>): boolean {
+  const sources = [nativeSettings, config as unknown as Record<string, unknown>]
+  const keys = ['adultMode', 'adult_mode', 'allowNsfw', 'allowNSFW', 'nsfw', 'adultContentEnabled']
+  for (const source of sources) {
+    for (const key of keys) if (typeof source[key] === 'boolean') return source[key] as boolean
+  }
+  return false
+}
+
 function relayCancellationScope(chatId: string, userId?: string): string {
   return `${relayQueueScope(userId)}:${chatId}`
 }
@@ -4753,14 +4776,38 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
     tier: contextTier,
     expansionReason: mode === 'normal' ? '' : input.reason || 'Explicit Appearance reconcile',
   })
-  const requestPromptId = input.refreshField ? 'sidecar.appearance.field-refresh' : 'sidecar.appearance.request'
+  const requestPromptId = input.refreshField ? 'sidecar.appearance.field-refresh' : 'appearance.sidecar.request'
+  const systemPromptId = 'appearance.sidecar.system'
+  const appearanceFacts = allAppearanceFacts(appearanceState.continuityVault)
+  const appearanceFactJson = (facts: AppearanceVaultFact[]) => JSON.stringify(facts.map(fact => ({
+    subject: fact.canonicalCharacterName,
+    layer: fact.layer,
+    category: fact.category,
+    value: fact.value,
+    conflictDomain: fact.conflictDomain || null,
+    userConfirmed: Boolean(fact.userConfirmed),
+    active: fact.status === 'active' && (fact.layer !== 'current-appearance' || fact.active !== false),
+    updatedAt: fact.updatedAt,
+  })), null, 2)
+  const requestContent = input.refreshField
+    ? registryPrompt(settings, requestPromptId).replace(/\{\{\s*runtime_payload\s*\}\}/gi, JSON.stringify(payload))
+    : expandModelPromptTemplate(registryPrompt(settings, requestPromptId), {
+      adultMode: adultModeFromSettings(config, nativeSettings),
+      providerVocabulary: 'canonical Booru tags plus readable visual phrases for unknown vocabulary',
+      manualAppearanceJson: appearanceFactJson(appearanceFacts.filter(fact => fact.userConfirmed)),
+      canonicalAppearanceJson: appearanceFactJson(appearanceFacts.filter(fact => fact.layer === 'visual-identity' && fact.status === 'active')),
+      currentVisualStateJson: appearanceFactJson(appearanceFacts.filter(fact => fact.layer !== 'visual-identity' && fact.status === 'active' && (fact.layer !== 'current-appearance' || fact.active !== false))),
+      subjectBindingsJson: JSON.stringify({ activeCharacter: character, activePersona: persona, nativeImageGenBindings: bindings }, null, 2),
+      tagVocabularyJson: JSON.stringify({ mode: 'backend-validated', unknownVocabulary: 'visual-phrase', aliasesNormalizedBy: 'Reverie Relay' }, null, 2),
+      sourceResponse: input.content,
+    })
   const raw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, {
     ...config,
     parserModel: sidecarModel || connection.model,
     parserParameters: sidecarParameters,
   }, [
-    { role: 'system', content: registryPrompt(settings, 'sidecar.appearance.system') },
-    { role: 'user', content: registryPrompt(settings, requestPromptId).replace(/\{\{\s*runtime_payload\s*\}\}/gi, JSON.stringify(payload)) },
+    { role: 'system', content: registryPrompt(settings, systemPromptId) },
+    { role: 'user', content: requestContent },
   ], input.userId, input.chatId, payload.contextMetrics as ContextMetrics, 'appearance-sidecar')
   if (input.refreshField) {
     if (!input.focusCharacter) throw new Error('A character is required for a manual Appearance Sidecar field refresh.')
@@ -9725,7 +9772,9 @@ export function defaultProseIllustratorSettings(): ProseIllustratorSettings {
     adaptiveMode: true,
     defaultPromptProfileId: 'auto',
     defaultAspectRatio: 'adaptive',
-    promptRegistry: { ...DEFAULT_PROMPT_REGISTRY },
+    // Shipped defaults live in the static registry. Persist only user
+    // overrides so Reset to Default really deletes the override.
+    promptRegistry: {},
     promptRegistryVersions: { ...DEFAULT_PROMPT_REGISTRY_VERSIONS },
     appearanceMemoryEnabled: true,
     useGlobalAppearanceSidecar: true,
@@ -9902,7 +9951,7 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
   const defaults = defaultProseIllustratorSettings()
   const rawRegistry = cleanParameters(raw.promptRegistry)
   const rawRegistryVersions = cleanParameters(raw.promptRegistryVersions)
-  const promptRegistry: Record<string, string> = { ...DEFAULT_PROMPT_REGISTRY }
+  const promptRegistry: Record<string, string> = {}
   const supersededDefaults: Record<string, string[]> = {
     'story.inline-protocol': ['751:58ec8abc'],
     'sidecar.appearance.system': ['949:be700edb'],
@@ -10020,10 +10069,10 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
     characterOnlySubjects: cleanString(raw.characterOnlySubjects),
     modelPlacedProtocolOverride: canonicalProtocolOverride(raw.modelPlacedProtocolOverride, defaults.modelPlacedProtocolOverride),
     relayPlannedProtocolOverride: canonicalProtocolOverride(raw.relayPlannedProtocolOverride, defaults.relayPlannedProtocolOverride),
-    characterOnlyFramingPrompt: promptRegistry['story.framing.solo-scene'],
-    sceneLedFramingPrompt: promptRegistry['story.framing.scene-snapshot'],
-    continuityFramePrompt: promptRegistry['story.framing.sequence'],
-    expressiveFramePrompt: promptRegistry['story.framing.emotional-beat'],
+    characterOnlyFramingPrompt: promptRegistry['story.framing.solo-scene'] ?? DEFAULT_PROMPT_REGISTRY['story.framing.solo-scene'],
+    sceneLedFramingPrompt: promptRegistry['story.framing.scene-snapshot'] ?? DEFAULT_PROMPT_REGISTRY['story.framing.scene-snapshot'],
+    continuityFramePrompt: promptRegistry['story.framing.sequence'] ?? DEFAULT_PROMPT_REGISTRY['story.framing.sequence'],
+    expressiveFramePrompt: promptRegistry['story.framing.emotional-beat'] ?? DEFAULT_PROMPT_REGISTRY['story.framing.emotional-beat'],
     paused: raw.paused === true,
   }
 }
@@ -10529,6 +10578,7 @@ async function buildAuthoritativeVisualPrompt(
   config: RouterConfig,
   context: ParserContextResult,
   nativeSettings?: NativeImageSettings,
+  parserDecision = 'Skipped — Parser disabled for this request',
 ): Promise<PreparedPrompt> {
   const classification = context.classification
   const humanPolicy = targetHumanPolicy(job, classification)
@@ -10538,7 +10588,7 @@ async function buildAuthoritativeVisualPrompt(
     identityPrompt = enforceVisualSubjectIdentity(identityPrompt, context.visualSubjects, job.target === 'prose.illustration')
     if (!context.visualSubjects.length && context.characterContext) identityPrompt = `${identityPrompt}, ${context.characterContext}`
     if (!context.visualSubjects.length && context.personaContext) identityPrompt = `${identityPrompt}, ${context.personaContext}`
-    if (context.projectedContinuityFactsForPromptAppend.length) identityPrompt += `, Appearance Memory continuity: ${formatProjectedAppearanceFacts(context.projectedContinuityFactsForPromptAppend)}`
+    if (context.projectedContinuityFactsForPromptAppend.length) identityPrompt = mergeAppearancePromptFacts(identityPrompt, context.projectedContinuityFactsForPromptAppend, authoritativeSceneText(job))
   }
   const profiled = applyPromptProfileToPositivePrompt(identityPrompt, profileBase)
   const identityCorrection = enforceC5AKnownIdentity(profiled.prompt, context.identityBindings)
@@ -10573,6 +10623,7 @@ async function buildAuthoritativeVisualPrompt(
     parserSucceeded: false,
     parserFailed: false,
     parserFallbackUsed: false,
+    parserDecision,
     unresolvedMacros: context.unresolvedMacros,
     requestClassification: classification,
     detectedTargetClass: humanPolicy.targetClass,
@@ -10625,6 +10676,27 @@ async function buildAuthoritativeVisualPrompt(
   }
 }
 
+const MODEL_PLACED_PROTECTED_CUES: Array<[string, RegExp]> = [
+  ['close-up', /\bclose[ -]?up\b/i], ['wide shot', /\bwide shot\b/i], ['low angle', /\blow angle\b/i], ['high angle', /\bhigh angle\b/i],
+  ['back turned', /\bback (?:is )?turned\b/i], ['profile view', /\bprofile (?:view|angle)?\b/i], ['eye contact', /\beye contact\b/i], ['closed eyes', /\bclosed eyes\b/i],
+  ['kneeling', /\bkneel(?:ing|s|ed)?\b/i], ['sitting', /\b(?:sitting|seated)\b/i], ['standing', /\bstanding\b/i], ['lying', /\b(?:lying|reclining)\b/i],
+  ['holding', /\bholding\b/i], ['touching', /\btouching\b/i], ['kissing', /\bkissing\b/i], ['barefoot', /\b(?:barefoot|bare feet|shoeless)\b/i],
+  ['shoes', /\b(?:shoes?|boots?|heels?|sandals?|sneakers?|slippers?|loafers?)\b/i], ['nudity', /\b(?:nude|naked|topless|shirtless)\b/i],
+  ['explicit anatomy', /\b(?:penis|vagina|vulva|breasts?|nipples?|genitals?)\b/i], ['underwear', /\b(?:underwear|lingerie|bra|panties)\b/i],
+]
+
+function missingModelPlacedSemantics(authoritative: string, candidate: string, protectedSubjects: string[] = []): string[] {
+  const missing = MODEL_PLACED_PROTECTED_CUES
+    .filter(([, pattern]) => pattern.test(authoritative) && !pattern.test(candidate))
+    .map(([label]) => label)
+  for (const subject of protectedSubjects) {
+    const name = cleanString(subject)
+    if (!name || !new RegExp(`\\b${escapeRegExp(name)}\\b`, 'i').test(authoritative)) continue
+    if (!new RegExp(`\\b${escapeRegExp(name)}\\b`, 'i').test(candidate)) missing.push(`named subject ${name}`)
+  }
+  return [...new Set(missing)]
+}
+
 export async function parseSlotPrompt(
   job: RouterJob,
   slot: string,
@@ -10638,7 +10710,7 @@ export async function parseSlotPrompt(
 ): Promise<PreparedPrompt> {
   if (job.promptSource === 'visual_prompt' && job.originalSceneBrief.trim() && !forceSemanticRewrite) {
     const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings)
-    return buildAuthoritativeVisualPrompt(job, slot, config, context, nativeSettings)
+    if (!config.parserConnectionId) return buildAuthoritativeVisualPrompt(job, slot, config, context, nativeSettings, 'Skipped — No Parser connection configured')
   }
   if (job.composedPositivePrompt?.trim()) {
     const classification = classifyImageRequest(job)
@@ -10651,10 +10723,10 @@ export async function parseSlotPrompt(
     const identityPrompt = humanPolicy.allowHumanPrompt
       ? enforceVisualSubjectIdentity(safeComposedPrompt, context.visualSubjects, job.target === 'prose.illustration')
       : safeComposedPrompt
-    const continuityText = humanPolicy.allowHumanPrompt && context.projectedContinuityFactsForPromptAppend.length
-      ? `, Appearance Memory continuity: ${formatProjectedAppearanceFacts(context.projectedContinuityFactsForPromptAppend)}`
-      : ''
-    const profiled = applyPromptProfileToPositivePrompt(`${identityPrompt}${continuityText}`, profile)
+    const promptWithAppearance = humanPolicy.allowHumanPrompt && context.projectedContinuityFactsForPromptAppend.length
+      ? mergeAppearancePromptFacts(identityPrompt, context.projectedContinuityFactsForPromptAppend, authoritativeScene)
+      : identityPrompt
+    const profiled = applyPromptProfileToPositivePrompt(promptWithAppearance, profile)
     const identityCorrection = enforceC5AKnownIdentity(profiled.prompt, context.identityBindings)
     const finalizedPositivePrompt = finalizeParsedPositivePrompt(identityCorrection.prompt, classification, job)
     const specialIntent = applySpecialImageIntent(finalizedPositivePrompt, job.intent, authoritativeScene)
@@ -10692,6 +10764,7 @@ export async function parseSlotPrompt(
       parserSucceeded: true,
       parserFailed: false,
       parserFallbackUsed: false,
+      parserDecision: 'Used — Relay-Planned composed prompt',
       unresolvedMacros: [],
       requestClassification: classification,
       detectedTargetClass: humanPolicy.targetClass,
@@ -10747,7 +10820,14 @@ export async function parseSlotPrompt(
       promptPipeline: pipeline,
     }
   }
-  const connection = await resolveParserConnection(config, userId)
+  let connection: ParserConnection
+  try {
+    connection = await resolveParserConnection(config, userId)
+  } catch (error) {
+    if (job.promptSource !== 'visual_prompt') throw error
+    const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings)
+    return buildAuthoritativeVisualPrompt(job, slot, config, context, nativeSettings, 'Skipped — Parser connection unavailable')
+  }
   const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings)
   const instruction = parserInstruction(job, slot, config, highResMode)
   const parserState = await getState(job.chatId, userId)
@@ -10769,6 +10849,16 @@ export async function parseSlotPrompt(
       const authoritativeScene = authoritativeSceneText(job)
       if (hasUnrequestedExplicitEscalation(authoritativeScene, parsed.prompt)) {
         return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw, 'Parser added explicit sexual content that was absent from the authoritative scene brief.')
+      }
+      if (job.promptSource === 'visual_prompt') {
+        const protectedSubjects = [
+          ...(job.prosePromptComposition?.namedSubjects || []),
+          ...context.visualSubjects.map(subject => subject.name),
+        ]
+        const missingSemantics = missingModelPlacedSemantics(authoritativeScene, parsed.prompt, protectedSubjects)
+        if (missingSemantics.length) {
+          return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw, `Parser changed protected Model-Placed semantics: ${missingSemantics.join(', ')}.`)
+        }
       }
       let parserHumanContaminationDetected = false
       let parserHumanContaminationRepaired = false
@@ -10877,6 +10967,9 @@ export async function parseSlotPrompt(
         parserSucceeded: true,
         parserFailed: false,
         parserFallbackUsed: false,
+        parserDecision: job.promptSource === 'visual_prompt'
+          ? 'Used — Model-Placed constrained normalization'
+          : 'Used — Relay Parser normalization',
       }
       return {
         prompt: positivePrompt,
@@ -12467,7 +12560,7 @@ function buildParserFallbackPrompt(
     identityPrompt = `${context.personaContext}, ${identityPrompt}`
   }
   if (humanPolicy.allowHumanPrompt && context.projectedContinuityFactsForPromptAppend.length) {
-    identityPrompt += `, Appearance Memory continuity: ${formatProjectedAppearanceFacts(context.projectedContinuityFactsForPromptAppend)}`
+    identityPrompt = mergeAppearancePromptFacts(identityPrompt, context.projectedContinuityFactsForPromptAppend, authoritativeSceneText(job))
   }
   const profiled = applyPromptProfileToPositivePrompt(identityPrompt, profileBase)
   const identityCorrection = enforceC5AKnownIdentity(profiled.prompt, context.identityBindings)
@@ -12508,6 +12601,7 @@ function buildParserFallbackPrompt(
     parserFailed: true,
     parserFallbackUsed: true,
     parserFallbackReason: parserError,
+    parserDecision: `Rejected — Authoritative fallback (${parserError})`,
     unresolvedMacros: context.unresolvedMacros,
     requestClassification: classification,
     detectedTargetClass: humanPolicy.targetClass,
@@ -13504,7 +13598,7 @@ export function applyRelaySettingsPatchToConfig(current: RouterConfig, patch: Re
     const selected = new Set(patch.enabledNames)
     next.narrativeDlcUtilityNames = narrativeUtilityNames().filter(name => selected.has(name))
     next.narrativeDlcEnabled = next.narrativeDlcUtilityNames.length > 0
-  } else {
+  } else if (patch.kind === 'narrative-override') {
     if (!narrativeUtilityNames().includes(patch.utilityName)) throw new Error('Narrative Utility not found.')
     const overrides = { ...current.narrativeUtilityOverrides }
     if (patch.content === null || !patch.content.trim()) delete overrides[patch.utilityName]
@@ -13513,9 +13607,39 @@ export function applyRelaySettingsPatchToConfig(current: RouterConfig, patch: Re
       overrides[patch.utilityName] = { content: patch.content, revision: (previous?.revision || 0) + 1, updatedAt: now }
     }
     next.narrativeUtilityOverrides = overrides
+  } else {
+    const definition = PROMPT_REGISTRY_DEFINITIONS.find(candidate => candidate.id === patch.promptId)
+    if (!definition) throw new Error('Prompt Registry entry not found.')
+    const registry = { ...(current.proseIllustratorSettings.promptRegistry || {}) }
+    const versions = { ...(current.proseIllustratorSettings.promptRegistryVersions || {}) }
+    if (patch.content === null || patch.content.replace(/\r\n/g, '\n') === definition.defaultTemplate.replace(/\r\n/g, '\n')) {
+      delete registry[patch.promptId]
+      versions[patch.promptId] = definition.version
+    } else {
+      if (definition.allowedPlaceholders) {
+        const found = [...patch.content.matchAll(/\{\{\s*([\w.-]+)\s*\}\}/g)].map(match => match[1])
+        const unknown = [...new Set(found.filter(name => !definition.allowedPlaceholders!.includes(name)))]
+        if (unknown.length) throw new Error(`Unsupported template variable${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')}`)
+      }
+      registry[patch.promptId] = patch.content
+      versions[patch.promptId] = Math.max(0, Math.min(definition.version, patch.version))
+    }
+    next.proseIllustratorSettings = normalizeProseIllustratorSettings({
+      ...current.proseIllustratorSettings,
+      promptRegistry: registry,
+      promptRegistryVersions: versions,
+    })
   }
   next.settingsRevision = Math.max(current.settingsRevision, expectedRevision) + 1
   return next
+}
+
+function relaySettingsPatchWarnings(patch: RelaySettingsPatch): string[] {
+  if (patch.kind === 'narrative-override' && patch.content) return narrativeUtilityCompatibilityWarnings(patch.utilityName, patch.content)
+  if (patch.kind !== 'prompt-registry-override' || !patch.content) return []
+  return (PROMPT_REGISTRY_DEFINITIONS.find(definition => definition.id === patch.promptId)?.requiredTokens || [])
+    .filter(token => !patch.content!.includes(token))
+    .map(token => `Prompt is missing required template token ${token}. The override was preserved for review.`)
 }
 
 async function handleRelaySettingsPatch(payload: Extract<FrontendMessage, { type: 'relay_settings_patch' }>, userId?: string): Promise<void> {
@@ -13525,9 +13649,7 @@ async function handleRelaySettingsPatch(payload: Extract<FrontendMessage, { type
     spindle.sendToFrontend({
       type: 'relay_settings_patch_result', operationId: payload.operationId, status: 'success',
       settingsRevision: saved.settingsRevision, config: saved, customSurfaces: saved.globalSurfaceStudio,
-      warnings: payload.patch.kind === 'narrative-override' && payload.patch.content
-        ? narrativeUtilityCompatibilityWarnings(payload.patch.utilityName, payload.patch.content)
-        : [],
+      warnings: relaySettingsPatchWarnings(payload.patch),
     }, userId)
     await sendState(userId, payload.chatId ?? undefined)
   } catch (error) {

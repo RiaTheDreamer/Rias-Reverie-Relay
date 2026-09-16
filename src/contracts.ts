@@ -339,6 +339,7 @@ export type PromptRegistryDefinition = {
   version: number
   status?: 'stable' | 'provisional'
   requiredTokens?: string[]
+  allowedPlaceholders?: string[]
 }
 export type ProseImageAlignment = 'left' | 'center' | 'right'
 export type ProseImageSize = 'small' | 'medium' | 'large' | 'full'
@@ -749,6 +750,8 @@ export type AppearanceVaultFact = {
   aliases: string[]
   category: AppearanceFactCategory
   value: string
+  /** Canonical vocabulary tag or readable fallback phrase. */
+  valueKind?: 'booru-tag' | 'visual-phrase'
   /** Optional Sidecar-owned semantic replacement domain. Relay validates and stores this opaque key. */
   conflictDomain?: string
   sourceType: AppearanceSourceType
@@ -1084,6 +1087,7 @@ export type PromptPipeline = {
   parserFailed?: boolean
   parserFallbackUsed?: boolean
   parserFallbackReason?: string
+  parserDecision?: string
   unresolvedMacros: string[]
   warnings: PromptWarning[]
   requestClassification?: string

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { NARRATIVE_BLOCK_SPACING_STYLE, NARRATIVE_MEDIA_COMPATIBILITY_STYLE, renderNarrativeRegex, narrativeRegexPack, narrativeRegexScripts } from '../src/narrativeRegexAssets'
+import { DEFAULT_PROMPT_REGISTRY } from '../src/protocols'
 
 const storage = new Map<string, unknown>()
 const requests: any[] = []
@@ -25,11 +26,12 @@ const opportunities: any = { opportunityId: 'scene', chatId: 'offline', messageI
 for (const mode of ['scene-snapshot', 'sequence', 'emotional-beat', 'solo-scene'] as const) {
   const selected = { ...settings, perspectiveMode: mode, characterOnlySubjects: 'Alpha' }
   const story = backend.resolveIllustratorStoryPrompt(selected, [])
-  assert(story.includes(selected.promptRegistry[`story.framing.${mode}`].replace(/\{\{char\}\}/g, 'Alpha')), `${mode}: final Story Model injection lost selected framing`)
+  const framingPrompt = selected.promptRegistry[`story.framing.${mode}`] ?? DEFAULT_PROMPT_REGISTRY[`story.framing.${mode}`]
+  assert(story.includes(framingPrompt.replace(/\{\{char\}\}/g, 'Alpha')), `${mode}: final Story Model injection lost selected framing`)
   resolvedPrompt = 'side-on medium shot, Alpha seated at the window, torso turned toward a letter, hand braced on sill, lowered eyes, tight jaw'
   const composition = await backend.composePromptForOpportunity('offline', opportunities, scene, selected, 'offline')
   const payload = JSON.stringify(requests.at(-1).messages)
-  assert(payload.includes('framingPrompt') && payload.includes(selected.promptRegistry[`story.framing.${mode}`].split('\n')[0]), `${mode}: composer did not receive current mode`)
+  assert(payload.includes('framingPrompt') && payload.includes(framingPrompt.split('\n')[0]), `${mode}: composer did not receive current mode`)
   assert.equal(composition.positivePrompt, resolvedPrompt + (mode === 'solo-scene' ? ', character-only composition, only Alpha visible, no unrelated people' : ''), `${mode}: writer instructions leaked into composed prompt`)
   const job: any = { chatId: 'offline', messageId: 'm', swipeId: 0, requestId: mode, target: 'prose.illustration', slots: ['image'], count: 1, originalSceneBrief: scene, originalNegativePrompt: '', originalRequestXml: '', cast: 'char', composedPositivePrompt: composition.positivePrompt }
   const prepared = await backend.parseSlotPrompt(job, 'image', [], 0, { ...config, proseIllustratorSettings: selected }, 'offline', { boundCharacterPreset: { presetId: 'identity', prompt: 'adult male, black hair, grey eyes' }, includeCharacters: true })
