@@ -154078,14 +154078,18 @@ ${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key} = ${ve
 `)}
 
 Every hook_text must be non-empty. Every hook_media must be non-empty and contain one complete canonical raw current <reverie-illustration request="generate"> with a non-empty <visual_prompt>. Plot Sparks D\u2013G and required closing tags may never be silently dropped. Resolved historical images and Relay runtime markup do not count. If any check fails, fix the Plot Sparks block before stopping.`;
-function buildNarrativeUtilityPrompt(selectedNames = narrativeUtilityNames()) {
+function buildNarrativeUtilityPrompt(selectedNames = narrativeUtilityNames(), overrides = {}) {
   const allow = new Set(selectedNames);
-  const items = narrativeUtilityItems().filter((item) => allow.has(item.loomName) && String(item.loomContent || "").trim()).map((item) => item.loomName === "Chaos Hooks" ? { ...item, loomContent: `${item.loomContent}
+  const items = narrativeUtilityItems().filter((item) => allow.has(item.loomName) && String(item.loomContent || "").trim()).map((item) => {
+    const override = typeof overrides[item.loomName] === "string" && overrides[item.loomName].trim() ? overrides[item.loomName] : undefined;
+    const authoredContent = override ?? applyNarrativeDisplayNames(item.loomContent);
+    return item.loomName === "Chaos Hooks" ? { ...item, loomContent: `${authoredContent}
 
-${PLOT_SPARK_COMPLETION_LOCK}` } : item);
+${PLOT_SPARK_COMPLETION_LOCK}` } : { ...item, loomContent: authoredContent };
+  });
   return {
     content: items.length ? `<reverie_narrative_utility contract="narrative" version="${NARRATIVE_DLC_VERSION}" utilities="${items.map((item) => applyNarrativeDisplayNames(item.loomName)).join(", ")}">
-${items.map((item) => applyNarrativeDisplayNames(item.loomContent)).join(`
+${items.map((item) => item.loomContent).join(`
 
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
 
@@ -154842,9 +154846,11 @@ var DEFAULT_CONFIG = {
   surfaceColorMode: "realistic",
   surfaceUtilityInjectionEnabled: true,
   surfacePreferencesInitialized: false,
+  settingsRevision: 0,
   narrativeDlcEnabled: false,
   narrativeDlcVariant: "sparkle-button",
   narrativeDlcUtilityNames: narrativeUtilityNames(),
+  narrativeUtilityOverrides: {},
   characterPhoneDefaultApps: normalizeCharacterPhoneDefaultApps(undefined),
   narrativeDlcLastSync: null,
   globalSurfaceStudio: {
@@ -154884,7 +154890,7 @@ function registryPrompt(settings, id) {
 function buildResolvedNarrativeUtilityPrompt(config) {
   if (!config.narrativeDlcEnabled)
     return { content: "", utilityNames: [], characterPhoneDirective: "" };
-  const narrative = buildNarrativeUtilityPrompt(config.narrativeDlcUtilityNames);
+  const narrative = buildNarrativeUtilityPrompt(config.narrativeDlcUtilityNames, Object.fromEntries(Object.entries(config.narrativeUtilityOverrides || {}).map(([name, record3]) => [name, record3.content])));
   const characterPhoneDirective = narrative.utilityNames.includes("Character Phone") ? buildCharacterPhoneRuntimeDirective(config.characterPhoneDefaultApps) : "";
   return {
     ...narrative,
@@ -157021,6 +157027,12 @@ async function handleFrontendMessage(payload, userId) {
     case "set_config":
       await setConfig(payload.patch, userId);
       await sendState(userId, payload.chatId ?? undefined);
+      return;
+    case "relay_settings_patch":
+      await handleRelaySettingsPatch(payload, userId);
+      return;
+    case "narrative_utility_registry":
+      await sendNarrativeUtilityRegistry(payload.requestId, userId);
       return;
     case "surface_prompt_preview": {
       try {
@@ -162732,99 +162744,166 @@ async function handleContinuityAction(payload, userId) {
     await handleAppearanceFieldRefresh(payload, userId);
     return;
   }
-  const appearanceSave = payload.action === "save_character_sheet" && payload.characterId ? { operation: "save", chatId: payload.chatId, characterId: payload.characterId } : null;
+  const appearanceSave = payload.action === "save_character_sheet" && payload.characterId ? { operation: "save", operationId: cleanString(payload.operationId) || `appearance-save-${Date.now()}`, chatId: payload.chatId, characterId: payload.characterId } : null;
   if (appearanceSave)
     sendAppearanceMemoryActionStatus({ ...appearanceSave, status: "started", message: "Saving Appearance Memory\u2026" }, userId);
   let continuityNotice = "";
   let manualCharacterForEnrichment = null;
-  await mutateState(payload.chatId, userId, (state) => {
-    const vault = state.continuityVault || emptyContinuityVault(payload.chatId);
-    vault.chatId = payload.chatId;
-    const now = Date.now();
-    const fact = payload.factId ? findAppearanceFact(vault, payload.factId) : undefined;
-    switch (payload.action) {
-      case "update_character_aliases": {
-        if (!payload.characterId)
-          throw new Error("Character is required.");
-        const character = vault.characters[payload.characterId];
-        if (!character)
-          throw new Error("Character not found.");
-        const canonical = character.canonicalCharacterName.toLocaleLowerCase();
-        character.aliases = [...new Set((payload.aliases || []).map(cleanString).filter(Boolean).filter((alias) => alias.toLocaleLowerCase() !== canonical))];
-        character.updatedAt = now;
-        const sheet = vault.characterSheets[payload.characterId];
-        if (sheet) {
-          sheet.aliases = [...character.aliases];
-          sheet.updatedAt = now;
-        }
-        for (const fact2 of [...Object.values(vault.visualIdentity), ...Object.values(vault.wardrobe), ...Object.values(vault.currentAppearance)]) {
-          if (fact2.canonicalCharacterId === payload.characterId)
-            fact2.aliases = [...character.aliases];
-        }
-        continuityNotice = `Updated aliases for ${character.canonicalCharacterName}.`;
-        break;
-      }
-      case "delete_character": {
-        if (!payload.characterId)
-          throw new Error("Character is required.");
-        const character = vault.characters[payload.characterId];
-        if (!character)
-          throw new Error("Character not found.");
-        const removeOwned = (rows2) => {
-          for (const [id, row] of Object.entries(rows2))
-            if (row.canonicalCharacterId === payload.characterId)
-              delete rows2[id];
-        };
-        delete vault.characters[payload.characterId];
-        delete vault.characterSheets[payload.characterId];
-        removeOwned(vault.visualIdentity);
-        removeOwned(vault.wardrobe);
-        removeOwned(vault.currentAppearance);
-        for (const [id, suggestion] of Object.entries(vault.suggestions))
-          if (suggestion.resolvedCharacterId === payload.characterId)
-            delete vault.suggestions[id];
-        for (const [id, item] of Object.entries(vault.quarantine))
-          if (item.recommendedCharacterId === payload.characterId)
-            delete vault.quarantine[id];
-        continuityNotice = `Deleted ${character.canonicalCharacterName} from Appearance Memory.`;
-        break;
-      }
-      case "save_character_sheet": {
-        if (!payload.characterId)
-          throw new Error("Character is required.");
-        const character = vault.characters[payload.characterId];
-        if (!character)
-          throw new Error("Character not found.");
-        saveManualAppearanceMemory(vault, {
-          characterId: payload.characterId,
-          stableAppearance: cleanString(payload.booruTags),
-          currentOutfit: cleanString(payload.currentOutfitTags),
-          negativeIdentityTags: cleanString(payload.negativeIdentityTags),
-          referenceAssetIds: payload.referenceAssetIds || [],
-          chatId: payload.chatId
-        }, now);
-        continuityNotice = `Saved Appearance Memory for ${character.canonicalCharacterName}.`;
-        break;
-      }
-      case "delete_character_sheet":
-        if (!payload.characterId)
-          throw new Error("Character is required.");
-        for (const existingFact of allAppearanceFacts(vault)) {
-          if (existingFact.canonicalCharacterId === payload.characterId)
-            removeAppearanceFact(vault, existingFact.factId, now);
-        }
-        delete vault.characterSheets[payload.characterId];
-        continuityNotice = "Appearance Memory removed.";
-        break;
-      case "add_alternate_look": {
-        if (!payload.characterId)
-          throw new Error("Character is required.");
-        const sheet = vault.characterSheets[payload.characterId];
-        if (!sheet) {
+  try {
+    await mutateState(payload.chatId, userId, (state) => {
+      const vault = state.continuityVault || emptyContinuityVault(payload.chatId);
+      vault.chatId = payload.chatId;
+      const now = Date.now();
+      const fact = payload.factId ? findAppearanceFact(vault, payload.factId) : undefined;
+      switch (payload.action) {
+        case "update_character_aliases": {
+          if (!payload.characterId)
+            throw new Error("Character is required.");
           const character = vault.characters[payload.characterId];
           if (!character)
             throw new Error("Character not found.");
-          vault.characterSheets[payload.characterId] = {
+          const canonical = character.canonicalCharacterName.toLocaleLowerCase();
+          character.aliases = [...new Set((payload.aliases || []).map(cleanString).filter(Boolean).filter((alias) => alias.toLocaleLowerCase() !== canonical))];
+          character.updatedAt = now;
+          const sheet = vault.characterSheets[payload.characterId];
+          if (sheet) {
+            sheet.aliases = [...character.aliases];
+            sheet.updatedAt = now;
+          }
+          for (const fact2 of [...Object.values(vault.visualIdentity), ...Object.values(vault.wardrobe), ...Object.values(vault.currentAppearance)]) {
+            if (fact2.canonicalCharacterId === payload.characterId)
+              fact2.aliases = [...character.aliases];
+          }
+          continuityNotice = `Updated aliases for ${character.canonicalCharacterName}.`;
+          break;
+        }
+        case "delete_character": {
+          if (!payload.characterId)
+            throw new Error("Character is required.");
+          const character = vault.characters[payload.characterId];
+          if (!character)
+            throw new Error("Character not found.");
+          const removeOwned = (rows2) => {
+            for (const [id, row] of Object.entries(rows2))
+              if (row.canonicalCharacterId === payload.characterId)
+                delete rows2[id];
+          };
+          delete vault.characters[payload.characterId];
+          delete vault.characterSheets[payload.characterId];
+          removeOwned(vault.visualIdentity);
+          removeOwned(vault.wardrobe);
+          removeOwned(vault.currentAppearance);
+          for (const [id, suggestion] of Object.entries(vault.suggestions))
+            if (suggestion.resolvedCharacterId === payload.characterId)
+              delete vault.suggestions[id];
+          for (const [id, item] of Object.entries(vault.quarantine))
+            if (item.recommendedCharacterId === payload.characterId)
+              delete vault.quarantine[id];
+          continuityNotice = `Deleted ${character.canonicalCharacterName} from Appearance Memory.`;
+          break;
+        }
+        case "save_character_sheet": {
+          if (!payload.characterId)
+            throw new Error("Character is required.");
+          const character = vault.characters[payload.characterId];
+          if (!character)
+            throw new Error("Character not found.");
+          saveManualAppearanceMemory(vault, {
+            characterId: payload.characterId,
+            stableAppearance: cleanString(payload.booruTags),
+            currentOutfit: cleanString(payload.currentOutfitTags),
+            negativeIdentityTags: cleanString(payload.negativeIdentityTags),
+            referenceAssetIds: payload.referenceAssetIds || [],
+            chatId: payload.chatId
+          }, now);
+          continuityNotice = `Saved Appearance Memory for ${character.canonicalCharacterName}.`;
+          break;
+        }
+        case "delete_character_sheet":
+          if (!payload.characterId)
+            throw new Error("Character is required.");
+          for (const existingFact of allAppearanceFacts(vault)) {
+            if (existingFact.canonicalCharacterId === payload.characterId)
+              removeAppearanceFact(vault, existingFact.factId, now);
+          }
+          delete vault.characterSheets[payload.characterId];
+          continuityNotice = "Appearance Memory removed.";
+          break;
+        case "add_alternate_look": {
+          if (!payload.characterId)
+            throw new Error("Character is required.");
+          const sheet = vault.characterSheets[payload.characterId];
+          if (!sheet) {
+            const character = vault.characters[payload.characterId];
+            if (!character)
+              throw new Error("Character not found.");
+            vault.characterSheets[payload.characterId] = {
+              canonicalCharacterId: character.canonicalCharacterId,
+              canonicalCharacterName: character.canonicalCharacterName,
+              aliases: [...character.aliases],
+              booruTags: "",
+              currentOutfitTags: "",
+              negativeIdentityTags: "",
+              referenceAssetIds: [],
+              alternateLooks: [],
+              sourceSentence: "Alternate-look library.",
+              createdAt: now,
+              updatedAt: now
+            };
+          }
+          const editableSheet = vault.characterSheets[payload.characterId];
+          const tags = normalizeTagList(cleanString(payload.booruTags));
+          if (!tags)
+            throw new Error("Alternate-look booru tags are required.");
+          editableSheet.alternateLooks.push({ lookId: `look-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: cleanString(payload.lookName) || `Alternate Look ${editableSheet.alternateLooks.length + 1}`, booruTags: tags, negativeIdentityTags: normalizeTagList(cleanString(payload.negativeIdentityTags)), referenceAssetIds: [...new Set(payload.referenceAssetIds || [])], createdAt: now, updatedAt: now });
+          editableSheet.updatedAt = now;
+          break;
+        }
+        case "remove_alternate_look": {
+          if (!payload.characterId || !payload.lookId)
+            throw new Error("Character and alternate look are required.");
+          const sheet = vault.characterSheets[payload.characterId];
+          if (!sheet)
+            throw new Error("Appearance sheet not found.");
+          sheet.alternateLooks = sheet.alternateLooks.filter((look) => look.lookId !== payload.lookId);
+          if (sheet.activeAlternateLookId === payload.lookId)
+            sheet.activeAlternateLookId = undefined;
+          sheet.updatedAt = now;
+          break;
+        }
+        case "activate_alternate_look": {
+          if (!payload.characterId || !payload.lookId)
+            throw new Error("Character and alternate look are required.");
+          const sheet = vault.characterSheets[payload.characterId];
+          if (!sheet?.alternateLooks.some((look) => look.lookId === payload.lookId))
+            throw new Error("Alternate look not found.");
+          sheet.activeAlternateLookId = payload.lookId;
+          sheet.updatedAt = now;
+          continuityNotice = "Alternate look is now active.";
+          break;
+        }
+        case "return_to_base": {
+          if (!payload.characterId)
+            throw new Error("Character is required.");
+          const sheet = vault.characterSheets[payload.characterId];
+          if (!sheet)
+            throw new Error("Appearance sheet not found.");
+          sheet.activeAlternateLookId = undefined;
+          sheet.updatedAt = now;
+          continuityNotice = "Base appearance is now active.";
+          break;
+        }
+        case "set_strength":
+          vault.strength = payload.strength || "off";
+          break;
+        case "create_character": {
+          const character = registerCanonicalCharacter(vault, {
+            name: cleanString(payload.characterName),
+            aliases: payload.aliases || [],
+            sourceType: "manual",
+            userConfirmed: true
+          }, now);
+          vault.characterSheets[character.canonicalCharacterId] ||= {
             canonicalCharacterId: character.canonicalCharacterId,
             canonicalCharacterName: character.canonicalCharacterName,
             aliases: [...character.aliases],
@@ -162833,334 +162912,290 @@ async function handleContinuityAction(payload, userId) {
             negativeIdentityTags: "",
             referenceAssetIds: [],
             alternateLooks: [],
-            sourceSentence: "Alternate-look library.",
+            sourceSentence: "Manual character record; awaiting trusted appearance details.",
             createdAt: now,
             updatedAt: now
           };
+          manualCharacterForEnrichment = { id: character.canonicalCharacterId, name: character.canonicalCharacterName };
+          continuityNotice = `Created ${character.canonicalCharacterName}. Configure an Appearance Sidecar or Relay parser to reconcile context.`;
+          break;
         }
-        const editableSheet = vault.characterSheets[payload.characterId];
-        const tags = normalizeTagList(cleanString(payload.booruTags));
-        if (!tags)
-          throw new Error("Alternate-look booru tags are required.");
-        editableSheet.alternateLooks.push({ lookId: `look-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: cleanString(payload.lookName) || `Alternate Look ${editableSheet.alternateLooks.length + 1}`, booruTags: tags, negativeIdentityTags: normalizeTagList(cleanString(payload.negativeIdentityTags)), referenceAssetIds: [...new Set(payload.referenceAssetIds || [])], createdAt: now, updatedAt: now });
-        editableSheet.updatedAt = now;
-        break;
-      }
-      case "remove_alternate_look": {
-        if (!payload.characterId || !payload.lookId)
-          throw new Error("Character and alternate look are required.");
-        const sheet = vault.characterSheets[payload.characterId];
-        if (!sheet)
-          throw new Error("Appearance sheet not found.");
-        sheet.alternateLooks = sheet.alternateLooks.filter((look) => look.lookId !== payload.lookId);
-        if (sheet.activeAlternateLookId === payload.lookId)
-          sheet.activeAlternateLookId = undefined;
-        sheet.updatedAt = now;
-        break;
-      }
-      case "activate_alternate_look": {
-        if (!payload.characterId || !payload.lookId)
-          throw new Error("Character and alternate look are required.");
-        const sheet = vault.characterSheets[payload.characterId];
-        if (!sheet?.alternateLooks.some((look) => look.lookId === payload.lookId))
-          throw new Error("Alternate look not found.");
-        sheet.activeAlternateLookId = payload.lookId;
-        sheet.updatedAt = now;
-        continuityNotice = "Alternate look is now active.";
-        break;
-      }
-      case "return_to_base": {
-        if (!payload.characterId)
-          throw new Error("Character is required.");
-        const sheet = vault.characterSheets[payload.characterId];
-        if (!sheet)
-          throw new Error("Appearance sheet not found.");
-        sheet.activeAlternateLookId = undefined;
-        sheet.updatedAt = now;
-        continuityNotice = "Base appearance is now active.";
-        break;
-      }
-      case "set_strength":
-        vault.strength = payload.strength || "off";
-        break;
-      case "create_character": {
-        const character = registerCanonicalCharacter(vault, {
-          name: cleanString(payload.characterName),
-          aliases: payload.aliases || [],
-          sourceType: "manual",
-          userConfirmed: true
-        }, now);
-        vault.characterSheets[character.canonicalCharacterId] ||= {
-          canonicalCharacterId: character.canonicalCharacterId,
-          canonicalCharacterName: character.canonicalCharacterName,
-          aliases: [...character.aliases],
-          booruTags: "",
-          currentOutfitTags: "",
-          negativeIdentityTags: "",
-          referenceAssetIds: [],
-          alternateLooks: [],
-          sourceSentence: "Manual character record; awaiting trusted appearance details.",
-          createdAt: now,
-          updatedAt: now
-        };
-        manualCharacterForEnrichment = { id: character.canonicalCharacterId, name: character.canonicalCharacterName };
-        continuityNotice = `Created ${character.canonicalCharacterName}. Configure an Appearance Sidecar or Relay parser to reconcile context.`;
-        break;
-      }
-      case "merge_characters":
-        if (!payload.characterId || !payload.targetCharacterId)
-          throw new Error("Both source and target characters are required.");
-        mergeCharacters(vault, payload.characterId, payload.targetCharacterId, now);
-        break;
-      case "merge_facts": {
-        const selectedIds = [...new Set(payload.factIds || (payload.factId ? [payload.factId] : []))];
-        const selectedFacts = selectedIds.map((id) => findAppearanceFact(vault, id)).filter(Boolean);
-        const groups = new Map;
-        for (const selectedFact of selectedFacts) {
-          const key = `${selectedFact.canonicalCharacterId}:${selectedFact.layer}:${selectedFact.category}`;
-          const rows2 = groups.get(key) || [];
-          rows2.push(selectedFact);
-          groups.set(key, rows2);
-        }
-        let mergedGroups = 0;
-        let mergedEntries = 0;
-        for (const rows2 of groups.values()) {
-          if (rows2.length < 2)
-            continue;
-          mergeAppearanceFacts(vault, rows2.map((row) => row.factId), now);
-          mergedGroups += 1;
-          mergedEntries += rows2.length;
-        }
-        if (!mergedGroups)
-          throw new Error("No compatible duplicates were selected. Duplicates must belong to the same character, Vault section, and appearance category.");
-        continuityNotice = `Merged ${mergedEntries} selected entries into ${mergedGroups} clean appearance entr${mergedGroups === 1 ? "y" : "ies"}.`;
-        break;
-      }
-      case "pin":
-        if (!fact)
-          throw new Error("Appearance fact not found.");
-        fact.pinned = true;
-        fact.userConfirmed = true;
-        fact.status = "active";
-        fact.updatedAt = now;
-        break;
-      case "unpin":
-        if (!fact)
-          throw new Error("Appearance fact not found.");
-        fact.pinned = false;
-        fact.updatedAt = now;
-        break;
-      case "exclude":
-        if (!fact)
-          throw new Error("Appearance fact not found.");
-        fact.status = "inactive";
-        fact.active = false;
-        fact.updatedAt = now;
-        break;
-      case "include":
-        if (!fact)
-          throw new Error("Appearance fact not found.");
-        fact.status = "active";
-        if (fact.layer === "current-appearance")
-          fact.active = true;
-        fact.updatedAt = now;
-        break;
-      case "remove": {
-        const selectedIds = [...new Set(payload.factIds || (payload.factId ? [payload.factId] : []))];
-        if (!selectedIds.length)
-          throw new Error("Select at least one appearance entry to remove.");
-        let removed = 0;
-        for (const factId of selectedIds)
-          if (removeAppearanceFact(vault, factId, now))
-            removed += 1;
-        if (!removed)
-          throw new Error("The selected appearance entries no longer exist.");
-        continuityNotice = `Removed ${removed} appearance entr${removed === 1 ? "y" : "ies"}.`;
-        break;
-      }
-      case "edit_fact": {
-        if (!fact)
-          throw new Error("Appearance fact not found.");
-        const nextValue = cleanString(payload.value) || fact.value;
-        const nextCategory = payload.category || fact.category;
-        const snapshot = { ...fact };
-        removeAppearanceFact(vault, fact.factId, now);
-        addAppearanceFact(vault, {
-          layer: snapshot.layer,
-          characterId: snapshot.canonicalCharacterId,
-          category: nextCategory,
-          value: nextValue,
-          conflictDomain: snapshot.conflictDomain,
-          sourceType: "manual",
-          sourceReference: { ...snapshot.sourceReference, sourceType: "manual" },
-          confidence: 1,
-          pinned: snapshot.pinned,
-          userConfirmed: true,
-          referenceAssetIds: snapshot.referenceAssetIds,
-          notes: cleanString(payload.note) || snapshot.notes,
-          outfitName: snapshot.outfitName,
-          defaultWardrobe: snapshot.defaultWardrobe,
-          currentWardrobe: snapshot.currentWardrobe,
-          chatId: snapshot.chatId || payload.chatId,
-          sourceMessageId: snapshot.sourceMessageId,
-          sourceSwipeId: snapshot.sourceSwipeId,
-          active: snapshot.active !== false,
-          expiryPolicy: snapshot.expiryPolicy,
-          expiresAt: snapshot.expiresAt,
-          semanticAuthority: "explicit-user"
-        }, now);
-        break;
-      }
-      case "quarantine_fact": {
-        const selectedIds = [...new Set(payload.factIds || (payload.factId ? [payload.factId] : []))];
-        if (!selectedIds.length)
-          throw new Error("Select at least one appearance entry to quarantine.");
-        let quarantined = 0;
-        for (const factId of selectedIds) {
-          const selectedFact = findAppearanceFact(vault, factId);
-          if (!selectedFact)
-            continue;
-          selectedFact.status = "quarantined";
-          selectedFact.active = false;
-          selectedFact.updatedAt = now;
-          quarantined += 1;
-        }
-        if (!quarantined)
-          throw new Error("The selected appearance entries no longer exist.");
-        continuityNotice = `Quarantined ${quarantined} appearance entr${quarantined === 1 ? "y" : "ies"}.`;
-        break;
-      }
-      case "move_fact": {
-        if (!payload.layer)
-          throw new Error("Choose a destination Vault section first.");
-        const selectedIds = [...new Set(payload.factIds || (payload.factId ? [payload.factId] : []))];
-        if (!selectedIds.length)
-          throw new Error("Select at least one appearance entry to move.");
-        let moved = 0;
-        const skipped = [];
-        for (const factId of selectedIds) {
-          const selectedFact = findAppearanceFact(vault, factId);
-          if (!selectedFact) {
-            skipped.push("missing entry");
-            continue;
+        case "merge_characters":
+          if (!payload.characterId || !payload.targetCharacterId)
+            throw new Error("Both source and target characters are required.");
+          mergeCharacters(vault, payload.characterId, payload.targetCharacterId, now);
+          break;
+        case "merge_facts": {
+          const selectedIds = [...new Set(payload.factIds || (payload.factId ? [payload.factId] : []))];
+          const selectedFacts = selectedIds.map((id) => findAppearanceFact(vault, id)).filter(Boolean);
+          const groups = new Map;
+          for (const selectedFact of selectedFacts) {
+            const key = `${selectedFact.canonicalCharacterId}:${selectedFact.layer}:${selectedFact.category}`;
+            const rows2 = groups.get(key) || [];
+            rows2.push(selectedFact);
+            groups.set(key, rows2);
           }
-          if (selectedFact.layer === payload.layer) {
-            skipped.push(`${selectedFact.value}: already there`);
-            continue;
+          let mergedGroups = 0;
+          let mergedEntries = 0;
+          for (const rows2 of groups.values()) {
+            if (rows2.length < 2)
+              continue;
+            mergeAppearanceFacts(vault, rows2.map((row) => row.factId), now);
+            mergedGroups += 1;
+            mergedEntries += rows2.length;
           }
-          try {
-            moveAppearanceFact(vault, factId, payload.layer, payload.category, now);
-            moved += 1;
-          } catch (error) {
-            skipped.push(`${selectedFact.value}: ${error instanceof Error ? error.message : String(error)}`);
+          if (!mergedGroups)
+            throw new Error("No compatible duplicates were selected. Duplicates must belong to the same character, Vault section, and appearance category.");
+          continuityNotice = `Merged ${mergedEntries} selected entries into ${mergedGroups} clean appearance entr${mergedGroups === 1 ? "y" : "ies"}.`;
+          break;
+        }
+        case "pin":
+          if (!fact)
+            throw new Error("Appearance fact not found.");
+          fact.pinned = true;
+          fact.userConfirmed = true;
+          fact.status = "active";
+          fact.updatedAt = now;
+          break;
+        case "unpin":
+          if (!fact)
+            throw new Error("Appearance fact not found.");
+          fact.pinned = false;
+          fact.updatedAt = now;
+          break;
+        case "exclude":
+          if (!fact)
+            throw new Error("Appearance fact not found.");
+          fact.status = "inactive";
+          fact.active = false;
+          fact.updatedAt = now;
+          break;
+        case "include":
+          if (!fact)
+            throw new Error("Appearance fact not found.");
+          fact.status = "active";
+          if (fact.layer === "current-appearance")
+            fact.active = true;
+          fact.updatedAt = now;
+          break;
+        case "remove": {
+          const selectedIds = [...new Set(payload.factIds || (payload.factId ? [payload.factId] : []))];
+          if (!selectedIds.length)
+            throw new Error("Select at least one appearance entry to remove.");
+          let removed = 0;
+          for (const factId of selectedIds)
+            if (removeAppearanceFact(vault, factId, now))
+              removed += 1;
+          if (!removed)
+            throw new Error("The selected appearance entries no longer exist.");
+          continuityNotice = `Removed ${removed} appearance entr${removed === 1 ? "y" : "ies"}.`;
+          break;
+        }
+        case "edit_fact": {
+          if (!fact)
+            throw new Error("Appearance fact not found.");
+          const nextValue = cleanString(payload.value) || fact.value;
+          const nextCategory = payload.category || fact.category;
+          const snapshot = { ...fact };
+          removeAppearanceFact(vault, fact.factId, now);
+          addAppearanceFact(vault, {
+            layer: snapshot.layer,
+            characterId: snapshot.canonicalCharacterId,
+            category: nextCategory,
+            value: nextValue,
+            conflictDomain: snapshot.conflictDomain,
+            sourceType: "manual",
+            sourceReference: { ...snapshot.sourceReference, sourceType: "manual" },
+            confidence: 1,
+            pinned: snapshot.pinned,
+            userConfirmed: true,
+            referenceAssetIds: snapshot.referenceAssetIds,
+            notes: cleanString(payload.note) || snapshot.notes,
+            outfitName: snapshot.outfitName,
+            defaultWardrobe: snapshot.defaultWardrobe,
+            currentWardrobe: snapshot.currentWardrobe,
+            chatId: snapshot.chatId || payload.chatId,
+            sourceMessageId: snapshot.sourceMessageId,
+            sourceSwipeId: snapshot.sourceSwipeId,
+            active: snapshot.active !== false,
+            expiryPolicy: snapshot.expiryPolicy,
+            expiresAt: snapshot.expiresAt,
+            semanticAuthority: "explicit-user"
+          }, now);
+          break;
+        }
+        case "quarantine_fact": {
+          const selectedIds = [...new Set(payload.factIds || (payload.factId ? [payload.factId] : []))];
+          if (!selectedIds.length)
+            throw new Error("Select at least one appearance entry to quarantine.");
+          let quarantined = 0;
+          for (const factId of selectedIds) {
+            const selectedFact = findAppearanceFact(vault, factId);
+            if (!selectedFact)
+              continue;
+            selectedFact.status = "quarantined";
+            selectedFact.active = false;
+            selectedFact.updatedAt = now;
+            quarantined += 1;
           }
+          if (!quarantined)
+            throw new Error("The selected appearance entries no longer exist.");
+          continuityNotice = `Quarantined ${quarantined} appearance entr${quarantined === 1 ? "y" : "ies"}.`;
+          break;
         }
-        if (!moved)
-          throw new Error(skipped[0] || "None of the selected appearance entries could be moved.");
-        continuityNotice = `Moved ${moved} appearance entr${moved === 1 ? "y" : "ies"} to ${payload.layer === "wardrobe" ? "Wardrobe" : payload.layer === "current-appearance" ? "Scene Appearance" : "Visual Identity"}${skipped.length ? `; skipped ${skipped.length} incompatible entr${skipped.length === 1 ? "y" : "ies"}` : ""}.`;
-        break;
+        case "move_fact": {
+          if (!payload.layer)
+            throw new Error("Choose a destination Vault section first.");
+          const selectedIds = [...new Set(payload.factIds || (payload.factId ? [payload.factId] : []))];
+          if (!selectedIds.length)
+            throw new Error("Select at least one appearance entry to move.");
+          let moved = 0;
+          const skipped = [];
+          for (const factId of selectedIds) {
+            const selectedFact = findAppearanceFact(vault, factId);
+            if (!selectedFact) {
+              skipped.push("missing entry");
+              continue;
+            }
+            if (selectedFact.layer === payload.layer) {
+              skipped.push(`${selectedFact.value}: already there`);
+              continue;
+            }
+            try {
+              moveAppearanceFact(vault, factId, payload.layer, payload.category, now);
+              moved += 1;
+            } catch (error) {
+              skipped.push(`${selectedFact.value}: ${error instanceof Error ? error.message : String(error)}`);
+            }
+          }
+          if (!moved)
+            throw new Error(skipped[0] || "None of the selected appearance entries could be moved.");
+          continuityNotice = `Moved ${moved} appearance entr${moved === 1 ? "y" : "ies"} to ${payload.layer === "wardrobe" ? "Wardrobe" : payload.layer === "current-appearance" ? "Scene Appearance" : "Visual Identity"}${skipped.length ? `; skipped ${skipped.length} incompatible entr${skipped.length === 1 ? "y" : "ies"}` : ""}.`;
+          break;
+        }
+        case "ignore_slot":
+          if (!payload.key)
+            throw new Error("Slot key is required.");
+          vault.ignoredForSlotKeys = [...new Set([...vault.ignoredForSlotKeys, payload.key])];
+          break;
+        case "clear_ignore_slot":
+          vault.ignoredForSlotKeys = payload.key ? vault.ignoredForSlotKeys.filter((key) => key !== payload.key) : [];
+          break;
+        case "mark_break":
+          if (!payload.key)
+            throw new Error("Slot key is required.");
+          vault.deliberateBreaks[payload.key] = cleanString(payload.reason) || "Deliberate visual continuity break.";
+          vault.ignoredForSlotKeys = [...new Set([...vault.ignoredForSlotKeys, payload.key])];
+          break;
+        case "add_fact": {
+          let characterId = cleanString(payload.characterId);
+          if (!characterId && payload.characterName) {
+            const resolved = resolveCanonicalCharacter(vault, payload.characterName) || registerCanonicalCharacter(vault, { name: payload.characterName, aliases: payload.aliases || [], sourceType: "manual", userConfirmed: true }, now);
+            characterId = resolved.canonicalCharacterId;
+          }
+          if (!characterId || !payload.layer || !payload.category || !cleanString(payload.value)) {
+            throw new Error("Select a resolved character, destination layer, category, and value.");
+          }
+          addAppearanceFact(vault, {
+            layer: payload.layer,
+            characterId,
+            category: payload.category,
+            value: cleanString(payload.value),
+            sourceType: payload.sourceType || "manual",
+            sourceReference: { sourceType: payload.sourceType || "manual", chatId: payload.chatId, assetId: cleanString(payload.assetId) || undefined },
+            confidence: 1,
+            pinned: payload.layer === "visual-identity",
+            userConfirmed: true,
+            referenceAssetIds: payload.assetId ? [payload.assetId] : [],
+            notes: cleanString(payload.note) || undefined,
+            defaultWardrobe: payload.defaultWardrobe,
+            currentWardrobe: payload.currentWardrobe,
+            chatId: payload.chatId,
+            active: true,
+            expiryPolicy: payload.layer === "current-appearance" ? "superseded" : undefined,
+            semanticAuthority: "explicit-user"
+          }, now);
+          break;
+        }
+        case "clear_current":
+          if (!payload.characterId)
+            throw new Error("Character is required.");
+          clearCurrentAppearance(vault, payload.characterId, now);
+          break;
+        case "accept_suggestion":
+          if (!payload.suggestionId)
+            throw new Error("Suggestion is required.");
+          acceptSuggestion(vault, payload.suggestionId, payload.layer, payload.value, now);
+          break;
+        case "move_suggestion_current":
+          if (!payload.suggestionId)
+            throw new Error("Suggestion is required.");
+          acceptSuggestion(vault, payload.suggestionId, "current-appearance", payload.value, now);
+          break;
+        case "move_suggestion_wardrobe":
+          if (!payload.suggestionId)
+            throw new Error("Suggestion is required.");
+          acceptSuggestion(vault, payload.suggestionId, "wardrobe", payload.value, now);
+          break;
+        case "reject_suggestion":
+          if (!payload.suggestionId)
+            throw new Error("Suggestion is required.");
+          rejectSuggestion(vault, payload.suggestionId, now);
+          break;
+        case "update_migration_item":
+          if (!payload.migrationItemId || !payload.disposition)
+            throw new Error("Migration item and disposition are required.");
+          updateMigrationItem(vault, payload.migrationItemId, { disposition: payload.disposition, resolvedCharacterId: payload.characterId, selected: true }, now);
+          break;
+        case "apply_migration":
+          applyMigrationPreview(vault, payload.selectedMigrationItemIds, now);
+          break;
       }
-      case "ignore_slot":
-        if (!payload.key)
-          throw new Error("Slot key is required.");
-        vault.ignoredForSlotKeys = [...new Set([...vault.ignoredForSlotKeys, payload.key])];
-        break;
-      case "clear_ignore_slot":
-        vault.ignoredForSlotKeys = payload.key ? vault.ignoredForSlotKeys.filter((key) => key !== payload.key) : [];
-        break;
-      case "mark_break":
-        if (!payload.key)
-          throw new Error("Slot key is required.");
-        vault.deliberateBreaks[payload.key] = cleanString(payload.reason) || "Deliberate visual continuity break.";
-        vault.ignoredForSlotKeys = [...new Set([...vault.ignoredForSlotKeys, payload.key])];
-        break;
-      case "add_fact": {
-        let characterId = cleanString(payload.characterId);
-        if (!characterId && payload.characterName) {
-          const resolved = resolveCanonicalCharacter(vault, payload.characterName) || registerCanonicalCharacter(vault, { name: payload.characterName, aliases: payload.aliases || [], sourceType: "manual", userConfirmed: true }, now);
-          characterId = resolved.canonicalCharacterId;
-        }
-        if (!characterId || !payload.layer || !payload.category || !cleanString(payload.value)) {
-          throw new Error("Select a resolved character, destination layer, category, and value.");
-        }
-        addAppearanceFact(vault, {
-          layer: payload.layer,
-          characterId,
-          category: payload.category,
-          value: cleanString(payload.value),
-          sourceType: payload.sourceType || "manual",
-          sourceReference: { sourceType: payload.sourceType || "manual", chatId: payload.chatId, assetId: cleanString(payload.assetId) || undefined },
-          confidence: 1,
-          pinned: payload.layer === "visual-identity",
-          userConfirmed: true,
-          referenceAssetIds: payload.assetId ? [payload.assetId] : [],
-          notes: cleanString(payload.note) || undefined,
-          defaultWardrobe: payload.defaultWardrobe,
-          currentWardrobe: payload.currentWardrobe,
-          chatId: payload.chatId,
-          active: true,
-          expiryPolicy: payload.layer === "current-appearance" ? "superseded" : undefined,
-          semanticAuthority: "explicit-user"
-        }, now);
-        break;
-      }
-      case "clear_current":
-        if (!payload.characterId)
-          throw new Error("Character is required.");
-        clearCurrentAppearance(vault, payload.characterId, now);
-        break;
-      case "accept_suggestion":
-        if (!payload.suggestionId)
-          throw new Error("Suggestion is required.");
-        acceptSuggestion(vault, payload.suggestionId, payload.layer, payload.value, now);
-        break;
-      case "move_suggestion_current":
-        if (!payload.suggestionId)
-          throw new Error("Suggestion is required.");
-        acceptSuggestion(vault, payload.suggestionId, "current-appearance", payload.value, now);
-        break;
-      case "move_suggestion_wardrobe":
-        if (!payload.suggestionId)
-          throw new Error("Suggestion is required.");
-        acceptSuggestion(vault, payload.suggestionId, "wardrobe", payload.value, now);
-        break;
-      case "reject_suggestion":
-        if (!payload.suggestionId)
-          throw new Error("Suggestion is required.");
-        rejectSuggestion(vault, payload.suggestionId, now);
-        break;
-      case "update_migration_item":
-        if (!payload.migrationItemId || !payload.disposition)
-          throw new Error("Migration item and disposition are required.");
-        updateMigrationItem(vault, payload.migrationItemId, { disposition: payload.disposition, resolvedCharacterId: payload.characterId, selected: true }, now);
-        break;
-      case "apply_migration":
-        applyMigrationPreview(vault, payload.selectedMigrationItemIds, now);
-        break;
-    }
-    expireCurrentAppearance(vault, now);
-    vault.updatedAt = now;
-    state.continuityVault = vault;
-    appendStateLog(state, {
-      severity: "info",
-      stage: "appearance-vault",
-      eventType: `continuity_${payload.action}`,
-      chatId: payload.chatId,
-      message: `Appearance Memory action: ${payload.action}.`,
-      details: { factId: payload.factId, suggestionId: payload.suggestionId, characterId: payload.characterId, strength: payload.strength }
+      expireCurrentAppearance(vault, now);
+      vault.updatedAt = now;
+      state.continuityVault = vault;
+      appendStateLog(state, {
+        severity: "info",
+        stage: "appearance-vault",
+        eventType: `continuity_${payload.action}`,
+        chatId: payload.chatId,
+        message: `Appearance Memory action: ${payload.action}.`,
+        details: { factId: payload.factId, suggestionId: payload.suggestionId, characterId: payload.characterId, strength: payload.strength }
+      });
     });
-  });
+  } catch (error) {
+    if (appearanceSave) {
+      sendAppearanceMemoryActionStatus({
+        ...appearanceSave,
+        status: "error",
+        message: `Save failed \u2014 ${error instanceof Error ? error.message : String(error)}`
+      }, userId);
+      return;
+    }
+    throw error;
+  }
   if (payload.action === "set_strength")
     await setConfig({ vaultStrength: payload.strength || "off" }, userId);
   await sendState(userId, payload.chatId);
   if (appearanceSave) {
     const saved = await getState(payload.chatId, userId);
+    const sheet = saved.continuityVault.characterSheets[appearanceSave.characterId];
+    if (!sheet) {
+      sendAppearanceMemoryActionStatus({ ...appearanceSave, status: "error", message: "Save failed \u2014 persisted Appearance Memory could not be verified." }, userId);
+      return;
+    }
     sendAppearanceMemoryActionStatus({
       ...appearanceSave,
       status: "success",
       message: "Saved \u2713",
       revision: saved.revision,
-      updatedAt: saved.continuityVault.characterSheets[appearanceSave.characterId]?.updatedAt
+      updatedAt: sheet.updatedAt,
+      canonicalValues: {
+        stableAppearance: sheet.booruTags,
+        currentOutfit: sheet.currentOutfitTags,
+        negativeIdentityTags: sheet.negativeIdentityTags,
+        referenceAssetIds: sheet.referenceAssetIds
+      }
     }, userId);
   }
   if (continuityNotice)
@@ -166375,7 +166410,7 @@ async function getConfig(userId) {
   configCache.set(cacheKey, { value, cachedAt: Date.now() });
   return value;
 }
-async function setConfig(patch, userId) {
+async function mutateConfigAtomic(mutator, userId) {
   const key = userConfigCacheKey(userId);
   const previous = configMutationQueues.get(key) || Promise.resolve();
   let release = () => {};
@@ -166387,7 +166422,7 @@ async function setConfig(patch, userId) {
   await previous;
   try {
     const current = await getConfig(userId);
-    const next = normalizeConfig({ ...current, ...patch });
+    const next = normalizeConfig(mutator(current));
     await spindle.userStorage.setJson(CONFIG_PATH, next, { indent: 2, userId });
     configStorageHydratedScopes.add(key);
     configCache.set(key, { value: next, cachedAt: Date.now() });
@@ -166406,6 +166441,25 @@ function sanitizeOrbCustomIconDataUrl(value) {
   if (!text2 || text2.length > 3000000)
     return "";
   return /^data:image\/(?:png|jpe?g|webp|gif|svg\+xml);base64,[a-z0-9+/=\s]+$/i.test(text2) ? text2 : "";
+}
+function normalizeNarrativeUtilityOverrides(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return {};
+  const allowed = new Set(narrativeUtilityNames());
+  const normalized2 = {};
+  for (const [name, candidate] of Object.entries(value)) {
+    if (!allowed.has(name) || !candidate || typeof candidate !== "object" || Array.isArray(candidate))
+      continue;
+    const record3 = candidate;
+    if (typeof record3.content !== "string" || !record3.content.trim())
+      continue;
+    normalized2[name] = {
+      content: record3.content,
+      revision: Math.max(1, Math.floor(Number(record3.revision) || 1)),
+      updatedAt: Math.max(0, Number(record3.updatedAt) || 0)
+    };
+  }
+  return normalized2;
 }
 function normalizeConfig(raw) {
   const legacy = raw;
@@ -166501,9 +166555,11 @@ function normalizeConfig(raw) {
     surfaceColorMode: raw.surfaceColorMode === "primary" ? "primary" : "realistic",
     surfaceUtilityInjectionEnabled: automaticSurfaceInjectionEnabled,
     surfacePreferencesInitialized: raw.surfacePreferencesInitialized === true,
+    settingsRevision: Math.max(0, Math.floor(Number(raw.settingsRevision) || 0)),
     narrativeDlcEnabled: raw.narrativeDlcEnabled === true,
     narrativeDlcVariant: NARRATIVE_REGEX_VARIANTS.includes(raw.narrativeDlcVariant) ? raw.narrativeDlcVariant : DEFAULT_CONFIG.narrativeDlcVariant,
     narrativeDlcUtilityNames: Array.isArray(raw.narrativeDlcUtilityNames) ? narrativeUtilityNames().filter((name) => raw.narrativeDlcUtilityNames?.includes(name)) : narrativeUtilityNames(),
+    narrativeUtilityOverrides: normalizeNarrativeUtilityOverrides(raw.narrativeUtilityOverrides),
     characterPhoneDefaultApps: normalizeCharacterPhoneDefaultApps(raw.characterPhoneDefaultApps, {
       migrateMissing: !Object.prototype.hasOwnProperty.call(raw, "characterPhoneDefaultApps")
     }),
@@ -167123,6 +167179,101 @@ function normalizeRelayChatStats(value) {
     completedByTarget: Object.fromEntries(Object.entries(cleanParameters(raw.completedByTarget)).map(([key, count]) => [key, Math.max(0, Number(count) || 0)])),
     updatedAt: Math.max(0, Number(raw.updatedAt) || 0)
   };
+}
+async function setConfig(patch, userId) {
+  return mutateConfigAtomic((current) => ({ ...current, ...patch }), userId);
+}
+function narrativeUtilityCompatibilityWarnings(name, content) {
+  const required = {
+    "Chaos Hooks": ["<chaos_payload>", "<chaos_hook>"],
+    "Dramatic Cutaway": ["<dramatic_parallel>"],
+    "Scene Compass": ["scene_compass"]
+  };
+  return (required[name] || []).filter((marker) => !content.toLocaleLowerCase().includes(marker.toLocaleLowerCase())).map((marker) => `Compatibility warning: ${name} no longer references ${marker}. Relay will preserve the edit, but the approved renderer may not recognize its output.`);
+}
+function narrativeUtilityRegistry(config) {
+  const enabled = new Set(config.narrativeDlcEnabled ? config.narrativeDlcUtilityNames : []);
+  return narrativeUtilityItems().map((item) => {
+    const override = config.narrativeUtilityOverrides[item.loomName];
+    const effectiveContent = override?.content?.trim() ? override.content : item.loomContent;
+    return {
+      id: item.loomName,
+      name: item.loomName,
+      defaultContent: item.loomContent,
+      effectiveContent,
+      enabled: enabled.has(item.loomName),
+      revision: override?.revision || 0,
+      source: override ? "user-override" : "default",
+      updatedAt: override?.updatedAt,
+      warnings: narrativeUtilityCompatibilityWarnings(item.loomName, effectiveContent)
+    };
+  });
+}
+async function sendNarrativeUtilityRegistry(requestId, userId) {
+  const config = await getConfig(userId);
+  spindle.sendToFrontend({ type: "narrative_utility_registry", requestId, settingsRevision: config.settingsRevision, records: narrativeUtilityRegistry(config) }, userId);
+}
+function applyRelaySettingsPatchToConfig(current, patch, expectedRevision = current.settingsRevision, now = Date.now()) {
+  const next = { ...current };
+  const studio = normalizeCustomSurfaceStudio(current.globalSurfaceStudio || defaultCustomSurfaceStudio());
+  if (patch.kind === "surface-prompt-enabled") {
+    for (const [surfaceId, requested] of Object.entries(patch.values)) {
+      const definition = studio.definitions[surfaceId];
+      if (!definition)
+        continue;
+      definition.promptEnabled = requested === true;
+      definition.updatedAt = now;
+    }
+    studio.updatedAt = now;
+    next.globalSurfaceStudio = studio;
+    next.surfacePreferencesInitialized = true;
+  } else if (patch.kind === "narrative-enabled") {
+    const selected = new Set(patch.enabledNames);
+    next.narrativeDlcUtilityNames = narrativeUtilityNames().filter((name) => selected.has(name));
+    next.narrativeDlcEnabled = next.narrativeDlcUtilityNames.length > 0;
+  } else {
+    if (!narrativeUtilityNames().includes(patch.utilityName))
+      throw new Error("Narrative Utility not found.");
+    const overrides = { ...current.narrativeUtilityOverrides };
+    if (patch.content === null || !patch.content.trim())
+      delete overrides[patch.utilityName];
+    else {
+      const previous = overrides[patch.utilityName];
+      overrides[patch.utilityName] = { content: patch.content, revision: (previous?.revision || 0) + 1, updatedAt: now };
+    }
+    next.narrativeUtilityOverrides = overrides;
+  }
+  next.settingsRevision = Math.max(current.settingsRevision, expectedRevision) + 1;
+  return next;
+}
+async function handleRelaySettingsPatch(payload, userId) {
+  try {
+    const saved = await mutateConfigAtomic((current) => applyRelaySettingsPatchToConfig(current, payload.patch, payload.expectedRevision), userId);
+    if (saved.debugLogging)
+      spindle.log.info(`[Reverie Relay:settings_patch] ${JSON.stringify({ operationId: payload.operationId, kind: payload.patch.kind, expectedRevision: payload.expectedRevision, backendRevision: saved.settingsRevision, persisted: true })}`);
+    spindle.sendToFrontend({
+      type: "relay_settings_patch_result",
+      operationId: payload.operationId,
+      status: "success",
+      settingsRevision: saved.settingsRevision,
+      config: saved,
+      customSurfaces: saved.globalSurfaceStudio,
+      warnings: payload.patch.kind === "narrative-override" && payload.patch.content ? narrativeUtilityCompatibilityWarnings(payload.patch.utilityName, payload.patch.content) : []
+    }, userId);
+    await sendState(userId, payload.chatId ?? undefined);
+  } catch (error) {
+    const canonical = await getConfig(userId);
+    spindle.sendToFrontend({
+      type: "relay_settings_patch_result",
+      operationId: payload.operationId,
+      status: "failed",
+      settingsRevision: canonical.settingsRevision,
+      config: canonical,
+      customSurfaces: canonical.globalSurfaceStudio,
+      error: error instanceof Error ? error.message : String(error),
+      warnings: []
+    }, userId);
+  }
 }
 function normalizeQueueSafety(value) {
   const raw = cleanParameters(value);
@@ -168007,7 +168158,7 @@ async function sendState(userId, chatId) {
     queueDirector: state.queueDirector,
     assetLibrary: globalAssets,
     versionTrees: Object.values(state.versionTrees || {}).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, RECENT_COMPLETED_HOT_LIMIT),
-    continuityVault: state.continuityVault,
+    continuityVault: { ...state.continuityVault, history: [] },
     customSurfaces: state.customSurfaces,
     proseIllustrator: state.proseIllustrator,
     backgroundQueue: state.backgroundQueue,
@@ -169921,6 +170072,7 @@ export {
   aspectRatioEquivalent,
   applySurfaceCategoryPromptEnabled,
   applySpecialImageIntent,
+  applyRelaySettingsPatchToConfig,
   applyPromptProfileToPositivePrompt,
   applyLorasToProviderParameters,
   abortImageStream,

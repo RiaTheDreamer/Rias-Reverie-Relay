@@ -160,7 +160,7 @@ import {
   removeNarrativeRegex,
   type NarrativeDlcHealth,
 } from './narrativeDlcRuntime'
-import { NARRATIVE_REGEX_VARIANTS, containsNarrativeRegexMarkup, narrativeRegexScripts, narrativeUtilityNames, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup, type NarrativeLorebookKind, type NarrativeRegexVariant } from './narrativeRegexAssets'
+import { NARRATIVE_REGEX_VARIANTS, containsNarrativeRegexMarkup, narrativeRegexScripts, narrativeUtilityItems, narrativeUtilityNames, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup, type NarrativeLorebookKind, type NarrativeRegexVariant } from './narrativeRegexAssets'
 import { exportNarrativeLorebookRecord, extractNarrativeLorebookRecord } from './narrativeLorebook'
 import {
   acceptSuggestion,
@@ -277,7 +277,7 @@ type RelayLoraStack = {
   updatedAt: number
 }
 
-type RouterConfig = {
+export type RouterConfig = {
   enabled: boolean
   autoGenerate: boolean
   slotGenerationMode: SlotGenerationMode
@@ -350,9 +350,11 @@ type RouterConfig = {
   surfaceColorMode: SurfaceColorMode
   surfaceUtilityInjectionEnabled: boolean
   surfacePreferencesInitialized: boolean
+  settingsRevision: number
   narrativeDlcEnabled: boolean
   narrativeDlcVariant: NarrativeRegexVariant
   narrativeDlcUtilityNames: string[]
+  narrativeUtilityOverrides: Record<string, { content: string; revision: number; updatedAt: number }>
   characterPhoneDefaultApps: CharacterPhoneAppId[]
   narrativeDlcLastSync: NarrativeDlcHealth | null
   globalSurfaceStudio: CustomSurfaceStudioState
@@ -622,6 +624,11 @@ type BackendBuildInfo = {
   lastResponseAt: number
 }
 
+export type RelaySettingsPatch =
+  | { kind: 'surface-prompt-enabled'; values: Record<string, boolean>; categoryId?: string }
+  | { kind: 'narrative-enabled'; enabledNames: string[] }
+  | { kind: 'narrative-override'; utilityName: string; content: string | null }
+
 type FrontendMessage =
   | { type: 'list_state'; chatId?: string | null }
   | {
@@ -636,6 +643,8 @@ type FrontendMessage =
   | { type: 'sync_native_settings'; chatId?: string | null; imageGeneration?: NativeImageSettings; nativeSettingsCapturedAt?: number; frontendSessionId?: string; platformClass?: 'mobile' | 'desktop' }
   | { type: 'frontend_session'; chatId?: string | null; sessionId: string; connected: boolean; nativeSettingsAvailable: boolean; platformClass: 'mobile' | 'desktop' }
   | { type: 'set_config'; chatId?: string | null; patch: Partial<RouterConfig> }
+  | { type: 'relay_settings_patch'; chatId?: string | null; operationId: string; expectedRevision: number; patch: RelaySettingsPatch }
+  | { type: 'narrative_utility_registry'; requestId: string }
   | { type: 'narrative_dlc_action'; chatId?: string | null; action: 'install' | 'repair' | 'inspect' | 'remove'; variant?: NarrativeRegexVariant }
   | { type: 'export_narrative_lorebook'; requestId: string; chatId: string; messageId: string; swipeId?: number; kind: NarrativeLorebookKind; occurrence?: number }
   | { type: 'surface_prompt_preview'; chatId?: string | null; requestId: string }
@@ -669,7 +678,7 @@ type FrontendMessage =
   | { type: 'asset_library_action'; chatId: string; action: 'favorite' | 'unfavorite' | 'mark_reference' | 'clear_reference' | 'tag' | 'untag' | 'compare' | 'clear_compare'; assetId?: string; otherAssetId?: string; tag?: string }
   | { type: 'reuse_asset_in_slot'; chatId: string; key: string; assetId: string }
   | { type: 'discover_lora_catalog'; requestId: string; connectionId?: string | null }
-  | { type: 'continuity_action'; chatId: string; action: 'set_strength' | 'create_character' | 'merge_characters' | 'merge_facts' | 'pin' | 'unpin' | 'exclude' | 'include' | 'remove' | 'edit_fact' | 'move_fact' | 'quarantine_fact' | 'ignore_slot' | 'clear_ignore_slot' | 'add_fact' | 'mark_break' | 'clear_current' | 'accept_suggestion' | 'reject_suggestion' | 'move_suggestion_current' | 'move_suggestion_wardrobe' | 'update_migration_item' | 'apply_migration' | 'save_character_sheet' | 'rerun_appearance_field' | 'delete_character_sheet' | 'update_character_aliases' | 'delete_character' | 'add_alternate_look' | 'remove_alternate_look' | 'activate_alternate_look' | 'return_to_base'; factId?: string; factIds?: string[]; suggestionId?: string; migrationItemId?: string; selectedMigrationItemIds?: string[]; disposition?: VaultMigrationDisposition; key?: string; strength?: ContinuityStrength; characterId?: string; targetCharacterId?: string; characterName?: string; aliases?: string[]; layer?: AppearanceVaultLayer; category?: AppearanceFactCategory; appearanceField?: AppearanceMemoryRefreshField; sourceType?: AppearanceSourceType; value?: string; booruTags?: string; currentOutfitTags?: string; negativeIdentityTags?: string; referenceAssetIds?: string[]; lookId?: string; lookName?: string; assetId?: string; reason?: string; note?: string; permanence?: 'permanent' | 'temporary'; defaultWardrobe?: boolean; currentWardrobe?: boolean }
+  | { type: 'continuity_action'; chatId: string; action: 'set_strength' | 'create_character' | 'merge_characters' | 'merge_facts' | 'pin' | 'unpin' | 'exclude' | 'include' | 'remove' | 'edit_fact' | 'move_fact' | 'quarantine_fact' | 'ignore_slot' | 'clear_ignore_slot' | 'add_fact' | 'mark_break' | 'clear_current' | 'accept_suggestion' | 'reject_suggestion' | 'move_suggestion_current' | 'move_suggestion_wardrobe' | 'update_migration_item' | 'apply_migration' | 'save_character_sheet' | 'rerun_appearance_field' | 'delete_character_sheet' | 'update_character_aliases' | 'delete_character' | 'add_alternate_look' | 'remove_alternate_look' | 'activate_alternate_look' | 'return_to_base'; operationId?: string; expectedRevision?: number; factId?: string; factIds?: string[]; suggestionId?: string; migrationItemId?: string; selectedMigrationItemIds?: string[]; disposition?: VaultMigrationDisposition; key?: string; strength?: ContinuityStrength; characterId?: string; targetCharacterId?: string; characterName?: string; aliases?: string[]; layer?: AppearanceVaultLayer; category?: AppearanceFactCategory; appearanceField?: AppearanceMemoryRefreshField; sourceType?: AppearanceSourceType; value?: string; booruTags?: string; currentOutfitTags?: string; negativeIdentityTags?: string; referenceAssetIds?: string[]; lookId?: string; lookName?: string; assetId?: string; reason?: string; note?: string; permanence?: 'permanent' | 'temporary'; defaultWardrobe?: boolean; currentWardrobe?: boolean }
   | { type: 'prose_illustrator_action'; chatId: string; action: 'set_settings' | 'preview_prompt' | 'plan_latest' | 'plan_message' | 'relay_plan_once' | 'generate_plan' | 'cancel_active' | 'remove_illustration' | 'pause_auto' | 'resume_auto'; messageId?: string; swipeId?: number; planId?: string; illustrationId?: string; settings?: Partial<ProseIllustratorSettings>; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
   | { type: 'custom_surface_action'; chatId?: string; action: 'create' | 'duplicate' | 'edit' | 'enable' | 'disable' | 'delete' | 'import' | 'activate' | 'set_renderer_mode' | 'set_default_shell_mode' | 'set_color_mode' | 'set_hybrid_owner' | 'set_prompt_enabled' | 'set_category_prompt_enabled' | 'set_prompt_module' | 'set_utility_settings' | 'reset_utility_template' | 'save_collection' | 'set_default_collection' | 'delete_collection' | 'bind_collection' | 'unbind_collection'; surfaceId?: string; definition?: Partial<CustomSurfaceDefinition>; rendererMode?: CustomSurfaceStudioState['rendererMode']; hybridOwner?: CustomSurfaceDefinition['hybridOwner']; shellMode?: SurfaceShellMode; colorMode?: SurfaceColorMode; promptEnabled?: boolean; promptCategory?: SurfacePromptCategory; promptModule?: string; utilityInjectionEnabled?: boolean; utilityInjectionPosition?: SurfaceUtilityInjectionPosition; utilityTemplate?: string; presetId?: string; presetName?: string; surfaceIds?: string[] }
   | { type: 'bulk_chat_media_action'; chatId: string; lane: 'surfaces' | 'illustrations'; mode: 'remove-images-keep-slots' | 'remove-images-and-slots' }
@@ -1464,9 +1473,11 @@ const DEFAULT_CONFIG: RouterConfig = {
   surfaceColorMode: 'realistic',
   surfaceUtilityInjectionEnabled: true,
   surfacePreferencesInitialized: false,
+  settingsRevision: 0,
   narrativeDlcEnabled: false,
   narrativeDlcVariant: 'sparkle-button',
   narrativeDlcUtilityNames: narrativeUtilityNames(),
+  narrativeUtilityOverrides: {},
   characterPhoneDefaultApps: normalizeCharacterPhoneDefaultApps(undefined),
   narrativeDlcLastSync: null,
   globalSurfaceStudio: {
@@ -1498,13 +1509,16 @@ function registryPrompt(settings: ProseIllustratorSettings, id: string): string 
     : String(DEFAULT_PROMPT_REGISTRY[id] ?? '')
 }
 
-export function buildResolvedNarrativeUtilityPrompt(config: Pick<RouterConfig, 'narrativeDlcEnabled' | 'narrativeDlcUtilityNames' | 'characterPhoneDefaultApps'>): {
+export function buildResolvedNarrativeUtilityPrompt(config: Pick<RouterConfig, 'narrativeDlcEnabled' | 'narrativeDlcUtilityNames' | 'characterPhoneDefaultApps'> & Partial<Pick<RouterConfig, 'narrativeUtilityOverrides'>>): {
   content: string
   utilityNames: string[]
   characterPhoneDirective: string
 } {
   if (!config.narrativeDlcEnabled) return { content: '', utilityNames: [], characterPhoneDirective: '' }
-  const narrative = buildNarrativeUtilityPrompt(config.narrativeDlcUtilityNames)
+  const narrative = buildNarrativeUtilityPrompt(
+    config.narrativeDlcUtilityNames,
+    Object.fromEntries(Object.entries(config.narrativeUtilityOverrides || {}).map(([name, record]) => [name, record.content])),
+  )
   const characterPhoneDirective = narrative.utilityNames.includes('Character Phone')
     ? buildCharacterPhoneRuntimeDirective(config.characterPhoneDefaultApps)
     : ''
@@ -3680,6 +3694,12 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
     case 'set_config':
       await setConfig(payload.patch, userId)
       await sendState(userId, payload.chatId ?? undefined)
+      return
+    case 'relay_settings_patch':
+      await handleRelaySettingsPatch(payload, userId)
+      return
+    case 'narrative_utility_registry':
+      await sendNarrativeUtilityRegistry(payload.requestId, userId)
       return
     case 'surface_prompt_preview': {
       try {
@@ -8939,12 +8959,13 @@ async function handleContinuityAction(payload: Extract<FrontendMessage, { type: 
     return
   }
   const appearanceSave = payload.action === 'save_character_sheet' && payload.characterId
-    ? { operation: 'save' as const, chatId: payload.chatId, characterId: payload.characterId }
+    ? { operation: 'save' as const, operationId: cleanString(payload.operationId) || `appearance-save-${Date.now()}`, chatId: payload.chatId, characterId: payload.characterId }
     : null
   if (appearanceSave) sendAppearanceMemoryActionStatus({ ...appearanceSave, status: 'started', message: 'Saving Appearance Memory…' }, userId)
   let continuityNotice = ''
   let manualCharacterForEnrichment: { id: string; name: string } | null = null
-  await mutateState(payload.chatId, userId, state => {
+  try {
+    await mutateState(payload.chatId, userId, state => {
     const vault = state.continuityVault || emptyContinuityVault(payload.chatId)
     vault.chatId = payload.chatId
     const now = Date.now()
@@ -9274,17 +9295,39 @@ async function handleContinuityAction(payload: Extract<FrontendMessage, { type: 
       severity: 'info', stage: 'appearance-vault', eventType: `continuity_${payload.action}`, chatId: payload.chatId,
       message: `Appearance Memory action: ${payload.action}.`, details: { factId: payload.factId, suggestionId: payload.suggestionId, characterId: payload.characterId, strength: payload.strength },
     })
-  })
+    })
+  } catch (error) {
+    if (appearanceSave) {
+      sendAppearanceMemoryActionStatus({
+        ...appearanceSave,
+        status: 'error',
+        message: `Save failed — ${error instanceof Error ? error.message : String(error)}`,
+      }, userId)
+      return
+    }
+    throw error
+  }
   if (payload.action === 'set_strength') await setConfig({ vaultStrength: payload.strength || 'off' }, userId)
   await sendState(userId, payload.chatId)
   if (appearanceSave) {
     const saved = await getState(payload.chatId, userId)
+    const sheet = saved.continuityVault.characterSheets[appearanceSave.characterId]
+    if (!sheet) {
+      sendAppearanceMemoryActionStatus({ ...appearanceSave, status: 'error', message: 'Save failed — persisted Appearance Memory could not be verified.' }, userId)
+      return
+    }
     sendAppearanceMemoryActionStatus({
       ...appearanceSave,
       status: 'success',
       message: 'Saved ✓',
       revision: saved.revision,
-      updatedAt: saved.continuityVault.characterSheets[appearanceSave.characterId]?.updatedAt,
+      updatedAt: sheet.updatedAt,
+      canonicalValues: {
+        stableAppearance: sheet.booruTags,
+        currentOutfit: sheet.currentOutfitTags,
+        negativeIdentityTags: sheet.negativeIdentityTags,
+        referenceAssetIds: sheet.referenceAssetIds,
+      },
     }, userId)
   }
   if (continuityNotice) spindle.sendToFrontend({ type: 'relay_notice', level: 'success', message: continuityNotice }, userId)
@@ -12534,7 +12577,7 @@ export async function getConfig(userId?: string): Promise<RouterConfig> {
   return value
 }
 
-export async function setConfig(patch: Partial<RouterConfig>, userId?: string): Promise<RouterConfig> {
+async function mutateConfigAtomic(mutator: (current: RouterConfig) => RouterConfig, userId?: string): Promise<RouterConfig> {
   const key = userConfigCacheKey(userId)
   const previous = configMutationQueues.get(key) || Promise.resolve()
   let release = () => {}
@@ -12544,7 +12587,7 @@ export async function setConfig(patch: Partial<RouterConfig>, userId?: string): 
   await previous
   try {
     const current = await getConfig(userId)
-    const next = normalizeConfig({ ...current, ...patch })
+    const next = normalizeConfig(mutator(current))
     await spindle.userStorage.setJson(CONFIG_PATH, next, { indent: 2, userId })
     configStorageHydratedScopes.add(key)
     configCache.set(key, { value: next, cachedAt: Date.now() })
@@ -12562,6 +12605,25 @@ function sanitizeOrbCustomIconDataUrl(value: unknown): string {
   const text = cleanString(value)
   if (!text || text.length > 3_000_000) return ''
   return /^data:image\/(?:png|jpe?g|webp|gif|svg\+xml);base64,[a-z0-9+/=\s]+$/i.test(text) ? text : ''
+}
+
+function normalizeNarrativeUtilityOverrides(value: unknown): RouterConfig['narrativeUtilityOverrides'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const allowed = new Set(narrativeUtilityNames())
+  const normalized: RouterConfig['narrativeUtilityOverrides'] = {}
+  for (const [name, candidate] of Object.entries(value as Record<string, unknown>)) {
+    if (!allowed.has(name) || !candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
+    const record = candidate as Record<string, unknown>
+    if (typeof record.content !== 'string' || !record.content.trim()) continue
+    normalized[name] = {
+      // Utility prompt text is authored source. Preserve whitespace, XML, and
+      // bracket syntax exactly; validation may warn but never rewrites it.
+      content: record.content,
+      revision: Math.max(1, Math.floor(Number(record.revision) || 1)),
+      updatedAt: Math.max(0, Number(record.updatedAt) || 0),
+    }
+  }
+  return normalized
 }
 
 function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
@@ -12665,6 +12727,7 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     surfaceColorMode: raw.surfaceColorMode === 'primary' ? 'primary' : 'realistic',
     surfaceUtilityInjectionEnabled: automaticSurfaceInjectionEnabled,
     surfacePreferencesInitialized: raw.surfacePreferencesInitialized === true,
+    settingsRevision: Math.max(0, Math.floor(Number(raw.settingsRevision) || 0)),
     narrativeDlcEnabled: raw.narrativeDlcEnabled === true,
     narrativeDlcVariant: NARRATIVE_REGEX_VARIANTS.includes(raw.narrativeDlcVariant as NarrativeRegexVariant)
       ? raw.narrativeDlcVariant as NarrativeRegexVariant
@@ -12672,6 +12735,7 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     narrativeDlcUtilityNames: Array.isArray(raw.narrativeDlcUtilityNames)
       ? narrativeUtilityNames().filter(name => raw.narrativeDlcUtilityNames?.includes(name))
       : narrativeUtilityNames(),
+    narrativeUtilityOverrides: normalizeNarrativeUtilityOverrides(raw.narrativeUtilityOverrides),
     characterPhoneDefaultApps: normalizeCharacterPhoneDefaultApps(raw.characterPhoneDefaultApps, {
       migrateMissing: !Object.prototype.hasOwnProperty.call(raw, 'characterPhoneDefaultApps'),
     }),
@@ -13320,6 +13384,108 @@ function normalizeRelayChatStats(value: unknown): RelayChatStats {
     cancelledTotal: Math.max(0, Number(raw.cancelledTotal) || 0),
     completedByTarget: Object.fromEntries(Object.entries(cleanParameters(raw.completedByTarget)).map(([key, count]) => [key, Math.max(0, Number(count) || 0)])),
     updatedAt: Math.max(0, Number(raw.updatedAt) || 0),
+  }
+}
+
+export async function setConfig(patch: Partial<RouterConfig>, userId?: string): Promise<RouterConfig> {
+  return mutateConfigAtomic(current => ({ ...current, ...patch }), userId)
+}
+
+function narrativeUtilityCompatibilityWarnings(name: string, content: string): string[] {
+  const required: Record<string, string[]> = {
+    'Chaos Hooks': ['<chaos_payload>', '<chaos_hook>'],
+    'Dramatic Cutaway': ['<dramatic_parallel>'],
+    'Scene Compass': ['scene_compass'],
+  }
+  return (required[name] || [])
+    .filter(marker => !content.toLocaleLowerCase().includes(marker.toLocaleLowerCase()))
+    .map(marker => `Compatibility warning: ${name} no longer references ${marker}. Relay will preserve the edit, but the approved renderer may not recognize its output.`)
+}
+
+function narrativeUtilityRegistry(config: RouterConfig): Array<{
+  id: string
+  name: string
+  defaultContent: string
+  effectiveContent: string
+  enabled: boolean
+  revision: number
+  source: 'default' | 'user-override'
+  updatedAt?: number
+  warnings: string[]
+}> {
+  const enabled = new Set(config.narrativeDlcEnabled ? config.narrativeDlcUtilityNames : [])
+  return narrativeUtilityItems().map(item => {
+    const override = config.narrativeUtilityOverrides[item.loomName]
+    const effectiveContent = override?.content?.trim() ? override.content : item.loomContent
+    return {
+      id: item.loomName,
+      name: item.loomName,
+      defaultContent: item.loomContent,
+      effectiveContent,
+      enabled: enabled.has(item.loomName),
+      revision: override?.revision || 0,
+      source: override ? 'user-override' : 'default',
+      updatedAt: override?.updatedAt,
+      warnings: narrativeUtilityCompatibilityWarnings(item.loomName, effectiveContent),
+    }
+  })
+}
+
+async function sendNarrativeUtilityRegistry(requestId: string, userId?: string): Promise<void> {
+  const config = await getConfig(userId)
+  spindle.sendToFrontend({ type: 'narrative_utility_registry', requestId, settingsRevision: config.settingsRevision, records: narrativeUtilityRegistry(config) }, userId)
+}
+
+export function applyRelaySettingsPatchToConfig(current: RouterConfig, patch: RelaySettingsPatch, expectedRevision = current.settingsRevision, now = Date.now()): RouterConfig {
+  const next: RouterConfig = { ...current }
+  const studio = normalizeCustomSurfaceStudio(current.globalSurfaceStudio || defaultCustomSurfaceStudio())
+  if (patch.kind === 'surface-prompt-enabled') {
+    for (const [surfaceId, requested] of Object.entries(patch.values)) {
+      const definition = studio.definitions[surfaceId]
+      if (!definition) continue
+      definition.promptEnabled = requested === true
+      definition.updatedAt = now
+    }
+    studio.updatedAt = now
+    next.globalSurfaceStudio = studio
+    next.surfacePreferencesInitialized = true
+  } else if (patch.kind === 'narrative-enabled') {
+    const selected = new Set(patch.enabledNames)
+    next.narrativeDlcUtilityNames = narrativeUtilityNames().filter(name => selected.has(name))
+    next.narrativeDlcEnabled = next.narrativeDlcUtilityNames.length > 0
+  } else {
+    if (!narrativeUtilityNames().includes(patch.utilityName)) throw new Error('Narrative Utility not found.')
+    const overrides = { ...current.narrativeUtilityOverrides }
+    if (patch.content === null || !patch.content.trim()) delete overrides[patch.utilityName]
+    else {
+      const previous = overrides[patch.utilityName]
+      overrides[patch.utilityName] = { content: patch.content, revision: (previous?.revision || 0) + 1, updatedAt: now }
+    }
+    next.narrativeUtilityOverrides = overrides
+  }
+  next.settingsRevision = Math.max(current.settingsRevision, expectedRevision) + 1
+  return next
+}
+
+async function handleRelaySettingsPatch(payload: Extract<FrontendMessage, { type: 'relay_settings_patch' }>, userId?: string): Promise<void> {
+  try {
+    const saved = await mutateConfigAtomic(current => applyRelaySettingsPatchToConfig(current, payload.patch, payload.expectedRevision), userId)
+    if (saved.debugLogging) spindle.log.info(`[Reverie Relay:settings_patch] ${JSON.stringify({ operationId: payload.operationId, kind: payload.patch.kind, expectedRevision: payload.expectedRevision, backendRevision: saved.settingsRevision, persisted: true })}`)
+    spindle.sendToFrontend({
+      type: 'relay_settings_patch_result', operationId: payload.operationId, status: 'success',
+      settingsRevision: saved.settingsRevision, config: saved, customSurfaces: saved.globalSurfaceStudio,
+      warnings: payload.patch.kind === 'narrative-override' && payload.patch.content
+        ? narrativeUtilityCompatibilityWarnings(payload.patch.utilityName, payload.patch.content)
+        : [],
+    }, userId)
+    await sendState(userId, payload.chatId ?? undefined)
+  } catch (error) {
+    const canonical = await getConfig(userId)
+    spindle.sendToFrontend({
+      type: 'relay_settings_patch_result', operationId: payload.operationId, status: 'failed',
+      settingsRevision: canonical.settingsRevision, config: canonical, customSurfaces: canonical.globalSurfaceStudio,
+      error: error instanceof Error ? error.message : String(error), warnings: [],
+    }, userId)
   }
 }
 
@@ -14244,7 +14410,9 @@ async function sendState(userId?: string, chatId?: string): Promise<void> {
     queueDirector: state.queueDirector,
     assetLibrary: globalAssets,
     versionTrees: Object.values(state.versionTrees || {}).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, RECENT_COMPLETED_HOT_LIMIT),
-    continuityVault: state.continuityVault,
+    // Appearance audit history is forensic data, not drawer bootstrap state.
+    // Keep it in durable storage and send the editable/current projection only.
+    continuityVault: { ...state.continuityVault, history: [] },
     customSurfaces: state.customSurfaces,
     proseIllustrator: state.proseIllustrator,
     backgroundQueue: state.backgroundQueue,

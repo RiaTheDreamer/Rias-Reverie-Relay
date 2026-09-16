@@ -202,9 +202,11 @@ type RouterConfig = {
   surfaceColorMode: SurfaceColorMode
   surfaceUtilityInjectionEnabled: boolean
   surfacePreferencesInitialized: boolean
+  settingsRevision: number
   narrativeDlcEnabled: boolean
   narrativeDlcVariant: 'sparkle-button' | 'plain-button' | 'inline'
   narrativeDlcUtilityNames: string[]
+  narrativeUtilityOverrides: Record<string, { content: string; revision: number; updatedAt: number }>
   characterPhoneDefaultApps: CharacterPhoneAppId[]
   narrativeDlcLastSync: {
     status: 'not-installed' | 'healthy' | 'drifted' | 'failed' | 'removed'
@@ -221,6 +223,23 @@ type RouterConfig = {
   proseIllustratorSettings: ProseIllustratorSettings
   tutorialModeEnabled: boolean
   tutorialStep: number
+}
+
+type RelaySettingsPatch =
+  | { kind: 'surface-prompt-enabled'; values: Record<string, boolean>; categoryId?: string }
+  | { kind: 'narrative-enabled'; enabledNames: string[] }
+  | { kind: 'narrative-override'; utilityName: string; content: string | null }
+
+type NarrativeUtilityInjectionRecord = {
+  id: string
+  name: string
+  defaultContent: string
+  effectiveContent: string
+  enabled: boolean
+  revision: number
+  source: 'default' | 'user-override'
+  updatedAt?: number
+  warnings: string[]
 }
 
 type BackendMessage =
@@ -240,6 +259,8 @@ type BackendMessage =
   | { type: 'rescan_result'; summary: ChatRescanSummary; automatic: boolean; alreadyRunning?: boolean }
   | { type: 'relay_notice'; level: 'info' | 'success' | 'warning'; message: string; batchId?: string }
   | ({ type: 'appearance_memory_action_status' } & AppearanceMemoryActionStatus)
+  | { type: 'relay_settings_patch_result'; operationId: string; status: 'success' | 'failed'; settingsRevision: number; config: RouterConfig; customSurfaces: CustomSurfaceStudioState; error?: string; warnings: string[] }
+  | { type: 'narrative_utility_registry'; requestId: string; settingsRevision: number; records: NarrativeUtilityInjectionRecord[] }
   | { type: 'prose_opportunities_ready'; chatId: string; messageId: string; swipeId: number; opportunities: ProseIllustrationOpportunity[]; source: string }
   | { type: 'model_placed_requests_missing'; chatId: string; messageId: string; runtimeDirective: string }
   | { type: 'prompt_registry_preview'; chatId: string; prompt: string; registryIds: string[] }
@@ -349,6 +370,11 @@ export function setup(ctx: SpindleFrontendContext) {
   let lastDisplayContractSignature = ''
   let pendingProseSettingsWrite: { settings: ProseIllustratorSettings; sentAt: number } | null = null
   let pendingConfigPatches: Array<{ patch: Partial<RouterConfig>; sentAt: number }> = []
+  const settingsPatchQueue: Array<{ operationId: string; expectedRevision: number; patch: RelaySettingsPatch }> = []
+  let settingsPatchInFlight: string | null = null
+  let narrativeUtilityRegistry: NarrativeUtilityInjectionRecord[] = []
+  let narrativeUtilityRegistryRequested = false
+  const appearanceSaveWatchdogs = new Map<string, number>()
   let selfTest: { checks: RelayHealthCheck[]; buildMatch: boolean } | null = null
   const frontendLoadedAt = Date.now()
   const frontendSessionId = `relay-${frontendLoadedAt}-${Math.random().toString(36).slice(2, 10)}`
@@ -366,6 +392,7 @@ export function setup(ctx: SpindleFrontendContext) {
   const nativeSnapshotScanWarned = new Set<string>()
   let terminalStateRefreshTimer = 0
   let recipeEditorId = ''
+  let narrativeUtilityEditorId = ''
   let historySubTab: HistorySubTab = 'all-chats-gallery'
   let completedHistoryChatId = ''
   let completedHistoryRows: Array<Record<string, unknown>> = []
@@ -1255,6 +1282,10 @@ export function setup(ctx: SpindleFrontendContext) {
           colorMode: effectiveConfig.surfaceColorMode,
           utilityInjectionEnabled: effectiveConfig.surfaceUtilityInjectionEnabled,
         }
+        // State broadcasts may race an in-flight settings mutation. Reapply
+        // the ordered local draft so an unrelated click or status tick cannot
+        // resurrect the last acknowledged/default values.
+        for (const pending of settingsPatchQueue) applyRelaySettingsDraft(pending.patch)
         invalidateDisplayIfContractChanged(effectiveConfig, customSurfaces)
         backgroundQueue = message.backgroundQueue || { items: {}, abortRequestedAt: 0, updatedAt: 0 }
         galleryLinks = message.galleryLinks || []
@@ -1495,11 +1526,42 @@ export function setup(ctx: SpindleFrontendContext) {
       }
       return
     }
+    if (message.type === 'relay_settings_patch_result') {
+      const index = settingsPatchQueue.findIndex(item => item.operationId === message.operationId)
+      const completed = index >= 0 ? settingsPatchQueue[index] : undefined
+      if (index >= 0) settingsPatchQueue.splice(index, 1)
+      if (settingsPatchInFlight === message.operationId) settingsPatchInFlight = null
+      config = message.config
+      customSurfaces = message.customSurfaces
+      for (const pending of settingsPatchQueue) applyRelaySettingsDraft(pending.patch)
+      if (message.status === 'failed') showToast('error', `Setting was rolled back: ${message.error || 'backend persistence failed'}`)
+      else if (message.warnings.length) showToast('warning', message.warnings[0])
+      if (completed?.patch.kind === 'narrative-override') requestNarrativeUtilityRegistry(true)
+      renderPanel()
+      dispatchNextRelaySettingsPatch()
+      return
+    }
+    if (message.type === 'narrative_utility_registry') {
+      narrativeUtilityRegistryRequested = false
+      narrativeUtilityRegistry = message.records
+      for (const pending of settingsPatchQueue) applyRelaySettingsDraft(pending.patch)
+      renderPanel()
+      return
+    }
     if (message.type === 'appearance_memory_action_status') {
       const key = message.operation === 'save'
         ? `${message.characterId}:save`
         : `${message.characterId}:${message.field || 'unknown'}`
+      const currentOperation = appearanceActionStatuses.get(key)
+      if (message.operationId && currentOperation?.operationId && message.operationId !== currentOperation.operationId && currentOperation.status === 'started') return
       appearanceActionStatuses.set(key, { ...message, receivedAt: Date.now() })
+      if (message.operationId) {
+        const watchdog = appearanceSaveWatchdogs.get(message.operationId)
+        if (watchdog && message.status !== 'started') {
+          window.clearTimeout(watchdog)
+          appearanceSaveWatchdogs.delete(message.operationId)
+        }
+      }
       const terminal = message.status !== 'started'
       // Save-start must not remount the editor and destroy unsaved textarea
       // contents. Its clicked button is updated in place; terminal state arrives
@@ -5158,13 +5220,36 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const saving = saveStatus?.status === 'started'
     const saveButton = button(saving ? 'Saving…' : saveStatus?.status === 'success' ? 'Saved ✓' : 'Save Appearance Memory', () => {
       if (!activeChatId) return
+      const operationId = `appearance-save-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+      try {
+        ctx.sendToBackend({
+          type: 'continuity_action', chatId: activeChatId, action: 'save_character_sheet',
+          operationId, expectedRevision: existing?.updatedAt || 0,
+          characterId: character.canonicalCharacterId, booruTags, currentOutfitTags,
+          negativeIdentityTags: negativeTags,
+          referenceAssetIds: referenceIds.split(',').map(value => value.trim()).filter(Boolean),
+        })
+      } catch (error) {
+        showToast('error', `Appearance Memory save could not be sent: ${error instanceof Error ? error.message : String(error)}`)
+        return
+      }
       appearanceActionStatuses.set(saveStatusKey, {
-        operation: 'save', chatId: activeChatId, characterId: character.canonicalCharacterId,
+        operation: 'save', operationId, chatId: activeChatId, characterId: character.canonicalCharacterId,
         status: 'started', message: 'Saving Appearance Memory…', receivedAt: Date.now(),
       })
       saveButton.disabled = true
       saveButton.textContent = 'Saving…'
-      ctx.sendToBackend({ type: 'continuity_action', chatId: activeChatId, action: 'save_character_sheet', characterId: character.canonicalCharacterId, booruTags, currentOutfitTags, negativeIdentityTags: negativeTags, referenceAssetIds: referenceIds.split(',').map(value => value.trim()).filter(Boolean) })
+      const watchdog = window.setTimeout(() => {
+        const pending = appearanceActionStatuses.get(saveStatusKey)
+        if (pending?.operationId !== operationId || pending.status !== 'started') return
+        appearanceActionStatuses.set(saveStatusKey, { ...pending, status: 'unknown', message: `Save timed out — verify/retry · operation ${operationId}`, receivedAt: Date.now() })
+        appearanceSaveWatchdogs.delete(operationId)
+        saveButton.disabled = false
+        saveButton.textContent = 'Retry Save'
+        const inline = document.querySelector<HTMLElement>(`[data-appearance-save-status="${CSS.escape(character.canonicalCharacterId)}"]`)
+        if (inline) { inline.className = 'dg-appearance-action-status is-unknown'; inline.textContent = `Save timed out — verify/retry · operation ${operationId}` }
+      }, 15_000)
+      appearanceSaveWatchdogs.set(operationId, watchdog)
     }, !activeChatId || saving, 'primary')
     saveButton.dataset.appearanceSaveCharacter = character.canonicalCharacterId
     actions.append(
@@ -5501,22 +5586,21 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       'Enable Narrative Utilities',
       `${NARRATIVE_DLC_UTILITY_NAMES.length} utility modules · ${someEnabled ? allEnabled ? 'all injected' : 'partially injected' : 'none injected'}`,
       allEnabled,
-      checked => patchConfig({
-        narrativeDlcEnabled: checked,
-        narrativeDlcUtilityNames: checked ? [...NARRATIVE_DLC_UTILITY_NAMES] : [],
-      }),
+      checked => enqueueRelaySettingsPatch({ kind: 'narrative-enabled', enabledNames: checked ? [...NARRATIVE_DLC_UTILITY_NAMES] : [] }),
     )
+    const categoryInput = categoryControl.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    if (categoryInput) categoryInput.indeterminate = someEnabled && !allEnabled
     const utilityToggles = document.createElement('div')
     utilityToggles.className = 'dg-settings-grid'
     for (const name of NARRATIVE_DLC_UTILITY_NAMES) {
       const displayName = narrativeUtilityDisplayName(name)
       const overview = NARRATIVE_UTILITY_OVERVIEWS[displayName] || 'Adds a structured story-aware Narrative module to the prompt.'
       utilityToggles.appendChild(toggleCard(displayName, `${overview} · ${selectedNarrativeUtilities.has(name) ? 'Included in prompt' : 'Not injected'}`, current.narrativeDlcEnabled && selectedNarrativeUtilities.has(name), checked => {
-        const next = new Set(current.narrativeDlcUtilityNames || [])
+        const next = new Set(config?.narrativeDlcUtilityNames || [])
         if (checked) next.add(name)
         else next.delete(name)
         const narrativeDlcUtilityNames = NARRATIVE_DLC_UTILITY_NAMES.filter(item => next.has(item))
-        patchConfig({ narrativeDlcEnabled: narrativeDlcUtilityNames.length > 0, narrativeDlcUtilityNames })
+        enqueueRelaySettingsPatch({ kind: 'narrative-enabled', enabledNames: narrativeDlcUtilityNames })
       }))
     }
     const installation = document.createElement('div')
@@ -5625,44 +5709,15 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
   function setSurfacePromptPreference(surfaceId: string, promptEnabled: boolean): void {
     const existing = customSurfaces.definitions?.[surfaceId]
     if (!existing || existing.promptEnabled === promptEnabled) return
-    const now = Date.now()
-    customSurfaces = {
-      ...customSurfaces,
-      definitions: {
-        ...customSurfaces.definitions,
-        [surfaceId]: { ...existing, promptEnabled, updatedAt: now },
-      },
-      updatedAt: now,
-    }
-    renderPanel()
-    ctx.sendToBackend({ type: 'custom_surface_action', chatId: activeChatId, action: 'set_prompt_enabled', surfaceId, promptEnabled })
+    enqueueRelaySettingsPatch({ kind: 'surface-prompt-enabled', values: { [surfaceId]: promptEnabled } })
   }
 
   function setSurfaceCategoryPromptPreference(promptCategory: SurfacePromptCategory, promptEnabled: boolean): void {
-    const now = Date.now()
-    let changed = false
-    const definitions = Object.fromEntries(Object.entries(customSurfaces.definitions || {}).map(([surfaceId, definition]) => {
-      if (definition.promptCategory !== promptCategory || definition.promptEnabled === promptEnabled) return [surfaceId, definition]
-      changed = true
-      return [surfaceId, { ...definition, promptEnabled, updatedAt: now }]
-    })) as Record<string, CustomSurfaceDefinition>
-    if (!changed) return
-    customSurfaces = { ...customSurfaces, definitions, updatedAt: now }
-    // Paint every visible child switch in-place before the extension bridge
-    // persists the category. Rebuilding the full Library made the master
-    // switch appear inert on mobile until the backend state echo arrived.
-    for (const control of tab.root.querySelectorAll<HTMLElement>(`[data-surface-prompt-category="${promptCategory}"]`)) {
-      control.classList.toggle('dg-toggle-on', promptEnabled)
-      const input = control.querySelector<HTMLInputElement>('input[type="checkbox"]')
-      if (input) input.checked = promptEnabled
-    }
-    window.setTimeout(() => ctx.sendToBackend({
-      type: 'custom_surface_action',
-      chatId: activeChatId,
-      action: 'set_category_prompt_enabled',
-      promptCategory,
-      promptEnabled,
-    }), 0)
+    const values = Object.fromEntries(Object.entries(customSurfaces.definitions || {})
+      .filter(([, definition]) => definition.promptCategory === promptCategory)
+      .map(([surfaceId]) => [surfaceId, promptEnabled]))
+    if (!Object.keys(values).length) return
+    enqueueRelaySettingsPatch({ kind: 'surface-prompt-enabled', values, categoryId: promptCategory })
   }
 
   function renderSurfacePreferenceControls(): HTMLElement {
@@ -5784,6 +5839,8 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
         categoryEnabled,
         checked => setSurfaceCategoryPromptPreference(category, checked),
       )
+      const categoryInput = categoryControl.querySelector<HTMLInputElement>('input[type="checkbox"]')
+      if (categoryInput) categoryInput.indeterminate = categorySomeEnabled && !categoryEnabled
       categoryControl.dataset.surfacePromptCategory = category
       const grid = document.createElement('div')
       grid.className = 'dg-settings-grid'
@@ -5856,6 +5913,72 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     return box
   }
 
+  function renderNarrativeUtilityInjectionEditor(): HTMLElement {
+    requestNarrativeUtilityRegistry()
+    const wrap = document.createElement('div')
+    wrap.className = 'dg-stack'
+    if (!narrativeUtilityRegistry.length) {
+      wrap.appendChild(empty('Loading the Narrative Utility injection registry…'))
+      return wrap
+    }
+    const rows = document.createElement('div')
+    rows.className = 'dg-card-grid'
+    for (const record of narrativeUtilityRegistry) {
+      const card = document.createElement('div')
+      card.className = `dg-card${record.enabled ? ' is-enabled' : ''}`
+      const title = document.createElement('strong')
+      title.textContent = narrativeUtilityDisplayName(record.name)
+      const status = document.createElement('p')
+      status.textContent = `${record.enabled ? 'Injected' : 'Disabled'} · ${record.source === 'user-override' ? 'User Override' : 'Default'} · ${record.effectiveContent.length.toLocaleString()} chars · ~${Math.ceil(record.effectiveContent.length / 4).toLocaleString()} tokens`
+      const actions = document.createElement('div')
+      actions.className = 'dg-actions'
+      actions.append(
+        button(record.enabled ? 'Disable' : 'Enable', () => {
+          const selected = new Set(config?.narrativeDlcUtilityNames || [])
+          if (record.enabled) selected.delete(record.id)
+          else selected.add(record.id)
+          enqueueRelaySettingsPatch({ kind: 'narrative-enabled', enabledNames: NARRATIVE_DLC_UTILITY_NAMES.filter(name => selected.has(name)) })
+        }, false, 'subtle'),
+        button('Edit', () => { narrativeUtilityEditorId = record.id; renderPanel() }, false, 'primary'),
+        button('Reset to Default', () => enqueueRelaySettingsPatch({ kind: 'narrative-override', utilityName: record.id, content: null }), record.source === 'default', 'subtle'),
+      )
+      card.append(title, status, actions)
+      if (record.warnings.length) {
+        const warning = document.createElement('div')
+        warning.className = 'dg-build-warning'
+        warning.textContent = record.warnings.join(' ')
+        card.appendChild(warning)
+      }
+      rows.appendChild(card)
+    }
+    wrap.appendChild(rows)
+
+    const selected = narrativeUtilityRegistry.find(record => record.id === narrativeUtilityEditorId)
+    if (selected) {
+      const editor = document.createElement('div')
+      editor.className = 'dg-modal'
+      const heading = document.createElement('strong')
+      heading.textContent = `${narrativeUtilityDisplayName(selected.name)} · Model-Facing Utility Text`
+      const source = document.createElement('div')
+      source.className = 'dg-recovery-note'
+      source.textContent = `${selected.source === 'user-override' ? 'User Override' : 'Shipped Default'} · revision ${selected.revision}. XML and bracket syntax are preserved literally. Compatibility checks warn; they do not rewrite.`
+      const textarea = document.createElement('textarea')
+      textarea.className = 'dg-textarea dg-textarea-tall'
+      textarea.spellcheck = false
+      textarea.value = selected.effectiveContent
+      const actions = document.createElement('div')
+      actions.className = 'dg-actions'
+      actions.append(
+        button('Save', () => enqueueRelaySettingsPatch({ kind: 'narrative-override', utilityName: selected.id, content: textarea.value }), false, 'primary'),
+        button('Cancel', () => { narrativeUtilityEditorId = ''; renderPanel() }, false, 'subtle'),
+        button('Reset to Default', () => enqueueRelaySettingsPatch({ kind: 'narrative-override', utilityName: selected.id, content: null }), selected.source === 'default', 'subtle'),
+      )
+      editor.append(heading, source, textarea, actions)
+      wrap.appendChild(editor)
+    }
+    return wrap
+  }
+
   function renderUtilityStudio(): HTMLElement {
     const box = document.createElement('div')
     const intro = document.createElement('div')
@@ -5872,11 +5995,14 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     macroOverview.innerHTML = '<strong>Macro Overview</strong><br><code>{{reverie_surfaces}}</code> — enabled Surface Library modules.<br><code>{{reverie_illustrator}}</code> — active Illustrator protocol and runtime.<br><code>{{reverie_all}}</code> — both systems in one placement.'
     box.appendChild(panelSection('Macros', macroOverview))
 
-    const enabledModules = activeSurfacePromptDefinitions()
-    const utilityCharacters = enabledModules.reduce((total, definition) => total + String(definition.promptModule || '').length, 0) + String(customSurfaces.utilityTemplate || '').length
+    const enabledModules = activeSurfacePromptDefinitions().filter(definition => definition.promptEnabled)
+    const enabledNarrativeUtilities = narrativeUtilityRegistry.filter(record => record.enabled)
+    const utilityCharacters = enabledModules.reduce((total, definition) => total + String(definition.promptModule || '').length, 0)
+      + enabledNarrativeUtilities.reduce((total, record) => total + record.effectiveContent.length, 0)
+      + String(customSurfaces.utilityTemplate || '').length
     const utilityEstimate = document.createElement('div')
     utilityEstimate.className = utilityCharacters > 60_000 ? 'dg-build-warning' : 'dg-recovery-note'
-    utilityEstimate.innerHTML = `<strong>Injection Size</strong><br>${enabledModules.length} enabled module${enabledModules.length === 1 ? '' : 's'} · ${utilityCharacters.toLocaleString()} characters · approximately ${Math.ceil(utilityCharacters / 4).toLocaleString()} tokens${utilityCharacters > 60_000 ? '<br>Warning: this Utility is large. Disable unused Surface modules to reduce Story Model context pressure.' : ''}`
+    utilityEstimate.innerHTML = `<strong>Injection Size</strong><br>${enabledModules.length} Surface module${enabledModules.length === 1 ? '' : 's'} + ${enabledNarrativeUtilities.length} Narrative Utilit${enabledNarrativeUtilities.length === 1 ? 'y' : 'ies'} · ${utilityCharacters.toLocaleString()} characters · approximately ${Math.ceil(utilityCharacters / 4).toLocaleString()} tokens${utilityCharacters > 60_000 ? '<br>Warning: this Utility is large. Disable unused modules to reduce Story Model context pressure.' : ''}`
     box.appendChild(panelSection('Utility Footprint', utilityEstimate))
 
     const injectionStatus = document.createElement('div')
@@ -5905,6 +6031,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       })),
     )
     box.appendChild(panelSection('Injection Settings', settings))
+    box.appendChild(panelSection('Narrative Utilities', renderNarrativeUtilityInjectionEditor()))
 
     const templateWrap = document.createElement('div')
     templateWrap.className = 'dg-modal'
@@ -8618,6 +8745,68 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
       nativeImageSettings: snapshot?.settings,
       nativeSettingsCapturedAt: snapshot?.capturedAt,
     })
+  }
+
+  function applyRelaySettingsDraft(patch: RelaySettingsPatch): void {
+    if (!config) return
+    if (patch.kind === 'surface-prompt-enabled') {
+      const now = Date.now()
+      const definitions = { ...customSurfaces.definitions }
+      for (const [surfaceId, promptEnabled] of Object.entries(patch.values)) {
+        const definition = definitions[surfaceId]
+        if (definition) definitions[surfaceId] = { ...definition, promptEnabled, updatedAt: now }
+      }
+      customSurfaces = { ...customSurfaces, definitions, updatedAt: now }
+      config = { ...config, globalSurfaceStudio: customSurfaces }
+      return
+    }
+    if (patch.kind === 'narrative-enabled') {
+      config = { ...config, narrativeDlcEnabled: patch.enabledNames.length > 0, narrativeDlcUtilityNames: [...patch.enabledNames] }
+      narrativeUtilityRegistry = narrativeUtilityRegistry.map(record => ({ ...record, enabled: patch.enabledNames.includes(record.id) }))
+      return
+    }
+    const overrides = { ...(config.narrativeUtilityOverrides || {}) }
+    const record = narrativeUtilityRegistry.find(candidate => candidate.id === patch.utilityName)
+    if (patch.content === null || !patch.content.trim()) delete overrides[patch.utilityName]
+    else overrides[patch.utilityName] = { content: patch.content, revision: (overrides[patch.utilityName]?.revision || 0) + 1, updatedAt: Date.now() }
+    config = { ...config, narrativeUtilityOverrides: overrides }
+    narrativeUtilityRegistry = narrativeUtilityRegistry.map(candidate => candidate.id !== patch.utilityName ? candidate : {
+      ...candidate,
+      effectiveContent: patch.content?.trim() ? patch.content : candidate.defaultContent,
+      source: patch.content?.trim() ? 'user-override' : 'default',
+      revision: patch.content?.trim() ? candidate.revision + 1 : 0,
+      updatedAt: Date.now(),
+      warnings: record?.warnings || [],
+    })
+  }
+
+  function dispatchNextRelaySettingsPatch(): void {
+    if (settingsPatchInFlight || !settingsPatchQueue.length) return
+    const next = settingsPatchQueue[0]
+    next.expectedRevision = config?.settingsRevision || 0
+    settingsPatchInFlight = next.operationId
+    try {
+      ctx.sendToBackend({ type: 'relay_settings_patch', chatId: activeChatId, ...next })
+    } catch (error) {
+      settingsPatchInFlight = null
+      settingsPatchQueue.shift()
+      showToast('error', `Setting could not be sent: ${error instanceof Error ? error.message : String(error)}`)
+      dispatchNextRelaySettingsPatch()
+    }
+  }
+
+  function enqueueRelaySettingsPatch(patch: RelaySettingsPatch): void {
+    applyRelaySettingsDraft(patch)
+    const operationId = `settings-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+    settingsPatchQueue.push({ operationId, expectedRevision: config?.settingsRevision || 0, patch })
+    renderPanel()
+    dispatchNextRelaySettingsPatch()
+  }
+
+  function requestNarrativeUtilityRegistry(force = false): void {
+    if (narrativeUtilityRegistryRequested || (!force && narrativeUtilityRegistry.length)) return
+    narrativeUtilityRegistryRequested = true
+    ctx.sendToBackend({ type: 'narrative_utility_registry', requestId: `narrative-registry-${Date.now()}` })
   }
 
   function patchConfig(patch: Partial<RouterConfig>): void {

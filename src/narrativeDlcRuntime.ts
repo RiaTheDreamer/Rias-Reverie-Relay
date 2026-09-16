@@ -255,16 +255,25 @@ ${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key} = ${ve
 
 Every hook_text must be non-empty. Every hook_media must be non-empty and contain one complete canonical raw current <reverie-illustration request="generate"> with a non-empty <visual_prompt>. Plot Sparks D–G and required closing tags may never be silently dropped. Resolved historical images and Relay runtime markup do not count. If any check fails, fix the Plot Sparks block before stopping.`
 
-export function buildNarrativeUtilityPrompt(selectedNames: string[] = narrativeUtilityNames()): { content: string; utilityNames: string[] } {
+export function buildNarrativeUtilityPrompt(
+  selectedNames: string[] = narrativeUtilityNames(),
+  overrides: Record<string, string | undefined> = {},
+): { content: string; utilityNames: string[] } {
   const allow = new Set(selectedNames)
   const items = narrativeUtilityItems()
     .filter(item => allow.has(item.loomName) && String(item.loomContent || '').trim())
-    .map(item => item.loomName === 'Chaos Hooks'
-      ? { ...item, loomContent: `${item.loomContent}\n\n${PLOT_SPARK_COMPLETION_LOCK}` }
-      : item)
+    .map(item => {
+      const override = typeof overrides[item.loomName] === 'string' && overrides[item.loomName]!.trim()
+        ? overrides[item.loomName]!
+        : undefined
+      const authoredContent = override ?? applyNarrativeDisplayNames(item.loomContent)
+      return item.loomName === 'Chaos Hooks'
+        ? { ...item, loomContent: `${authoredContent}\n\n${PLOT_SPARK_COMPLETION_LOCK}` }
+        : { ...item, loomContent: authoredContent }
+    })
   return {
     content: items.length
-      ? `<reverie_narrative_utility contract="narrative" version="${NARRATIVE_DLC_VERSION}" utilities="${items.map(item => applyNarrativeDisplayNames(item.loomName)).join(', ')}">\n${items.map(item => applyNarrativeDisplayNames(item.loomContent)).join('\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n')}\n</reverie_narrative_utility>`
+      ? `<reverie_narrative_utility contract="narrative" version="${NARRATIVE_DLC_VERSION}" utilities="${items.map(item => applyNarrativeDisplayNames(item.loomName)).join(', ')}">\n${items.map(item => item.loomContent).join('\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n')}\n</reverie_narrative_utility>`
       : '',
     utilityNames: items.map(item => item.loomName),
   }

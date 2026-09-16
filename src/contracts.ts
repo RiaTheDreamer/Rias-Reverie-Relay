@@ -875,6 +875,7 @@ export type AppearanceCharacterSheet = {
 
 export type AppearanceMemoryActionStatus = {
   operation: 'save' | 'rerun-field'
+  operationId?: string
   chatId: string
   characterId: string
   field?: 'stable-appearance' | 'current-outfit' | 'negative-identity-tags'
@@ -882,6 +883,12 @@ export type AppearanceMemoryActionStatus = {
   message: string
   revision?: number
   updatedAt?: number
+  canonicalValues?: {
+    stableAppearance: string
+    currentOutfit: string
+    negativeIdentityTags: string
+    referenceAssetIds: string[]
+  }
 }
 
 export type AppearanceHistoryEntry = {
