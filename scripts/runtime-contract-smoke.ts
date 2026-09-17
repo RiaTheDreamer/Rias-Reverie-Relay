@@ -147,6 +147,13 @@ permissionChanged!({ extensionId: 'reverie_relay', permission: 'interceptor', gr
 assert.equal(interceptorRegistrations, 1)
 
 const assembledText = (result: any) => (Array.isArray(result) ? result : result.messages).map((message: any) => String(message.content || '')).join('\n')
+const protectedRelayControlTags = new Set([
+  'image_request', 'scene_brief', 'reverie-illustration', 'visual_prompt',
+  'context_caption', 'negative', 'negative_prompt',
+])
+const structuralXmlTags = (value: string) => [...value.matchAll(/<\/?([A-Za-z][A-Za-z0-9_-]*)\b[^>]*>/g)]
+  .filter(match => !protectedRelayControlTags.has(match[1].toLowerCase()))
+const bracketImageControlTags = (value: string) => value.match(/\[\/?(?:image_request|scene_brief|reverie-illustration|visual_prompt)\b/gi) || []
 const expectedNarrativeUtility = buildNarrativeUtilityPrompt()
 const expectedSurfaceIds = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).map(surface => surface.id).sort()
 const assertUtilitiesInjected = (text: string, stage: string) => {
@@ -169,6 +176,14 @@ assert(modelPlaced.includes('<visual_prompt>'))
 assert(modelPlaced.includes('<mode>model-placed</mode>'))
 assert(modelPlaced.includes('Exclude every media request required inside an invoked Surface or Narrative Utility from this count'), 'Illustrator count must not conflict with self-contained Narrative/Surface media requirements')
 assertUtilitiesInjected(modelPlaced, 'initial permission grant')
+const assembledCore = modelPlaced.match(/<reverie_surface_utility\b[^>]*>([\s\S]*?)<\/reverie_surface_utility>/i)?.[1] || ''
+const assembledNarrative = modelPlaced.match(/\[reverie_narrative_utility\]([\s\S]*?)\[\/reverie_narrative_utility\]/i)?.[1] || ''
+assert(assembledCore && assembledNarrative, 'final Story Model prompt did not expose both family authoring blocks for boundary audit')
+assert.equal(structuralXmlTags(assembledCore).length, 0, 'final Story Model Core authoring contains structural XML')
+assert.equal(structuralXmlTags(assembledNarrative).length, 0, 'final Story Model Narrative authoring contains structural XML')
+assert(assembledCore.includes('<image_request') && assembledCore.includes('<scene_brief>'), 'final Story Model Core authoring lost canonical XML image controls')
+assert(assembledNarrative.includes('<image_request') && assembledNarrative.includes('<reverie-illustration'), 'final Story Model Narrative authoring lost a canonical XML image-control family')
+assert.equal(bracketImageControlTags(modelPlaced).length, 0, 'final Story Model prompt teaches bracket image-control authoring')
 
 await backend.setConfig({ proseIllustratorSettings: { ...backend.defaultProseIllustratorSettings(), mode: 'inline-protocol' } }, 'u1')
 const inline = assembledText(await interceptor!(baseMessages, { chatId: 'inline-dry-run', userId: 'u1', isDryRun: true }))
@@ -373,4 +388,4 @@ assertUtilitiesInjected(assembledText(slowStorageResult), 'slow diagnostic stora
 await new Promise(resolve => setTimeout(resolve, 10))
 assert(blockedStateWriteAttempts >= 1, 'prompt diagnostics were not scheduled after returning the injection')
 
-console.log('Runtime contract smoke passed: continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, opt-in streaming, bounded provider timeout/fallback/abort, snapshot Abort All, and deferred interceptor recovery.')
+console.log('Runtime contract smoke passed: final assembled Story Model prompt has Core structural XML 0, Narrative structural XML 0, bracket image-control authoring 0, and canonical XML image controls; continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, opt-in streaming, bounded provider timeout/fallback/abort, snapshot Abort All, and deferred interceptor recovery.')
