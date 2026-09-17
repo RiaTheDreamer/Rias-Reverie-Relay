@@ -32,7 +32,7 @@ Each of the 46 Surface Utilities and 13 Narrative Utilities includes a plain-lan
 
 Relay registers `reverie_surfaces`, `reverie_illustrator`, `reverie_narrative`, and `reverie_all` as real Lumiverse macros. A macro expands to its current enabled instructions when the preset is assembled; it is not a visible placeholder tag. Use automatic injection or a manual macro placement, not both.
 
-Character Dossier, Location File, and Cast Introduction include **Send to Lorebook**. Relay creates or reuses a chat-bound Stage Archive, preserves other bound Lorebooks, adds the exact selected Surface with source provenance, and opens the host Lorebook drawer when that host tab is discoverable.
+Character Dossier, Location File, and Cast Introduction include **Send to Lorebook**. Relay creates or reuses a chat-bound Reverie Relay Lorebook, preserves other bound Lorebooks, adds the exact selected Surface with source provenance, and opens the host Lorebook drawer when that host tab is discoverable.
 
 The Illustrator overview includes `Copy Image Request Template`, which copies the complete canonical request block rather than only the opening tag.
 

@@ -1075,6 +1075,7 @@ function stripCompletedRecord(record) {
     aspectRatio: record.aspectRatio,
     attemptNumber: record.attemptNumber,
     triggerType: record.triggerType,
+    diagnosticArchiveId: compact.diagnosticArchiveId,
     proseIllustrationId: record.proseIllustrationId,
     prosePlanId: record.prosePlanId,
     proseAnchor: record.proseAnchor,
@@ -7408,7 +7409,9 @@ function supersedeAppearanceConflicts(vault, layer, characterId, replacementId, 
   const competing = Object.values(map).filter((fact) => fact.canonicalCharacterId === characterId && fact.status === "active" && conflictCategory(fact.category, fact.value, fact.conflictDomain) === group);
   if (competing.length < 2)
     return;
-  const winner = [...competing].sort((left, right) => (layer === "current-appearance" ? compareFacts(left, right) : compareSemanticFacts(left, right)) || Number(right.factId === replacementId) - Number(left.factId === replacementId))[0];
+  const protectedExisting = competing.find((fact) => fact.factId !== replacementId && compareFactAuthority(fact, replacement) < 0);
+  const replacementOwnsEqualAuthorityDomain = replacement.sourceType === "appearance-sidecar" && !protectedExisting;
+  const winner = replacementOwnsEqualAuthorityDomain ? replacement : [...competing].sort((left, right) => (layer === "current-appearance" ? compareFacts(left, right) : compareSemanticFacts(left, right)) || Number(right.factId === replacementId) - Number(left.factId === replacementId))[0];
   for (const fact of competing) {
     if (fact.factId === winner.factId)
       continue;
@@ -8329,8 +8332,8 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.1";
-var BUILD_ID = "20260916-0.2.8.1";
+var EXTENSION_VERSION = "0.2.8.2";
+var BUILD_ID = "20260917-0.2.8.2";
 
 // src/providerPromptSafety.ts
 class ProviderPromptSafetyError extends Error {
@@ -155818,8 +155821,7 @@ Every hook_text must be non-empty. Every hook_media must be non-empty and contai
 function buildNarrativeUtilityPrompt(selectedNames = narrativeUtilityNames(), overrides = {}) {
   const allow = new Set(selectedNames);
   const items = narrativeUtilityItems().filter((item) => allow.has(item.loomName) && String(item.loomContent || "").trim()).map((item) => {
-    const override = typeof overrides[item.loomName] === "string" && overrides[item.loomName].trim() ? overrides[item.loomName] : undefined;
-    const authoredContent = override ?? applyNarrativeDisplayNames(item.loomContent);
+    const authoredContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, overrides[item.loomName]);
     return { ...item, loomContent: authoredContent };
   });
   return {
@@ -155832,6 +155834,11 @@ ${items.map((item) => item.loomContent).join(`
 </reverie_narrative_utility>` : "",
     utilityNames: items.map((item) => item.loomName)
   };
+}
+function effectiveNarrativeUtilityContent(name, defaultContent, override) {
+  const candidate = typeof override === "string" && override.trim() ? override : "";
+  const legacyPlotSparksOverride = name === "Chaos Hooks" && candidate && (!/\[Plot_Sparks\]/i.test(candidate) || /<\/?(?:chaos_payload|chaos_hook)\b|<\/?(?:hook_text|hook_media)\b/i.test(candidate));
+  return applyNarrativeDisplayNames(candidate && !legacyPlotSparksOverride ? candidate : defaultContent);
 }
 
 // src/narrativeLorebook.ts
@@ -155901,7 +155908,7 @@ async function exportNarrativeLorebookRecord(input) {
     if (!book) {
       const createdAt = new Date().toISOString();
       book = await api.world_books.create({
-        name: `Reverie Relay Stage Archive - ${chat.name || "Chat"}`,
+        name: `Reverie Relay Lorebook - ${chat.name || "Chat"}`,
         description: "Chat-bound Narrative Surface exports created by Reverie Relay.",
         metadata: { reverie_relay_lorebook_chat_id: chat.id, reverie_relay_created_at: createdAt, reverie_relay_export_book: true }
       }, userId);
@@ -158133,7 +158140,7 @@ async function discoverProseOpportunities(input) {
       source: input.source
     }, input.userId);
     assertAbortableOperationCurrent(operationKey, operationSerial);
-    if (isHandsOffProseMode(settings))
+    if (isHandsOffProseMode(settings) && !input.suppressAutoDispatch)
       await handleAutoOpportunityDispatch(input.chatId, accepted, input.userId);
     return accepted;
   } catch (error) {
@@ -159066,7 +159073,7 @@ async function handleFrontendMessage(payload, userId) {
       await sendCompletedHistoryPage(payload.chatId, payload.cursor, payload.limit, userId);
       return;
     case "completed_diagnostic":
-      await sendCompletedDiagnostic(payload.chatId, payload.archiveId, userId);
+      await sendCompletedDiagnostic(payload.chatId, payload.archiveId, userId, payload.requestId);
       return;
     case "asset_library_action":
       await handleAssetLibraryAction(payload, userId);
@@ -163332,13 +163339,14 @@ async function handleProseIllustratorAction(payload, nativeSnapshot, userId) {
         content: strictSwipeContent(message, swipeId),
         source: "model-placed-recovery-once",
         force: true,
+        suppressAutoDispatch: true,
         userId
       });
       if (!accepted.length) {
         spindle.sendToFrontend({ type: "relay_notice", level: "warning", message: "Relay-Planned found no strong visual beat in that response." }, userId);
         return;
       }
-      await handleAutoOpportunityDispatch(chatId, accepted, userId);
+      await handleAutoOpportunityDispatch(chatId, accepted, userId, { forceHandsOff: true });
       spindle.sendToFrontend({ type: "relay_notice", level: "info", message: "Relay-Planned recovery started for this response only. Your selected Illustrator mode was not changed." }, userId);
       return;
     }
@@ -163480,7 +163488,7 @@ async function planProseIllustrationForMessage(chatId, messageId, swipeIdInput, 
   await mutateState(chatId, userId, (next) => storeProsePlan(next, plan));
   return plan;
 }
-async function selectProseOpportunity(chatId, opportunityId, userId) {
+async function selectProseOpportunity(chatId, opportunityId, userId, options = {}) {
   const state = await getState(chatId, userId);
   const opportunity = state.proseIllustrator.opportunities[opportunityId];
   if (!opportunity || opportunity.chatId !== chatId)
@@ -163529,7 +163537,7 @@ async function selectProseOpportunity(chatId, opportunityId, userId) {
   }
   const settings = proseSettingsForChat(state, chatId);
   const composition = opportunity.promptComposition || await composePromptForOpportunity(chatId, opportunity, content, settings, userId);
-  const plan = planFromOpportunity(opportunity, content, settings, composition);
+  const plan = planFromOpportunity(opportunity, content, settings, composition, options.forceHandsOff === true);
   await mutateState(chatId, userId, (next) => {
     const stored = next.proseIllustrator.opportunities[opportunityId];
     if (stored) {
@@ -163751,9 +163759,9 @@ function validateIllustratorPeopleConstraints(settings, namedSubjects, expectedP
 function isHandsOffProseMode(settings) {
   return settings.mode === "relay-planned" && settings.enabled && !settings.paused;
 }
-function planFromOpportunity(opportunity, content, settings, composition) {
+function planFromOpportunity(opportunity, content, settings, composition, forceHandsOff = false) {
   const paragraphs = proseParagraphs(content);
-  const handsOffAuto = isHandsOffProseMode(settings);
+  const handsOffAuto = forceHandsOff || isHandsOffProseMode(settings);
   const insertionSide = settings.placementPolicy === "end-of-message" ? "end" : opportunity.insertionSide || placementSideFromPolicy(settings.placementPolicy);
   const planId = `prose-${contentFingerprint(`${opportunity.opportunityId}:${composition.composedAt}`).replace(/[^a-z0-9]/gi, "-")}`;
   return {
@@ -163763,7 +163771,7 @@ function planFromOpportunity(opportunity, content, settings, composition) {
     swipeId: opportunity.swipeId,
     opportunityId: opportunity.opportunityId,
     plannerVersion: opportunity.plannerVersion,
-    mode: settings.mode,
+    mode: forceHandsOff ? "relay-planned" : settings.mode,
     shouldIllustrate: true,
     reason: opportunity.reason,
     sceneBrief: composition.sceneBrief || opportunity.sceneSummary,
@@ -163796,17 +163804,17 @@ function planFromOpportunity(opportunity, content, settings, composition) {
     imageSize: settings.imageSize,
     approvalRequired: !handsOffAuto,
     placementConfirmed: true,
-    source: isHandsOffProseMode(settings) ? "auto" : "planner",
+    source: handsOffAuto ? "auto" : "planner",
     status: handsOffAuto ? "ready" : "awaiting-approval"
   };
 }
-async function handleAutoOpportunityDispatch(chatId, opportunities, userId) {
+async function handleAutoOpportunityDispatch(chatId, opportunities, userId, options = {}) {
   const operationKey = `prose:${chatId}`;
   const operationSerial = captureAbortableOperation(operationKey);
   const state = await getState(chatId, userId);
   assertAbortableOperationCurrent(operationKey, operationSerial);
   const settings = proseSettingsForChat(state, chatId);
-  if (!isHandsOffProseMode(settings) || !opportunities.length)
+  if (!isHandsOffProseMode(settings) && !options.forceHandsOff || !opportunities.length)
     return;
   const requested = Math.max(1, Math.min(settings.illustrationsPerRun || 1, settings.maximumIllustrationsPerMessage));
   const seenBeats = new Set;
@@ -163833,7 +163841,7 @@ async function handleAutoOpportunityDispatch(chatId, opportunities, userId) {
   });
   for (const opportunity of selected) {
     assertAbortableOperationCurrent(operationKey, operationSerial);
-    const plan = await selectProseOpportunity(chatId, opportunity.opportunityId, userId);
+    const plan = await selectProseOpportunity(chatId, opportunity.opportunityId, userId, options);
     await generateProseIllustrationPlan(chatId, plan.planId, undefined, userId);
   }
 }
@@ -163848,6 +163856,7 @@ async function generateProseIllustrationPlan(chatId, planId, nativeSnapshot, use
   if (!plan.shouldIllustrate || !plan.sceneBrief)
     throw new Error(plan.reason || "Planner did not approve this illustration.");
   const settings = proseSettingsForChat(state, chatId);
+  const handsOffDispatch = isHandsOffProseMode(settings) || plan.mode === "relay-planned" && plan.source === "auto";
   if (!plan.placementConfirmed || settings.placementPolicy === "ask" && !plan.placementConfirmed) {
     await mutateState(chatId, userId, (next) => {
       const stored = next.proseIllustrator.plans[planId];
@@ -163957,7 +163966,7 @@ async function generateProseIllustrationPlan(chatId, planId, nativeSnapshot, use
       insertionVerified: false,
       removed: false
     };
-    plan.status = isHandsOffProseMode(settings) ? "ready" : "candidate-review";
+    plan.status = handsOffDispatch ? "ready" : "candidate-review";
     plan.approvalRequired = false;
     next.proseIllustrator.plans[plan.planId] = plan;
     next.queueDirector.jobStatuses[key2] = next.queueDirector.pausedAfterCurrent ? "paused" : "queued";
@@ -163965,7 +163974,7 @@ async function generateProseIllustrationPlan(chatId, planId, nativeSnapshot, use
   });
   await sendState(userId, chatId);
   const proseSlotKey = slotKey({ chatId, messageId: plan.messageId, swipeId: plan.swipeId, requestId: plan.planId, slot: "illustration" });
-  if (isHandsOffProseMode(settings)) {
+  if (handsOffDispatch) {
     assertAbortableOperationCurrent(operationKey, operationSerial);
     await patchSwipeContent(chatId, message, plan.swipeId, placement.content);
     const latest = await getState(chatId, userId);
@@ -164765,6 +164774,10 @@ async function handleContinuityAction(payload, userId) {
           const character = vault.characters[payload.characterId];
           if (!character)
             throw new Error("Character not found.");
+          const existingSheet = vault.characterSheets[payload.characterId];
+          if (payload.expectedRevision !== undefined && Number(existingSheet?.updatedAt || 0) !== Number(payload.expectedRevision || 0)) {
+            throw new Error("Appearance Memory changed after this editor opened. Review the current values and save again.");
+          }
           saveManualAppearanceMemory(vault, {
             characterId: payload.characterId,
             stableAppearance: cleanString(payload.booruTags),
@@ -169190,13 +169203,18 @@ async function sendCompletedHistoryPage(chatId, cursor = 0, limit = COMPLETED_HI
     completedLifetime: state.stats.completedTotal
   }, userId);
 }
-async function sendCompletedDiagnostic(chatId, archiveId, userId) {
-  const diagnostic = await spindle.userStorage.getJson(completedDiagnosticPath(chatId, archiveId), { fallback: null, userId });
+async function readCompletedDiagnostic(chatId, archiveId, userId) {
+  return spindle.userStorage.getJson(completedDiagnosticPath(chatId, archiveId), { fallback: null, userId });
+}
+async function sendCompletedDiagnostic(chatId, archiveId, userId, requestId) {
+  const diagnostic = await readCompletedDiagnostic(chatId, archiveId, userId);
   spindle.sendToFrontend({
     type: "completed_diagnostic",
     chatId,
     archiveId,
+    requestId,
     diagnostic,
+    record: diagnostic?.record,
     message: diagnostic ? "Loaded one archived Relay diagnostic." : "Detailed Relay diagnostics were not retained for this historical image."
   }, userId);
 }
@@ -169217,7 +169235,7 @@ async function setConfig(patch, userId) {
 }
 function narrativeUtilityCompatibilityWarnings(name, content) {
   const required = {
-    "Chaos Hooks": ["<chaos_payload>", "<chaos_hook>"],
+    "Chaos Hooks": ["[Plot_Sparks]", "[Spark]", "[Media]"],
     "Dramatic Cutaway": ["<dramatic_parallel>"],
     "Scene Compass": ["scene_compass"]
   };
@@ -169227,7 +169245,8 @@ function narrativeUtilityRegistry(config) {
   const enabled = new Set(config.narrativeDlcEnabled ? config.narrativeDlcUtilityNames : []);
   return narrativeUtilityItems().map((item) => {
     const override = config.narrativeUtilityOverrides[item.loomName];
-    const effectiveContent = override?.content?.trim() ? override.content : item.loomContent;
+    const effectiveContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, override?.content);
+    const usesOverride = Boolean(override?.content?.trim()) && !(item.loomName === "Chaos Hooks" && (!/\[Plot_Sparks\]/i.test(override.content) || /<\/?(?:chaos_payload|chaos_hook|hook_text|hook_media)\b/i.test(override.content)));
     return {
       id: item.loomName,
       name: item.loomName,
@@ -169235,7 +169254,7 @@ function narrativeUtilityRegistry(config) {
       effectiveContent,
       enabled: enabled.has(item.loomName),
       revision: override?.revision || 0,
-      source: override ? "user-override" : "default",
+      source: usesOverride ? "user-override" : "default",
       updatedAt: override?.updatedAt,
       warnings: narrativeUtilityCompatibilityWarnings(item.loomName, effectiveContent)
     };
@@ -169248,7 +169267,34 @@ async function sendNarrativeUtilityRegistry(requestId, userId) {
 function applyRelaySettingsPatchToConfig(current, patch, expectedRevision = current.settingsRevision, now = Date.now()) {
   const next = { ...current };
   const studio = normalizeCustomSurfaceStudio(current.globalSurfaceStudio || defaultCustomSurfaceStudio());
-  if (patch.kind === "surface-prompt-enabled") {
+  if (patch.kind === "surface-preferences") {
+    if (patch.rendererMode !== undefined) {
+      if (!["relay", "legacy-regex", "hybrid"].includes(patch.rendererMode))
+        throw new Error("Renderer mode is invalid.");
+      studio.rendererMode = patch.rendererMode;
+      next.surfaceRendererMode = patch.rendererMode;
+    }
+    if (patch.defaultShellMode !== undefined) {
+      if (!["inline", "plain", "sparkling"].includes(patch.defaultShellMode))
+        throw new Error("Default surface presentation is invalid.");
+      studio.defaultShellMode = patch.defaultShellMode;
+      next.surfaceDefaultShellMode = patch.defaultShellMode;
+      next.narrativeDlcVariant = narrativeVariantForSurfaceShellMode(patch.defaultShellMode);
+    }
+    if (patch.colorMode !== undefined) {
+      if (!["realistic", "primary"].includes(patch.colorMode))
+        throw new Error("Surface color mode is invalid.");
+      studio.colorMode = patch.colorMode;
+      next.surfaceColorMode = patch.colorMode;
+    }
+    if (patch.utilityInjectionEnabled !== undefined) {
+      studio.utilityInjectionEnabled = patch.utilityInjectionEnabled;
+      next.surfaceUtilityInjectionEnabled = patch.utilityInjectionEnabled;
+    }
+    studio.updatedAt = now;
+    next.globalSurfaceStudio = studio;
+    next.surfacePreferencesInitialized = true;
+  } else if (patch.kind === "surface-prompt-enabled") {
     for (const [surfaceId, requested] of Object.entries(patch.values)) {
       const definition = studio.definitions[surfaceId];
       if (!definition)
@@ -169259,6 +169305,8 @@ function applyRelaySettingsPatchToConfig(current, patch, expectedRevision = curr
     studio.updatedAt = now;
     next.globalSurfaceStudio = studio;
     next.surfacePreferencesInitialized = true;
+  } else if (patch.kind === "character-phone-apps") {
+    next.characterPhoneDefaultApps = normalizeCharacterPhoneDefaultApps(patch.defaultApps, { migrateMissing: false });
   } else if (patch.kind === "narrative-enabled") {
     const selected = new Set(patch.enabledNames);
     next.narrativeDlcUtilityNames = narrativeUtilityNames().filter((name) => selected.has(name));
@@ -169313,7 +169361,28 @@ function relaySettingsPatchWarnings(patch) {
 }
 async function handleRelaySettingsPatch(payload, userId) {
   try {
-    const saved = await mutateConfigAtomic((current) => applyRelaySettingsPatchToConfig(current, payload.patch, payload.expectedRevision), userId);
+    let saved = await mutateConfigAtomic((current) => applyRelaySettingsPatchToConfig(current, payload.patch, payload.expectedRevision), userId);
+    if (payload.patch.kind === "surface-preferences" && payload.patch.defaultShellMode !== undefined && saved.narrativeDlcLastSync?.installed) {
+      const previousNarrativeHealth = saved.narrativeDlcLastSync;
+      try {
+        const health = await reconcileNarrativeRegex(spindle.regex_scripts, narrativeVariantForSurfaceShellMode(saved.surfaceDefaultShellMode), userId);
+        saved = await setConfig({ narrativeDlcLastSync: health }, userId);
+      } catch (error) {
+        saved = await setConfig({
+          narrativeDlcLastSync: {
+            status: "failed",
+            variant: narrativeVariantForSurfaceShellMode(saved.surfaceDefaultShellMode),
+            expected: previousNarrativeHealth.expected,
+            installed: previousNarrativeHealth.installed,
+            healthy: previousNarrativeHealth.healthy,
+            drifted: previousNarrativeHealth.drifted,
+            blocked: previousNarrativeHealth.blocked,
+            message: `Narrative presentation could not be reconciled: ${error instanceof Error ? error.message : String(error)}`,
+            updatedAt: Date.now()
+          }
+        }, userId);
+      }
+    }
     if (saved.debugLogging)
       spindle.log.info(`[Reverie Relay:settings_patch] ${JSON.stringify({ operationId: payload.operationId, kind: payload.patch.kind, expectedRevision: payload.expectedRevision, backendRevision: saved.settingsRevision, persisted: true })}`);
     spindle.sendToFrontend({
@@ -170430,10 +170499,24 @@ async function discoverProviderLoraCatalog(requestId, requestedConnectionId, use
 }
 async function getRecordByKey(key2, userId) {
   const chatId = key2.split(":")[0];
-  const state = await getState(chatId, userId);
-  const record4 = state.slots[key2];
+  let state = await getState(chatId, userId);
+  let record4 = state.slots[key2];
   if (!record4)
     throw new Error("Slot not found.");
+  const archiveId = record4.diagnosticArchiveId || state.completedArchive[key2]?.diagnosticArchiveId;
+  if (record4.status === "completed" && archiveId && !canReparseRecord(record4) && !canRegenerateRecord(record4)) {
+    const archived = (await readCompletedDiagnostic(chatId, archiveId, userId))?.record;
+    if (archived?.key === key2 && archived.chatId === chatId && archived.status === "completed" && (archived.imageUrl || archived.imageId)) {
+      await mutateState(chatId, userId, (next) => {
+        const current = next.slots[key2];
+        if (current?.status === "completed" && current.imageUrl === archived.imageUrl && current.imageId === archived.imageId) {
+          next.slots[key2] = { ...archived, diagnosticArchiveId: archiveId };
+        }
+      });
+      state = await getState(chatId, userId);
+      record4 = state.slots[key2];
+    }
+  }
   return { chatId, state, record: record4 };
 }
 async function resolveMessage(chatId, messageId) {

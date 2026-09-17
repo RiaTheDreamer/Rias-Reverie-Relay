@@ -88,6 +88,8 @@ assert(nativeSource.includes('.rrl-card:hover .rrl-actions') && nativeSource.inc
 
 const frontendSource = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')
 assert(frontendSource.includes('mediaSlot.dataset.rrnMediaState') && frontendSource.includes('slotImage.hidden = false'), 'frontend must mutate the existing stable media slot when image state changes')
+assert(frontendSource.includes('bindTimer = window.requestAnimationFrame') && !frontendSource.includes('setTimeout(() => { bindTimer = 0; bindInlineImages() }, 80)'), 'newly mounted prose media must reconcile before the next paint instead of flashing stale lifecycle UI')
+assert(frontendSource.includes('tab.root.replaceChildren(root)') && !frontendSource.includes('tab.root.replaceChildren()\n    const root'), 'drawer panel replacement must be atomic instead of exposing an empty intermediate tree')
 assert(frontendSource.includes("'[data-rr-kakao-color]'") && frontendSource.includes('applyKakaoColorBinding(row)'), 'frontend must restore sanitized Kakao color properties after host sanitization')
 assert(frontendSource.includes("!image.closest('[data-rrn-native-request]')") && frontendSource.includes('stripHealthyCompletedLifecycleUi(card)'), 'frontend must strip completed reservation UI and remove the reservation when the authored image binds')
 assert(frontendSource.includes('invalidateDisplayIfContractChanged') && (frontendSource.match(/ctx\.display\?\.invalidate\(\['\*'\]\)/g) || []).length === 1, 'slot-state updates must not wholesale-invalidate and remount every Surface')

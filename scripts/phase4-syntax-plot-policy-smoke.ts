@@ -65,6 +65,10 @@ assert(repairedBlend.includes('<visual_prompt>Keep this exact prompt.</visual_pr
 const utility = buildNarrativeUtilityPrompt(['Chaos Hooks']).content
 for (const forbidden of ['hook ledger', 'chaos payload', 'chaos_payload', 'chaos hook', 'chaos_hook', 'hook_text', 'hook_media', '<payload>', 'two-ledger']) assert(!utility.toLocaleLowerCase().includes(forbidden), `active Plot Sparks Utility leaked ${forbidden}`)
 assert(utility.includes('[Plot_Sparks]') && utility.includes('plot-spark-g-'), 'effective Plot Sparks injection must use bracket grammar and new slot prefixes')
+const legacyOverrideUtility = buildNarrativeUtilityPrompt(['Chaos Hooks'], { 'Chaos Hooks': '<chaos_payload><chaos_hook><hook_text>stale</hook_text></chaos_hook></chaos_payload>' }).content
+assert(legacyOverrideUtility.includes('[Plot_Sparks]') && !legacyOverrideUtility.includes('<chaos_payload>'), 'legacy saved Chaos Hooks content must not override the current model-facing Plot Sparks source')
+const currentOverride = '[Plot_Sparks][Spark][Media]CURRENT OVERRIDE[/Media][/Spark][/Plot_Sparks]'
+assert(buildNarrativeUtilityPrompt(['Chaos Hooks'], { 'Chaos Hooks': currentOverride }).content.includes(currentOverride), 'current bracket-native Plot Sparks overrides must remain authoritative')
 const definitions = [...shippedSurfaceDefinitions(), ...r45SupplementalSurfaceDefinitions()]
 assert(definitions.every(row => row.promptModule.includes('TRIGGER POLICY') && row.promptModule.includes('BRACKET ROOT')), 'every active R4.5 Surface must retain semantic trigger guidance plus structural grammar')
 assert(definitions.find(row => row.baseSurfaceId === 'smartphone')?.promptModule.includes('same co-present characters'), 'Smartphone co-presence anti-trigger missing')

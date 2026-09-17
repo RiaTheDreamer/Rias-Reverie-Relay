@@ -125,5 +125,8 @@ assert.match(backend, /payload\.kind === 'relay-planned'[\s\S]*?analyzeRelayPlan
 assert.match(backend, /plan\.plannerVersion !== RELAY_PLANNED_V2/, 'Relay-Planned 2.0 cannot fall back to the legacy Composer')
 assert.match(backend, /parserRequested: false,[\s\S]*?Relay-Planned 2\.0 local compiler/, 'Local compiler output is not reported as a Parser call')
 assert.match(backend, /imageGenerationCalls: 0 as const/, 'Dry Run declares zero image calls')
+assert.match(backend, /source: 'model-placed-recovery-once',[\s\S]{0,180}suppressAutoDispatch: true/, 'Relay-Planned once must suppress discovery-time auto-dispatch')
+assert.match(backend, /handleAutoOpportunityDispatch\(chatId, accepted, userId, \{ forceHandsOff: true \}\)/, 'Relay-Planned once must perform one explicit hands-off dispatch')
+assert.match(backend, /isHandsOffProseMode\(settings\) && !input\.suppressAutoDispatch/, 'ordinary Relay-Planned discovery must retain automatic dispatch without duplicating the once path')
 
 console.log('Phase 6 Relay-Planned 2.0 smoke passed: bounded Director output, local validation/compiler, ambiguity-only repair routing, and simulation-only Dry Run contracts are present.')

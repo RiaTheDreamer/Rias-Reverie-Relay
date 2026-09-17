@@ -95,6 +95,7 @@ export function stripCompletedRecord(record: SlotRecord): SlotRecord {
     aspectRatio: record.aspectRatio,
     attemptNumber: record.attemptNumber,
     triggerType: record.triggerType,
+    diagnosticArchiveId: compact.diagnosticArchiveId,
     proseIllustrationId: record.proseIllustrationId,
     prosePlanId: record.prosePlanId,
     proseAnchor: record.proseAnchor,

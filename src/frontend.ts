@@ -226,7 +226,9 @@ type RouterConfig = {
 }
 
 type RelaySettingsPatch =
+  | { kind: 'surface-preferences'; rendererMode?: CustomSurfaceStudioState['rendererMode']; defaultShellMode?: SurfaceShellMode; colorMode?: SurfaceColorMode; utilityInjectionEnabled?: boolean }
   | { kind: 'surface-prompt-enabled'; values: Record<string, boolean>; categoryId?: string }
+  | { kind: 'character-phone-apps'; defaultApps: CharacterPhoneAppId[] }
   | { kind: 'narrative-enabled'; enabledNames: string[] }
   | { kind: 'narrative-override'; utilityName: string; content: string | null }
   | { kind: 'prompt-registry-override'; promptId: string; content: string | null; version: number }
@@ -254,7 +256,7 @@ type BackendMessage =
   | { type: 'queue_abort_ack'; abortedQueued: number; abortedActive: number; remoteCancelRequested: number; alreadyStopped: number }
   | { type: 'queue_dispatch_diagnostic'; diagnostic: Record<string, unknown> }
   | { type: 'completed_history_page'; chatId: string; cursor: number; limit: number; rows: Array<Record<string, unknown>>; nextCursor: number | null; total: number; completedLifetime: number }
-  | { type: 'completed_diagnostic'; chatId: string; archiveId: string; diagnostic: unknown; message: string }
+  | { type: 'completed_diagnostic'; chatId: string; archiveId: string; requestId?: string; diagnostic: unknown; record?: SlotRecord; message: string }
   | { type: 'reparse_preview'; key: string; prompt: string; negativePrompt: string; pipeline: PromptPipeline }
   | { type: 'self_test_result'; checks: RelayHealthCheck[]; frontendBuildId: string; backend: BackendBuildInfo; buildMatch: boolean }
   | { type: 'rescan_result'; summary: ChatRescanSummary; automatic: boolean; alreadyRunning?: boolean }
@@ -398,6 +400,7 @@ export function setup(ctx: SpindleFrontendContext) {
   let completedHistoryChatId = ''
   let completedHistoryRows: Array<Record<string, unknown>> = []
   let completedHistoryNextCursor: number | null = null
+  const pendingCompletedRecordLoads = new Map<string, (record: SlotRecord | null) => void>()
   let vaultSelectedCharacterId = ''
   const streamPreviews = new Map<string, { imageDataUrl?: string; statusText?: string; updatedAt: number; source: string; streaming?: boolean; step?: number; totalSteps?: number; failed?: boolean }>()
   const completedPreviewGenerations = new Set<string>()
@@ -1472,7 +1475,10 @@ export function setup(ctx: SpindleFrontendContext) {
       return
     }
     if (message.type === 'completed_diagnostic') {
-      if (message.diagnostic) downloadJson(`reverie-relay-completed-${message.archiveId}.json`, message.diagnostic)
+      const pending = message.requestId ? pendingCompletedRecordLoads.get(message.requestId) : undefined
+      if (message.requestId) pendingCompletedRecordLoads.delete(message.requestId)
+      if (pending) pending(message.record || null)
+      else if (message.diagnostic) downloadJson(`reverie-relay-completed-${message.archiveId}.json`, message.diagnostic)
       else showToast('warning', message.message)
       return
     }
@@ -2424,7 +2430,7 @@ export function setup(ctx: SpindleFrontendContext) {
 
   function scheduleBindInlineImages(): void {
     if (bindTimer) return
-    bindTimer = window.setTimeout(() => { bindTimer = 0; bindInlineImages() }, 80)
+    bindTimer = window.requestAnimationFrame(() => { bindTimer = 0; bindInlineImages() })
   }
 
   const mediaCardUpdates = new WeakMap<HTMLElement, { signature: string; media: Element | null }>()
@@ -2822,7 +2828,6 @@ export function setup(ctx: SpindleFrontendContext) {
     const previousScrollTop = tab.root.scrollTop
     panelScrollTopByTab.set(previousTab, previousScrollTop)
     applyGlobalInterfaceSettings()
-    tab.root.replaceChildren()
     const root = document.createElement('div')
     root.className = 'dg-router-panel dg-suite-shell'
     root.appendChild(renderHeader())
@@ -2846,7 +2851,7 @@ export function setup(ctx: SpindleFrontendContext) {
     stage.className = 'dg-suite-stage'
     stage.appendChild(content)
     root.appendChild(stage)
-    tab.root.appendChild(root)
+    tab.root.replaceChildren(root)
     tab.setBadge(records.length ? String(records.length) : null)
     const restoreScrollTop = panelScrollTopByTab.get(activeTab) ?? previousScrollTop
     requestAnimationFrame(() => { tab.root.scrollTop = restoreScrollTop })
@@ -5280,6 +5285,14 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const saveButton = button(saving ? 'Saving…' : saveStatus?.status === 'success' ? 'Saved ✓' : 'Save Appearance Memory', () => {
       if (!activeChatId) return
       const operationId = `appearance-save-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+      appearanceActionStatuses.set(saveStatusKey, {
+        operation: 'save', operationId, chatId: activeChatId, characterId: character.canonicalCharacterId,
+        status: 'started', message: 'Saving Appearance Memory…', receivedAt: Date.now(),
+      })
+      saveButton.disabled = true
+      saveButton.textContent = 'Saving…'
+      const inline = document.querySelector<HTMLElement>(`[data-appearance-save-status="${CSS.escape(character.canonicalCharacterId)}"]`)
+      if (inline) { inline.className = 'dg-appearance-action-status is-running'; inline.textContent = 'Saving Appearance Memory…' }
       try {
         ctx.sendToBackend({
           type: 'continuity_action', chatId: activeChatId, action: 'save_character_sheet',
@@ -5289,15 +5302,13 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
           referenceAssetIds: referenceIds.split(',').map(value => value.trim()).filter(Boolean),
         })
       } catch (error) {
+        appearanceActionStatuses.delete(saveStatusKey)
+        saveButton.disabled = false
+        saveButton.textContent = 'Save Appearance Memory'
+        if (inline) inline.textContent = ''
         showToast('error', `Appearance Memory save could not be sent: ${error instanceof Error ? error.message : String(error)}`)
         return
       }
-      appearanceActionStatuses.set(saveStatusKey, {
-        operation: 'save', operationId, chatId: activeChatId, characterId: character.canonicalCharacterId,
-        status: 'started', message: 'Saving Appearance Memory…', receivedAt: Date.now(),
-      })
-      saveButton.disabled = true
-      saveButton.textContent = 'Saving…'
       const watchdog = window.setTimeout(() => {
         const pending = appearanceActionStatuses.get(saveStatusKey)
         if (pending?.operationId !== operationId || pending.status !== 'started') return
@@ -5584,7 +5595,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     intro.innerHTML = `<strong>Character Phone Apps</strong><br>Choose the apps that should always appear on Character Phone. The Story Model fills the remaining slots with apps that fit the current story. Every Character Phone uses exactly eight apps.<br><br><strong>Selected defaults: ${defaults.length} / 8</strong> · Story Model fills: ${8 - defaults.length}`
     wrap.appendChild(intro)
 
-    const update = (next: CharacterPhoneAppId[]) => patchConfig({ characterPhoneDefaultApps: normalizeCharacterPhoneDefaultApps(next, { migrateMissing: false }) })
+    const update = (next: CharacterPhoneAppId[]) => enqueueRelaySettingsPatch({ kind: 'character-phone-apps', defaultApps: normalizeCharacterPhoneDefaultApps(next, { migrateMissing: false }) })
     const pinned = document.createElement('div')
     pinned.className = 'dg-field-stack'
     if (defaults.length) {
@@ -5709,29 +5720,17 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
 
   function setSurfaceRendererPreference(rendererMode: CustomSurfaceStudioState['rendererMode']): void {
     if (customSurfaces.rendererMode === rendererMode) return
-    customSurfaces = { ...customSurfaces, rendererMode, updatedAt: Date.now() }
-    renderPanel()
-    ctx.sendToBackend({ type: 'custom_surface_action', chatId: activeChatId, action: 'set_renderer_mode', rendererMode })
+    enqueueRelaySettingsPatch({ kind: 'surface-preferences', rendererMode })
   }
 
   function setSurfacePresentationPreference(defaultShellMode: SurfaceShellMode): void {
     if (customSurfaces.defaultShellMode === defaultShellMode) return
-    customSurfaces = { ...customSurfaces, defaultShellMode, updatedAt: Date.now() }
-    if (config) {
-      config = { ...config, surfaceDefaultShellMode: defaultShellMode, narrativeDlcVariant: narrativeVariantForSurfacePresentation(defaultShellMode) }
-      // Existing markup must redraw for a presentation contract change. The
-      // shared guard performs exactly one invalidation, never one per slot.
-      invalidateDisplayIfContractChanged(config, customSurfaces)
-    }
-    renderPanel()
-    ctx.sendToBackend({ type: 'custom_surface_action', chatId: activeChatId, action: 'set_default_shell_mode', shellMode: defaultShellMode })
+    enqueueRelaySettingsPatch({ kind: 'surface-preferences', defaultShellMode })
   }
 
   function setSurfaceColorPreference(colorMode: SurfaceColorMode): void {
     if (customSurfaces.colorMode === colorMode) return
-    customSurfaces = { ...customSurfaces, colorMode, updatedAt: Date.now() }
-    renderPanel()
-    ctx.sendToBackend({ type: 'custom_surface_action', chatId: activeChatId, action: 'set_color_mode', colorMode })
+    enqueueRelaySettingsPatch({ kind: 'surface-preferences', colorMode })
   }
 
   function setSurfaceHybridOwner(surfaceId: string, owner: 'relay' | 'regex'): void {
@@ -5750,19 +5749,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
   }
 
   function setAutomaticSurfaceInjection(enabled: boolean): void {
-    customSurfaces = {
-      ...customSurfaces,
-      utilityInjectionEnabled: enabled,
-      updatedAt: Date.now(),
-    }
-    // The checkbox paints optimistically; rebuilding the entire Surface Library
-    // here made a simple toggle feel frozen on mobile.
-    ctx.sendToBackend({
-      type: 'custom_surface_action',
-      chatId: activeChatId,
-      action: 'set_utility_settings',
-      utilityInjectionEnabled: enabled,
-    })
+    enqueueRelaySettingsPatch({ kind: 'surface-preferences', utilityInjectionEnabled: enabled })
   }
 
   function setSurfacePromptPreference(surfaceId: string, promptEnabled: boolean): void {
@@ -6812,7 +6799,13 @@ ${bracketFixture}`)
         copy.textContent = `${String(row.requestId || '')} / ${String(row.slot || '')}\n${new Date(Number(row.completedAt) || 0).toLocaleString()}`
         const actions = document.createElement('div')
         actions.className = 'dg-actions'
-        if (row.diagnosticArchiveId) actions.append(button('Load Diagnostic', () => activeChatId && ctx.sendToBackend({ type: 'completed_diagnostic', chatId: activeChatId, archiveId: String(row.diagnosticArchiveId) }), false, 'subtle'))
+        if (row.diagnosticArchiveId) {
+          const archivedRecord = row as unknown as SlotRecord
+          actions.append(
+            button('Why Did Relay Do That?', () => requestCompletedRecord(archivedRecord, loaded => loaded && openPromptInspector(loaded)), false, 'subtle'),
+            button('Export Diagnostic', () => activeChatId && ctx.sendToBackend({ type: 'completed_diagnostic', chatId: activeChatId, archiveId: String(row.diagnosticArchiveId) }), false, 'subtle'),
+          )
+        }
         item.append(image, copy, actions)
         archivedTrack.appendChild(item)
       }
@@ -7720,8 +7713,9 @@ ${bracketFixture}`)
     }
     const busy = isProcessing(record)
     const unresolvedCarousel = record.target === 'instagram.carousel' && !record.imageUrl
-    const canParse = canReparse(record)
-    const canRegen = canRegenerate(record)
+    const archiveBacked = Boolean(record.status === 'completed' && record.diagnosticArchiveId)
+    const canParse = canReparse(record) || archiveBacked
+    const canRegen = canRegenerate(record) || archiveBacked
     const unavailable = 'Original prompt metadata was not available when this slot was recovered.'
     if (['placement-pending', 'placement-repair-needed'].includes(record.status) && record.pendingPlacement) {
       let repairButton: HTMLButtonElement
@@ -7758,9 +7752,9 @@ ${bracketFixture}`)
       actions.append(
         regenerateButton = button('Regenerate', () => void submitPopupAction('regenerate', regenerateButton), !canRestart, 'primary', canRestart ? '' : unavailable),
         reparseButton = button(unresolvedCarousel ? 'Reparse Carousel' : 'Reparse', () => void submitPopupAction('reparse', reparseButton), !canParse, 'standard', canParse ? '' : unavailable),
-        button('Regeneration Direction', () => openRegenerationIntent(record, acceptedPopup), busy || !canParse, 'subtle', canParse ? '' : unavailable),
-        button('Edit Prompt', () => openEditPrompt(record), busy || unresolvedCarousel),
-        button('Generation Details', () => openResolvedGenerationPlan(record), false, 'subtle'),
+        button('Regeneration Direction', () => withCompletedRecord(record, loaded => openRegenerationIntent(loaded, acceptedPopup)), busy || !canParse, 'subtle', canParse ? '' : unavailable),
+        button('Edit Prompt', () => withCompletedRecord(record, openEditPrompt), busy || unresolvedCarousel),
+        button('Generation Details', () => withCompletedRecord(record, openResolvedGenerationPlan), false, 'subtle'),
       )
     }
     wrapper.append(actions, popupError)
@@ -7888,6 +7882,9 @@ ${bracketFixture}`)
     const menu = document.createElement('div')
     menu.className = 'dg-router-panel dg-menu'
     const metadata = buildMetadata(record, record)
+    const archiveBacked = Boolean(record.status === 'completed' && record.diagnosticArchiveId)
+    const canParse = canReparse(record) || archiveBacked
+    const canRegen = canRegenerate(record) || archiveBacked
     const unavailable = 'Original prompt metadata was not available when this slot was recovered.'
     const remove = () => confirmCleanup({ title: 'Remove Relay Slot?', description: 'This removes the Relay state record only.\nThe chat message and generated image asset will remain.', scope: `${appLabel(record)} / ${slotLabel(record)} / ${record.requestId}`, actionLabel: 'Remove Slot', onConfirm: () => ctx.sendToBackend({ type: 'cleanup', chatId: record.chatId, scope: 'slot', action: 'remove', key: record.key }) })
     const actions: Array<[string, () => void, boolean, string?]> = ['placement-pending', 'placement-repair-needed'].includes(record.status) && record.pendingPlacement ? [
@@ -7916,24 +7913,24 @@ ${bracketFixture}`)
       ['Copy JSON', () => copyText(JSON.stringify(metadata, null, 2), 'Metadata JSON copied.'), false],
     ] : [
       ['Open Image', () => openLightbox(record), !record.imageUrl],
-      ['Regenerate - Same Settings', () => regenerate(record), isSlotActionBusy(record) || !canRegenerate(record), canRegenerate(record) ? '' : unavailable],
-      ['Regenerate - Normal Mode', () => regenerate(record, false, false), isSlotActionBusy(record) || !canRegenerate(record), canRegenerate(record) ? '' : unavailable],
-      ['Regenerate - High-Res Mode', () => regenerate(record, false, true), isSlotActionBusy(record) || !canRegenerate(record), canRegenerate(record) ? '' : unavailable],
-      ['Regeneration Direction', () => openRegenerationIntent(record), isSlotActionBusy(record) || !canReparse(record), canReparse(record) ? '' : unavailable],
-      [record.target === 'instagram.carousel' && !record.imageUrl ? 'Reparse Carousel' : 'Reparse', () => reparse(record), isSlotActionBusy(record) || !canReparse(record), canReparse(record) ? '' : unavailable],
-      ['Reparse Preview', () => ctx.sendToBackend({ type: 'reparse_preview', key: record.key }), isSlotActionBusy(record) || !canReparse(record), canReparse(record) ? '' : unavailable],
-      ['Regenerate - Current Native Settings', () => regenerate(record, true), isSlotActionBusy(record) || !canRegenerate(record), canRegenerate(record) ? '' : unavailable],
-      ['Edit Prompt', () => openEditPrompt(record), isSlotActionBusy(record) || (record.target === 'instagram.carousel' && !record.imageUrl)],
-      ['History', () => openHistory(record), record.history.length === 0],
-      ['Generation Details', () => openResolvedGenerationPlan(record), false],
+      ['Regenerate - Same Settings', () => regenerate(record), isSlotActionBusy(record) || !canRegen, canRegen ? '' : unavailable],
+      ['Regenerate - Normal Mode', () => regenerate(record, false, false), isSlotActionBusy(record) || !canRegen, canRegen ? '' : unavailable],
+      ['Regenerate - High-Res Mode', () => regenerate(record, false, true), isSlotActionBusy(record) || !canRegen, canRegen ? '' : unavailable],
+      ['Regeneration Direction', () => withCompletedRecord(record, openRegenerationIntent), isSlotActionBusy(record) || !canParse, canParse ? '' : unavailable],
+      [record.target === 'instagram.carousel' && !record.imageUrl ? 'Reparse Carousel' : 'Reparse', () => reparse(record), isSlotActionBusy(record) || !canParse, canParse ? '' : unavailable],
+      ['Reparse Preview', () => ctx.sendToBackend({ type: 'reparse_preview', key: record.key }), isSlotActionBusy(record) || !canParse, canParse ? '' : unavailable],
+      ['Regenerate - Current Native Settings', () => regenerate(record, true), isSlotActionBusy(record) || !canRegen, canRegen ? '' : unavailable],
+      ['Edit Prompt', () => withCompletedRecord(record, openEditPrompt), isSlotActionBusy(record) || (record.target === 'instagram.carousel' && !record.imageUrl)],
+      ['History', () => withCompletedRecord(record, openHistory), !archiveBacked && record.history.length === 0],
+      ['Generation Details', () => withCompletedRecord(record, openResolvedGenerationPlan), false],
       ['Why Did Relay Do That?', () => openPromptInspector(record), false],
       ['View Metadata', () => openMetadata(record), false],
       ['Clear Error State', () => ctx.sendToBackend({ type: 'cleanup', chatId: record.chatId, scope: 'slot', action: 'clear_error', key: record.key }), !record.error],
       ['Reconcile This Slot', () => ctx.sendToBackend({ type: 'reconcile_state', chatId: record.chatId, messageId: record.messageId }), false],
       ['Remove Slot Record', remove, false],
       ['Remove Slot Record and History', () => confirmCleanup({ title: 'Remove Slot and History?', description: 'This removes the Relay record and all locally stored version history.\nThe chat message and generated image assets will remain.', scope: `${appLabel(record)} / ${slotLabel(record)} / ${record.history.length} historical version${record.history.length === 1 ? '' : 's'}`, actionLabel: 'Remove Slot and History', onConfirm: () => ctx.sendToBackend({ type: 'cleanup', chatId: record.chatId, scope: 'slot', action: 'remove_with_history', key: record.key }) }), false],
-      ['Copy Positive Prompt', () => copyText(record.resolvedPositivePrompt || '', 'Prompt copied.'), !record.resolvedPositivePrompt],
-      ['Copy Negative Prompt', () => copyText(record.resolvedNegativePrompt || '', 'Negative prompt copied.'), !record.resolvedNegativePrompt],
+      ['Copy Positive Prompt', () => withCompletedRecord(record, loaded => copyText(loaded.resolvedPositivePrompt || '', 'Prompt copied.')), !archiveBacked && !record.resolvedPositivePrompt],
+      ['Copy Negative Prompt', () => withCompletedRecord(record, loaded => copyText(loaded.resolvedNegativePrompt || '', 'Negative prompt copied.')), !archiveBacked && !record.resolvedNegativePrompt],
       ['Copy Image URL', () => copyText(record.imageUrl || '', 'Image URL copied.'), !record.imageUrl],
       ['Copy Image ID', () => copyText(record.imageId || '', 'Image ID copied.'), !record.imageId],
       ['Copy JSON', () => copyText(JSON.stringify(metadata, null, 2), 'Metadata JSON copied.'), false],
@@ -8025,7 +8022,32 @@ ${bracketFixture}`)
     document.body.classList.remove('dg-relay-menu-open')
   }
 
+  function requestCompletedRecord(record: SlotRecord, onLoaded: (record: SlotRecord | null) => void): void {
+    const archiveId = String(record.diagnosticArchiveId || '')
+    const chatId = record.chatId || activeChatId || ''
+    if (!archiveId || !chatId) {
+      onLoaded(null)
+      showToast('warning', 'Archived generation details are unavailable for this image.')
+      return
+    }
+    const requestId = `completed-record-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    pendingCompletedRecordLoads.set(requestId, loaded => {
+      if (!loaded) showToast('warning', 'Detailed Relay diagnostics were not retained for this historical image.')
+      onLoaded(loaded)
+    })
+    ctx.sendToBackend({ type: 'completed_diagnostic', chatId, archiveId, requestId })
+  }
+
+  function withCompletedRecord(record: SlotRecord, action: (record: SlotRecord) => void): void {
+    if (!record.diagnosticArchiveId || record.diagnostic || record.promptPipeline || record.resolvedPositivePrompt) action(record)
+    else requestCompletedRecord(record, loaded => loaded && action(loaded))
+  }
+
   function openPromptInspector(record: SlotRecord): void {
+    if (record.diagnosticArchiveId && !record.diagnostic && !record.promptPipeline && !record.resolvedPositivePrompt) {
+      requestCompletedRecord(record, loaded => loaded && openPromptInspector(loaded))
+      return
+    }
     const modal = ctx.ui.showModal({ title: 'Why Did Relay Do That?', width: 820 })
     modal.root.classList.add('dg-router-panel', 'dg-modal-host')
     const body = document.createElement('div')
@@ -8861,6 +8883,28 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
 
   function applyRelaySettingsDraft(patch: RelaySettingsPatch): void {
     if (!config) return
+    if (patch.kind === 'surface-preferences') {
+      const now = Date.now()
+      customSurfaces = {
+        ...customSurfaces,
+        ...(patch.rendererMode !== undefined ? { rendererMode: patch.rendererMode } : {}),
+        ...(patch.defaultShellMode !== undefined ? { defaultShellMode: patch.defaultShellMode } : {}),
+        ...(patch.colorMode !== undefined ? { colorMode: patch.colorMode } : {}),
+        ...(patch.utilityInjectionEnabled !== undefined ? { utilityInjectionEnabled: patch.utilityInjectionEnabled } : {}),
+        updatedAt: now,
+      }
+      config = {
+        ...config,
+        ...(patch.rendererMode !== undefined ? { surfaceRendererMode: patch.rendererMode } : {}),
+        ...(patch.defaultShellMode !== undefined ? { surfaceDefaultShellMode: patch.defaultShellMode, narrativeDlcVariant: narrativeVariantForSurfacePresentation(patch.defaultShellMode) } : {}),
+        ...(patch.colorMode !== undefined ? { surfaceColorMode: patch.colorMode } : {}),
+        ...(patch.utilityInjectionEnabled !== undefined ? { surfaceUtilityInjectionEnabled: patch.utilityInjectionEnabled } : {}),
+        surfacePreferencesInitialized: true,
+        globalSurfaceStudio: customSurfaces,
+      }
+      invalidateDisplayIfContractChanged(config, customSurfaces)
+      return
+    }
     if (patch.kind === 'surface-prompt-enabled') {
       const now = Date.now()
       const definitions = { ...customSurfaces.definitions }
@@ -8870,6 +8914,10 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
       }
       customSurfaces = { ...customSurfaces, definitions, updatedAt: now }
       config = { ...config, globalSurfaceStudio: customSurfaces }
+      return
+    }
+    if (patch.kind === 'character-phone-apps') {
+      config = { ...config, characterPhoneDefaultApps: normalizeCharacterPhoneDefaultApps(patch.defaultApps, { migrateMissing: false }) }
       return
     }
     if (patch.kind === 'narrative-enabled') {
@@ -9579,7 +9627,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     void enforceNativeAutoGenerationGuard(true)
     streamPreviews.clear()
     completedPreviewGenerations.clear()
-    clearTimeout(bindTimer)
+    if (bindTimer) window.cancelAnimationFrame?.(bindTimer)
     clearTimeout(terminalStateRefreshTimer)
     terminalStateRefreshTimer = 0
     for (const timer of nativeSnapshotScanTimers.values()) window.clearTimeout(timer)

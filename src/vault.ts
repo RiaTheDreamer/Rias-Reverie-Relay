@@ -2361,8 +2361,12 @@ function supersedeAppearanceConflicts(vault: ContinuityVaultState, layer: Appear
   if (competing.length < 2) return
   // A newly ingested equally-ranked Sidecar observation is the later semantic
   // statement for that domain, even when mocked/fast clocks share a millisecond.
-  const winner = [...competing].sort((left, right) => (layer === 'current-appearance' ? compareFacts(left, right) : compareSemanticFacts(left, right))
-    || Number(right.factId === replacementId) - Number(left.factId === replacementId))[0]
+  const protectedExisting = competing.find(fact => fact.factId !== replacementId && compareFactAuthority(fact, replacement) < 0)
+  const replacementOwnsEqualAuthorityDomain = replacement.sourceType === 'appearance-sidecar' && !protectedExisting
+  const winner = replacementOwnsEqualAuthorityDomain
+    ? replacement
+    : [...competing].sort((left, right) => (layer === 'current-appearance' ? compareFacts(left, right) : compareSemanticFacts(left, right))
+      || Number(right.factId === replacementId) - Number(left.factId === replacementId))[0]
   for (const fact of competing) {
     if (fact.factId === winner.factId) continue
     fact.status = 'superseded'

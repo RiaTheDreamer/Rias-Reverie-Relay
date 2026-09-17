@@ -323,6 +323,14 @@ for (const action of ['standing_by_the_door_holding_folder', 'sitting_on_floor_w
 }
 assert(!/standing|sitting|running|folder|tea|stage/.test(appearanceMemoryView(currentVault, currentSubject.canonicalCharacterId).currentState), 'scene action history must not persist as Appearance Memory')
 
+const replacementVault = emptyContinuityVault('appearance-sidecar-replacement')
+const replacementSubject = registerCanonicalCharacter(replacementVault, { name: 'Replacement Alpha', sourceType: 'manual', userConfirmed: true })
+addAppearanceFact(replacementVault, { layer: 'visual-identity', characterId: replacementSubject.canonicalCharacterId, category: 'hair-length', value: 'extremely long knee length hair', sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar', confidence: .9 }, 500)
+addAppearanceFact(replacementVault, { layer: 'visual-identity', characterId: replacementSubject.canonicalCharacterId, category: 'hair-length', value: 'short hair', sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar', confidence: .9 }, 501)
+const replacementFacts = Object.values(replacementVault.visualIdentity).filter(fact => fact.canonicalCharacterId === replacementSubject.canonicalCharacterId)
+assert(replacementFacts.some(fact => fact.value === 'short_hair' && fact.status === 'active'), 'new equal-authority Sidecar value must replace an older more-specific value in the same semantic domain')
+assert(replacementFacts.some(fact => fact.value !== 'short_hair' && fact.status === 'superseded'), 'the replaced Sidecar value must remain historical rather than active')
+
 // Selection/serialization must expose the resolved present state once.
 addAppearanceFact(currentVault, { layer: 'visual-identity', characterId: currentSubject.canonicalCharacterId, category: 'hair-color', value: 'black hair', sourceType: 'manual', userConfirmed: true })
 addAppearanceFact(currentVault, { layer: 'visual-identity', characterId: currentSubject.canonicalCharacterId, category: 'hair-length', value: 'knee-length black hair', sourceType: 'manual', userConfirmed: true })
@@ -380,6 +388,8 @@ const backendMessages = [{ id: 'm1', role: 'assistant', content: 'Prime Beta wai
   variables: { global: { async set() {} }, chat: { async set() {} } },
 }
 const backend = await import('../src/backend')
+const frontendSource = await Bun.file(new URL('../src/frontend.ts', import.meta.url)).text()
+assert(/appearanceActionStatuses\.set\(saveStatusKey,[\s\S]{0,700}ctx\.sendToBackend\(\{[\s\S]{0,200}action: 'save_character_sheet'/.test(frontendSource), 'Appearance save must paint pending state before synchronous backend dispatch')
 const backendVault = emptyContinuityVault('prompt-once')
 const persona = registerCanonicalCharacter(backendVault, { name: 'Prime Beta', canonicalCharacterId: 'persona-beta', sourceType: 'native-visual-preset', userConfirmed: true })
 for (const domain of ['eyeliner', 'makeup:eyeliner', 'eye-makeup']) {

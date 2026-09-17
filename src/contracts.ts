@@ -1320,6 +1320,7 @@ export type SlotRecord = {
   temporaryPromptProfileId?: PromptProfileId
   regenerationIntent?: RegenerationIntent
   diagnostic?: SlotDiagnostic
+  diagnosticArchiveId?: string
   assetId?: string
   currentVersionId?: string
   rootVersionId?: string

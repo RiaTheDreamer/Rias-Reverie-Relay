@@ -43,6 +43,7 @@ assert.equal(classifyBacklog(Array.from({ length: AUTO_RESUME_MAX_JOBS + 1 }, (_
 const completed = Array.from({ length: 393 }, (_, index) => ({
   ...record(index, 0), status: 'completed' as const, imageId: `fixture-image-${index}`,
   imageUrl: `/api/v1/image-gen/results/fixture-image-${index}`, completedAt: 1_000_000_000 + index,
+  diagnosticArchiveId: `archive-${index}`,
   promptPipeline: { excludedContinuityFacts: Array.from({ length: 385 }, (_, fact) => ({ factId: `fact-${fact}`, included: false, reason: 'historical' })) } as any,
   history: [{ imageId: `old-${index}`, imageUrl: `/old/${index}`, resolvedPositivePrompt: 'heavy'.repeat(500), resolvedNegativePrompt: '', promptMode: '', promptPresetId: null, generatedAt: now }],
 }))
@@ -53,6 +54,7 @@ const newBytes = serializedBytes({ stats: { completedTotal: completed.length }, 
 assert.equal(hot.length, 24)
 assert.equal(archive.length, 393)
 assert.equal(hot.every(item => !item.promptPipeline && item.history.length === 0), true)
+assert.equal(hot.every(item => Boolean(item.diagnosticArchiveId)), true, 'compacted completed records must retain their archive-backed action key')
 assert.equal(newBytes < oldBytes / 10, true)
 assert.equal(HOT_LOG_LIMIT, 250)
 

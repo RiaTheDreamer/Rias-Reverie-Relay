@@ -51,19 +51,35 @@ assert(Object.keys(categoryValues).every(id => draft.globalSurfaceStudio.definit
 draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-enabled', enabledNames: ['Chaos Hooks'] })
 assert(draft.narrativeDlcEnabled && draft.narrativeDlcUtilityNames.length === 1, 'Narrative Utility enable state must share the revisioned mutation path')
 
-const exactOverride = 'CUSTOM HOOK CONTRACT\n<chaos_payload>\n<chaos_hook>keep [literal] syntax</chaos_hook>\n</chaos_payload>'
+const exactOverride = 'CUSTOM PLOT CONTRACT\n[Plot_Sparks][Spark][Media]keep [literal] syntax[/Media][/Spark][/Plot_Sparks]'
 draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-override', utilityName: 'Chaos Hooks', content: exactOverride })
 assert(draft.narrativeUtilityOverrides['Chaos Hooks'].content === exactOverride, 'Narrative Utility override must be stored verbatim')
 const resolved = backend.buildResolvedNarrativeUtilityPrompt(draft)
 assert(resolved.content.includes(exactOverride), 'automatic Narrative resolver must use the saved override')
-assert((resolved.content.match(/CUSTOM HOOK CONTRACT/g) || []).length === 1, 'resolved Narrative bundle must contain one override copy')
+assert((resolved.content.match(/CUSTOM PLOT CONTRACT/g) || []).length === 1, 'resolved Narrative bundle must contain one override copy')
 
 draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-override', utilityName: 'Chaos Hooks', content: null })
 assert(!draft.narrativeUtilityOverrides['Chaos Hooks'], 'Reset to Default must clear, not copy, the override')
 
+const revisionBeforeSurfacePreferences = draft.settingsRevision
+draft = backend.applyRelaySettingsPatchToConfig(draft, {
+  kind: 'surface-preferences', rendererMode: 'hybrid', defaultShellMode: 'sparkling', colorMode: 'primary', utilityInjectionEnabled: false,
+})
+assert(draft.settingsRevision === revisionBeforeSurfacePreferences + 1, 'Surface preferences must advance the shared settings revision')
+assert(draft.surfaceRendererMode === 'hybrid' && draft.globalSurfaceStudio.rendererMode === 'hybrid', 'Surface renderer preference must persist to canonical config and studio state')
+assert(draft.surfaceDefaultShellMode === 'sparkling' && draft.globalSurfaceStudio.defaultShellMode === 'sparkling', 'Surface presentation preference must persist to canonical config and studio state')
+assert(draft.surfaceColorMode === 'primary' && draft.globalSurfaceStudio.colorMode === 'primary', 'Surface color preference must persist to canonical config and studio state')
+assert(draft.surfaceUtilityInjectionEnabled === false && draft.globalSurfaceStudio.utilityInjectionEnabled === false, 'Surface injection preference must persist to canonical config and studio state')
+
+const revisionBeforePhoneApps = draft.settingsRevision
+draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'character-phone-apps', defaultApps: ['messages', 'calendar', 'messages', 'invalid-app' as any] })
+assert(draft.settingsRevision === revisionBeforePhoneApps + 1, 'Character Phone apps must advance the shared settings revision')
+assert(JSON.stringify(draft.characterPhoneDefaultApps) === JSON.stringify(['messages', 'calendar']), 'Character Phone apps must persist through the revisioned canonical patch')
+
 const frontend = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
 assert(frontend.includes('settingsPatchQueue') && frontend.includes('relay_settings_patch_result'), 'frontend must own an ordered optimistic settings draft and explicit acknowledgement')
+assert(frontend.includes("kind: 'surface-preferences'") && frontend.includes("kind: 'character-phone-apps'"), 'Surface preferences and Character Phone apps must use the revisioned settings queue')
 assert(frontend.includes('.indeterminate = categorySomeEnabled && !categoryEnabled'), 'Surface category must expose derived indeterminate state')
 assert(frontend.includes('Narrative Utilities') && frontend.includes('Reset to Default') && frontend.includes('effectiveContent'), 'Injection tab must expose editable Narrative Utility records')
 assert(frontend.includes('Save timed out — verify/retry') && frontend.includes('appearanceSaveWatchdogs'), 'Appearance save must have a finite acknowledgement watchdog')

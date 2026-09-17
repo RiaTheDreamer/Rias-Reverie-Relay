@@ -263,10 +263,7 @@ export function buildNarrativeUtilityPrompt(
   const items = narrativeUtilityItems()
     .filter(item => allow.has(item.loomName) && String(item.loomContent || '').trim())
     .map(item => {
-      const override = typeof overrides[item.loomName] === 'string' && overrides[item.loomName]!.trim()
-        ? overrides[item.loomName]!
-        : undefined
-      const authoredContent = override ?? applyNarrativeDisplayNames(item.loomContent)
+      const authoredContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, overrides[item.loomName])
       return { ...item, loomContent: authoredContent }
     })
   return {
@@ -275,4 +272,11 @@ export function buildNarrativeUtilityPrompt(
       : '',
     utilityNames: items.map(item => item.loomName),
   }
+}
+
+export function effectiveNarrativeUtilityContent(name: string, defaultContent: string, override?: string): string {
+  const candidate = typeof override === 'string' && override.trim() ? override : ''
+  const legacyPlotSparksOverride = name === 'Chaos Hooks' && candidate
+    && (!/\[Plot_Sparks\]/i.test(candidate) || /<\/?(?:chaos_payload|chaos_hook)\b|<\/?(?:hook_text|hook_media)\b/i.test(candidate))
+  return applyNarrativeDisplayNames(candidate && !legacyPlotSparksOverride ? candidate : defaultContent)
 }

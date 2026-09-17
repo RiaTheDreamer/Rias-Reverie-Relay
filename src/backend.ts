@@ -163,6 +163,7 @@ import { DEFAULT_EXPLICIT_SCENE_NEGATIVE_GUIDANCE, DEFAULT_EXPLICIT_SCENE_POSITI
 import { characterProfilePortraitHasExactRelayImage, NATIVE_SURFACE_ROOT_TAGS, normalizeCharacterProfileContract, renderNativeSurfaceMarkup } from './nativeSurfaces'
 import {
   buildNarrativeUtilityPrompt,
+  effectiveNarrativeUtilityContent,
   inspectNarrativeRegex,
   reconcileNarrativeRegex,
   removeNarrativeRegex,
@@ -634,7 +635,9 @@ type BackendBuildInfo = {
 }
 
 export type RelaySettingsPatch =
+  | { kind: 'surface-preferences'; rendererMode?: CustomSurfaceStudioState['rendererMode']; defaultShellMode?: SurfaceShellMode; colorMode?: SurfaceColorMode; utilityInjectionEnabled?: boolean }
   | { kind: 'surface-prompt-enabled'; values: Record<string, boolean>; categoryId?: string }
+  | { kind: 'character-phone-apps'; defaultApps: CharacterPhoneAppId[] }
   | { kind: 'narrative-enabled'; enabledNames: string[] }
   | { kind: 'narrative-override'; utilityName: string; content: string | null }
   | { kind: 'prompt-registry-override'; promptId: string; content: string | null; version: number }
@@ -684,7 +687,7 @@ type FrontendMessage =
   | { type: 'queue_action'; chatId: string; action: 'pause_after_current' | 'resume' | 'cancel_selected' | 'skip_selected' | 'generate_selected_only' | 'abort_all' | 'generate_pending' | 'discard_pending'; selectedKeys?: string[]; concurrencyLimit?: number; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
   | { type: 'export_queue_diagnostic'; chatId: string }
   | { type: 'completed_history_page'; chatId: string; cursor?: number; limit?: number }
-  | { type: 'completed_diagnostic'; chatId: string; archiveId: string }
+  | { type: 'completed_diagnostic'; chatId: string; archiveId: string; requestId?: string }
   | { type: 'asset_library_action'; chatId: string; action: 'favorite' | 'unfavorite' | 'mark_reference' | 'clear_reference' | 'tag' | 'untag' | 'compare' | 'clear_compare'; assetId?: string; otherAssetId?: string; tag?: string }
   | { type: 'reuse_asset_in_slot'; chatId: string; key: string; assetId: string }
   | { type: 'discover_lora_catalog'; requestId: string; connectionId?: string | null }
@@ -3006,6 +3009,7 @@ async function discoverProseOpportunities(input: {
   source: string
   generationType?: string
   force?: boolean
+  suppressAutoDispatch?: boolean
   userId?: string
 }): Promise<ProseIllustrationOpportunity[]> {
   if (!input.chatId || !input.messageId || !input.content) return []
@@ -3134,7 +3138,7 @@ async function discoverProseOpportunities(input: {
       source: input.source,
     }, input.userId)
     assertAbortableOperationCurrent(operationKey, operationSerial)
-    if (isHandsOffProseMode(settings)) await handleAutoOpportunityDispatch(input.chatId, accepted, input.userId)
+    if (isHandsOffProseMode(settings) && !input.suppressAutoDispatch) await handleAutoOpportunityDispatch(input.chatId, accepted, input.userId)
     return accepted
   } catch (error) {
     if (error instanceof Error && error.name === 'OperationCancelledError') {
@@ -4127,7 +4131,7 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
       await sendCompletedHistoryPage(payload.chatId, payload.cursor, payload.limit, userId)
       return
     case 'completed_diagnostic':
-      await sendCompletedDiagnostic(payload.chatId, payload.archiveId, userId)
+      await sendCompletedDiagnostic(payload.chatId, payload.archiveId, userId, payload.requestId)
       return
     case 'asset_library_action':
       await handleAssetLibraryAction(payload, userId)
@@ -8108,13 +8112,14 @@ async function handleProseIllustratorAction(
         content: strictSwipeContent(message, swipeId),
         source: 'model-placed-recovery-once',
         force: true,
+        suppressAutoDispatch: true,
         userId,
       })
       if (!accepted.length) {
         spindle.sendToFrontend({ type: 'relay_notice', level: 'warning', message: 'Relay-Planned found no strong visual beat in that response.' }, userId)
         return
       }
-      await handleAutoOpportunityDispatch(chatId, accepted, userId)
+      await handleAutoOpportunityDispatch(chatId, accepted, userId, { forceHandsOff: true })
       spindle.sendToFrontend({ type: 'relay_notice', level: 'info', message: 'Relay-Planned recovery started for this response only. Your selected Illustrator mode was not changed.' }, userId)
       return
     }
@@ -8271,7 +8276,7 @@ async function planProseIllustrationForMessage(
   return plan
 }
 
-async function selectProseOpportunity(chatId: string, opportunityId: string, userId?: string): Promise<ProseIllustrationPlan> {
+async function selectProseOpportunity(chatId: string, opportunityId: string, userId?: string, options: { forceHandsOff?: boolean } = {}): Promise<ProseIllustrationPlan> {
   const state = await getState(chatId, userId)
   const opportunity = state.proseIllustrator.opportunities[opportunityId]
   if (!opportunity || opportunity.chatId !== chatId) throw new Error('Opportunity not found.')
@@ -8306,7 +8311,7 @@ async function selectProseOpportunity(chatId: string, opportunityId: string, use
   }
   const settings = proseSettingsForChat(state, chatId)
   const composition = opportunity.promptComposition || await composePromptForOpportunity(chatId, opportunity, content, settings, userId)
-  const plan = planFromOpportunity(opportunity, content, settings, composition)
+  const plan = planFromOpportunity(opportunity, content, settings, composition, options.forceHandsOff === true)
   await mutateState(chatId, userId, next => {
     const stored = next.proseIllustrator.opportunities[opportunityId]
     if (stored) {
@@ -8528,9 +8533,10 @@ function planFromOpportunity(
   content: string,
   settings: ProseIllustratorSettings,
   composition: ProsePromptComposition,
+  forceHandsOff = false,
 ): ProseIllustrationPlan {
   const paragraphs = proseParagraphs(content)
-  const handsOffAuto = isHandsOffProseMode(settings)
+  const handsOffAuto = forceHandsOff || isHandsOffProseMode(settings)
   const insertionSide = settings.placementPolicy === 'end-of-message' ? 'end' : (opportunity.insertionSide || placementSideFromPolicy(settings.placementPolicy))
   const planId = `prose-${contentFingerprint(`${opportunity.opportunityId}:${composition.composedAt}`).replace(/[^a-z0-9]/gi, '-')}`
   return {
@@ -8540,7 +8546,7 @@ function planFromOpportunity(
     swipeId: opportunity.swipeId,
     opportunityId: opportunity.opportunityId,
     plannerVersion: opportunity.plannerVersion,
-    mode: settings.mode,
+    mode: forceHandsOff ? 'relay-planned' : settings.mode,
     shouldIllustrate: true,
     reason: opportunity.reason,
     sceneBrief: composition.sceneBrief || opportunity.sceneSummary,
@@ -8573,18 +8579,18 @@ function planFromOpportunity(
     imageSize: settings.imageSize,
     approvalRequired: !handsOffAuto,
     placementConfirmed: true,
-    source: isHandsOffProseMode(settings) ? 'auto' : 'planner',
+    source: handsOffAuto ? 'auto' : 'planner',
     status: handsOffAuto ? 'ready' : 'awaiting-approval',
   }
 }
 
-async function handleAutoOpportunityDispatch(chatId: string, opportunities: ProseIllustrationOpportunity[], userId?: string): Promise<void> {
+async function handleAutoOpportunityDispatch(chatId: string, opportunities: ProseIllustrationOpportunity[], userId?: string, options: { forceHandsOff?: boolean } = {}): Promise<void> {
   const operationKey = `prose:${chatId}`
   const operationSerial = captureAbortableOperation(operationKey)
   const state = await getState(chatId, userId)
   assertAbortableOperationCurrent(operationKey, operationSerial)
   const settings = proseSettingsForChat(state, chatId)
-  if (!isHandsOffProseMode(settings) || !opportunities.length) return
+  if ((!isHandsOffProseMode(settings) && !options.forceHandsOff) || !opportunities.length) return
   const requested = Math.max(1, Math.min(settings.illustrationsPerRun || 1, settings.maximumIllustrationsPerMessage))
   const seenBeats = new Set<string>()
   const selected = [...opportunities]
@@ -8608,7 +8614,7 @@ async function handleAutoOpportunityDispatch(chatId: string, opportunities: Pros
   })
   for (const opportunity of selected) {
     assertAbortableOperationCurrent(operationKey, operationSerial)
-    const plan = await selectProseOpportunity(chatId, opportunity.opportunityId, userId)
+    const plan = await selectProseOpportunity(chatId, opportunity.opportunityId, userId, options)
     await generateProseIllustrationPlan(chatId, plan.planId, undefined, userId)
   }
 }
@@ -8622,6 +8628,7 @@ async function generateProseIllustrationPlan(chatId: string, planId: string, nat
   if (!plan) throw new Error('Prose illustration plan not found.')
   if (!plan.shouldIllustrate || !plan.sceneBrief) throw new Error(plan.reason || 'Planner did not approve this illustration.')
   const settings = proseSettingsForChat(state, chatId)
+  const handsOffDispatch = isHandsOffProseMode(settings) || (plan.mode === 'relay-planned' && plan.source === 'auto')
   if (!plan.placementConfirmed || settings.placementPolicy === 'ask' && !plan.placementConfirmed) {
     await mutateState(chatId, userId, next => {
       const stored = next.proseIllustrator.plans[planId]
@@ -8692,7 +8699,7 @@ async function generateProseIllustrationPlan(chatId: string, planId: string, nat
       illustrationId: plan.planId, requestId: plan.planId, slotKey: key, planId: plan.planId,
       anchor: plan.anchor, status: 'queued', createdAt: now, inserted: false, insertionVerified: false, removed: false,
     }
-    plan.status = isHandsOffProseMode(settings) ? 'ready' : 'candidate-review'
+    plan.status = handsOffDispatch ? 'ready' : 'candidate-review'
     plan.approvalRequired = false
     next.proseIllustrator.plans[plan.planId] = plan
     next.queueDirector.jobStatuses[key] = next.queueDirector.pausedAfterCurrent ? 'paused' : 'queued'
@@ -8700,7 +8707,7 @@ async function generateProseIllustrationPlan(chatId: string, planId: string, nat
   })
   await sendState(userId, chatId)
   const proseSlotKey = slotKey({ chatId, messageId: plan.messageId, swipeId: plan.swipeId, requestId: plan.planId, slot: 'illustration' })
-  if (isHandsOffProseMode(settings)) {
+  if (handsOffDispatch) {
     assertAbortableOperationCurrent(operationKey, operationSerial)
     await patchSwipeContent(chatId, message, plan.swipeId, placement.content)
     const latest = await getState(chatId, userId)
@@ -9465,6 +9472,10 @@ async function handleContinuityAction(payload: Extract<FrontendMessage, { type: 
         if (!payload.characterId) throw new Error('Character is required.')
         const character = vault.characters[payload.characterId]
         if (!character) throw new Error('Character not found.')
+        const existingSheet = vault.characterSheets[payload.characterId]
+        if (payload.expectedRevision !== undefined && Number(existingSheet?.updatedAt || 0) !== Number(payload.expectedRevision || 0)) {
+          throw new Error('Appearance Memory changed after this editor opened. Review the current values and save again.')
+        }
         saveManualAppearanceMemory(vault, {
           characterId: payload.characterId,
           stableAppearance: cleanString(payload.booruTags),
@@ -13900,10 +13911,16 @@ async function sendCompletedHistoryPage(chatId: string, cursor = 0, limit = COMP
   }, userId)
 }
 
-async function sendCompletedDiagnostic(chatId: string, archiveId: string, userId?: string): Promise<void> {
-  const diagnostic = await spindle.userStorage.getJson(completedDiagnosticPath(chatId, archiveId), { fallback: null, userId })
+type CompletedDiagnosticEnvelope = { schemaVersion?: number; archivedAt?: number; record?: SlotRecord }
+
+async function readCompletedDiagnostic(chatId: string, archiveId: string, userId?: string): Promise<CompletedDiagnosticEnvelope | null> {
+  return spindle.userStorage.getJson<CompletedDiagnosticEnvelope | null>(completedDiagnosticPath(chatId, archiveId), { fallback: null, userId })
+}
+
+async function sendCompletedDiagnostic(chatId: string, archiveId: string, userId?: string, requestId?: string): Promise<void> {
+  const diagnostic = await readCompletedDiagnostic(chatId, archiveId, userId)
   spindle.sendToFrontend({
-    type: 'completed_diagnostic', chatId, archiveId, diagnostic,
+    type: 'completed_diagnostic', chatId, archiveId, requestId, diagnostic, record: diagnostic?.record,
     message: diagnostic ? 'Loaded one archived Relay diagnostic.' : 'Detailed Relay diagnostics were not retained for this historical image.',
   }, userId)
 }
@@ -13927,7 +13944,7 @@ export async function setConfig(patch: Partial<RouterConfig>, userId?: string): 
 
 function narrativeUtilityCompatibilityWarnings(name: string, content: string): string[] {
   const required: Record<string, string[]> = {
-    'Chaos Hooks': ['<chaos_payload>', '<chaos_hook>'],
+    'Chaos Hooks': ['[Plot_Sparks]', '[Spark]', '[Media]'],
     'Dramatic Cutaway': ['<dramatic_parallel>'],
     'Scene Compass': ['scene_compass'],
   }
@@ -13950,7 +13967,9 @@ function narrativeUtilityRegistry(config: RouterConfig): Array<{
   const enabled = new Set(config.narrativeDlcEnabled ? config.narrativeDlcUtilityNames : [])
   return narrativeUtilityItems().map(item => {
     const override = config.narrativeUtilityOverrides[item.loomName]
-    const effectiveContent = override?.content?.trim() ? override.content : item.loomContent
+    const effectiveContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, override?.content)
+    const usesOverride = Boolean(override?.content?.trim()) && !(item.loomName === 'Chaos Hooks'
+      && (!/\[Plot_Sparks\]/i.test(override!.content) || /<\/?(?:chaos_payload|chaos_hook|hook_text|hook_media)\b/i.test(override!.content)))
     return {
       id: item.loomName,
       name: item.loomName,
@@ -13958,7 +13977,7 @@ function narrativeUtilityRegistry(config: RouterConfig): Array<{
       effectiveContent,
       enabled: enabled.has(item.loomName),
       revision: override?.revision || 0,
-      source: override ? 'user-override' : 'default',
+      source: usesOverride ? 'user-override' : 'default',
       updatedAt: override?.updatedAt,
       warnings: narrativeUtilityCompatibilityWarnings(item.loomName, effectiveContent),
     }
@@ -13973,7 +13992,31 @@ async function sendNarrativeUtilityRegistry(requestId: string, userId?: string):
 export function applyRelaySettingsPatchToConfig(current: RouterConfig, patch: RelaySettingsPatch, expectedRevision = current.settingsRevision, now = Date.now()): RouterConfig {
   const next: RouterConfig = { ...current }
   const studio = normalizeCustomSurfaceStudio(current.globalSurfaceStudio || defaultCustomSurfaceStudio())
-  if (patch.kind === 'surface-prompt-enabled') {
+  if (patch.kind === 'surface-preferences') {
+    if (patch.rendererMode !== undefined) {
+      if (!['relay', 'legacy-regex', 'hybrid'].includes(patch.rendererMode)) throw new Error('Renderer mode is invalid.')
+      studio.rendererMode = patch.rendererMode
+      next.surfaceRendererMode = patch.rendererMode
+    }
+    if (patch.defaultShellMode !== undefined) {
+      if (!['inline', 'plain', 'sparkling'].includes(patch.defaultShellMode)) throw new Error('Default surface presentation is invalid.')
+      studio.defaultShellMode = patch.defaultShellMode
+      next.surfaceDefaultShellMode = patch.defaultShellMode
+      next.narrativeDlcVariant = narrativeVariantForSurfaceShellMode(patch.defaultShellMode)
+    }
+    if (patch.colorMode !== undefined) {
+      if (!['realistic', 'primary'].includes(patch.colorMode)) throw new Error('Surface color mode is invalid.')
+      studio.colorMode = patch.colorMode
+      next.surfaceColorMode = patch.colorMode
+    }
+    if (patch.utilityInjectionEnabled !== undefined) {
+      studio.utilityInjectionEnabled = patch.utilityInjectionEnabled
+      next.surfaceUtilityInjectionEnabled = patch.utilityInjectionEnabled
+    }
+    studio.updatedAt = now
+    next.globalSurfaceStudio = studio
+    next.surfacePreferencesInitialized = true
+  } else if (patch.kind === 'surface-prompt-enabled') {
     for (const [surfaceId, requested] of Object.entries(patch.values)) {
       const definition = studio.definitions[surfaceId]
       if (!definition) continue
@@ -13983,6 +14026,8 @@ export function applyRelaySettingsPatchToConfig(current: RouterConfig, patch: Re
     studio.updatedAt = now
     next.globalSurfaceStudio = studio
     next.surfacePreferencesInitialized = true
+  } else if (patch.kind === 'character-phone-apps') {
+    next.characterPhoneDefaultApps = normalizeCharacterPhoneDefaultApps(patch.defaultApps, { migrateMissing: false })
   } else if (patch.kind === 'narrative-enabled') {
     const selected = new Set(patch.enabledNames)
     next.narrativeDlcUtilityNames = narrativeUtilityNames().filter(name => selected.has(name))
@@ -14033,7 +14078,28 @@ function relaySettingsPatchWarnings(patch: RelaySettingsPatch): string[] {
 
 async function handleRelaySettingsPatch(payload: Extract<FrontendMessage, { type: 'relay_settings_patch' }>, userId?: string): Promise<void> {
   try {
-    const saved = await mutateConfigAtomic(current => applyRelaySettingsPatchToConfig(current, payload.patch, payload.expectedRevision), userId)
+    let saved = await mutateConfigAtomic(current => applyRelaySettingsPatchToConfig(current, payload.patch, payload.expectedRevision), userId)
+    if (payload.patch.kind === 'surface-preferences' && payload.patch.defaultShellMode !== undefined && saved.narrativeDlcLastSync?.installed) {
+      const previousNarrativeHealth = saved.narrativeDlcLastSync
+      try {
+        const health = await reconcileNarrativeRegex(spindle.regex_scripts, narrativeVariantForSurfaceShellMode(saved.surfaceDefaultShellMode), userId)
+        saved = await setConfig({ narrativeDlcLastSync: health }, userId)
+      } catch (error) {
+        saved = await setConfig({
+          narrativeDlcLastSync: {
+            status: 'failed',
+            variant: narrativeVariantForSurfaceShellMode(saved.surfaceDefaultShellMode),
+            expected: previousNarrativeHealth.expected,
+            installed: previousNarrativeHealth.installed,
+            healthy: previousNarrativeHealth.healthy,
+            drifted: previousNarrativeHealth.drifted,
+            blocked: previousNarrativeHealth.blocked,
+            message: `Narrative presentation could not be reconciled: ${error instanceof Error ? error.message : String(error)}`,
+            updatedAt: Date.now(),
+          },
+        }, userId)
+      }
+    }
     if (saved.debugLogging) spindle.log.info(`[Reverie Relay:settings_patch] ${JSON.stringify({ operationId: payload.operationId, kind: payload.patch.kind, expectedRevision: payload.expectedRevision, backendRevision: saved.settingsRevision, persisted: true })}`)
     spindle.sendToFrontend({
       type: 'relay_settings_patch_result', operationId: payload.operationId, status: 'success',
@@ -15213,9 +15279,23 @@ async function discoverProviderLoraCatalog(requestId: string, requestedConnectio
 
 async function getRecordByKey(key: string, userId?: string): Promise<{ chatId: string; state: StateFile; record: SlotRecord }> {
   const chatId = key.split(':')[0]
-  const state = await getState(chatId, userId)
-  const record = state.slots[key]
+  let state = await getState(chatId, userId)
+  let record = state.slots[key]
   if (!record) throw new Error('Slot not found.')
+  const archiveId = record.diagnosticArchiveId || state.completedArchive[key]?.diagnosticArchiveId
+  if (record.status === 'completed' && archiveId && !canReparseRecord(record) && !canRegenerateRecord(record)) {
+    const archived = (await readCompletedDiagnostic(chatId, archiveId, userId))?.record
+    if (archived?.key === key && archived.chatId === chatId && archived.status === 'completed' && (archived.imageUrl || archived.imageId)) {
+      await mutateState(chatId, userId, next => {
+        const current = next.slots[key]
+        if (current?.status === 'completed' && current.imageUrl === archived.imageUrl && current.imageId === archived.imageId) {
+          next.slots[key] = { ...archived, diagnosticArchiveId: archiveId }
+        }
+      })
+      state = await getState(chatId, userId)
+      record = state.slots[key]
+    }
+  }
   return { chatId, state, record }
 }
 

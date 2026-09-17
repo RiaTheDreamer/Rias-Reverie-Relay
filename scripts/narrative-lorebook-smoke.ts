@@ -65,6 +65,7 @@ const chat = { id: 'chat-a', name: 'Opening Night', metadata: { chat_world_book_
 host.chats.set(chat.id, chat)
 const first = await exportNarrativeLorebookRecord({ api: host.api, chat, record: dossier!, kind: 'character-dossier', messageId: 'message-1', swipeId: 2 })
 assert.equal(host.books.length, 2, 'first export creates one Relay archive')
+assert.equal(host.books.find(book => book.id === first.bookId)?.name, 'Reverie Relay Lorebook - Opening Night', 'chat-bound Lorebook must use the public Lorebook name')
 assert.deepEqual(chat.metadata.chat_world_book_ids, ['existing-user-book', first.bookId], 'existing chat-bound books are preserved')
 assert.equal(chat.metadata.custom, 'preserved', 'unrelated chat metadata is preserved')
 assert.equal(host.entries[0].input.comment, 'Character Dossier - Example A')

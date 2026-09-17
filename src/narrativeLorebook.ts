@@ -102,7 +102,7 @@ export async function exportNarrativeLorebookRecord(input: {
     if (!book) {
       const createdAt = new Date().toISOString()
       book = await api.world_books.create({
-        name: `Reverie Relay Stage Archive - ${chat.name || 'Chat'}`,
+        name: `Reverie Relay Lorebook - ${chat.name || 'Chat'}`,
         description: 'Chat-bound Narrative Surface exports created by Reverie Relay.',
         metadata: { reverie_relay_lorebook_chat_id: chat.id, reverie_relay_created_at: createdAt, reverie_relay_export_book: true },
       }, userId)
