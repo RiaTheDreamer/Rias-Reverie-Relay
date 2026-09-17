@@ -2433,7 +2433,51 @@ export function setup(ctx: SpindleFrontendContext) {
     bindTimer = window.requestAnimationFrame(() => { bindTimer = 0; bindInlineImages() })
   }
 
-  const mediaCardUpdates = new WeakMap<HTMLElement, { signature: string; media: Element | null }>()
+  type MediaCardUpdate = {
+    signature: string
+    media: Element | null
+    sawActiveLifecycle: boolean
+    revealedImageUrl?: string
+  }
+
+  const mediaCardUpdates = new WeakMap<HTMLElement, MediaCardUpdate>()
+
+  function revealFinalImageWhenReady(
+    card: HTMLElement,
+    image: HTMLImageElement,
+    expectedUrl: string,
+    expectedRecordKey: string,
+    update: MediaCardUpdate,
+  ): void {
+    const isCurrentFinalImage = () => card.isConnected
+      && image.isConnected
+      && card.contains(image)
+      && card.dataset.rrnRecordKey === expectedRecordKey
+      && mediaCardUpdates.get(card) === update
+      && urlMatches(image.currentSrc || image.src, expectedUrl)
+
+    const reveal = () => {
+      if (!isCurrentFinalImage()) return
+      image.classList.remove('rrl-final-reveal')
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+      image.addEventListener('animationend', () => image.classList.remove('rrl-final-reveal'), { once: true })
+      image.classList.add('rrl-final-reveal')
+    }
+
+    if (image.complete && image.naturalWidth > 0) {
+      void (async () => {
+        try {
+          await image.decode?.()
+        } catch {
+          // A decoded image can still be usable when decode() rejects.
+        }
+        reveal()
+      })()
+      return
+    }
+
+    image.addEventListener('load', reveal, { once: true })
+  }
   const boundNarrativeControls = new WeakSet<HTMLElement>()
   function bindNarrativeInteractiveControls(): void {
     for (const launcher of deepQueryAll<HTMLElement>(document, '.rrcp-presentation-sparkling > .rrcp-launch, .rrcp-presentation-plain > .rrcp-launch')) {
@@ -2537,8 +2581,13 @@ export function setup(ctx: SpindleFrontendContext) {
         const signature = JSON.stringify([record.key, record.status, stalled, record.imageUrl, record.requestAspect, record.error, stream])
         const media = card.querySelector('.rrl-media-slot')
         const previous = mediaCardUpdates.get(card)
-        if (previous?.signature === signature && previous.media === media) continue
-        mediaCardUpdates.set(card, { signature, media })
+        const update: MediaCardUpdate = previous?.media === media
+          ? previous
+          : { signature: '', media, sawActiveLifecycle: false }
+        if (active) update.sawActiveLifecycle = true
+        if (update.signature === signature && previous === update) continue
+        update.signature = signature
+        mediaCardUpdates.set(card, update)
         card.dataset.rrnLiveStatus = stalled ? 'failed' : record.status
         card.dataset.rrnRecordKey = record.key
         card.classList.toggle('rrl-error', recoverable)
@@ -2567,11 +2616,22 @@ export function setup(ctx: SpindleFrontendContext) {
             if (ratio) mediaSlot.style.setProperty('--reverie-media-aspect', `${Number(ratio[1])} / ${Number(ratio[2])}`)
           }
           if (record.imageUrl && slotImage) {
-            if (!urlMatches(slotImage.currentSrc || slotImage.src, record.imageUrl)) slotImage.src = record.imageUrl
-            slotImage.hidden = false
             slotImage.loading = 'lazy'
             slotImage.decoding = 'async'
+            const imageChanged = !urlMatches(slotImage.currentSrc || slotImage.src, record.imageUrl)
+            const shouldReveal = imageChanged
+              && update.sawActiveLifecycle
+              && !urlMatches(update.revealedImageUrl || '', record.imageUrl)
+            if (imageChanged) slotImage.src = record.imageUrl
+            slotImage.hidden = false
             mediaSlot.dataset.rrnMediaEmpty = 'false'
+            if (shouldReveal) {
+              update.sawActiveLifecycle = false
+              update.revealedImageUrl = record.imageUrl
+              revealFinalImageWhenReady(card, slotImage, record.imageUrl, record.key, update)
+            } else if (record.status === 'completed') {
+              update.sawActiveLifecycle = false
+            }
           } else if (!stream?.imageDataUrl && slotImage && record.status !== 'completed') {
             slotImage.hidden = true
             mediaSlot.dataset.rrnMediaEmpty = 'true'
