@@ -117,6 +117,20 @@ export function r45UtilityContract(surfaceId: string): string {
   return R45_UTILITY_CONTRACTS[surfaceId as R45ActiveSurfaceId] || ''
 }
 
+export function r45UtilitySpecificGuidance(surfaceId: string): string {
+  const contract = r45UtilityContract(surfaceId)
+  if (!contract) return ''
+
+  const marker = '\n\nBRACKET ROOT:'
+  const markerAt = contract.indexOf(marker)
+  if (markerAt < 0) return contract.trim()
+
+  const bodyAt = contract.indexOf('\n', markerAt + marker.length)
+  if (bodyAt < 0) return ''
+
+  return contract.slice(bodyAt + 1).trim()
+}
+
 export function hasR45UtilityContract(surfaceId: string): boolean {
   return Boolean(r45UtilityContract(surfaceId))
 }

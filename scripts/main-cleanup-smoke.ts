@@ -11,8 +11,9 @@ function assert(value: unknown, reason: string): asserts value { if (!value) thr
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
 assert(definitions.length === 46, `expected 46 active Surface definitions, received ${definitions.length}`)
 for (const definition of definitions) {
-  assert(definition.promptModule.includes('Author this Surface in bracket-native syntax, not XML.'), `${definition.baseSurfaceId}: active model prompt is not bracket-native`)
-  assert(definition.promptModule.includes(`BRACKET ROOT: [${definition.canonicalOuterWrapper}]`), `${definition.baseSurfaceId}: active bracket root is missing`)
+  assert(definition.promptModule.includes('FORMAT: compact-v1'), `${definition.baseSurfaceId}: compact model prompt marker is missing`)
+  assert(definition.promptModule.includes(`ROOT: [${definition.canonicalOuterWrapper}]`), `${definition.baseSurfaceId}: active bracket root is missing`)
+  assert(definition.promptModule.includes('SCHEMA\n'), `${definition.baseSurfaceId}: compact bracket schema is missing`)
   assert(!/Output raw XML only/i.test(definition.promptModule), `${definition.baseSurfaceId}: active model prompt still requests raw XML`)
   assert(!/\[media\]/i.test(bracketExampleFromXml(definition.sampleXml)), `${definition.baseSurfaceId}: canonical example invented a generic media wrapper`)
 }
@@ -42,7 +43,7 @@ assert(!manifest.permissions.includes('context_handler') && !manifest.permission
 
 const backend = readFileSync('src/backend.ts', 'utf8')
 assert(backend.includes('getDrawerTabs?.({ userId })') && backend.includes('openDrawerTab(lorebookTab.id'), 'Lorebook export does not open the discoverable host drawer')
-assert(backend.includes('`${builtInDefault}${r45BracketSpecificGuidance(r45)}`') && !backend.includes("if (builtInDefault && /bracket-native syntax/i.test(builtInDefault)) return builtInDefault"), 'built-in bracket prompts must include their Surface-specific rules')
+assert(backend.includes("const COMPACT_SURFACE_PROMPT_MARKER = 'FORMAT: compact-v1'") && backend.includes('return builtInDefault'), 'built-in compact prompts must remain the canonical runtime modules')
 
 const plotSparks = readFileSync('regex-packs/narrative-final/Reverie-Plot-Sparks-BULLETPROOF-V7.json', 'utf8')
 assert(!plotSparks.includes('--lumiverse-primary:#8b5cf6') && plotSparks.includes('--ch-accent:var(--lumiverse-primary,#8b5cf6)'), 'Plot Sparks must inherit the host theme without overwriting it')

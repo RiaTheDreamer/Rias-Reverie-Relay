@@ -73,7 +73,7 @@ const incompleteCurrentOverride = '[Plot_Sparks][Spark][Key]a[/Key][Vector]deton
 const guardedOverrideUtility = buildNarrativeUtilityPrompt(['Chaos Hooks'], { 'Chaos Hooks': incompleteCurrentOverride }).content
 assert(!guardedOverrideUtility.includes('CURRENT OVERRIDE') && guardedOverrideUtility.includes('plot-spark-g-'), 'incomplete current-shape Plot Sparks overrides must fail closed to the canonical Utility')
 const definitions = [...shippedSurfaceDefinitions(), ...r45SupplementalSurfaceDefinitions()]
-assert(definitions.every(row => row.promptModule.includes('TRIGGER POLICY') && row.promptModule.includes('BRACKET ROOT')), 'every active R4.5 Surface must retain semantic trigger guidance plus structural grammar')
+assert(definitions.every(row => row.promptModule.includes('FORMAT: compact-v1') && row.promptModule.includes(`ROOT: [${row.canonicalOuterWrapper}]`) && row.promptModule.includes('SCHEMA\n')), 'every active R4.5 Surface must retain compact bracket structural grammar')
 assert(definitions.find(row => row.baseSurfaceId === 'smartphone')?.promptModule.includes('same co-present characters'), 'Smartphone co-presence anti-trigger missing')
 assert(definitions.find(row => row.baseSurfaceId === 'relationship-map')?.promptModule.includes('focal + meaningful connection A + meaningful connection B'), 'Relationship Map lower threshold missing')
 assert(buildNarrativeUtilityPrompt(['Cast Arrival']).content.includes('at least two of:'), 'Cast Introduction deterministic first-appearance threshold missing')

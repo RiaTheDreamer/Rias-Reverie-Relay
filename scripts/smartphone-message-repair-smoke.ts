@@ -71,6 +71,6 @@ assert(ambiguousRender.content.includes('Format error') && ambiguousRender.conte
 const utilityText = R45_UTILITY_CONTRACTS.smartphone
 const promptText = r45SupplementalSurfaceDefinitions().find(row => row.baseSurfaceId === 'smartphone')?.promptModule || DEFAULT_SURFACE_PROMPT_MODULES.smartphone
 assert(utilityText.includes('[smart_phone]') && utilityText.includes('[s_recv]') && utilityText.includes('[s_sent]') && utilityText.includes('[messages]'), 'R4.5 Smartphone Utility must teach the active bracket-native message contract')
-assert(promptText.includes('same co-present characters') && promptText.includes('[s_recv]') && promptText.includes('BRACKET ROOT'), 'active bracket Smartphone prompt must preserve both co-presence anti-trigger guidance and structural grammar')
+assert(promptText.includes('same co-present characters') && promptText.includes('[s_recv]') && promptText.includes('FORMAT: compact-v1') && promptText.includes('ROOT: [smart_phone]'), 'active compact Smartphone prompt must preserve both co-presence anti-trigger guidance and structural grammar')
 
 console.log('Smartphone message repair smoke passed: mismatched closers, missing close, orphan close, sibling isolation, fallback boundary, and Utility hardening verified.')

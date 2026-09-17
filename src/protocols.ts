@@ -458,27 +458,24 @@ Use a stable unique id and slot, a supported aspect, accessible alt text, and a 
 
 export const REVERIE_SURFACE_PROTOCOL = `REVERIE RELAY — SHARED SURFACE PROTOCOL
 
-AUTHORSHIP
-Author bracket-native semantic Surfaces from the enabled modules. Use [root]...[/root] shells and child bracket fields; do not put attributes in opening bracket tags. Do not use Markdown fences, bespoke HTML, prose labels, or substitute root names. Legacy XML Surface shells are compatibility input only, not the current authoring format.
+USE
+Use only enabled Surface modules. Use a Surface when the current response directly presents that in-world communication, document, object, network, app, or visual form and the Surface adds concrete reader value. Never invent an action, message, document, media event, or screen merely to justify a Surface. Do not duplicate ordinary prose when the Surface adds no concrete in-world information.
+
+AUTHORING
+Author bracket-native semantic markup only: [root]...[/root]. Opening bracket tags never carry attributes; metadata is written as child [field]value[/field] nodes. Follow each module's ROOT, SCHEMA, order, counts, and RULES exactly. Repeated messages, posts, comments, gallery items, channels, feeds, entries, and other rows stay as separate ordered child blocks. Keep every bracket balanced. Legacy XML Surface shells are parser compatibility input only, not current authoring syntax.
 
 PLACEMENT
-Place each complete surface immediately after the prose beat where it is opened, shown, received, discovered, watched, or read.
-
-STRUCTURE
-Follow each enabled module's bracket root, child order, optional-field order, media target, slot, aspect, and repeated-row structure exactly. Preserve every repeated message/post/comment as its own ordered child block. Keep bracket fields balanced.
+Place each complete Surface immediately after the prose beat where it is opened, shown, received, discovered, watched, read, or otherwise becomes directly relevant.
 
 MEDIA
-The one XML exception is generated media: place each complete <image_request> inside the exact owning bracket media field, post, message, attachment, or frame. Give it a stable unique id, meaningful slot, supported aspect, accessible alt text, and one complete <scene_brief>. Never use target="instagram.slide". A carousel is one target="instagram.carousel" request with count="2-4".
+Generated media is the one XML exception. Put the complete request at the exact <image_request/> position shown by the module schema, inside its owning semantic field:
+<image_request id="unique-lowercase-id" target="TARGET" slot="stable-slot" aspect="ASPECT" alt="Accessible description"><scene_brief>Complete scene-specific visible image description.</scene_brief></image_request>
+Use the module's required target, aspect, owner, and media count. IDs and slots are stable and unique per unrelated image. The scene_brief describes the actual in-world image using current established identity/outfit/state when relevant. Keep interface chrome, labels, captions, map labels, timestamps, logos, watermarks, and readable text out of generated media unless the Surface-specific RULES explicitly require otherwise. Never place a bare image request in visible prose and never reuse one generic request for unrelated media slots.
 
-SMARTPHONE
-Use [smart_phone] with explicitly closed [sender], [initial], [time], [day], [battery], and ordered [messages] child fields. Text rows are [s_recv][time]HH:MM[/time]text[/s_recv] and [s_sent][time]HH:MM[/time]text[/s_sent]. Never write XML-style attributes in bracket openings and never leave a scalar field unclosed. Every Smartphone image message is an [s_img] row containing mandatory [side]sent|recv[/side], its time, and one complete 4:3 smartphone.message-image request at the exact conversation position. Never omit side and never put media in contact or info.
+CONTEXT
+Use the current scene/message for names, places, timing, route information, text, participants, and visual content. Schema ellipses are placeholders only, never default story values. Do not author Markdown fences, HTML/CSS layouts, launcher chrome, presentation controls, generic substitute cards, or renderer fallback text.`
 
-REGEX-PACK ROOTS
-Use the exact bracket root documented by the selected enabled module. Relay canonicalizes bracket-native authoring into its renderer contract; Regex compatibility must not redefine the model-facing grammar.`
-
-export const REVERIE_SURFACE_UTILITY_TEMPLATE = `REVERIE RELAY — ENABLED SURFACE MODULES
-
-Use only the enabled modules below. The shared protocol above governs placement, balanced bracket structure, media ownership, IDs, slots, aspects, alt text, and scene briefs.
+export const REVERIE_SURFACE_UTILITY_TEMPLATE = `REVERIE RELAY — ENABLED SURFACES
 
 {{reverie_enabled_surface_modules}}
 `

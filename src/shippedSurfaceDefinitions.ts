@@ -1,6 +1,7 @@
 import type { CustomSurfaceDefinition, ImageTarget, PromptProfileId, SurfacePromptCategory, SurfaceShellMode } from './contracts'
 import { CANONICAL_REVIEWED_SURFACE_BY_ID } from './canonicalReviewedSurfaceContracts'
-import { bracketSurfacePromptModule } from './bracketSurfaceAuthoring'
+import { compactSurfacePromptModule } from './bracketSurfaceAuthoring'
+import { r45UtilitySpecificGuidance } from './r45UtilityContracts'
 
 export type ShippedSurfaceSpec = {
   index: number
@@ -382,23 +383,35 @@ Use when the response directly presents this in-world communication, document, o
 Do not invent an action, message, document, or media event merely to justify this Surface. Do not duplicate ordinary prose when the Surface adds no concrete in-world value.`
 }
 
+export function surfaceTriggerOverride(id: string): string {
+  return SURFACE_TRIGGER_GUIDANCE[id] || ''
+}
+
 function applyR45Authority(spec: ShippedSurfaceSpec): ShippedSurfaceSpec {
   const sampleXml = R45_SAMPLE_OVERRIDES[spec.id] || spec.sampleXml
   const customArtifactXml = sampleXml.replace(/target="custom\.[^"]+"/g, 'target="custom.artifact-media"')
-  const promptXml = bracketSurfacePromptModule({
+  const target = spec.target.startsWith('custom.') ? 'custom.artifact-media' : spec.target
+  const aspects = R45_SUPPORTED_ASPECT_OVERRIDES[spec.id] || spec.supportedAspects
+  const triggerGuidance = surfaceTriggerGuidance(spec.id, spec.label)
+
+  const promptModule = compactSurfacePromptModule({
     label: spec.label,
     root: spec.wrapper,
     sampleXml: customArtifactXml,
-    target: spec.target.startsWith('custom.') ? 'custom.artifact-media' : spec.target,
-    aspect: R45_SUPPORTED_ASPECT_OVERRIDES[spec.id]?.[0] || spec.defaultAspect,
+    target,
+    aspects,
+    requiredMediaCount: spec.requiredMediaCount,
+    maximumMediaCount: spec.maximumMediaCount,
+    specificRules: r45UtilitySpecificGuidance(spec.id),
+    triggerOverride: surfaceTriggerOverride(spec.id),
   })
-  const triggerGuidance = surfaceTriggerGuidance(spec.id, spec.label)
+
   return {
     ...spec,
-    target: spec.target.startsWith('custom.') ? 'custom.artifact-media' : spec.target,
+    target,
     sampleXml: customArtifactXml,
     triggerGuidance,
-    promptModule: `${triggerGuidance}\n\n${promptXml}`,
+    promptModule,
   }
 }
 

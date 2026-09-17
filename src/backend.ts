@@ -1658,11 +1658,16 @@ Every authored ${definition.displayName || 'surface'} must include a complete re
 
 function ensureSurfacePromptContainsImageRequest(definition: CustomSurfaceDefinition, prompt: string): string {
   const text = cleanString(prompt)
-  if (!text || /<image_request\b/i.test(text)) return text
+  const explicitlyNoRequiredMedia = (definition.validationRules || [])
+    .some(rule => /^required-media:0$/i.test(cleanString(rule)))
+
+  if (!text || /<image_request\b/i.test(text) || explicitlyNoRequiredMedia) return text
   return `${text}
 
 ${surfacePromptMediaContract(definition)}`
 }
+
+const COMPACT_SURFACE_PROMPT_MARKER = 'FORMAT: compact-v1'
 
 function canonicalSurfacePromptModule(definition: CustomSurfaceDefinition): string {
   const text = cleanString(definition.promptModule)
@@ -1671,6 +1676,9 @@ function canonicalSurfacePromptModule(definition: CustomSurfaceDefinition): stri
   // The shipped R4.5 contract remains the default/fallback, not a write lock.
   if (text && !definition.builtIn && !containsStalePromptTemplate(text)) return ensureSurfacePromptContainsImageRequest(definition, text)
   const builtInDefault = cleanString(builtInSurfaceDefinitionTemplate?.[definition.surfaceId]?.promptModule)
+  if (builtInDefault.includes(COMPACT_SURFACE_PROMPT_MARKER)) {
+    return builtInDefault
+  }
   const r45 = r45UtilityContract(definition.baseSurfaceId)
   if (builtInDefault && /bracket-native syntax/i.test(builtInDefault)) {
     return ensureSurfacePromptContainsImageRequest(definition, `${builtInDefault}${r45BracketSpecificGuidance(r45)}`)

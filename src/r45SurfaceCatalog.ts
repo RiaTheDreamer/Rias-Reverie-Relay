@@ -1,6 +1,7 @@
 import type { CustomSurfaceDefinition, ImageTarget, PromptProfileId, SurfacePromptCategory } from './contracts'
-import { bracketSurfacePromptModule } from './bracketSurfaceAuthoring'
-import { surfaceTriggerGuidance } from './shippedSurfaceDefinitions'
+import { compactSurfacePromptModule } from './bracketSurfaceAuthoring'
+import { r45UtilitySpecificGuidance } from './r45UtilityContracts'
+import { surfaceTriggerGuidance, surfaceTriggerOverride } from './shippedSurfaceDefinitions'
 
 type CatalogRow = {
   id: string
@@ -19,35 +20,19 @@ const request = (id: string, target = 'custom.artifact-media', aspect = '4:3', b
   `<image_request id="${id}" target="${target}" slot="${id}" aspect="${aspect}" alt="Surface media"><scene_brief>${brief}</scene_brief></image_request>`
 
 function runtimeUtilityPrompt(row: CatalogRow): string {
-  const module = bracketSurfacePromptModule({
+  const [requiredMediaCount, maximumMediaCount] = MEDIA_LIMITS[row.id] || [0, 0]
+
+  return compactSurfacePromptModule({
     label: row.label,
     root: row.root,
     sampleXml: row.sample,
     target: row.target || 'custom.artifact-media',
-    aspect: row.aspect || '4:3',
+    aspects: [row.aspect || '4:3'],
+    requiredMediaCount,
+    maximumMediaCount,
+    specificRules: r45UtilitySpecificGuidance(row.id),
+    triggerOverride: surfaceTriggerOverride(row.id),
   })
-  const guidance = surfaceTriggerGuidance(row.id, row.label)
-  if (row.id === 'album-cover') return `${guidance}\n\n${module}
-
-Album Cover contract note: a real album/release title is required in [title] before [artist], [release], and [artwork]. Do not use placeholders as the release title.`
-  if (row.id === 'smartphone') return `${guidance}\n\n${module}
-
-Smartphone contract note: every scalar and message field must be explicitly closed. Never put XML-style attributes in bracket opening tags.
-
-STRICT MESSAGE SHAPE
-[messages]
-  [s_recv]
-    [time]HH:MM[/time]
-    Received message text.
-  [/s_recv]
-  [s_sent]
-    [time]HH:MM[/time]
-    Sent message text.
-  [/s_sent]
-[/messages]
-
-The shell fields are [sender]...[/sender], [initial]...[/initial], [time]...[/time], [day]...[/day], and [battery]...[/battery]. Never emit unclosed scalar fields, [battery]value], or [s_recv time="..."] / [s_sent time="..."].`
-  return `${guidance}\n\n${module}`
 }
 
 const MEDIA_LIMITS: Record<string, readonly [number, number]> = {

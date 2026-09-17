@@ -66,6 +66,66 @@ export function bracketExampleFromXml(sampleXml: string): string {
   return root ? bracketExample(root) : String(sampleXml || '')
 }
 
+function compactBracketSchema(node: XmlNode, depth = 0): string {
+  const pad = '  '.repeat(depth)
+
+  if (node.tag === 'image_request') return `${pad}<image_request/>`
+
+  const lines = [`${pad}[${node.tag}]`]
+
+  for (const key of Object.keys(node.attrs)) {
+    lines.push(`${pad}  [${key}]…[/${key}]`)
+  }
+
+  for (const child of node.children) {
+    if (typeof child === 'string') {
+      if (child.trim()) lines.push(`${pad}  …`)
+      continue
+    }
+
+    if (child.tag === 'image_request') {
+      lines.push(`${pad}  <image_request/>`)
+      continue
+    }
+
+    lines.push(compactBracketSchema(child, depth + 1))
+  }
+
+  lines.push(`${pad}[/${node.tag}]`)
+  return lines.join('\n')
+}
+
+export function compactBracketSchemaFromXml(sampleXml: string): string {
+  const root = parseLooseXml(sampleXml)
+  return root ? compactBracketSchema(root) : String(sampleXml || '')
+}
+
+export function compactSurfacePromptModule(input: {
+  label: string
+  root: string
+  sampleXml: string
+  target?: string
+  aspects?: readonly string[]
+  requiredMediaCount?: number
+  maximumMediaCount?: number
+  specificRules?: string
+  triggerOverride?: string
+}): string {
+  const required = input.requiredMediaCount ?? 0
+  const maximum = input.maximumMediaCount == null ? 'contract-defined' : String(input.maximumMediaCount)
+  const media = required === 0 && input.maximumMediaCount === 0
+    ? 'none'
+    : `${required === 0 ? `optional, max=${maximum}` : `minimum=${required}, max=${maximum}`}${input.target ? `; target=${input.target}` : ''}${input.aspects?.length ? `; aspects=${input.aspects.join(',')}` : ''}. Use the exact owner position shown in SCHEMA; RULES override this summary when the Surface has multiple media roles.`
+  const sections = [
+    `SURFACE: ${input.label.toUpperCase()}\nFORMAT: compact-v1\nROOT: [${input.root}]`,
+    input.triggerOverride?.trim() ? `TRIGGER OVERRIDE\n${input.triggerOverride.trim()}` : '',
+    `SCHEMA\n${compactBracketSchemaFromXml(input.sampleXml)}`,
+    `MEDIA\n${media}`,
+    input.specificRules?.trim() ? `RULES\n${input.specificRules.trim()}` : '',
+  ]
+  return sections.filter(Boolean).join('\n\n')
+}
+
 export function bracketSurfacePromptModule(input: {
   label: string
   root: string
