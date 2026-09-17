@@ -37,19 +37,23 @@ export function renderRegexSurfaceParity(
 ): string {
   let output = String(markup || '')
   let sawBracketSurface = false
+  const presentation = mode === 'collapsible' ? 'plain' : mode
   const bracket = normalizeBracketSurfaceDocument(output, SHIPPED_SURFACE_SPECS, block => {
     sawBracketSurface = true
     return block.diagnostics.length
       ? '<aside class="rrn-contract-recovery" role="status">Relay Surface needs repair. Reparse or rescan in Relay.</aside>'
-      : block.markup
+      // Compatibility normalization belongs to this exact R4.5 Surface. Do
+      // not expose the rest of a mixed assistant message to generic legacy
+      // fields such as [media], because Narrative Utilities own their ranges.
+      : renderR45BracketSurfaceAuthority(block.markup, presentation, messageId)
   })
-  if (sawBracketSurface) return renderR45BracketSurfaceAuthority(bracket.markup, mode === 'collapsible' ? 'plain' : mode, messageId)
+  if (sawBracketSurface) return bracket.markup
   if (!/(?:rrl-card|rrl-resolved|data-rrn-native-request)/.test(output)) {
     output = normalizeSurfaceDocument(output, SHIPPED_SURFACE_SPECS, block => block.diagnostics.length
       ? '<aside class="rrn-contract-recovery" role="status">Relay Surface needs repair. Reparse or rescan in Relay.</aside>'
       : block.markup).markup
   }
-  return renderR45SurfaceAuthority(output, mode === 'collapsible' ? 'plain' : mode, color, messageId)
+  return renderR45SurfaceAuthority(output, presentation, color, messageId)
 }
 
 export function containsRenderedRegexSurface(markup: string): boolean {

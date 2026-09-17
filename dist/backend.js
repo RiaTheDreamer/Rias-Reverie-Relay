@@ -138418,16 +138418,17 @@ function normalizeBracketSurfaceDocument(input, supplied, render) {
 function renderRegexSurfaceParity(markup, mode, messageId, color = "realistic") {
   let output = String(markup || "");
   let sawBracketSurface = false;
+  const presentation = mode === "collapsible" ? "plain" : mode;
   const bracket = normalizeBracketSurfaceDocument(output, SHIPPED_SURFACE_SPECS, (block) => {
     sawBracketSurface = true;
-    return block.diagnostics.length ? '<aside class="rrn-contract-recovery" role="status">Relay Surface needs repair. Reparse or rescan in Relay.</aside>' : block.markup;
+    return block.diagnostics.length ? '<aside class="rrn-contract-recovery" role="status">Relay Surface needs repair. Reparse or rescan in Relay.</aside>' : renderR45BracketSurfaceAuthority(block.markup, presentation, messageId);
   });
   if (sawBracketSurface)
-    return renderR45BracketSurfaceAuthority(bracket.markup, mode === "collapsible" ? "plain" : mode, messageId);
+    return bracket.markup;
   if (!/(?:rrl-card|rrl-resolved|data-rrn-native-request)/.test(output)) {
     output = normalizeSurfaceDocument(output, SHIPPED_SURFACE_SPECS, (block) => block.diagnostics.length ? '<aside class="rrn-contract-recovery" role="status">Relay Surface needs repair. Reparse or rescan in Relay.</aside>' : block.markup).markup;
   }
-  return renderR45SurfaceAuthority(output, mode === "collapsible" ? "plain" : mode, color, messageId);
+  return renderR45SurfaceAuthority(output, presentation, color, messageId);
 }
 function containsRenderedRegexSurface(markup) {
   return containsR45RenderedSurface(markup) || /(?:rrn-contract-recovery|rrl-card|rrl-resolved)/i.test(String(markup || ""));
