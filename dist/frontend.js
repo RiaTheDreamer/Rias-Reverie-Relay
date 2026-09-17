@@ -1890,7 +1890,8 @@ var DEFAULT_PROMPT_REGISTRY_VERSIONS = Object.fromEntries(PROMPT_REGISTRY_DEFINI
 var ATTR_RE = /\s+([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 var TOKEN_RE = /<!--[\s\S]*?-->|<\/?[A-Za-z][\w:-]*(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*)?\s*\/?>/g;
 var VOID_TAGS = new Set("img br hr input meta link".split(" "));
-var RENDERED_MEDIA_TAGS = new Set(["image_request_error", "img"]);
+var RELAY_XML_CONTROL_TAGS = new Set(["image_request", "reverie-illustration"]);
+var XML_PASSTHROUGH_TAGS = new Set(["image_request_error", "img", ...RELAY_XML_CONTROL_TAGS]);
 var tagOf = (token) => /^<\/?([\w:-]+)/.exec(token)?.[1]?.toLowerCase() || "";
 var attrsOf = (token) => Object.fromEntries([...String(token || "").matchAll(ATTR_RE)].map((match) => [match[1], match[2] ?? match[3] ?? ""]));
 function parseLooseXml(source) {
@@ -1932,7 +1933,7 @@ function bracketValue(value) {
   return String(value || "").replace(/\[/g, "(").replace(/\]/g, ")");
 }
 function bracketExample(node, depth = 0) {
-  if (RENDERED_MEDIA_TAGS.has(node.tag))
+  if (XML_PASSTHROUGH_TAGS.has(node.tag))
     return serializeXml(node);
   const pad = "  ".repeat(depth);
   const lines = [`${pad}[${node.tag}]`];
@@ -1943,7 +1944,7 @@ function bracketExample(node, depth = 0) {
       const text = child.trim();
       if (text)
         lines.push(`${pad}  ${bracketValue(text)}`);
-    } else if (RENDERED_MEDIA_TAGS.has(child.tag)) {
+    } else if (XML_PASSTHROUGH_TAGS.has(child.tag)) {
       lines.push(`${pad}  ${serializeXml(child)}`);
     } else {
       lines.push(bracketExample(child, depth + 1));
@@ -1957,8 +1958,19 @@ function bracketExampleFromXml(sampleXml) {
   const root = parseLooseXml(sampleXml);
   return root ? bracketExample(root) : String(sampleXml || "");
 }
+function compactXmlControlSchema(node) {
+  const attrs = Object.keys(node.attrs).map((key) => ` ${key}="…"`).join("");
+  const children = node.children.map((child) => {
+    if (typeof child === "string")
+      return child.trim() ? "…" : "";
+    return compactXmlControlSchema(child);
+  }).join("");
+  return `<${node.tag}${attrs}>${children}</${node.tag}>`;
+}
 function compactBracketSchema(node, depth = 0) {
   const pad = "  ".repeat(depth);
+  if (RELAY_XML_CONTROL_TAGS.has(node.tag))
+    return `${pad}${compactXmlControlSchema(node)}`;
   const lines = [`${pad}[${node.tag}]`];
   for (const key of Object.keys(node.attrs)) {
     lines.push(`${pad}  [${key}]…[/${key}]`);
@@ -2005,7 +2017,7 @@ ${input.specificRules.trim()}` : ""
 var SHARED = `R4.5 FINAL SURFACE UTILITY CONTRACT
 Author one bracket-native semantic Surface. Use [root]...[/root] and bracket child fields; opening bracket tags never carry attributes. Relay owns Surface recognition, normalization, validation, canonical rendering, launcher state, interactions, media lifecycle, reinsertion, repair/reparse/rescan UI, and mobile rendering. Do not ask Regex or generic HTML to render the Surface, and do not author launcher chrome or presentation controls. Legacy XML Surface shells are compatibility input only.
 
-Every [image_request] stays inside its exact owning media child and uses ordered bracket children for [id], [target], [slot], [aspect], [alt], and one context-specific [scene_brief]. Use [target]custom.artifact-media[/target] for custom Surface media. The brief describes the actual in-world image, preserves established identity/outfit when relevant, composes the important content safely for the target slot, and never asks the image model to draw interface chrome, labels, captions, map labels, timestamps, logos, or readable text. Never place a bare image request in visible prose. Do not reuse one generic request across unrelated media slots.
+Every Relay image request stays inside its exact owning bracket media child and keeps canonical XML transport syntax: <image_request id="…" target="…" slot="…" aspect="…" alt="…"><scene_brief>…</scene_brief></image_request>. Use target="custom.artifact-media" for custom Surface media. image_request and scene_brief are protected Relay control tags, not Surface XML; never convert them to bracket tags. The brief describes the actual in-world image, preserves established identity/outfit when relevant, composes the important content safely for the target slot, and never asks the image model to draw interface chrome, labels, captions, map labels, timestamps, logos, or readable text. Never place a bare image request in visible prose. Do not reuse one generic request across unrelated media slots.
 
 Use the current scene/message for names, places, timing, route information, text, and visual content. Examples are structural only; never promote demo values into defaults. Keep all bracket fields balanced and preserve the specified child order. Relay renders the approved R4.5 layout; do not emit generic substitute cards, HTML layouts, centered prose blobs, or renderer fallback text.`;
 var utility = (root, body) => `${SHARED}
@@ -2025,7 +2037,7 @@ var R45_UTILITY_CONTRACTS = {
   "instagram-dm": utility("instagram_dm", "Author a coherent ordered direct-message exchange. Any media belongs in its exact chat-media child and uses 4:3; do not let scene_brief appear as chat text."),
   "x-dm": utility("x_dm", "Author a coherent ordered direct-message exchange. Any attachment belongs in its exact message media child and uses 4:3."),
   "discord-dm": utility("discord_dm", "Author an ordered Discord direct-message exchange with participant identity and contextual content. Media/files remain in the exact discussed message child and use 4:3."),
-  "discord-server": utility("discord_server", "Author [server], [topic], [members], and [online] child fields. [members] and [online] are optional for legacy input but must be authored when current context supplies them; never invent counts. Author four contextual [server_channel] sections, each with [slot], [name], and [description] child fields. Every recurring participant with sufficient visual identity, including the local participant when applicable, uses [server_avatar_msg] with one stable reusable 1:1 [image_request] id/slot throughout this Surface; use [server_msg] only when sufficient visual identity is unavailable. Discussed media uses [server_media] with one request containing [target]custom.artifact-media[/target] and [aspect]4:3[/aspect], and remains inside its exact message/file child."),
+  "discord-server": utility("discord_server", 'Author [server], [topic], [members], and [online] child fields. [members] and [online] are optional for legacy input but must be authored when current context supplies them; never invent counts. Author four contextual [server_channel] sections, each with [slot], [name], and [description] child fields. Every recurring participant with sufficient visual identity, including the local participant when applicable, uses [server_avatar_msg] with one stable reusable 1:1 XML image_request id/slot throughout this Surface; use [server_msg] only when sufficient visual identity is unavailable. Discussed media uses [server_media] with one image_request using target="custom.artifact-media" and aspect="4:3", and remains inside its exact message/file child.'),
   "google-images": utility("google_image_search", "Author [query] plus independent [gis_result] rows with [slot], [title], and [source] child fields. Each result owns a 4:3 image relevant to the query; vary results naturally. Never insert unrelated portraits unless the query is a person. Renderer owns zoom/lightbox behavior."),
   "phone-gallery": utility("phone_gallery", "Author one [gallery_item] per saved photo with [slot], [title], [time], [location], and [size] child fields. Each owns a distinct 1:1 square-safe image with focal content inside the central safe area. Thumbnails fill their cells; enlarged Gallery state preserves the complete source."),
   "tiktok-post": utility("tiktok_post", "Author [tt_media] with one 9:16 request for the actual vertical post moment. Compose face/action inside the vertical safe area; no app UI or text. Keep username, caption, comments, and controls textual."),
@@ -2039,18 +2051,18 @@ Canonical text rows:
 [s_recv][time]HH:MM[/time]Received message.[/s_recv]
 [s_sent][time]HH:MM[/time]Sent message.[/s_sent]
 
-All [s_recv], [s_sent], and [s_img] rows remain inside [messages]. Every [s_img] contains [side], [time], then one [image_request] using unique [id]/[slot], [target]smartphone.message-image[/target], [aspect]4:3[/aspect], accessible [alt], and an exact contextual [scene_brief] with no phone UI or readable text. sent is user/right; recv is contact/left. Images are allowed only inside a message row; never place media in contact or info.`),
+All [s_recv], [s_sent], and [s_img] rows remain inside [messages]. Every [s_img] contains [side], [time], then one <image_request id="…" target="smartphone.message-image" slot="…" aspect="4:3" alt="…"><scene_brief>Exact contextual attachment only; no phone UI or readable text.</scene_brief></image_request>. sent is user/right; recv is contact/left. Images are allowed only inside a message row; never place media in contact or info.`),
   instagram: utility("ig_app", "Author user, location, likes, verification, one direct 1:1 post/carosel media request, caption, and comments in the approved order. Single target is instagram.single; a carousel is one instagram.carousel request with count 2–4. Never use instagram.slide or resolved media markup."),
   twitter: utility("twitter_app", "Author [for_you] first, then optional [following], [thread], and [trends]. Each [tw_post] keeps its required child-field order, text, optional one direct 16:9 or contextual 4:3 twitter.media request, and nested comments. Never author resolved media markup."),
-  kakao: utility("kakao_chat", "Child order: [participants] then [messages]. Preserve message order and use exact [k_part], [k_msg], [k_reply], [k_react], [k_file], [k_system], and [k_typing] fields with bracket children in schema order. An image belongs at its exact conversation position inside a [k_img] media wrapper and contains one request with [target]kakao.image[/target] and [aspect]4:3[/aspect]; describe the actual chat attachment only. Never use an alternate media aspect or resolved image markup."),
+  kakao: utility("kakao_chat", 'Child order: [participants] then [messages]. Preserve message order and use exact [k_part], [k_msg], [k_reply], [k_react], [k_file], [k_system], and [k_typing] fields with bracket children in schema order. An image belongs at its exact conversation position inside a [k_img] media wrapper and contains one XML image_request with target="kakao.image" and aspect="4:3"; describe the actual chat attachment only. Never use an alternate media aspect or resolved image markup.'),
   "album-cover": utility("album_cover", "Child order is [title], [artist], [release], [artwork]. A real album/release title is required for new output; use an established release title from context or deliberately author one when the Surface itself establishes a fictional release. [artwork] owns one 1:1 contextual release-art request matching title/artist/concept; do not generate readable cover text or player UI. Legacy art-only records are repair-only and do not receive an invented title."),
   "magazine-cover": utility("magazine_cover", "Child order: masthead, issue, kicker, headline, subhead, then cover image. The image request is 4:5 editorial art with headline-safe space; renderer supplies masthead and typography."),
   "photo-booth-strip": utility("photo_booth_strip", "Author the exact four [booth_frame] children followed by [caption]. Each frame owns a unique 2:5 request from one coherent booth session with stable identities, wardrobe, booth, and lighting."),
   polaroid: utility("polaroid_frame", "Child order: [photo] then [caption]. [photo] owns one 1:1 actual square instant photograph tied to the current story beat; renderer supplies paper frame."),
   "youtube-thumbnail": utility("yt_thumbnail", "Author [channel], [title], [views], [age], [subscribers], [yt_media], and 2–5 [yt_comment] rows. [yt_media] owns one 16:9 actual video frame matching title/content; no YouTube logo, play icon, generated UI, or readable text."),
-  "character-profile": utility("character_profile", "First child is the mandatory [portrait] region; never use [media]. The Relay [image_request] lives inside [portrait], uses [target]custom.artifact-media[/target], and portrait [aspect] is 3:4. Keep generated media inside that same portrait region through pending, live preview, completed, retry, reparse, and reload states. After portrait author [name], [role], [hook], [trait] in that order, using only viewpoint-safe established information."),
+  "character-profile": utility("character_profile", 'First child is the mandatory [portrait] region; never use [media]. The Relay XML image_request lives inside [portrait], uses target="custom.artifact-media", and aspect="3:4". Keep generated media inside that same portrait region through pending, live preview, completed, retry, reparse, and reload states. After portrait author [name], [role], [hook], [trait] in that order, using only viewpoint-safe established information.'),
   "music-player": utility("music_player", "Author actual track/release fields and [mu_cover]. Cover art is one contextual 1:1 release image, not a random portrait; player chrome and lyrics remain textual."),
-  "location-share": utility("location_share", "Author [sender], [destination], [eta], [remaining], [updated], [lc_map], [lc_note], and 2–5 useful contextual [lc_step] waypoints. Every value derives from the current scene/message; never default to a fixture place, landmark, city, route, or note. [lc_map] ALWAYS owns one 4:3 request with [target]custom.artifact-media[/target] corresponding to the authored route and destination, with visible route geometry/destination-pin area, no people, portrait photography, generated labels, or UI."),
+  "location-share": utility("location_share", 'Author [sender], [destination], [eta], [remaining], [updated], [lc_map], [lc_note], and 2–5 useful contextual [lc_step] waypoints. Every value derives from the current scene/message; never default to a fixture place, landmark, city, route, or note. [lc_map] ALWAYS owns one XML image_request with target="custom.artifact-media" and aspect="4:3" corresponding to the authored route and destination, with visible route geometry/destination-pin area, no people, portrait photography, generated labels, or UI.'),
   "voice-memo": utility("voice_memo", "Author [sender], [time], [duration], [status], [vm_avatar], [transcript], and call-history fields. Avatar is one reusable 1:1 centered face-and-shoulders contact portrait with headroom; transcript remains textual."),
   "notes-app": utility("notes_app", "Author one to four ordered [nt_note] records using consecutive [slot] values beginning at 1. Any note attachment remains in its exact attachment child and uses 4:3; do not fabricate a generic image."),
   "market-listing": utility("market_listing", "Author [title], [price], [condition], [seller], [time], [mk_media], [description], [bids], and [actions]. [mk_media] owns a 1:1 product-only listing photograph with the item fully visible and no readable listing text."),

@@ -62,13 +62,13 @@ for (const definition of definitions) {
   assert(schema.startsWith(`[${definition.canonicalOuterWrapper}]`), `${definition.baseSurfaceId}: compact SCHEMA root is wrong`)
   assert(schema === compactBracketSchemaFromXml(definition.sampleXml), `${definition.baseSurfaceId}: SCHEMA drifted from its canonical structure or media owner positions`)
   const requiredMedia = Number((definition.validationRules.find(rule => /^required-media:\d+$/i.test(rule)) || '').split(':')[1] || 0)
-  if (requiredMedia > 0) assert(schema.includes('<image_request/>'), `${definition.baseSurfaceId}: required media owner placeholder is missing from SCHEMA`)
+  if (requiredMedia > 0) assert(/<image_request\b/.test(schema) && /<scene_brief>…<\/scene_brief>/.test(schema), `${definition.baseSurfaceId}: canonical Relay XML media control is missing from SCHEMA`)
 }
 
 for (const id of ['court-transcript', 'mission-board']) {
   const module = byId.get(id)?.promptModule || ''
   assert(module.includes('\nMEDIA\nnone'), `${id}: explicit text-only MEDIA summary is missing`)
-  assert(!module.includes('<image_request/>') && !module.includes('IMAGE REQUEST CONTRACT'), `${id}: text-only prompt received synthetic media guidance`)
+  assert(!module.includes('<image_request') && !module.includes('IMAGE REQUEST CONTRACT'), `${id}: text-only prompt received synthetic media guidance`)
 }
 
 const moduleFor = (id: string) => byId.get(id)?.promptModule || ''
@@ -80,15 +80,15 @@ const preserves = (id: string, fragments: string[]) => {
 preserves('smartphone', ['TRIGGER POLICY — SMARTPHONE', '[messages]', '[s_recv]', '[s_sent]', '[s_img]', 'smartphone.message-image', 'Images are allowed only inside a message row'])
 preserves('relationship-map', ['TRIGGER POLICY — RELATIONSHIP MAP', 'focal + meaningful connection A + meaningful connection B', 'relationship connections, and insight fields'])
 preserves('instagram', ['ROOT: [ig_app]', 'instagram.single', 'instagram.carousel', 'count 2–4', 'Never use instagram.slide or resolved media markup'])
-preserves('twitter', ['[for_you]', '[following]', '[thread]', '[trends]', 'nested comments', 'Never author resolved <tw_media src> markup'])
-preserves('kakao', ['[participants]', '[messages]', 'k_part/k_msg/k_reply/k_react/k_file/k_system/k_typing', '[k_img]', 'target="kakao.image"', 'aspect="4:3"'])
+preserves('twitter', ['[for_you]', '[following]', '[thread]', '[trends]', 'nested comments', 'Never author resolved media markup'])
+preserves('kakao', ['[participants]', '[messages]', '[k_part]', '[k_msg]', '[k_reply]', '[k_react]', '[k_file]', '[k_system]', '[k_typing]', '[k_img]', 'target="kakao.image"', 'aspect="4:3"'])
 preserves('album-cover', ['A real album/release title is required', '[title]', '[artist]', '[release]', '[artwork]'])
-preserves('character-profile', ['mandatory <portrait> region', 'never use <media>', 'target="custom.artifact-media"', 'portrait aspect is 3:4', 'viewpoint-safe established information'])
-preserves('location-share', ['[lc_map]', 'top-down navigation/map request', 'no people, portrait photography, generated labels, or UI'])
-preserves('discord-server', ['stable reusable 1:1 image_request id/slot', '[server_avatar_msg]', '[server_media]'])
-preserves('photo-booth-strip', ['exact four <booth_frame> children', 'one coherent booth session'])
-preserves('cctv-evidence', ['exactly three <cv_feed> records', 'fixed surveillance view'])
-preserves('instagram-stories', ['exactly three <story> records', '9:16 <story_media> request'])
+preserves('character-profile', ['mandatory [portrait] region', 'never use [media]', 'XML image_request', 'target="custom.artifact-media"', 'aspect="3:4"', 'viewpoint-safe established information'])
+preserves('location-share', ['[lc_map]', 'XML image_request', 'target="custom.artifact-media"', 'aspect="4:3"', 'no people, portrait photography, generated labels, or UI'])
+preserves('discord-server', ['stable reusable 1:1 XML image_request id/slot', '[server_avatar_msg]', '[server_media]'])
+preserves('photo-booth-strip', ['exact four [booth_frame] children', 'one coherent booth session'])
+preserves('cctv-evidence', ['exactly three [cv_feed] records', 'fixed surveillance view'])
+preserves('instagram-stories', ['exactly three [story] records', '9:16 [story_media] request'])
 
 const customDefinition = {
   ...definitions[0],

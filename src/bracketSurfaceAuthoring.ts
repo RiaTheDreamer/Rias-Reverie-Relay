@@ -1,10 +1,10 @@
 const ATTR_RE = /\s+([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
 const TOKEN_RE = /<!--[\s\S]*?-->|<\/?[A-Za-z][\w:-]*(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*)?\s*\/?>/g
 const VOID_TAGS = new Set('img br hr input meta link'.split(' '))
-// Resolved/runtime media remains renderer-owned markup. Current authored
-// image_request nodes are semantic input and therefore serialize like every
-// other canonical bracket node.
-const RENDERED_MEDIA_TAGS = new Set(['image_request_error', 'img'])
+// Relay image-control markup is transport syntax, not Surface structure.
+// Keep it XML while converting its owning Surface tree to bracket-native form.
+const RELAY_XML_CONTROL_TAGS = new Set(['image_request', 'reverie-illustration'])
+const XML_PASSTHROUGH_TAGS = new Set(['image_request_error', 'img', ...RELAY_XML_CONTROL_TAGS])
 const tagOf = (token: string): string => /^<\/?([\w:-]+)/.exec(token)?.[1]?.toLowerCase() || ''
 const attrsOf = (token: string): Record<string, string> => Object.fromEntries([...String(token || '').matchAll(ATTR_RE)].map(match => [match[1], match[2] ?? match[3] ?? '']))
 
@@ -43,7 +43,7 @@ function bracketValue(value: string): string {
 }
 
 function bracketExample(node: XmlNode, depth = 0): string {
-  if (RENDERED_MEDIA_TAGS.has(node.tag)) return serializeXml(node)
+  if (XML_PASSTHROUGH_TAGS.has(node.tag)) return serializeXml(node)
   const pad = '  '.repeat(depth)
   const lines = [`${pad}[${node.tag}]`]
   for (const [key, value] of Object.entries(node.attrs)) lines.push(`${pad}  [${key}]${bracketValue(value)}[/${key}]`)
@@ -54,7 +54,7 @@ function bracketExample(node: XmlNode, depth = 0): string {
     if (typeof child === 'string') {
       const text = child.trim()
       if (text) lines.push(`${pad}  ${bracketValue(text)}`)
-    } else if (RENDERED_MEDIA_TAGS.has(child.tag)) {
+    } else if (XML_PASSTHROUGH_TAGS.has(child.tag)) {
       lines.push(`${pad}  ${serializeXml(child)}`)
     } else {
       lines.push(bracketExample(child, depth + 1))
@@ -69,8 +69,19 @@ export function bracketExampleFromXml(sampleXml: string): string {
   return root ? bracketExample(root) : String(sampleXml || '')
 }
 
+function compactXmlControlSchema(node: XmlNode): string {
+  const attrs = Object.keys(node.attrs).map(key => ` ${key}="…"`).join('')
+  const children = node.children.map(child => {
+    if (typeof child === 'string') return child.trim() ? '…' : ''
+    return compactXmlControlSchema(child)
+  }).join('')
+  return `<${node.tag}${attrs}>${children}</${node.tag}>`
+}
+
 function compactBracketSchema(node: XmlNode, depth = 0): string {
   const pad = '  '.repeat(depth)
+
+  if (RELAY_XML_CONTROL_TAGS.has(node.tag)) return `${pad}${compactXmlControlSchema(node)}`
 
   const lines = [`${pad}[${node.tag}]`]
 
@@ -134,7 +145,7 @@ export function bracketSurfacePromptModule(input: {
   return `SURFACE: ${input.label.toUpperCase()}
 Author this Surface in bracket-native syntax, not XML. Describe semantic content only: names, titles, messages, timestamps, sections, captions, and approved media requests.${target}${aspect}
 No attributes in opening bracket tags. All semantic fields are child bracket nodes: [field]value[/field]. Repeated rows, messages, posts, comments, gallery items, and sections must be repeated child blocks, never attributes on an opening bracket.
-Preserve repeated child order exactly. Chat/message rows are ordered lists, never one combined text block. Do not author HTML, CSS, launcher chrome, data attributes, or renderer internals. Image requests use [image_request] with ordered bracket child fields directly inside their exact owning bracket field. Never add a generic [media] wrapper unless that Surface explicitly names its owning field [media].
+Preserve repeated child order exactly. Chat/message rows are ordered lists, never one combined text block. Do not author HTML, CSS, launcher chrome, data attributes, or renderer internals. Relay image requests remain canonical XML transport blocks directly inside their exact owning bracket field: <image_request ...><scene_brief>...</scene_brief></image_request>. Do not convert image_request or scene_brief to bracket tags. Never add a generic [media] wrapper unless that Surface explicitly names its owning field [media].
 
 BRACKET ROOT: [${input.root}]
 
