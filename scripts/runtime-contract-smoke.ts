@@ -184,6 +184,7 @@ assert.equal(structuralXmlTags(assembledNarrative).length, 0, 'final Story Model
 assert(assembledCore.includes('<image_request') && assembledCore.includes('<scene_brief>'), 'final Story Model Core authoring lost canonical XML image controls')
 assert(assembledNarrative.includes('<image_request') && assembledNarrative.includes('<reverie-illustration'), 'final Story Model Narrative authoring lost a canonical XML image-control family')
 assert.equal(bracketImageControlTags(modelPlaced).length, 0, 'final Story Model prompt teaches bracket image-control authoring')
+assert.equal((assembledNarrative.match(/<\/?(?:else-media|else-scene|else-context|visibility|clock|knowledge|collision)>/gi) || []).length, 0, 'final Story Model prompt teaches historical Off-Stage XML structure')
 
 await backend.setConfig({ proseIllustratorSettings: { ...backend.defaultProseIllustratorSettings(), mode: 'inline-protocol' } }, 'u1')
 const inline = assembledText(await interceptor!(baseMessages, { chatId: 'inline-dry-run', userId: 'u1', isDryRun: true }))

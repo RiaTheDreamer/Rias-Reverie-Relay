@@ -332,8 +332,26 @@ function normalizeDramaticParagraphMarkup(markup: string): string {
   })
 }
 
+const ELSEWHERE_OWNER_RANGE = /(\[\[else\s+[^\]\r\n]{1,500}\]\])((?:(?!\[\[else\s+)[\s\S])*?)(\[\[\/else\]\]|\[\/else\])/gi
+const CURRENT_ELSEWHERE_BODY = /^\s*\[else_media\][\s\S]{0,24000}?\[\/else_media\]\s*\[else_scene\][\s\S]{1,30000}?\[\/else_scene\]\s*\[else_context\]\s*\[visibility\][\s\S]{1,500}?\[\/visibility\]\s*\[clock\][\s\S]{1,2500}?\[\/clock\]\s*\[knowledge\][\s\S]{1,5000}?\[\/knowledge\]\s*\[collision\][\s\S]{1,5000}?\[\/collision\]\s*\[\/else_context\]\s*$/i
+const LEGACY_ELSEWHERE_BODY = /^\s*<else-media>([\s\S]{0,24000}?)<\/else-media>\s*<else-scene>([\s\S]{1,30000}?)<\/else-scene>\s*<else-context>\s*<visibility>([\s\S]{1,500}?)<\/visibility>\s*<clock>([\s\S]{1,2500}?)<\/clock>\s*<knowledge>([\s\S]{1,5000}?)<\/knowledge>\s*<collision>([\s\S]{1,5000}?)<\/collision>\s*<\/else-context>\s*$/i
+
+/** Keep the current Off-Stage renderer authoritative while accepting two
+ * exact historical drifts inside its known owner. Canonical payloads remain
+ * byte-identical; arbitrary bracket or XML markup is never rewritten. */
+function normalizeElsewhereMarkup(markup: string): string {
+  return String(markup || '').replace(ELSEWHERE_OWNER_RANGE, (full, opening: string, body: string, closer: string) => {
+    if (CURRENT_ELSEWHERE_BODY.test(body)) {
+      return closer === '[/else]' ? `${opening}${body}[[/else]]` : full
+    }
+    const legacy = LEGACY_ELSEWHERE_BODY.exec(body)
+    if (!legacy) return full
+    return `${opening}\n[else_media]${legacy[1]}[/else_media]\n[else_scene]${legacy[2]}[/else_scene]\n[else_context]\n[visibility]${legacy[3]}[/visibility]\n[clock]${legacy[4]}[/clock]\n[knowledge]${legacy[5]}[/knowledge]\n[collision]${legacy[6]}[/collision]\n[/else_context]\n[[/else]]`
+  })
+}
+
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
-  return normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(normalizeLegacyPlotSparksMarkup(String(markup || '')))))
+  return normalizeElsewhereMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(normalizeLegacyPlotSparksMarkup(String(markup || ''))))))
     .replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root: string, body: string) => {
       // A second observed phone drift uses an XML root around otherwise
       // canonical bracket fields. Convert only a complete, known phone root;

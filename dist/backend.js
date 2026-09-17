@@ -155648,8 +155648,31 @@ function normalizeDramaticParagraphMarkup(markup) {
     return `[dramatic_parallel]${body.replace(/\[paragraph\]([\s\S]*?)\[\/paragraph\]/gi, "<p>$1</p>")}[/dramatic_parallel]`;
   });
 }
+var ELSEWHERE_OWNER_RANGE = /(\[\[else\s+[^\]\r\n]{1,500}\]\])((?:(?!\[\[else\s+)[\s\S])*?)(\[\[\/else\]\]|\[\/else\])/gi;
+var CURRENT_ELSEWHERE_BODY = /^\s*\[else_media\][\s\S]{0,24000}?\[\/else_media\]\s*\[else_scene\][\s\S]{1,30000}?\[\/else_scene\]\s*\[else_context\]\s*\[visibility\][\s\S]{1,500}?\[\/visibility\]\s*\[clock\][\s\S]{1,2500}?\[\/clock\]\s*\[knowledge\][\s\S]{1,5000}?\[\/knowledge\]\s*\[collision\][\s\S]{1,5000}?\[\/collision\]\s*\[\/else_context\]\s*$/i;
+var LEGACY_ELSEWHERE_BODY = /^\s*<else-media>([\s\S]{0,24000}?)<\/else-media>\s*<else-scene>([\s\S]{1,30000}?)<\/else-scene>\s*<else-context>\s*<visibility>([\s\S]{1,500}?)<\/visibility>\s*<clock>([\s\S]{1,2500}?)<\/clock>\s*<knowledge>([\s\S]{1,5000}?)<\/knowledge>\s*<collision>([\s\S]{1,5000}?)<\/collision>\s*<\/else-context>\s*$/i;
+function normalizeElsewhereMarkup(markup) {
+  return String(markup || "").replace(ELSEWHERE_OWNER_RANGE, (full, opening, body, closer) => {
+    if (CURRENT_ELSEWHERE_BODY.test(body)) {
+      return closer === "[/else]" ? `${opening}${body}[[/else]]` : full;
+    }
+    const legacy = LEGACY_ELSEWHERE_BODY.exec(body);
+    if (!legacy)
+      return full;
+    return `${opening}
+[else_media]${legacy[1]}[/else_media]
+[else_scene]${legacy[2]}[/else_scene]
+[else_context]
+[visibility]${legacy[3]}[/visibility]
+[clock]${legacy[4]}[/clock]
+[knowledge]${legacy[5]}[/knowledge]
+[collision]${legacy[6]}[/collision]
+[/else_context]
+[[/else]]`;
+  });
+}
 function normalizeNarrativeMarkupForRendering(markup) {
-  return normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(normalizeLegacyPlotSparksMarkup(String(markup || ""))))).replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root, body) => {
+  return normalizeElsewhereMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(normalizeLegacyPlotSparksMarkup(String(markup || "")))))).replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root, body) => {
     const repairedBody = body.replace(/<\/(cp_[A-Za-z][A-Za-z0-9_]*)>/gi, "[/$1]");
     return `[${root}]${repairedBody}[/${root}]`;
   }).replace(/(\[(character_phone|private_phone)\b[^\]]*\])((?:(?!\[(?:character_phone|private_phone)\b)[\s\S])*?)\[\/\2\]/gi, (_full, opening, root, body) => {

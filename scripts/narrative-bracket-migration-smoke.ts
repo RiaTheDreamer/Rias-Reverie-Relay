@@ -65,7 +65,16 @@ const fixtures: Record<string, { source: string; rendered: string }> = {
     rendered: 'r65',
   },
   'Off-Stage': {
-    source: `[[else security office]][else_media]${image('elsewhere')}[/else_media][else_scene]A guard rewinds the recording.[/else_scene][else_context][visibility]Reader only[/visibility][clock]Same night[/clock][knowledge]The cast does not know.[/knowledge][collision]The recording may be noticed.[/collision][/else_context][[/else]]`,
+    source: `[[else security office]]
+[else_media]<image_request id="elsewhere-current" target="custom.artifact-media" slot="elsewhere-current" aspect="16:9"><scene_brief>Security office at night.</scene_brief></image_request>[/else_media]
+[else_scene]A guard rewinds the recording.[/else_scene]
+[else_context]
+[visibility]Reader only[/visibility]
+[clock]Same night[/clock]
+[knowledge]The cast does not know.[/knowledge]
+[collision]The recording may be noticed.[/collision]
+[/else_context]
+[[/else]]`,
     rendered: 'r65',
   },
   'Character Dossier': {
@@ -120,12 +129,53 @@ const plotRendered = renderNarrativeRegex(plotSparks, 'sparkle-button', 'batch-d
 assert((plotRendered.match(/class="ch-media"/g) || []).length === 7, 'Plot Sparks did not preserve seven dedicated [Media] owners')
 assert((plotRendered.match(/<reverie-illustration\b/g) || []).length === 7, 'Plot Sparks XML illustrations left their [Media] owners')
 
+const currentElsewhere = fixtures['Off-Stage'].source
+const currentElsewhereBadCloser = currentElsewhere.replace('[[/else]]', '[/else]')
+const legacyElsewhere = `[[else security office]]
+<else-media><image_request id="elsewhere-legacy" target="custom.artifact-media" slot="elsewhere-legacy" aspect="16:9"><scene_brief>Security office at night.</scene_brief></image_request></else-media>
+<else-scene>A guard rewinds the recording.</else-scene>
+<else-context>
+<visibility>Reader only</visibility>
+<clock>Same night</clock>
+<knowledge>The cast does not know.</knowledge>
+<collision>The recording may be noticed.</collision>
+</else-context>
+[[/else]]`
+const legacyElsewhereBadCloser = legacyElsewhere.replace('[[/else]]', '[/else]')
+assert(normalizeNarrativeMarkupForRendering(currentElsewhere) === currentElsewhere, 'canonical Off-Stage normalization must remain byte-for-byte unchanged')
+for (const variant of NARRATIVE_REGEX_VARIANTS) {
+  for (const [label, source, requestId] of [
+    ['current canonical', currentElsewhere, 'elsewhere-current'],
+    ['current one-bracket closer', currentElsewhereBadCloser, 'elsewhere-current'],
+    ['historical hybrid', legacyElsewhere, 'elsewhere-legacy'],
+    ['historical hybrid one-bracket closer', legacyElsewhereBadCloser, 'elsewhere-legacy'],
+  ] as const) {
+    const rendered = renderNarrativeRegex(source, variant, `elsewhere-${variant}-${label}`)
+    assert(rendered.includes('class="r65"') && rendered.includes('Off-Screen Scene'), `${variant}/${label}: Off-Stage did not use the current presentation`)
+    assert(rendered.includes(`id="${requestId}"`) && rendered.includes('<scene_brief>Security office at night.</scene_brief>'), `${variant}/${label}: image-control XML changed during recovery`)
+    assert(!rendered.includes('[[else security office]]') && !rendered.includes('Relay Surface needs repair'), `${variant}/${label}: recovered Off-Stage leaked or fell through to repair`)
+  }
+}
+
+const offStagePrompt = buildNarrativeUtilityPrompt(['Beyond the Frame']).content
+for (const forbidden of ['<else-media>', '<else-scene>', '<else-context>', '<visibility>', '<clock>', '<knowledge>', '<collision>']) {
+  assert(!offStagePrompt.includes(forbidden), `model-facing Off-Stage prompt leaked historical authoring: ${forbidden}`)
+}
+assert(offStagePrompt.includes('[else_media]') && offStagePrompt.includes('[[/else]]'), 'model-facing Off-Stage prompt lost its canonical bracket contract')
+
 const validParallel = fixtures['Parallel Scene'].source
 const malformedParallel = validParallel.replace('[/parallel_entry]', '')
 const isolated = renderNarrativeRegex(`${malformedParallel}\n${validParallel}\n${fixtures['Scene Shift'].source}`, 'inline', 'batch-d-isolation')
 assert(isolated.includes('[PARALLEL|Campus|shifting]'), 'malformed owner was unexpectedly consumed')
 assert((isolated.match(/class="r65-thread"/g) || []).length === 3, 'malformed Parallel poisoned its valid Parallel sibling')
 assert(isolated.includes('rr-scene-compass'), 'malformed Parallel poisoned a valid different-owner sibling')
+
+const malformedElsewhere = currentElsewhere.replace('[/collision]', '')
+const elsewhereIsolated = renderNarrativeRegex(`${malformedElsewhere}\n${validParallel}\n${fixtures['Scene Shift'].source}\n${plotSparks}`, 'inline', 'elsewhere-sibling-isolation')
+assert(elsewhereIsolated.includes('[[else security office]]'), 'unrecoverable Off-Stage was unexpectedly consumed')
+assert((elsewhereIsolated.match(/class="r65-thread"/g) || []).length === 3, 'malformed Off-Stage poisoned valid Parallel')
+assert(elsewhereIsolated.includes('rr-scene-compass'), 'malformed Off-Stage poisoned valid Scene Shift')
+assert(elsewhereIsolated.includes('class="ch-og') && !elsewhereIsolated.includes('[Plot_Sparks]'), 'malformed Off-Stage poisoned valid Plot Sparks')
 
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
 assert(packageJson.version === '0.2.8.2', `version changed: ${packageJson.version}`)
