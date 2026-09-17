@@ -45,7 +45,7 @@ export function renderRegexSurfaceParity(
       // Compatibility normalization belongs to this exact R4.5 Surface. Do
       // not expose the rest of a mixed assistant message to generic legacy
       // fields such as [media], because Narrative Utilities own their ranges.
-      : renderR45BracketSurfaceAuthority(block.markup, presentation, messageId)
+      : renderR45BracketSurfaceAuthority(block.markup, presentation, messageId, color)
   })
   if (sawBracketSurface) return bracket.markup
   if (!/(?:rrl-card|rrl-resolved|data-rrn-native-request)/.test(output)) {

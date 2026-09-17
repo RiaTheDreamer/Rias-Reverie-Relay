@@ -258,9 +258,9 @@ function hydrateParityRequests(
   options: { unresolved?: 'card' | 'preserve' } = {},
 ): string {
   // The authorized R4.5 presentation still consumes its established internal
-  // request representation. Compile only canonical bracket request nodes at
-  // this renderer ingress; current model authoring remains bracket-only and
-  // the existing Regex replacement bodies remain untouched.
+  // request representation. Bracket image-control nodes are compatibility
+  // input only; canonical authoring keeps Relay image controls in XML while
+  // Surface structure is bracket-native. Replacement bodies remain untouched.
   let content = String(markup || '').replace(/\[image_request\]([\s\S]*?)\[\/image_request\]/gi, full => {
     const request = parseImageRequests(full)[0]
     if (!request) return full

@@ -137730,7 +137730,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 };
 
 // src/r45SurfaceAuthority.ts
-var PACKS = {
+var LEGACY_XML_PACKS = {
   "inline:realistic": Reverie_Surfaces_R4_5_INLINE_REALISTIC_default,
   "plain:realistic": Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default,
   "sparkling:realistic": Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default,
@@ -137738,14 +137738,37 @@ var PACKS = {
   "plain:primary": Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default,
   "sparkling:primary": Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default
 };
-var BRACKET_PACKS = {
+var BRACKET_MATCHER_PACKS = {
   inline: Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default,
   plain: Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default,
   sparkling: Reverie_Surfaces_R4_5_BRACKET_SPARKLE_BUTTON_REALISTIC_default
 };
 var safeMessageId = (value) => String(value || "surface").replace(/[^A-Za-z0-9_-]+/g, "-") || "surface";
 var sortedScripts = new Map;
+var sortedLegacyXmlScripts = new Map;
 var sortedBracketScripts = new Map;
+var currentBracketPacks = new Map;
+function currentBracketPack(presentation, color) {
+  const key2 = `${presentation}:${color}`;
+  const cached = currentBracketPacks.get(key2);
+  if (cached)
+    return cached;
+  const presentationPack = LEGACY_XML_PACKS[key2];
+  const matcherPack = BRACKET_MATCHER_PACKS[presentation];
+  if (!presentationPack || !matcherPack || presentationPack.scripts.length !== 138 || matcherPack.scripts.length !== 138) {
+    throw new Error(`Invalid Core Surface bracket authority selection: ${key2}`);
+  }
+  const scripts = presentationPack.scripts.map((script, index) => {
+    const matcher = matcherPack.scripts[index];
+    if (!matcher || matcher.sort_order !== script.sort_order || matcher.flags !== script.flags) {
+      throw new Error(`Core Surface bracket matcher alignment failed: ${key2} script ${script.script_id}`);
+    }
+    return { ...script, find_regex: matcher.find_regex };
+  });
+  const pack = { ...presentationPack, scripts };
+  currentBracketPacks.set(key2, pack);
+  return pack;
+}
 function normalizeR45BracketRuntime(markup) {
   let output = String(markup || "").replace(/\[media\]\s*([\s\S]*?)\s*\[\/media\]/gi, "$1").replace(/\[lc_step\]\s*([\s\S]*?)\s*\[\/lc_step\]/gi, "<lc_step>$1</lc_step>").replace(/(\[med_vital\]\s*\[label\][\s\S]*?\[\/label\])\s*\[value\]\s*([\s\S]*?)\s*\[\/value\](\s*\[\/med_vital\])/gi, "$1$2$3").replace(/\[details\]\s*\[summary\]\s*Amenities\s*\[\/summary\]\s*(\[prop_amenities\][\s\S]*?\[\/prop_amenities\])\s*\[\/details\]/gi, "$1").replace(/\[details\]\s*\[summary\]\s*History\s*\[\/summary\]\s*(\[prop_history\][\s\S]*?\[\/prop_history\])\s*\[\/details\]/gi, "$1");
   output = output.replace(/\[mission_items\]([\s\S]*?)\[\/mission_items\]/gi, (full, body) => {
@@ -137794,7 +137817,7 @@ function renderVariableNotes(markup, template, macro) {
 }
 function r45SurfaceAuthorityPack(presentation, color) {
   const key2 = `${presentation}:${color}`;
-  const pack = PACKS[key2];
+  const pack = currentBracketPack(presentation, color);
   if (!pack || pack.type !== "lumiverse_regex_scripts" || pack.relay_product_version !== "0.2.8" || pack.scripts.length !== 138) {
     throw new Error(`Invalid R4.5 Surface authority selection: ${key2}`);
   }
@@ -137809,25 +137832,43 @@ function r45SurfaceAuthorityScripts(presentation, color) {
   sortedScripts.set(key2, scripts);
   return scripts;
 }
-function r45BracketSurfaceAuthorityPack(presentation) {
-  const pack = BRACKET_PACKS[presentation];
-  if (!pack || pack.type !== "lumiverse_regex_scripts" || pack.scripts.length !== 138) {
-    throw new Error(`Invalid R4.5 bracket Surface authority selection: ${presentation}`);
+function r45LegacyXmlSurfaceAuthorityPack(presentation, color) {
+  const key2 = `${presentation}:${color}`;
+  const pack = LEGACY_XML_PACKS[key2];
+  if (!pack || pack.type !== "lumiverse_regex_scripts" || pack.relay_product_version !== "0.2.8" || pack.scripts.length !== 138) {
+    throw new Error(`Invalid legacy XML Core Surface authority selection: ${key2}`);
   }
   return pack;
 }
-function r45BracketSurfaceAuthorityScripts(presentation) {
-  const cached = sortedBracketScripts.get(presentation);
+function r45LegacyXmlSurfaceAuthorityScripts(presentation, color) {
+  const key2 = `${presentation}:${color}`;
+  const cached = sortedLegacyXmlScripts.get(key2);
   if (cached)
     return cached;
-  const scripts = [...r45BracketSurfaceAuthorityPack(presentation).scripts].filter((script) => script.disabled !== true).sort((left, right) => Number(left.sort_order) - Number(right.sort_order));
-  sortedBracketScripts.set(presentation, scripts);
+  const scripts = [...r45LegacyXmlSurfaceAuthorityPack(presentation, color).scripts].filter((script) => script.disabled !== true).sort((left, right) => Number(left.sort_order) - Number(right.sort_order));
+  sortedLegacyXmlScripts.set(key2, scripts);
   return scripts;
 }
-function renderR45BracketSurfaceAuthority(markup, presentation, messageId) {
+function r45BracketSurfaceAuthorityPack(presentation, color = "realistic") {
+  const pack = currentBracketPack(presentation, color);
+  if (!pack || pack.type !== "lumiverse_regex_scripts" || pack.scripts.length !== 138) {
+    throw new Error(`Invalid Core Surface bracket authority selection: ${presentation}:${color}`);
+  }
+  return pack;
+}
+function r45BracketSurfaceAuthorityScripts(presentation, color = "realistic") {
+  const key2 = `${presentation}:${color}`;
+  const cached = sortedBracketScripts.get(key2);
+  if (cached)
+    return cached;
+  const scripts = [...r45BracketSurfaceAuthorityPack(presentation, color).scripts].filter((script) => script.disabled !== true).sort((left, right) => Number(left.sort_order) - Number(right.sort_order));
+  sortedBracketScripts.set(key2, scripts);
+  return scripts;
+}
+function renderR45BracketSurfaceAuthority(markup, presentation, messageId, color = "realistic") {
   let output = normalizeR45BracketRuntime(markup);
   const macro = safeMessageId(messageId);
-  for (const script of r45BracketSurfaceAuthorityScripts(presentation)) {
+  for (const script of r45BracketSurfaceAuthorityScripts(presentation, color)) {
     try {
       if (/\\\[notes_app\\\]/.test(script.find_regex)) {
         output = renderVariableNotes(output, script.replace_string, macro);
@@ -137867,7 +137908,7 @@ function renderR45SurfaceAuthority(markup, presentation, color, messageId) {
     return `<k_img caption="">${image2}</k_img>`;
   });
   const macro = safeMessageId(messageId);
-  for (const script of r45SurfaceAuthorityScripts(presentation, color)) {
+  for (const script of r45LegacyXmlSurfaceAuthorityScripts(presentation, color)) {
     try {
       const flags = script.flags.includes("g") ? script.flags : `${script.flags}g`;
       const replacement = script.replace_string.replace(/\{\{lastMessageId\}\}/g, macro);
@@ -138464,7 +138505,7 @@ function renderRegexSurfaceParity(markup, mode, messageId, color = "realistic") 
   const presentation = mode === "collapsible" ? "plain" : mode;
   const bracket = normalizeBracketSurfaceDocument(output, SHIPPED_SURFACE_SPECS, (block) => {
     sawBracketSurface = true;
-    return block.diagnostics.length ? '<aside class="rrn-contract-recovery" role="status">Relay Surface needs repair. Reparse or rescan in Relay.</aside>' : renderR45BracketSurfaceAuthority(block.markup, presentation, messageId);
+    return block.diagnostics.length ? '<aside class="rrn-contract-recovery" role="status">Relay Surface needs repair. Reparse or rescan in Relay.</aside>' : renderR45BracketSurfaceAuthority(block.markup, presentation, messageId, color);
   });
   if (sawBracketSurface)
     return bracket.markup;
@@ -155340,7 +155381,7 @@ If a narrative-continuity check fails, replace the offending Spark rather than w
 `.slice(1, -1);
 
 // src/narrativeRegexAssets.ts
-var PACKS2 = {
+var PACKS = {
   "sparkle-button": Reverie_Narrative_Surfaces_FINAL_Sparkle_Button_default,
   "plain-button": Reverie_Narrative_Surfaces_FINAL_Plain_Button_default,
   inline: Reverie_Narrative_Surfaces_FINAL_Inline_default
@@ -155604,7 +155645,7 @@ function normalizeNarrativeMarkupForRendering(markup) {
   }).replace(/(\[cp_battery\]\s*[0-9]{1,3}\s*\[\/cp_battery\])\s*(?=\[cp_apps\])/gi, "$1[cp_wallpaper][/cp_wallpaper]").replace(/<parallel-media>\s*<\/parallel-media>/gi, "<parallel-media></parallel-media>");
 }
 function narrativeRegexPack(variant) {
-  const pack = PACKS2[variant];
+  const pack = PACKS[variant];
   if (!pack || pack.type !== "lumiverse_regex_scripts" || pack.scripts.length !== 93) {
     throw new Error(`Invalid Narrative Regex variant: ${variant}`);
   }

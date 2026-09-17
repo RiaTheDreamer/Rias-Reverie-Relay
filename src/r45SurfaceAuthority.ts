@@ -29,7 +29,11 @@ type R45Pack = {
   scripts: R45RegexScript[]
 }
 
-const PACKS: Record<`${R45PresentationMode}:${R45ColorMode}`, R45Pack> = {
+// The shipped XML matchers remain a legacy-ingress compatibility authority.
+// Current Story Model authoring is bracket-native, so the public/current pack
+// is compiled with the bracket structural matcher at the same script index
+// while retaining every other field from the protected presentation pack.
+const LEGACY_XML_PACKS: Record<`${R45PresentationMode}:${R45ColorMode}`, R45Pack> = {
   'inline:realistic': inlineRealistic as R45Pack,
   'plain:realistic': plainRealistic as R45Pack,
   'sparkling:realistic': sparklingRealistic as R45Pack,
@@ -37,7 +41,7 @@ const PACKS: Record<`${R45PresentationMode}:${R45ColorMode}`, R45Pack> = {
   'plain:primary': plainPrimary as R45Pack,
   'sparkling:primary': sparklingPrimary as R45Pack,
 }
-const BRACKET_PACKS: Record<R45PresentationMode, R45Pack> = {
+const BRACKET_MATCHER_PACKS: Record<R45PresentationMode, R45Pack> = {
   inline: bracketInlineRealistic as R45Pack,
   plain: bracketPlainRealistic as R45Pack,
   sparkling: bracketSparklingRealistic as unknown as R45Pack,
@@ -45,7 +49,30 @@ const BRACKET_PACKS: Record<R45PresentationMode, R45Pack> = {
 
 const safeMessageId = (value: string): string => String(value || 'surface').replace(/[^A-Za-z0-9_-]+/g, '-') || 'surface'
 const sortedScripts = new Map<string, R45RegexScript[]>()
+const sortedLegacyXmlScripts = new Map<string, R45RegexScript[]>()
 const sortedBracketScripts = new Map<string, R45RegexScript[]>()
+const currentBracketPacks = new Map<string, R45Pack>()
+
+function currentBracketPack(presentation: R45PresentationMode, color: R45ColorMode): R45Pack {
+  const key = `${presentation}:${color}` as const
+  const cached = currentBracketPacks.get(key)
+  if (cached) return cached
+  const presentationPack = LEGACY_XML_PACKS[key]
+  const matcherPack = BRACKET_MATCHER_PACKS[presentation]
+  if (!presentationPack || !matcherPack || presentationPack.scripts.length !== 138 || matcherPack.scripts.length !== 138) {
+    throw new Error(`Invalid Core Surface bracket authority selection: ${key}`)
+  }
+  const scripts = presentationPack.scripts.map((script, index) => {
+    const matcher = matcherPack.scripts[index]
+    if (!matcher || matcher.sort_order !== script.sort_order || matcher.flags !== script.flags) {
+      throw new Error(`Core Surface bracket matcher alignment failed: ${key} script ${script.script_id}`)
+    }
+    return { ...script, find_regex: matcher.find_regex }
+  })
+  const pack = { ...presentationPack, scripts }
+  currentBracketPacks.set(key, pack)
+  return pack
+}
 
 function normalizeR45BracketRuntime(markup: string): string {
   let output = String(markup || '')
@@ -123,7 +150,7 @@ function renderVariableNotes(markup: string, template: string, macro: string): s
 
 export function r45SurfaceAuthorityPack(presentation: R45PresentationMode, color: R45ColorMode): R45Pack {
   const key = `${presentation}:${color}` as const
-  const pack = PACKS[key]
+  const pack = currentBracketPack(presentation, color)
   if (!pack || pack.type !== 'lumiverse_regex_scripts' || pack.relay_product_version !== '0.2.8' || pack.scripts.length !== 138) {
     throw new Error(`Invalid R4.5 Surface authority selection: ${key}`)
   }
@@ -141,21 +168,42 @@ export function r45SurfaceAuthorityScripts(presentation: R45PresentationMode, co
   return scripts
 }
 
-export function r45BracketSurfaceAuthorityPack(presentation: R45PresentationMode): R45Pack {
-  const pack = BRACKET_PACKS[presentation]
-  if (!pack || pack.type !== 'lumiverse_regex_scripts' || pack.scripts.length !== 138) {
-    throw new Error(`Invalid R4.5 bracket Surface authority selection: ${presentation}`)
+export function r45LegacyXmlSurfaceAuthorityPack(presentation: R45PresentationMode, color: R45ColorMode): R45Pack {
+  const key = `${presentation}:${color}` as const
+  const pack = LEGACY_XML_PACKS[key]
+  if (!pack || pack.type !== 'lumiverse_regex_scripts' || pack.relay_product_version !== '0.2.8' || pack.scripts.length !== 138) {
+    throw new Error(`Invalid legacy XML Core Surface authority selection: ${key}`)
   }
   return pack
 }
 
-export function r45BracketSurfaceAuthorityScripts(presentation: R45PresentationMode): R45RegexScript[] {
-  const cached = sortedBracketScripts.get(presentation)
+export function r45LegacyXmlSurfaceAuthorityScripts(presentation: R45PresentationMode, color: R45ColorMode): R45RegexScript[] {
+  const key = `${presentation}:${color}`
+  const cached = sortedLegacyXmlScripts.get(key)
   if (cached) return cached
-  const scripts = [...r45BracketSurfaceAuthorityPack(presentation).scripts]
+  const scripts = [...r45LegacyXmlSurfaceAuthorityPack(presentation, color).scripts]
     .filter(script => script.disabled !== true)
     .sort((left, right) => Number(left.sort_order) - Number(right.sort_order))
-  sortedBracketScripts.set(presentation, scripts)
+  sortedLegacyXmlScripts.set(key, scripts)
+  return scripts
+}
+
+export function r45BracketSurfaceAuthorityPack(presentation: R45PresentationMode, color: R45ColorMode = 'realistic'): R45Pack {
+  const pack = currentBracketPack(presentation, color)
+  if (!pack || pack.type !== 'lumiverse_regex_scripts' || pack.scripts.length !== 138) {
+    throw new Error(`Invalid Core Surface bracket authority selection: ${presentation}:${color}`)
+  }
+  return pack
+}
+
+export function r45BracketSurfaceAuthorityScripts(presentation: R45PresentationMode, color: R45ColorMode = 'realistic'): R45RegexScript[] {
+  const key = `${presentation}:${color}`
+  const cached = sortedBracketScripts.get(key)
+  if (cached) return cached
+  const scripts = [...r45BracketSurfaceAuthorityPack(presentation, color).scripts]
+    .filter(script => script.disabled !== true)
+    .sort((left, right) => Number(left.sort_order) - Number(right.sort_order))
+  sortedBracketScripts.set(key, scripts)
   return scripts
 }
 
@@ -163,10 +211,11 @@ export function renderR45BracketSurfaceAuthority(
   markup: string,
   presentation: R45PresentationMode,
   messageId: string,
+  color: R45ColorMode = 'realistic',
 ): string {
   let output = normalizeR45BracketRuntime(markup)
   const macro = safeMessageId(messageId)
-  for (const script of r45BracketSurfaceAuthorityScripts(presentation)) {
+  for (const script of r45BracketSurfaceAuthorityScripts(presentation, color)) {
     try {
       if (/\\\[notes_app\\\]/.test(script.find_regex)) {
         output = renderVariableNotes(output, script.replace_string, macro)
@@ -227,7 +276,7 @@ export function renderR45SurfaceAuthority(
     return `<k_img caption="">${image}</k_img>`
   })
   const macro = safeMessageId(messageId)
-  for (const script of r45SurfaceAuthorityScripts(presentation, color)) {
+  for (const script of r45LegacyXmlSurfaceAuthorityScripts(presentation, color)) {
     try {
       const flags = script.flags.includes('g') ? script.flags : `${script.flags}g`
       const replacement = script.replace_string.replace(/\{\{lastMessageId\}\}/g, macro)
