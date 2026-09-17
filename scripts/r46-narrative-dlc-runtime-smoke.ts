@@ -152,12 +152,12 @@ for (const oldName of Object.keys(NARRATIVE_UTILITY_DISPLAY_NAMES)) {
   assert(!narrativeUtilityItems().some(item => item.loomContent.includes(oldName)), `runtime Utility content retained retired model-facing name: ${oldName}`)
   assert(!utility.content.includes(oldName), `combined Narrative prompt retained retired model-facing name: ${oldName}`)
 }
-assert(utility.content.includes('<reverie_narrative_utility') && utility.content.includes('contract="narrative"'), 'Narrative Utility wrapper must use the Narrative contract name')
+assert(utility.content.includes('[reverie_narrative_utility]') && utility.content.includes('[contract]narrative[/contract]'), 'Narrative Utility wrapper must use bracket-native Narrative contract fields')
 const archiveUtility = buildNarrativeUtilityPrompt(['Unified Archive Generator'])
-for (const contract of ['<archive-media>', 'aspect="1:1"', 'aspect="4:3"', 'aspect="16:9"', 'VISUAL SUBJECT ONLY', 'Legacy Archive payloads may omit <archive-media>']) {
+for (const contract of ['[archive_media]', 'aspect="1:1"', 'aspect="4:3"', 'aspect="16:9"', 'VISUAL SUBJECT ONLY', 'Legacy Archive payloads may omit [archive_media]']) {
   assert(archiveUtility.content.includes(contract), `Archive media Utility contract missing: ${contract}`)
 }
-assert(archiveUtility.content.includes('</archive-head>\n<archive-media>') && archiveUtility.content.includes('</archive-media>\n<archive-stats>'), 'new Archive Utility output must place media between head and stats')
+assert(archiveUtility.content.includes('[/archive_head]\n[archive_media]') && archiveUtility.content.includes('[/archive_media]\n[archive_stats]'), 'new Archive Utility output must place media between head and stats')
 assert(!archiveUtility.content.includes('Archive cards are intentionally image-free'), 'retired image-free Archive rule leaked into the runtime Utility prompt')
 const plotSparksUtility = buildNarrativeUtilityPrompt(['Chaos Hooks'])
 assert(plotSparksUtility.utilityNames.join('|') === 'Chaos Hooks', 'Plot Sparks must retain Chaos Hooks as its internal selection/migration key')
@@ -198,10 +198,10 @@ assert(subset.utilityNames.join('|') === 'Character Phone|Scene Compass', 'selec
 assert(subset.content.includes(applyNarrativeDisplayNames(narrativeUtilityItems()[0].loomContent)) && subset.content.includes(applyNarrativeDisplayNames(narrativeUtilityItems()[3].loomContent)), 'selected Utility prompt omitted enabled complete contracts')
 assert(!subset.content.includes(narrativeUtilityItems()[1].loomContent), 'selected Utility prompt leaked a disabled contract')
 
-const dramaticFixture = '<dramatic_parallel><div class="dp-head">LOCATION:Roof • TIME:Night • PRESSURE:Secret</div><div class="dp-media"><reverie-illustration request="generate" slot="dramatic-cutaway-test" aspect="16:9" cast="none"><visual_prompt>Rain crossing an empty rooftop.</visual_prompt></reverie-illustration></div><div class="dp-body"><p>A door opened.</p><p>The evidence changed hands.</p></div><div class="dp-foot">STATUS: OFFSCREEN • PRESSURE: LIVE • FIREWALL: ACTIVE</div></dramatic_parallel>'
-assert(containsNarrativeRegexMarkup(dramaticFixture), 'Relay Narrative detection must include Dramatic Cutaway XML')
+const dramaticFixture = '[dramatic_parallel][dramatic_head]LOCATION:Roof • TIME:Night • PRESSURE:Secret[/dramatic_head][dramatic_media]<reverie-illustration request="generate" slot="dramatic-cutaway-test" aspect="16:9" cast="none"><visual_prompt>Rain crossing an empty rooftop.</visual_prompt></reverie-illustration>[/dramatic_media][dramatic_body][paragraph]A door opened.[/paragraph][paragraph]The evidence changed hands.[/paragraph][/dramatic_body][dramatic_foot]STATUS: OFFSCREEN • PRESSURE: LIVE • FIREWALL: ACTIVE[/dramatic_foot][/dramatic_parallel]'
+assert(containsNarrativeRegexMarkup(dramaticFixture), 'Relay Narrative detection must include bracket-native Dramatic Cutaway')
 const dramaticRendered = renderNarrativeRegex(dramaticFixture, 'sparkle-button', 'dramatic-runtime')
-assert(dramaticRendered.includes('dg-dramatic-cutaway') && !dramaticRendered.includes('<dramatic_parallel>'), 'approved Dramatic Cutaway renderer must execute in the shared Narrative adapter')
+assert(dramaticRendered.includes('dg-dramatic-cutaway') && !dramaticRendered.includes('[dramatic_parallel]'), 'approved Dramatic Cutaway renderer must execute in the shared Narrative adapter')
 assert(dramaticRendered.includes('data-reverie-narrative-media-compat="1"'), 'Dramatic Cutaway must install the shared resolved-media compatibility sizing')
 assert(dramaticRendered.includes('data-reverie-narrative-block-spacing="1"') && dramaticRendered.includes('margin-bottom:clamp(24px,4.5vw,34px)!important'), 'Narrative launcher roots must retain a readable gutter from surrounding prose')
 for (const owner of ['dg-dramatic-media', 'r65-media', 'rv6-media', 'ru-media', 'ru-portrait', 'ru-secret-media', 'ru-thread-media', 'ra66-archive-media', 'rrcp-media', 'rrcp-photo-media', 'rrcp-wallpaper']) {
@@ -282,26 +282,26 @@ assert(!/<\/?(?:character_phone|dramatic_parallel|chaos_payload|chaos_hook)\b|\[
 assert(capturedCombinedRendered.includes('rrcp-wrap') && capturedCombinedRendered.includes('dg-dramatic-cutaway') && capturedCombinedRendered.includes('ch-og'), 'captured mixed response must render Phone, Dramatic Cutaway, and Plot Sparks together')
 assert(capturedCombinedRendered.includes('/api/v1/image-gen/results/spark-a') && capturedCombinedRendered.includes('<reverie-illustration request="generate" slot="chaos-g"'), 'Plot Sparks must retain both already-resolved and still-pending media inside its rendered lanes')
 
-const canonicalArchive = '<dossier_ui category="SECRET"><archive-head><icon>🤫</icon><name>Canonical Secret</name><state>PARTIAL</state><relation>A ↔ B</relation><role>Hidden act</role></archive-head><archive-stats><archive-stat><label>Exposure</label><value>75</value></archive-stat><archive-stat><label>Certainty</label><value>40</value></archive-stat><archive-stat><label>Consequence</label><value>90</value></archive-stat></archive-stats><archive-details><archive-row label="The Hidden Truth">Truth.</archive-row><archive-row label="Known By">A.</archive-row><archive-row label="Hidden From">B.</archive-row><archive-row label="Near-Slips">One clue.</archive-row><archive-row label="Impact If Revealed">Trust changes.</archive-row><archive-row label="Current Status">SLIPPING</archive-row></archive-details><archive-export>[SECRET: Canonical Secret]\nCURRENT STATUS: SLIPPING</archive-export></dossier_ui>'
+const canonicalArchive = '[dossier_ui][category]SECRET[/category][archive_head][icon]🤫[/icon][name]Canonical Secret[/name][state]PARTIAL[/state][relation]A ↔ B[/relation][role]Hidden act[/role][/archive_head][archive_stats][archive_stat][label]Exposure[/label][value]75[/value][/archive_stat][archive_stat][label]Certainty[/label][value]40[/value][/archive_stat][archive_stat][label]Consequence[/label][value]90[/value][/archive_stat][/archive_stats][archive_details][archive_row][label]The Hidden Truth[/label][value]Truth.[/value][/archive_row][archive_row][label]Known By[/label][value]A.[/value][/archive_row][archive_row][label]Hidden From[/label][value]B.[/value][/archive_row][archive_row][label]Near-Slips[/label][value]One clue.[/value][/archive_row][archive_row][label]Impact If Revealed[/label][value]Trust changes.[/value][/archive_row][archive_row][label]Current Status[/label][value]SLIPPING[/value][/archive_row][/archive_details][archive_export][SECRET: Canonical Secret]\nCURRENT STATUS: SLIPPING[/archive_export][/dossier_ui]'
 assert(normalizeNarrativeMarkupForRendering(canonicalArchive) === canonicalArchive, 'canonical Archive Entry payloads must remain byte-for-byte unchanged')
 
 for (const variant of ['sparkle-button', 'plain-button', 'inline'] as const) {
   const renderedLegacyArchive = renderNarrativeRegex(canonicalArchive, variant, `archive-legacy-${variant}`)
   assert(renderedLegacyArchive.includes('class="ra66-archive-media" data-archive-media></div>') && renderedLegacyArchive.includes('.ra66-archive-media:empty{display:none}'), `${variant}: legacy text-only Archive must render without a media gap`)
   assert(renderedLegacyArchive.includes('data-archive-category="SECRET"') && renderedLegacyArchive.includes('class="ra66-export" readonly'), `${variant}: legacy Archive category/export behavior changed`)
-  assert(!renderedLegacyArchive.includes('<dossier_ui'), `${variant}: legacy Archive without media did not render`)
+  assert(!renderedLegacyArchive.includes('[dossier_ui]'), `${variant}: bracket-native Archive without media did not render`)
 }
 
 const archiveCategories = ['CHARACTER', 'LOCATION', 'ITEM', 'FACTION', 'EVENT', 'RELATIONSHIP', 'SECRET'] as const
 const archiveAspect = { CHARACTER: '1:1', LOCATION: '16:9', ITEM: '4:3', FACTION: '16:9', EVENT: '16:9', RELATIONSHIP: '16:9', SECRET: '16:9' } as const
-const archiveFixture = (category: typeof archiveCategories[number]) => `<dossier_ui category="${category}"><archive-head><icon>◇</icon><name>${category} Record</name><state>UNLOCKED</state><relation>Established relation</relation><role>Established role</role></archive-head><archive-media><image_request id="archive-${category.toLowerCase()}-test" target="custom.artifact-media" slot="archive-${category.toLowerCase()}-test" aspect="${archiveAspect[category]}" alt="${category} archive visual"><scene_brief>One established ${category.toLowerCase()} visual subject. No UI or readable text.</scene_brief></image_request></archive-media><archive-stats><archive-stat><label>First</label><value>25</value></archive-stat><archive-stat><label>Second</label><value>50</value></archive-stat><archive-stat><label>Third</label><value>75</value></archive-stat></archive-stats><archive-details><archive-row label="Identity">Established detail.</archive-row></archive-details><archive-export>[${category}: Record]\nIdentity: Established detail.</archive-export></dossier_ui>`
+const archiveFixture = (category: typeof archiveCategories[number]) => `[dossier_ui][category]${category}[/category][archive_head][icon]◇[/icon][name]${category} Record[/name][state]UNLOCKED[/state][relation]Established relation[/relation][role]Established role[/role][/archive_head][archive_media]<image_request id="archive-${category.toLowerCase()}-test" target="custom.artifact-media" slot="archive-${category.toLowerCase()}-test" aspect="${archiveAspect[category]}" alt="${category} archive visual"><scene_brief>One established ${category.toLowerCase()} visual subject. No UI or readable text.</scene_brief></image_request>[/archive_media][archive_stats][archive_stat][label]First[/label][value]25[/value][/archive_stat][archive_stat][label]Second[/label][value]50[/value][/archive_stat][archive_stat][label]Third[/label][value]75[/value][/archive_stat][/archive_stats][archive_details][archive_row][label]Identity[/label][value]Established detail.[/value][/archive_row][/archive_details][archive_export][${category}: Record]\nIdentity: Established detail.[/archive_export][/dossier_ui]`
 for (const variant of ['sparkle-button', 'plain-button', 'inline'] as const) {
   for (const category of archiveCategories) {
     const renderedArchive = renderNarrativeRegex(archiveFixture(category), variant, `archive-${variant}-${category.toLowerCase()}`)
     assert(renderedArchive.includes(`data-archive-category="${category}"`), `${variant}/${category}: canonical category signal did not survive Archive rendering`)
     assert(renderedArchive.includes('class="ra66-archive-media" data-archive-media>') && renderedArchive.includes(`id="archive-${category.toLowerCase()}-test"`), `${variant}/${category}: shared Archive media seam did not preserve the image request`)
     assert(renderedArchive.includes(`[data-archive-category="${category}"] .ra66-archive-media`), `${variant}/${category}: category-specific Archive media selector is unavailable`)
-    assert(renderedArchive.includes('data-reverie-narrative-media-compat="1"') && !renderedArchive.includes('<dossier_ui'), `${variant}/${category}: Archive media did not activate the shared hydration compatibility path`)
+    assert(renderedArchive.includes('data-reverie-narrative-media-compat="1"') && !renderedArchive.includes('[dossier_ui]'), `${variant}/${category}: Archive media did not activate the shared hydration compatibility path`)
   }
   const representativeArchive = renderNarrativeRegex(archiveFixture('CHARACTER') + archiveFixture('LOCATION') + archiveFixture('ITEM'), variant, `archive-representative-${variant}`)
   assert((representativeArchive.match(/class="ra66-archive-media"/g) || []).length === 3, `${variant}: representative Character, Location, and Item media did not all render`)
@@ -339,15 +339,16 @@ THE HIDDEN TRUTH: Minjae gave Arin the final copy and lied about it.
 CURRENT STATUS: SLIPPING
 </dossier_ui>`
 const normalizedFlatArchive = normalizeNarrativeMarkupForRendering(flatArchive)
-assert(normalizedFlatArchive.includes('<archive-head>') && normalizedFlatArchive.includes('<state>PARTIAL</state>') && normalizedFlatArchive.includes('<archive-row label="The Hidden Truth">'), 'flat SECRET Archive drift must normalize into the canonical structured contract')
-assert(!normalizedFlatArchive.includes('<archive-media>'), 'flat legacy Archive normalization must not fabricate archive-media')
+assert(normalizedFlatArchive.includes('[archive_head]') && normalizedFlatArchive.includes('[state]PARTIAL[/state]') && normalizedFlatArchive.includes('[archive_row][label]The Hidden Truth[/label]'), 'flat SECRET Archive drift must normalize into the canonical bracket contract')
+assert(!normalizedFlatArchive.includes('[archive_media]'), 'flat legacy Archive normalization must not fabricate archive media')
 const renderedFlatArchive = renderNarrativeRegex(flatArchive, 'sparkle-button', 'flat-archive')
-assert(renderedFlatArchive.includes('class="ra66"') && renderedFlatArchive.includes('The Textbook Lie') && renderedFlatArchive.includes('The Hidden Truth') && !renderedFlatArchive.includes('<dossier_ui'), 'normalized flat Archive Entry must render through the approved Dossier presentation')
+assert(renderedFlatArchive.includes('class="ra66"') && renderedFlatArchive.includes('The Textbook Lie') && renderedFlatArchive.includes('The Hidden Truth') && !renderedFlatArchive.includes('[dossier_ui]'), 'normalized flat Archive Entry must render through the approved Dossier presentation')
 
 const failedParallelFixture = `[PARALLEL|Campus and beyond|complication]
-- First independent thread <parallel-media><!-- reverie-relay:image-error requestId="parallel-1" slot="thread_1" --><image_request_error id="parallel-1" target="custom.artifact-media" slot="thread_1" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error></parallel-media>
-- Second independent thread <parallel-media><!-- reverie-relay:image-error requestId="parallel-2" slot="thread_2" --><image_request_error id="parallel-2" target="custom.artifact-media" slot="thread_2" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error></parallel-media>
-- Third independent thread <parallel-media><!-- reverie-relay:image-error requestId="parallel-3" slot="thread_3" --><image_request_error id="parallel-3" target="custom.artifact-media" slot="thread_3" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error></parallel-media>
+[parallel_entry][text]First independent thread[/text][parallel_media]<!-- reverie-relay:image-error requestId="parallel-1" slot="thread_1" --><image_request_error id="parallel-1" target="custom.artifact-media" slot="thread_1" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error>[/parallel_media][/parallel_entry]
+[parallel_entry][text]Second independent thread[/text][parallel_media]<!-- reverie-relay:image-error requestId="parallel-2" slot="thread_2" --><image_request_error id="parallel-2" target="custom.artifact-media" slot="thread_2" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error>[/parallel_media][/parallel_entry]
+[parallel_entry][text]Third independent thread[/text][parallel_media]<!-- reverie-relay:image-error requestId="parallel-3" slot="thread_3" --><image_request_error id="parallel-3" target="custom.artifact-media" slot="thread_3" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error>[/parallel_media][/parallel_entry]
+[parallel_context][trajectory]Three failed image jobs remain independently retryable.[/trajectory][intersection]Their shared timing still creates pressure.[/intersection][/parallel_context]
 [/PARALLEL]`
 assert(shouldRelayRenderNarrativeMarkup(failedParallelFixture.replace(/<!--\s*(?:reverie-relay|dreamglass):image-error\b[\s\S]*?-->\s*<image_request_error\b[\s\S]*?<\/image_request_error>/gi, ''), 'legacy-regex'), 'Regex Rendered Narrative markup must use Relay bundled rendering without waiting for host Regex hydration')
 assert(shouldRelayRenderNarrativeMarkup(failedParallelFixture, 'legacy-regex'), 'failed Narrative media must remain Relay-owned in Regex Rendered mode')
@@ -357,27 +358,23 @@ assert(!failedParallelRendered.includes('[PARALLEL|') && !failedParallelRendered
 assert((failedParallelRendered.match(/data-rrn-native-request="parallel-/g) || []).length === 3, 'failed Parallel media must retain three independently retryable lifecycle owners')
 
 const parallelCanonical = `[PARALLEL|Campus and beyond|shifting]
-- Soobin: one <parallel-media><image_request id="parallel-one" target="custom.artifact-media" slot="parallel-one" aspect="4:3"><scene_brief>Soobin waits outside the gym.</scene_brief></image_request></parallel-media>
-- Hana: two <parallel-media><image_request id="parallel-two" target="custom.artifact-media" slot="parallel-two" aspect="4:3"><scene_brief>Hana reads a new message.</scene_brief></image_request></parallel-media>
-- Jiyoon: three <parallel-media><image_request id="parallel-three" target="custom.artifact-media" slot="parallel-three" aspect="4:3"><scene_brief>Jiyoon crosses the courtyard.</scene_brief></image_request></parallel-media>
-<parallel-context><trajectory>Three existing threads continue moving.</trajectory><intersection>The shared campus timing creates pressure.</intersection></parallel-context>
+[parallel_entry][text]Soobin: one[/text][parallel_media]<image_request id="parallel-one" target="custom.artifact-media" slot="parallel-one" aspect="4:3"><scene_brief>Soobin waits outside the gym.</scene_brief></image_request>[/parallel_media][/parallel_entry]
+[parallel_entry][text]Hana: two[/text][parallel_media]<image_request id="parallel-two" target="custom.artifact-media" slot="parallel-two" aspect="4:3"><scene_brief>Hana reads a new message.</scene_brief></image_request>[/parallel_media][/parallel_entry]
+[parallel_entry][text]Jiyoon: three[/text][parallel_media]<image_request id="parallel-three" target="custom.artifact-media" slot="parallel-three" aspect="4:3"><scene_brief>Jiyoon crosses the courtyard.</scene_brief></image_request>[/parallel_media][/parallel_entry]
+[parallel_context][trajectory]Three existing threads continue moving.[/trajectory][intersection]The shared campus timing creates pressure.[/intersection][/parallel_context]
 [/PARALLEL]`
 const parallelCanonicalRendered = renderNarrativeRegex(parallelCanonical, 'sparkle-button', 'parallel-canonical')
 assert(!parallelCanonicalRendered.includes('[PARALLEL|') && parallelCanonicalRendered.includes('Three existing threads continue moving.') && parallelCanonicalRendered.includes('The shared campus timing creates pressure.'), 'canonical Parallel context was not rendered')
 
-const parallelMissingContext = parallelCanonical.replace(/\s*<parallel-context>[\s\S]*?<\/parallel-context>/, '')
-const parallelMissingContextRendered = renderNarrativeRegex(parallelMissingContext, 'sparkle-button', 'parallel-old')
-assert(!parallelMissingContextRendered.includes('[PARALLEL|') && parallelMissingContextRendered.includes('Soobin: one') && parallelMissingContextRendered.includes('Jiyoon: three'), 'old-format Parallel without context must retain all text entries')
-
-const parallelEmptyMedia = parallelMissingContext.replace(/<parallel-media>[\s\S]*?<\/parallel-media>/g, '<parallel-media>  \n  </parallel-media>')
-assert(!normalizeNarrativeMarkupForRendering(parallelEmptyMedia).includes('<parallel-media>  '), 'empty Parallel media whitespace was not normalized')
+const parallelEmptyMedia = parallelCanonical.replace(/\[parallel_media\][\s\S]*?\[\/parallel_media\]/g, '[parallel_media]  \n  [/parallel_media]')
+assert(!normalizeNarrativeMarkupForRendering(parallelEmptyMedia).includes('[parallel_media]  '), 'empty Parallel media whitespace was not normalized')
 const parallelEmptyRendered = renderNarrativeRegex(parallelEmptyMedia, 'sparkle-button', 'parallel-empty')
 assert(!parallelEmptyRendered.includes('[PARALLEL|') && (parallelEmptyRendered.match(/<article class="r65-thread">/g) || []).length === 3, 'empty Parallel media must degrade to three textual thread cards')
 
 const lorebookFixtures = [
-  { kind: 'cast-introduction', source: '[NPC:MAJOR|Lisa]\n<npc-media>portrait</npc-media>\nb: dancer\na: messy lavender hair, glasses\np: observant\n[/NPC]' },
-  { kind: 'character-dossier', source: '[[npc Lisa|main]]<npc-media>portrait</npc-media>Identity and history.[[/npc]]' },
-  { kind: 'location-file', source: '[[place Moon Pier]]<place-media>location</place-media>A quiet pier under moonlight.[[/place]]' },
+  { kind: 'cast-introduction', source: '[NPC:MAJOR|Lisa]\n[npc_media]portrait[/npc_media]\nb: dancer\na: messy lavender hair, glasses\np: observant\n[/NPC]' },
+  { kind: 'character-dossier', source: '[[npc Lisa|main]][npc_media]portrait[/npc_media]Identity and history.[[/npc]]' },
+  { kind: 'location-file', source: '[[place Moon Pier]][place_media]location[/place_media]A quiet pier under moonlight.[[/place]]' },
 ]
 for (const fixture of lorebookFixtures) {
   const rendered = renderNarrativeRegex(fixture.source, 'sparkle-button', 'lorebook-message', { chatId: 'chat-1', swipeId: 2 })

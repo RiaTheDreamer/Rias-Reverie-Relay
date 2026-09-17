@@ -196,7 +196,7 @@ const duplicatedCompiledPrompt = assembledText(await interceptor!([
   { role: 'user', content: 'Continue once.' },
 ], { chatId: 'duplicate-contract-dry-run', userId: 'u1', isDryRun: true }))
 assert.equal((duplicatedCompiledPrompt.match(/<reverie_surface_utility\b/gi) || []).length, 1)
-assert.equal((duplicatedCompiledPrompt.match(/<reverie_narrative_utility\b/gi) || []).length, 1)
+assert.equal((duplicatedCompiledPrompt.match(/\[reverie_narrative_utility\]/gi) || []).length, 1)
 assert.equal((duplicatedCompiledPrompt.match(/INLINE PROTOCOL/gi) || []).length, 1)
 
 // Lumiverse can repeat hydrated historical output in system context. Runtime

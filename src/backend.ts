@@ -2139,13 +2139,16 @@ function dedupeExactPromptContractCopies(messages: LlmMessage[], blocks: string[
 
 function dedupePromptContractWrappers(messages: LlmMessage[]): LlmMessage[] {
   const seen = new Set<string>()
-  const wrapper = /<(reverie_surface_utility|reverie_narrative_utility)\b[^>]*>[\s\S]*?<\/\1>/gi
+  const wrappers = [
+    { tag: 'reverie_surface_utility', pattern: /<reverie_surface_utility\b[^>]*>[\s\S]*?<\/reverie_surface_utility>/gi },
+    { tag: 'reverie_narrative_utility', pattern: /\[reverie_narrative_utility\][\s\S]*?\[\/reverie_narrative_utility\]/gi },
+  ] as const
   return messages.map(message => {
     if (typeof message.content !== 'string') return message
-    const content = message.content.replace(wrapper, (block, rawTag: string) => {
-      const tag = rawTag.toLocaleLowerCase()
-      if (seen.has(tag)) return ''
-      seen.add(tag)
+    let content = message.content
+    for (const wrapper of wrappers) content = content.replace(wrapper.pattern, block => {
+      if (seen.has(wrapper.tag)) return ''
+      seen.add(wrapper.tag)
       return block
     })
     return content === message.content ? message : { ...message, content } as LlmMessage
@@ -2216,7 +2219,7 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
         // expanded payload itself therefore proves that the user placed it and
         // prevents Automatic Injection from serializing the same Utility twice.
         if (/<reverie_surface_utility\b/i.test(content)) surfaceMacroExpanded = true
-        if (/<reverie_narrative_utility\b/i.test(content)) narrativeMacroExpanded = true
+        if (/\[reverie_narrative_utility\]/i.test(content)) narrativeMacroExpanded = true
         if (/<reverie_illustrator_runtime\b|\[?REVERIE RELAY\s+[—-]\s+(?:MODEL-PLACED|RELAY-PLANNED|INLINE PROTOCOL)/i.test(content)) illustratorMacroExpanded = true
         ALL_MACRO_MARKER.lastIndex = 0
         if (ALL_MACRO_MARKER.test(content)) {

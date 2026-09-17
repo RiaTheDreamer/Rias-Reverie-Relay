@@ -93,7 +93,7 @@ assert(!backend.includes("handler: (() => macro.marker)"), 'Relay macros may not
 assert(backend.includes("const cached = read('chat', name)") && !backend.includes("buildEnabledSurfaceUtility(defaultCustomSurfaceStudio(), 'macro')"), 'missing chat macro cache must not inject all-enabled defaults or borrow another chat')
 assert(backend.includes("reverie_surfaces: '<reverie_surfaces_macro/>'") && backend.includes('await syncEnabledSurfaceMacro(chatId, state, config, userId)'), 'macro cache fallback must remain chat-resolved and toggles must synchronize before state broadcast')
 assert(backend.includes("/<reverie_surface_utility\\b/i.test(content)"), 'resolved macro content must suppress duplicate automatic Surface injection')
-assert(backend.includes("/<reverie_narrative_utility\\b/i.test(content)"), 'resolved Narrative macros must suppress duplicate automatic injection')
+assert(backend.includes("/\\[reverie_narrative_utility\\]/i.test(content)"), 'resolved Narrative macros must suppress duplicate automatic injection')
 for (const name of ['reverie_surfaces', 'reverie_illustrator', 'reverie_narrative', 'reverie_all']) {
   assert(backend.includes(`${name}:`), `${name} is not synchronized`)
 }

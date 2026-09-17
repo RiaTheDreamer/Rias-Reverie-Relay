@@ -36,6 +36,7 @@ const SCRIPT_IDS: Readonly<Record<NarrativeLorebookKind, string>> = {
 
 function cleanText(value: unknown): string {
   return String(value || '')
+    .replace(/\[(?:npc_media|place_media)\][\s\S]*?\[\/(?:npc_media|place_media)\]/gi, '')
     .replace(/<(?:npc|place)-media\b[^>]*>[\s\S]*?<\/(?:npc|place)-media>/gi, '')
     .replace(/<image_request\b[\s\S]*?<\/image_request>/gi, '')
     .replace(/<!--\s*reverie-relay:[\s\S]*?-->/gi, '')

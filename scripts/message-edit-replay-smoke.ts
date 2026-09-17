@@ -46,20 +46,20 @@ const completedRecord: any = {
   messageId: 'message-a', swipeId: 0, requestId: nativeRequest.id, slot: nativeRequest.slot || nativeRequest.id,
   target: nativeRequest.target, status: 'completed', imageId: 'existing-image', imageUrl: '/api/v1/image-gen/results/existing-image',
 }
-const narrativeSource = '<dossier_ui category="SECRET"><archive-head><icon>◇</icon><name>Hidden Record</name><state>PARTIAL</state><relation>A ↔ B</relation><role>Secret</role></archive-head><archive-stats><archive-stat><label>Exposure</label><value>75</value></archive-stat><archive-stat><label>Certainty</label><value>40</value></archive-stat><archive-stat><label>Consequence</label><value>90</value></archive-stat></archive-stats><archive-details><archive-row label="The Hidden Truth">Known.</archive-row><archive-row label="Known By">A.</archive-row><archive-row label="Hidden From">B.</archive-row><archive-row label="Near-Slips">One clue.</archive-row><archive-row label="Impact If Revealed">Trust changes.</archive-row><archive-row label="Current Status">SLIPPING</archive-row></archive-details><archive-export>[SECRET: Hidden Record]\nCURRENT STATUS: SLIPPING</archive-export></dossier_ui>'
+const narrativeSource = '[dossier_ui][category]SECRET[/category][archive_head][icon]◇[/icon][name]Hidden Record[/name][state]PARTIAL[/state][relation]A ↔ B[/relation][role]Secret[/role][/archive_head][archive_stats][archive_stat][label]Exposure[/label][value]75[/value][/archive_stat][archive_stat][label]Certainty[/label][value]40[/value][/archive_stat][archive_stat][label]Consequence[/label][value]90[/value][/archive_stat][/archive_stats][archive_details][archive_row][label]The Hidden Truth[/label][value]Known.[/value][/archive_row][archive_row][label]Known By[/label][value]A.[/value][/archive_row][archive_row][label]Hidden From[/label][value]B.[/value][/archive_row][archive_row][label]Near-Slips[/label][value]One clue.[/value][/archive_row][archive_row][label]Impact If Revealed[/label][value]Trust changes.[/value][/archive_row][archive_row][label]Current Status[/label][value]SLIPPING[/value][/archive_row][/archive_details][archive_export][SECRET: Hidden Record]\nCURRENT STATUS: SLIPPING[/archive_export][/dossier_ui]'
 const canonical = `Opening prose.\n${nativeSource}\nMiddle prose.\n${narrativeSource}\nClosing prose.`
 const renderContext: any = { chatId: 'edit-chat', messageId: 'message-a', swipeId: 0, isUser: false, autoGenerate: true, rendererMode: 'relay', colorMode: 'realistic', records: [completedRecord] }
 const firstNative = renderNativeSurfaceMarkup(canonical, studio, renderContext).content
 const firstRendered = renderNarrativeRegex(firstNative, 'plain-button', 'message-a', { chatId: 'edit-chat', swipeId: 0 })
 assert(firstRendered.includes('/api/v1/image-gen/results/existing-image'))
-assert(!firstRendered.includes('<dossier_ui'))
+assert(!firstRendered.includes('[dossier_ui]'))
 
 const editedCanonical = canonical.replace('Opening prose.', 'Opening edited prose.')
 const replayedNative = renderNativeSurfaceMarkup(editedCanonical, studio, renderContext).content
 const replayed = renderNarrativeRegex(replayedNative, 'plain-button', 'message-a', { chatId: 'edit-chat', swipeId: 0 })
 assert(replayed.includes('Opening edited prose.'))
 assert(replayed.includes('/api/v1/image-gen/results/existing-image'))
-assert(!replayed.includes('<dossier_ui'))
+assert(!replayed.includes('[dossier_ui]'))
 assert(editedCanonical.includes(nativeSource) && editedCanonical.includes(narrativeSource), 'canonical semantic Surface source must survive prose-only edit')
 
 const removedNarrative = editedCanonical.replace(narrativeSource, '')

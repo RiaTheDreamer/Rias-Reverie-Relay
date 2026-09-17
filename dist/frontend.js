@@ -121,9 +121,11 @@ function inspectProseIllustrationSchemas(content) {
   return diagnostics;
 }
 var NARRATIVE_MEDIA_CONTEXTS = [
+  { open: /\[dramatic_parallel\]/gi, close: /\[\/dramatic_parallel\]/gi },
   { open: /<dramatic_parallel\b[^>]*>/gi, close: /<\/dramatic_parallel\s*>/gi },
   { open: /\[Plot_Sparks\]/gi, close: /\[\/Plot_Sparks\]/gi },
   { open: /<chaos_payload\b[^>]*>/gi, close: /<\/chaos_payload\s*>/gi },
+  { open: /\[dossier_ui\]/gi, close: /\[\/dossier_ui\]/gi },
   { open: /<dossier_ui\b[^>]*>/gi, close: /<\/dossier_ui\s*>/gi },
   { open: /\[SCENE(?:\||\])/gi, close: /\[\/SCENE\]/gi },
   { open: /\[PARALLEL\|/gi, close: /\[\/PARALLEL\]/gi },

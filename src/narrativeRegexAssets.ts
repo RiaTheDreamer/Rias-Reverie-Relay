@@ -109,7 +109,7 @@ export const NARRATIVE_BLOCK_SPACING_STYLE = `<style data-reverie-narrative-bloc
 </style>`
 
 const safeMessageId = (value: string): string => String(value || 'narrative').replace(/[^A-Za-z0-9_-]+/g, '-') || 'narrative'
-const NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i
+const NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i
 
 export const NARRATIVE_UTILITY_PACK = utilityPack as NarrativeUtilityPack
 export const NARRATIVE_REGEX_VARIANTS: NarrativeRegexVariant[] = ['sparkle-button', 'plain-button', 'inline']
@@ -184,28 +184,34 @@ Use this Surface to show three active off-stage threads grounded in the current 
 
 CANONICAL OUTPUT
 [PARALLEL|Scope|Status]
-- Entry 1 text
-<parallel-media><image_request id="parallel-1-[unique-id]" target="custom.artifact-media" slot="parallel-1-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request></parallel-media>
-- Entry 2 text
-<parallel-media><image_request id="parallel-2-[unique-id]" target="custom.artifact-media" slot="parallel-2-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request></parallel-media>
-- Entry 3 text
-<parallel-media><image_request id="parallel-3-[unique-id]" target="custom.artifact-media" slot="parallel-3-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request></parallel-media>
-<parallel-context>
-<trajectory>How these three established threads are currently moving, without inventing a resolved future.</trajectory>
-<intersection>Where their existing pressures may touch, stated as present context rather than a guaranteed payoff.</intersection>
-</parallel-context>
+[parallel_entry]
+[text]Entry 1 text[/text]
+[parallel_media]<image_request id="parallel-1-[unique-id]" target="custom.artifact-media" slot="parallel-1-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request>[/parallel_media]
+[/parallel_entry]
+[parallel_entry]
+[text]Entry 2 text[/text]
+[parallel_media]<image_request id="parallel-2-[unique-id]" target="custom.artifact-media" slot="parallel-2-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request>[/parallel_media]
+[/parallel_entry]
+[parallel_entry]
+[text]Entry 3 text[/text]
+[parallel_media]<image_request id="parallel-3-[unique-id]" target="custom.artifact-media" slot="parallel-3-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request>[/parallel_media]
+[/parallel_entry]
+[parallel_context]
+[trajectory]How these three established threads are currently moving, without inventing a resolved future.[/trajectory]
+[intersection]Where their existing pressures may touch, stated as present context rather than a guaranteed payoff.[/intersection]
+[/parallel_context]
 [/PARALLEL]
 
 RULES
-- Emit exactly three ordered text entries.
-- Always include exactly one parallel-context with one non-empty trajectory and one non-empty intersection.
-- Never emit an empty parallel-media block. When an image is appropriate, supply one complete request with a non-empty scene_brief. If no image is needed for a thread, omit that thread's media block only when using a renderer version that explicitly supports omission; otherwise supply the minimal valid request above.
+- Emit exactly three ordered [parallel_entry] blocks, each with one non-empty [text] and one non-empty [parallel_media].
+- Always include exactly one [parallel_context] with one non-empty [trajectory] and one non-empty [intersection].
+- Never emit an empty [parallel_media]. Supply one complete request with a non-empty scene_brief for every entry.
 - Keep every request attached to its matching entry. IDs and slots are unique, lowercase, slug-safe, and match each other.
 - Do not nest another Utility inside Parallel Scene. Do not manufacture a resolved future event merely to populate the Surface.
 
 {{trim}}`
 
-const PARALLEL_SCENE_FIND = '\\[PARALLEL\\|(?<scope>[^\\|\\]\\r\\n]{1,500})\\|(?<relevance>[^\\]\\r\\n]{1,200})\\]\\s*-\\s*(?<thread1>[^\\r\\n<]{1,3000})\\s*<parallel-media>(?<media1>[\\s\\S]{0,18000}?)<\\/parallel-media>\\s*-\\s*(?<thread2>[^\\r\\n<]{1,3000})\\s*<parallel-media>(?<media2>[\\s\\S]{0,18000}?)<\\/parallel-media>\\s*-\\s*(?<thread3>[^\\r\\n<]{1,3000})\\s*<parallel-media>(?<media3>[\\s\\S]{0,18000}?)<\\/parallel-media>\\s*(?:<parallel-context>\\s*<trajectory>(?<trajectory>[\\s\\S]{1,6000}?)<\\/trajectory>\\s*<intersection>(?<intersection>[\\s\\S]{1,6000}?)<\\/intersection>\\s*<\\/parallel-context>\\s*)?\\[\\/PARALLEL\\]'
+const PARALLEL_SCENE_FIND = '\\[PARALLEL\\|(?<scope>[^\\|\\]\\r\\n]{1,500})\\|(?<relevance>[^\\]\\r\\n]{1,200})\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread1>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media1>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread2>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media2>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread3>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media3>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_context\\]\\s*\\[trajectory\\](?<trajectory>[\\s\\S]{1,6000}?)\\[/trajectory\\]\\s*\\[intersection\\](?<intersection>[\\s\\S]{1,6000}?)\\[/intersection\\]\\s*\\[/parallel_context\\]\\s*\\[/PARALLEL\\]'
 
 function parallelSceneReplacement(replacement: string): string {
   const context = '<div class="r65-section r65-parallel-context"><p class="r65-section-title">Context</p><div class="r65-opt" data-label="Trajectory">$<trajectory></div><div class="r65-opt r65-gap" data-label="Intersection">$<intersection></div></div>'
@@ -224,10 +230,6 @@ const FLAT_ARCHIVE_DETAIL_LABELS: Readonly<Record<string, readonly string[]>> = 
 
 function archiveText(value: string): string {
   return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-function archiveAttribute(value: string): string {
-  return archiveText(value).replace(/"/g, '&quot;')
 }
 
 function archivePresentationState(value: string): 'UNLOCKED' | 'PARTIAL' | 'LOCKED' {
@@ -250,7 +252,7 @@ function parseFlatArchiveStat(lines: string[], offset: number): { label: string;
 /** Repair the bounded flat Archive Entry drift seen in beta output. Canonical
  * payloads are returned byte-for-byte; ambiguous flat blocks remain untouched. */
 function normalizeFlatArchiveDossiers(markup: string): string {
-  return markup.replace(/<dossier_ui\s+category="(CHARACTER|LOCATION|ITEM|FACTION|EVENT|RELATIONSHIP|SECRET)">([\s\S]*?)<\/dossier_ui>/gi, (full, rawCategory: string, body: string) => {
+  return markup.replace(/<dossier_ui\s+category="(CHARACTER|LOCATION|ITEM|FACTION|EVENT|RELATIONSHIP|SECRET)">((?:(?!<dossier_ui\b)[\s\S])*?)<\/dossier_ui>/gi, (full, rawCategory: string, body: string) => {
     if (/<archive-head\b/i.test(body)) return full
     const category = rawCategory.toUpperCase()
     const labels = FLAT_ARCHIVE_DETAIL_LABELS[category]
@@ -274,9 +276,9 @@ function normalizeFlatArchiveDossiers(markup: string): string {
     const details = headerLines.slice(cursor)
     if (stats.length !== 3 || details.length !== labels.length) return full
 
-    const statsMarkup = stats.map(stat => `<archive-stat><label>${archiveText(stat.label)}</label><value>${stat.value}</value></archive-stat>`).join('')
-    const detailsMarkup = labels.map((label, index) => `<archive-row label="${archiveAttribute(label)}">${archiveText(details[index])}</archive-row>`).join('')
-    return `<dossier_ui category="${category}"><archive-head><icon>${archiveText(icon)}</icon><name>${archiveText(name)}</name><state>${archivePresentationState(rawState)}</state><relation>${archiveText(relation)}</relation><role>${archiveText(role)}</role></archive-head><archive-stats>${statsMarkup}</archive-stats><archive-details>${detailsMarkup}</archive-details><archive-export>${archiveText(exportText)}</archive-export></dossier_ui>`
+    const statsMarkup = stats.map(stat => `[archive_stat][label]${archiveText(stat.label)}[/label][value]${stat.value}[/value][/archive_stat]`).join('')
+    const detailsMarkup = labels.map((label, index) => `[archive_row][label]${archiveText(label)}[/label][value]${archiveText(details[index])}[/value][/archive_row]`).join('')
+    return `[dossier_ui][category]${category}[/category][archive_head][icon]${archiveText(icon)}[/icon][name]${archiveText(name)}[/name][state]${archivePresentationState(rawState)}[/state][relation]${archiveText(relation)}[/relation][role]${archiveText(role)}[/role][/archive_head][archive_stats]${statsMarkup}[/archive_stats][archive_details]${detailsMarkup}[/archive_details][archive_export]${archiveText(exportText)}[/archive_export][/dossier_ui]`
   })
 }
 
@@ -288,7 +290,7 @@ function markupAttribute(source: string, name: string): string {
  * the active semantic representation. This compatibility grammar is never
  * included in model-facing Utility text. */
 export function normalizeLegacyPlotSparksMarkup(markup: string): string {
-  return String(markup || '').replace(/<chaos_payload\b([^>]*)>([\s\S]*?)<\/chaos_payload\s*>/gi, (full, attrs: string, body: string) => {
+  return String(markup || '').replace(/<chaos_payload\b([^>]*)>((?:(?!<chaos_payload\b)[\s\S])*?)<\/chaos_payload\s*>/gi, (full, attrs: string, body: string) => {
     const hooks = [...body.matchAll(/<chaos_hook\b([^>]*)>([\s\S]*?)<\/chaos_hook\s*>/gi)]
     if (hooks.length !== 7) return full
     const id = markupAttribute(attrs, 'id')
@@ -309,7 +311,7 @@ export function normalizeLegacyPlotSparksMarkup(markup: string): string {
 
 /** Repair only the unambiguous known-owner blend inside Plot Sparks Media. */
 export function normalizePlotSparksMediaMarkup(markup: string): string {
-  return String(markup || '').replace(/\[Media\]([\s\S]*?)\[\/Media\]/gi, (full, media: string) => {
+  return String(markup || '').replace(/\[Media\]((?:(?!\[Media\])[\s\S])*?)\[\/Media\]/gi, (full, media: string) => {
     if ((media.match(/<reverie-illustration\b/gi) || []).length !== 1) return full
     if (/<image_request\b/i.test(media)) return full
     const sceneBriefs = media.match(/<scene_brief\b[^>]*>[\s\S]*?<\/scene_brief\s*>/gi) || []
@@ -323,16 +325,23 @@ export function normalizePlotSparksMediaMarkup(markup: string): string {
   })
 }
 
+function normalizeDramaticParagraphMarkup(markup: string): string {
+  return String(markup || '').replace(/\[dramatic_parallel\]((?:(?!\[dramatic_parallel\])[\s\S])*?)\[\/dramatic_parallel\]/gi, (full, body: string) => {
+    if (!/\[dramatic_body\]/i.test(body)) return full
+    return `[dramatic_parallel]${body.replace(/\[paragraph\]([\s\S]*?)\[\/paragraph\]/gi, '<p>$1</p>')}[/dramatic_parallel]`
+  })
+}
+
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
-  return normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(normalizeLegacyPlotSparksMarkup(String(markup || ''))))
-    .replace(/<(character_phone|private_phone)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi, (_full, root: string, body: string) => {
+  return normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(normalizeLegacyPlotSparksMarkup(String(markup || '')))))
+    .replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root: string, body: string) => {
       // A second observed phone drift uses an XML root around otherwise
       // canonical bracket fields. Convert only a complete, known phone root;
       // arbitrary XML and incomplete streaming fragments remain untouched.
       const repairedBody = body.replace(/<\/(cp_[A-Za-z][A-Za-z0-9_]*)>/gi, '[/$1]')
       return `[${root}]${repairedBody}[/${root}]`
     })
-    .replace(/(\[(character_phone|private_phone)\b[^\]]*\])([\s\S]*?)\[\/\2\]/gi, (_full, opening: string, root: string, body: string) => {
+    .replace(/(\[(character_phone|private_phone)\b[^\]]*\])((?:(?!\[(?:character_phone|private_phone)\b)[\s\S])*?)\[\/\2\]/gi, (_full, opening: string, root: string, body: string) => {
       // Story models occasionally open Character Phone fields with bracket
       // grammar and close only the SVG-bearing fields as XML. The app-module
       // renderer then misses the entire app and leaks its raw cp_* scaffold.
@@ -342,7 +351,7 @@ export function normalizeNarrativeMarkupForRendering(markup: string): string {
       return `${opening}${repairedBody}[/${root}]`
     })
     .replace(/(\[cp_battery\]\s*[0-9]{1,3}\s*\[\/cp_battery\])\s*(?=\[cp_apps\])/gi, '$1[cp_wallpaper][/cp_wallpaper]')
-    .replace(/<parallel-media>\s*<\/parallel-media>/gi, '<parallel-media></parallel-media>')
+    .replace(/\[parallel_media\]\s*\[\/parallel_media\]/gi, '[parallel_media][/parallel_media]')
 }
 
 export function narrativeRegexPack(variant: NarrativeRegexVariant): NarrativeRegexPack {

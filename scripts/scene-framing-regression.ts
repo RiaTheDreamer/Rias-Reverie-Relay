@@ -42,9 +42,9 @@ for (const mode of ['scene-snapshot', 'sequence', 'emotional-beat', 'solo-scene'
 const gaze = 'eye-level photograph, Alpha looking at viewer, deliberately blank expression'
 assert(backend.enforceVisualSubjectIdentity(gaze, [{ name: 'Alpha', kind: 'character', prompt: 'black hair' }], true).startsWith(gaze))
 const raw = `[SCENE|Station concourse|Evening|Rain easing]
-<scene-media><image_request id="compass" target="custom.artifact-media" slot="compass" aspect="16:9"><scene_brief>Empty station concourse in rain.</scene_brief></image_request></scene-media>
-<scene-detail>Rain beads on the platform windows.</scene-detail>
-<scene-context><reason>The journey reaches the station.</reason><continuity>The same travel bag remains by the bench.</continuity></scene-context>[/SCENE]`
+[scene_media]<image_request id="compass" target="custom.artifact-media" slot="compass" aspect="16:9"><scene_brief>Empty station concourse in rain.</scene_brief></image_request>[/scene_media]
+[scene_detail]Rain beads on the platform windows.[/scene_detail]
+[scene_context][reason]The journey reaches the station.[/reason][continuity]The same travel bag remains by the bench.[/continuity][/scene_context][/SCENE]`
 const fixtures: Record<string, string> = {}
 for (const variant of ['inline', 'plain-button', 'sparkle-button'] as const) {
   const originals = narrativeRegexPack(variant).scripts

@@ -53,9 +53,9 @@ class MockLorebookHost {
   }
 }
 
-const dossier = extractNarrativeLorebookRecord('[[npc Example A|main]]<npc-media>portrait</npc-media>Reliable dossier body.[[/npc]]', 'character-dossier')
-const location = extractNarrativeLorebookRecord('[[place Moon Pier]]<place-media>photo</place-media>A quiet pier under moonlight.[[/place]]', 'location-file')
-const introduction = extractNarrativeLorebookRecord('[NPC:MAJOR|Example B]\n<npc-media>portrait</npc-media>\nb: dancer\na: lavender hair and glasses\np: observant\n[/NPC]', 'cast-introduction')
+const dossier = extractNarrativeLorebookRecord('[[npc Example A|main]][npc_media]portrait[/npc_media]Reliable dossier body.[[/npc]]', 'character-dossier')
+const location = extractNarrativeLorebookRecord('[[place Moon Pier]][place_media]photo[/place_media]A quiet pier under moonlight.[[/place]]', 'location-file')
+const introduction = extractNarrativeLorebookRecord('[NPC:MAJOR|Example B]\n[npc_media]portrait[/npc_media]\nb: dancer\na: lavender hair and glasses\np: observant\n[/NPC]', 'cast-introduction')
 assert(dossier?.title === 'Example A' && dossier.content.includes('Reliable dossier body.'))
 assert(location?.title === 'Moon Pier' && location.content.includes('quiet pier'))
 assert(introduction?.title === 'Example B' && introduction.content.includes('Appearance: lavender hair and glasses'))

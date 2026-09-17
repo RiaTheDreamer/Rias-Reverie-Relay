@@ -314,7 +314,7 @@ export function buildNarrativeUtilityPrompt(
     })
   return {
     content: items.length
-      ? `<reverie_narrative_utility contract="narrative" version="${NARRATIVE_DLC_VERSION}" utilities="${items.map(item => applyNarrativeDisplayNames(item.loomName)).join(', ')}">\n${items.map(item => item.loomContent).join('\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n')}\n</reverie_narrative_utility>`
+      ? `[reverie_narrative_utility]\n[contract]narrative[/contract]\n[version]${NARRATIVE_DLC_VERSION}[/version]\n[utilities]${items.map(item => applyNarrativeDisplayNames(item.loomName)).join(', ')}[/utilities]\n${items.map(item => item.loomContent).join('\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n')}\n[/reverie_narrative_utility]`
       : '',
     utilityNames: items.map(item => item.loomName),
   }
