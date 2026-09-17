@@ -4,6 +4,7 @@ type LlmMessage = import('lumiverse-spindle-types').LlmMessageDTO
 
 import {
   parseImageRequests,
+  containsImageRequestMarkup,
   inspectProseIllustrationSchemas,
   normalizeProseIllustrationContracts,
   parseRouterMarkers,
@@ -4649,7 +4650,7 @@ function snapshotFromPayload(payload: {
 }
 
 function containsRelayRequestMarkup(value: unknown): boolean {
-  return typeof value === 'string' && /<(?:image_request|reverie-illustration)\b/i.test(value)
+  return containsImageRequestMarkup(value)
 }
 
 /** Continued generations can report only the newly appended fragment while the
@@ -4683,6 +4684,14 @@ function inspectRawImageRequestTags(content: string): Array<{ id: string; target
     while ((attrMatch = attrRe.exec(match[2])) !== null) attrs[attrMatch[1]] = attrMatch[2]
     const illustration = match[1].toLocaleLowerCase() === 'reverie-illustration'
     out.push({ id: attrs.id || attrs.request_id || attrs.slot || '', target: illustration ? 'prose.illustration' : attrs.target || '' })
+  }
+  const bracketRe = /\[image_request\]([\s\S]*?)\[\/image_request\]/gi
+  const field = (body: string, name: string): string => new RegExp(`\\[${name}\\]([\\s\\S]*?)\\[\\/${name}\\]`, 'i').exec(body)?.[1]?.trim() || ''
+  while ((match = bracketRe.exec(content)) !== null) {
+    out.push({
+      id: field(match[1] || '', 'id') || field(match[1] || '', 'request_id'),
+      target: field(match[1] || '', 'target'),
+    })
   }
   return out
 }

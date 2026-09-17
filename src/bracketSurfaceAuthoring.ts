@@ -1,7 +1,10 @@
 const ATTR_RE = /\s+([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
 const TOKEN_RE = /<!--[\s\S]*?-->|<\/?[A-Za-z][\w:-]*(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*)?\s*\/?>/g
 const VOID_TAGS = new Set('img br hr input meta link'.split(' '))
-const MEDIA_TAGS = new Set(['image_request', 'image_request_error', 'img'])
+// Resolved/runtime media remains renderer-owned markup. Current authored
+// image_request nodes are semantic input and therefore serialize like every
+// other canonical bracket node.
+const RENDERED_MEDIA_TAGS = new Set(['image_request_error', 'img'])
 const tagOf = (token: string): string => /^<\/?([\w:-]+)/.exec(token)?.[1]?.toLowerCase() || ''
 const attrsOf = (token: string): Record<string, string> => Object.fromEntries([...String(token || '').matchAll(ATTR_RE)].map(match => [match[1], match[2] ?? match[3] ?? '']))
 
@@ -40,18 +43,18 @@ function bracketValue(value: string): string {
 }
 
 function bracketExample(node: XmlNode, depth = 0): string {
-  if (MEDIA_TAGS.has(node.tag)) return serializeXml(node)
+  if (RENDERED_MEDIA_TAGS.has(node.tag)) return serializeXml(node)
   const pad = '  '.repeat(depth)
   const lines = [`${pad}[${node.tag}]`]
   for (const [key, value] of Object.entries(node.attrs)) lines.push(`${pad}  [${key}]${bracketValue(value)}[/${key}]`)
-  // Media remains XML, but it must stay directly inside the exact semantic
-  // owner and at its authored position. A generic [media] wrapper is not part
-  // of the R4.5 bracket grammar and used to leak visibly into 39 Surfaces.
+  // Media stays directly inside its exact semantic owner and at its authored
+  // position. A generic [media] wrapper is not part of the R4.5 bracket grammar
+  // unless the Surface contract explicitly owns that field.
   for (const child of node.children) {
     if (typeof child === 'string') {
       const text = child.trim()
       if (text) lines.push(`${pad}  ${bracketValue(text)}`)
-    } else if (MEDIA_TAGS.has(child.tag)) {
+    } else if (RENDERED_MEDIA_TAGS.has(child.tag)) {
       lines.push(`${pad}  ${serializeXml(child)}`)
     } else {
       lines.push(bracketExample(child, depth + 1))
@@ -69,8 +72,6 @@ export function bracketExampleFromXml(sampleXml: string): string {
 function compactBracketSchema(node: XmlNode, depth = 0): string {
   const pad = '  '.repeat(depth)
 
-  if (node.tag === 'image_request') return `${pad}<image_request/>`
-
   const lines = [`${pad}[${node.tag}]`]
 
   for (const key of Object.keys(node.attrs)) {
@@ -80,11 +81,6 @@ function compactBracketSchema(node: XmlNode, depth = 0): string {
   for (const child of node.children) {
     if (typeof child === 'string') {
       if (child.trim()) lines.push(`${pad}  …`)
-      continue
-    }
-
-    if (child.tag === 'image_request') {
-      lines.push(`${pad}  <image_request/>`)
       continue
     }
 
@@ -138,7 +134,7 @@ export function bracketSurfacePromptModule(input: {
   return `SURFACE: ${input.label.toUpperCase()}
 Author this Surface in bracket-native syntax, not XML. Describe semantic content only: names, titles, messages, timestamps, sections, captions, and approved media requests.${target}${aspect}
 No attributes in opening bracket tags. All semantic fields are child bracket nodes: [field]value[/field]. Repeated rows, messages, posts, comments, gallery items, and sections must be repeated child blocks, never attributes on an opening bracket.
-Preserve repeated child order exactly. Chat/message rows are ordered lists, never one combined text block. Do not author HTML, CSS, launcher chrome, data attributes, or renderer internals. Existing <image_request> media payloads remain XML directly inside their exact owning bracket field. Never add a generic [media] wrapper unless that Surface explicitly names its owning field [media].
+Preserve repeated child order exactly. Chat/message rows are ordered lists, never one combined text block. Do not author HTML, CSS, launcher chrome, data attributes, or renderer internals. Image requests use [image_request] with ordered bracket child fields directly inside their exact owning bracket field. Never add a generic [media] wrapper unless that Surface explicitly names its owning field [media].
 
 BRACKET ROOT: [${input.root}]
 

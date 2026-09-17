@@ -2,7 +2,7 @@ import { normalizeSurfaceDocument, plainSurfaceText, completeSurfaceSpecs, resid
 import { albumPresentation, dossierPresentation, GALLERY_FULL_IMAGE_CSS } from './surfacePresentation'
 import { normalizeBracketSurfaceDocument } from './bracketSurfaceBridge'
 
-import type { CustomSurfaceDefinition, CustomSurfaceStudioState, GenerationPlaceholderEffect, SurfaceColorMode, SurfaceRendererMode, SurfaceShellMode } from './contracts'
+import { parseImageRequests, type CustomSurfaceDefinition, type CustomSurfaceStudioState, type GenerationPlaceholderEffect, type SurfaceColorMode, type SurfaceRendererMode, type SurfaceShellMode } from './contracts'
 import { hybridSurfaceOwner, SHIPPED_SURFACE_BY_ID, SHIPPED_SURFACE_SPECS, type ShippedSurfaceSpec } from './shippedSurfaceDefinitions'
 import { containsRenderedRegexSurface, renderRegexSurfaceParity, type RegexSurfaceParityMode } from './regexSurfaceParity'
 import { R45_SUPPLEMENTAL_ROOTS } from './r45SurfaceCatalog'
@@ -257,7 +257,31 @@ function hydrateParityRequests(
   context: NativeSurfaceRenderContext,
   options: { unresolved?: 'card' | 'preserve' } = {},
 ): string {
-  let content = String(markup || '').replace(/<image_request\b([^>]*)>([\s\S]*?)<\/image_request>/gi, (full, rawAttrs, body) => {
+  // The authorized R4.5 presentation still consumes its established internal
+  // request representation. Compile only canonical bracket request nodes at
+  // this renderer ingress; current model authoring remains bracket-only and
+  // the existing Regex replacement bodies remain untouched.
+  let content = String(markup || '').replace(/\[image_request\]([\s\S]*?)\[\/image_request\]/gi, full => {
+    const request = parseImageRequests(full)[0]
+    if (!request) return full
+    const attrs = [
+      ['id', request.id],
+      ['target', request.target],
+      ['slot', request.slot],
+      ['aspect', request.aspect],
+      ['alt', request.alt],
+      ['count', request.count > 1 ? String(request.count) : ''],
+      ['intent', request.intent !== 'auto' ? request.intent : ''],
+      ['cast', request.cast],
+      ['time', request.time],
+    ].filter((entry): entry is [string, string] => Boolean(entry[1]))
+      .map(([name, value]) => ` ${name}="${escapeAttr(value)}"`)
+      .join('')
+    const caption = request.caption ? `<context_caption>${escapeHtml(request.caption)}</context_caption>` : ''
+    const negative = request.negative ? `<negative>${escapeHtml(request.negative)}</negative>` : ''
+    return `<image_request${attrs}><scene_brief>${escapeHtml(request.prompt)}</scene_brief>${caption}${negative}</image_request>`
+  })
+  content = content.replace(/<image_request\b([^>]*)>([\s\S]*?)<\/image_request>/gi, (full, rawAttrs, body) => {
     const attrs = parseAttrs(rawAttrs)
     const requestId = attrs.id || attrs.request_id || attrs.slot || ''
     const records = matchingRequestRecords(context, requestId, attrs.target || '')

@@ -379,6 +379,9 @@ function isNarrativeOwnedImageRequest(content, requestIndex) {
 function isImageTarget(value) {
   return TARGETS.has(value) || /^custom\.[a-z0-9][a-z0-9._-]{1,62}$/i.test(value);
 }
+function containsImageRequestMarkup(value) {
+  return typeof value === "string" && /<(?:image_request|reverie-illustration)\b|\[image_request\]/i.test(value);
+}
 function slotKey(parts) {
   return [
     parts.chatId,
@@ -450,6 +453,16 @@ function parseImageRequests(content) {
     const openEnd = phoneMatch[0].indexOf(">") + 1;
     phoneRanges.push({ start: phoneMatch.index, end: phoneMatch.index + phoneMatch[0].length, bodyStart: phoneMatch.index + openEnd, time: rootAttrs.time?.trim() || "" });
   }
+  const bracketPhoneRe = /\[(?:smart_phone|smartphone)\]([\s\S]*?)\[\/(?:smart_phone|smartphone)\]/gi;
+  while ((phoneMatch = bracketPhoneRe.exec(content)) !== null) {
+    const openEnd = phoneMatch[0].indexOf("]") + 1;
+    phoneRanges.push({
+      start: phoneMatch.index,
+      end: phoneMatch.index + phoneMatch[0].length,
+      bodyStart: phoneMatch.index + openEnd,
+      time: firstBracketTagText(phoneMatch[1] || "", "time")?.trim() || ""
+    });
+  }
   const re = /<(image_request|reverie-illustration)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
   const invalidProseSpans = new Set(inspectProseIllustrationSchemas(content).map((diagnostic) => `${diagnostic.index}:${diagnostic.fullMatch.length}`));
   let match;
@@ -507,8 +520,52 @@ function parseImageRequests(content) {
       index: match.index
     });
   }
+  const bracketRe = /\[image_request\]([\s\S]*?)\[\/image_request\]/gi;
+  while ((match = bracketRe.exec(content)) !== null) {
+    const body = match[1] || "";
+    const id = (firstBracketTagText(body, "id") || firstBracketTagText(body, "request_id") || "").trim();
+    const authoredTarget = firstBracketTagText(body, "target")?.trim();
+    const narrativeOwned = isNarrativeOwnedImageRequest(content, match.index);
+    const target = narrativeOwned && authoredTarget === "prose.illustration" ? "custom.artifact-media" : authoredTarget;
+    if (!id || !target || !isImageTarget(target))
+      continue;
+    const structuredPrompt = firstBracketTagText(body, "scene_brief") || firstBracketTagText(body, "prompt") || firstBracketTagText(body, "visual_prompt");
+    if (!structuredPrompt?.trim())
+      continue;
+    const rawCast = String(firstBracketTagText(body, "cast") || "").trim().toLocaleLowerCase();
+    const cast = ["char", "user", "char+user", "none"].includes(rawCast) ? rawCast : undefined;
+    const countValue = firstBracketTagText(body, "count");
+    const count = clampInt(countValue ? Number(countValue) : 1, 1, MAX_COUNT);
+    const caption = firstBracketTagText(body, "context_caption")?.trim();
+    const alt = firstBracketTagText(body, "alt")?.trim() || caption || "";
+    let requestTime = firstBracketTagText(body, "time")?.trim() || undefined;
+    if (target === "smartphone.message-image" && !requestTime) {
+      const phone = phoneRanges.find((range) => match.index >= range.start && match.index < range.end);
+      if (phone) {
+        const beforeRequest = content.slice(phone.bodyStart, match.index);
+        requestTime = lastBracketTagText(beforeRequest, "time")?.trim() || phone.time || undefined;
+      }
+    }
+    out.push({
+      id,
+      target,
+      intent: normalizeImageIntent(firstBracketTagText(body, "intent")),
+      count: target === "instagram.carousel" ? count : 1,
+      aspect: firstBracketTagText(body, "aspect")?.trim(),
+      alt,
+      caption,
+      time: requestTime,
+      prompt: structuredPrompt.trim().slice(0, MAX_PROMPT_CHARS),
+      cast,
+      promptSource: "structured",
+      negative: (firstBracketTagText(body, "negative_prompt") || firstBracketTagText(body, "negative"))?.trim(),
+      slot: firstBracketTagText(body, "slot")?.trim() || undefined,
+      fullMatch: match[0],
+      index: match.index
+    });
+  }
   const unique = new Map;
-  for (const request of out) {
+  for (const request of out.sort((left, right) => left.index - right.index)) {
     const key = `${request.target}:${request.id}:${request.slot || ""}`;
     if (!unique.has(key))
       unique.set(key, request);
@@ -808,6 +865,17 @@ function firstTagText(body, tag) {
   const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
   const match = body.match(re);
   return match?.[1]?.trim();
+}
+function firstBracketTagText(body, tag) {
+  const re = new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`, "i");
+  return re.exec(body)?.[1]?.trim();
+}
+function lastBracketTagText(body, tag) {
+  const re = new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`, "gi");
+  let value;
+  for (const match of body.matchAll(re))
+    value = match[1]?.trim();
+  return value;
 }
 function stripKnownTags(body) {
   return body.replace(/<\/?(?:scene_brief|context_caption|prompt|negative)\b[^>]*>/gi, "").trim();
@@ -2560,7 +2628,7 @@ var DEFAULT_PROMPT_REGISTRY_VERSIONS = Object.fromEntries(PROMPT_REGISTRY_DEFINI
 var ATTR_RE = /\s+([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 var TOKEN_RE = /<!--[\s\S]*?-->|<\/?[A-Za-z][\w:-]*(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*)?\s*\/?>/g;
 var VOID_TAGS = new Set("img br hr input meta link".split(" "));
-var MEDIA_TAGS = new Set(["image_request", "image_request_error", "img"]);
+var RENDERED_MEDIA_TAGS = new Set(["image_request_error", "img"]);
 var tagOf = (token) => /^<\/?([\w:-]+)/.exec(token)?.[1]?.toLowerCase() || "";
 var attrsOf = (token) => Object.fromEntries([...String(token || "").matchAll(ATTR_RE)].map((match) => [match[1], match[2] ?? match[3] ?? ""]));
 function parseLooseXml(source) {
@@ -2602,7 +2670,7 @@ function bracketValue(value) {
   return String(value || "").replace(/\[/g, "(").replace(/\]/g, ")");
 }
 function bracketExample(node, depth = 0) {
-  if (MEDIA_TAGS.has(node.tag))
+  if (RENDERED_MEDIA_TAGS.has(node.tag))
     return serializeXml(node);
   const pad = "  ".repeat(depth);
   const lines = [`${pad}[${node.tag}]`];
@@ -2613,7 +2681,7 @@ function bracketExample(node, depth = 0) {
       const text = child.trim();
       if (text)
         lines.push(`${pad}  ${bracketValue(text)}`);
-    } else if (MEDIA_TAGS.has(child.tag)) {
+    } else if (RENDERED_MEDIA_TAGS.has(child.tag)) {
       lines.push(`${pad}  ${serializeXml(child)}`);
     } else {
       lines.push(bracketExample(child, depth + 1));
@@ -2629,8 +2697,6 @@ function bracketExampleFromXml(sampleXml) {
 }
 function compactBracketSchema(node, depth = 0) {
   const pad = "  ".repeat(depth);
-  if (node.tag === "image_request")
-    return `${pad}<image_request/>`;
   const lines = [`${pad}[${node.tag}]`];
   for (const key of Object.keys(node.attrs)) {
     lines.push(`${pad}  [${key}]\u2026[/${key}]`);
@@ -2639,10 +2705,6 @@ function compactBracketSchema(node, depth = 0) {
     if (typeof child === "string") {
       if (child.trim())
         lines.push(`${pad}  \u2026`);
-      continue;
-    }
-    if (child.tag === "image_request") {
-      lines.push(`${pad}  <image_request/>`);
       continue;
     }
     lines.push(compactBracketSchema(child, depth + 1));
@@ -2682,7 +2744,7 @@ function bracketSurfacePromptModule(input) {
   return `SURFACE: ${input.label.toUpperCase()}
 Author this Surface in bracket-native syntax, not XML. Describe semantic content only: names, titles, messages, timestamps, sections, captions, and approved media requests.${target}${aspect}
 No attributes in opening bracket tags. All semantic fields are child bracket nodes: [field]value[/field]. Repeated rows, messages, posts, comments, gallery items, and sections must be repeated child blocks, never attributes on an opening bracket.
-Preserve repeated child order exactly. Chat/message rows are ordered lists, never one combined text block. Do not author HTML, CSS, launcher chrome, data attributes, or renderer internals. Existing <image_request> media payloads remain XML directly inside their exact owning bracket field. Never add a generic [media] wrapper unless that Surface explicitly names its owning field [media].
+Preserve repeated child order exactly. Chat/message rows are ordered lists, never one combined text block. Do not author HTML, CSS, launcher chrome, data attributes, or renderer internals. Image requests use [image_request] with ordered bracket child fields directly inside their exact owning bracket field. Never add a generic [media] wrapper unless that Surface explicitly names its owning field [media].
 
 BRACKET ROOT: [${input.root}]
 
@@ -138599,7 +138661,26 @@ function resolvedParityRequestMarkup(attrs, records) {
   return null;
 }
 function hydrateParityRequests(markup, baseSurfaceId, context, options = {}) {
-  let content = String(markup || "").replace(/<image_request\b([^>]*)>([\s\S]*?)<\/image_request>/gi, (full, rawAttrs, body) => {
+  let content = String(markup || "").replace(/\[image_request\]([\s\S]*?)\[\/image_request\]/gi, (full) => {
+    const request2 = parseImageRequests(full)[0];
+    if (!request2)
+      return full;
+    const attrs = [
+      ["id", request2.id],
+      ["target", request2.target],
+      ["slot", request2.slot],
+      ["aspect", request2.aspect],
+      ["alt", request2.alt],
+      ["count", request2.count > 1 ? String(request2.count) : ""],
+      ["intent", request2.intent !== "auto" ? request2.intent : ""],
+      ["cast", request2.cast],
+      ["time", request2.time]
+    ].filter((entry) => Boolean(entry[1])).map(([name, value]) => ` ${name}="${escapeAttr2(value)}"`).join("");
+    const caption = request2.caption ? `<context_caption>${escapeHtml(request2.caption)}</context_caption>` : "";
+    const negative = request2.negative ? `<negative>${escapeHtml(request2.negative)}</negative>` : "";
+    return `<image_request${attrs}><scene_brief>${escapeHtml(request2.prompt)}</scene_brief>${caption}${negative}</image_request>`;
+  });
+  content = content.replace(/<image_request\b([^>]*)>([\s\S]*?)<\/image_request>/gi, (full, rawAttrs, body) => {
     const attrs = parseAttrs2(rawAttrs);
     const requestId = attrs.id || attrs.request_id || attrs.slot || "";
     const records = matchingRequestRecords(context, requestId, attrs.target || "");
@@ -159635,7 +159716,7 @@ function snapshotFromPayload(payload) {
   return { settings, capturedAt };
 }
 function containsRelayRequestMarkup(value) {
-  return typeof value === "string" && /<(?:image_request|reverie-illustration)\b/i.test(value);
+  return containsImageRequestMarkup(value);
 }
 function selectCompletedRequestContent(storedContent, capturedContent) {
   const storedRequests = parseSafeSurfaceImageRequests(storedContent);
@@ -159664,6 +159745,14 @@ function inspectRawImageRequestTags(content) {
       attrs[attrMatch[1]] = attrMatch[2];
     const illustration = match[1].toLocaleLowerCase() === "reverie-illustration";
     out.push({ id: attrs.id || attrs.request_id || attrs.slot || "", target: illustration ? "prose.illustration" : attrs.target || "" });
+  }
+  const bracketRe = /\[image_request\]([\s\S]*?)\[\/image_request\]/gi;
+  const field = (body, name) => new RegExp(`\\[${name}\\]([\\s\\S]*?)\\[\\/${name}\\]`, "i").exec(body)?.[1]?.trim() || "";
+  while ((match = bracketRe.exec(content)) !== null) {
+    out.push({
+      id: field(match[1] || "", "id") || field(match[1] || "", "request_id"),
+      target: field(match[1] || "", "target")
+    });
   }
   return out;
 }

@@ -16,6 +16,10 @@ var SPECIAL_IMAGE_INTENTS = new Set([
   "viral_graphic",
   "fandom_edit"
 ]);
+function normalizeImageIntent(value) {
+  const normalized = String(value || "").trim().toLocaleLowerCase().replace(/[\s-]+/g, "_");
+  return NORMAL_IMAGE_INTENTS.has(normalized) || SPECIAL_IMAGE_INTENTS.has(normalized) ? normalized : "auto";
+}
 function normalizeGenerationPlaceholderEffect(value) {
   return value === "spinner" || value === "glitter" || value === "none" || value === "dream-orb" ? value : "glitter";
 }
@@ -27,8 +31,299 @@ var TARGETS = new Set([
   "kakao.image",
   "prose.illustration"
 ]);
+var MAX_COUNT = 4;
+var MAX_PROMPT_CHARS = 6000;
 var PROSE_ILLUSTRATION_ASPECTS = new Set(["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9"]);
 var PROSE_ILLUSTRATION_CASTS = new Set(["char", "user", "char+user", "none"]);
+function normalizeProseIllustrationCast(value) {
+  if (value === undefined || value === null)
+    return "none";
+  const normalized = String(value).trim().toLocaleLowerCase();
+  if (!normalized || normalized === "null")
+    return "none";
+  if (normalized === "character")
+    return "char";
+  if (normalized === "char_user" || normalized === "char-user" || normalized === "user+char" || normalized === "both")
+    return "char+user";
+  return PROSE_ILLUSTRATION_CASTS.has(normalized) ? normalized : null;
+}
+function normalizeProseIllustrationContracts(content) {
+  const repairs = [];
+  const re = /<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi;
+  const markup = content.replace(re, (fullMatch, rawAttrs, body, index) => {
+    let repaired = fullMatch;
+    const castAttribute = /\bcast\s*=\s*(["'])([\s\S]*?)\1/i.exec(rawAttrs);
+    const canonicalCast = normalizeProseIllustrationCast(castAttribute?.[2]);
+    if (canonicalCast && (!castAttribute || castAttribute[2] !== canonicalCast)) {
+      const normalizedAttrs = castAttribute ? rawAttrs.replace(castAttribute[0], `cast="${canonicalCast}"`) : `${rawAttrs.replace(/\s+$/, "")} cast="${canonicalCast}"${/\s$/.test(rawAttrs) ? " " : ""}`;
+      repaired = repaired.replace(`<reverie-illustration${rawAttrs}>`, `<reverie-illustration${normalizedAttrs}>`);
+      repairs.push({
+        code: "NORMALIZED_PROSE_ILLUSTRATION_CAST",
+        slot: String(parseAttrs(rawAttrs).slot || "").trim(),
+        index,
+        original: fullMatch,
+        repaired
+      });
+    }
+    if (/<visual_prompt\b/i.test(body))
+      return repaired;
+    const singleSceneBrief = body.match(/^(\s*)<scene_brief\s*>([\s\S]*?)<\/scene_brief\s*>(\s*)$/i);
+    if (!singleSceneBrief || !String(singleSceneBrief[2] || "").trim() || /<\/?scene_brief\b/i.test(singleSceneBrief[2]))
+      return repaired;
+    const outerOpenEnd = repaired.indexOf(">") + 1;
+    const outerCloseStart = repaired.toLocaleLowerCase().lastIndexOf("</reverie-illustration");
+    if (outerOpenEnd < 1 || outerCloseStart < outerOpenEnd)
+      return repaired;
+    const repairedBody = `${singleSceneBrief[1]}<visual_prompt>${singleSceneBrief[2]}</visual_prompt>${singleSceneBrief[3]}`;
+    const promptRepaired = `${repaired.slice(0, outerOpenEnd)}${repairedBody}${repaired.slice(outerCloseStart)}`;
+    repairs.push({
+      code: "REPAIRED_PROSE_ILLUSTRATION_PROMPT_TAG",
+      slot: String(parseAttrs(rawAttrs).slot || "").trim(),
+      index,
+      original: fullMatch,
+      repaired: promptRepaired
+    });
+    return promptRepaired;
+  });
+  return { markup, repairs };
+}
+function inspectProseIllustrationSchemas(content) {
+  const diagnostics = [];
+  const re = /<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi;
+  let match;
+  while ((match = re.exec(content)) !== null) {
+    const attrs = parseAttrs(match[1] || "");
+    const body = match[2] || "";
+    const slot = String(attrs.slot || "").trim();
+    const visualPrompts = [...body.matchAll(/<visual_prompt\b[^>]*>([\s\S]*?)<\/visual_prompt>/gi)];
+    const failures = [];
+    if (String(attrs.request || "").trim().toLocaleLowerCase() !== "generate")
+      failures.push('request must equal "generate"');
+    if (!slot || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(slot))
+      failures.push("slot must be a short stable identifier");
+    if (!PROSE_ILLUSTRATION_ASPECTS.has(String(attrs.aspect || "").trim()))
+      failures.push("aspect must be a supported ratio");
+    if (!PROSE_ILLUSTRATION_CASTS.has(String(attrs.cast || "").trim().toLocaleLowerCase()))
+      failures.push("cast must be char, user, char+user, or none");
+    if (/<scene_brief\b/i.test(body))
+      failures.push("expected <visual_prompt>, received <scene_brief>");
+    if (visualPrompts.length !== 1 || !String(visualPrompts[0]?.[1] || "").trim())
+      failures.push("expected exactly one non-empty <visual_prompt>");
+    if (failures.length)
+      diagnostics.push({
+        code: "INVALID_PROSE_ILLUSTRATION_SCHEMA",
+        message: `INVALID_PROSE_ILLUSTRATION_SCHEMA: ${failures.join("; ")}`,
+        slot,
+        index: match.index,
+        fullMatch: match[0]
+      });
+  }
+  return diagnostics;
+}
+var NARRATIVE_MEDIA_CONTEXTS = [
+  { open: /<dramatic_parallel\b[^>]*>/gi, close: /<\/dramatic_parallel\s*>/gi },
+  { open: /\[Plot_Sparks\]/gi, close: /\[\/Plot_Sparks\]/gi },
+  { open: /<chaos_payload\b[^>]*>/gi, close: /<\/chaos_payload\s*>/gi },
+  { open: /<dossier_ui\b[^>]*>/gi, close: /<\/dossier_ui\s*>/gi },
+  { open: /\[SCENE(?:\||\])/gi, close: /\[\/SCENE\]/gi },
+  { open: /\[PARALLEL\|/gi, close: /\[\/PARALLEL\]/gi },
+  { open: /\[NPC:/gi, close: /\[\/NPC\]/gi },
+  { open: /\[SECRET\|/gi, close: /\[\/SECRET\]/gi },
+  { open: /\[WORLD\|/gi, close: /\[\/WORLD\]/gi },
+  { open: /\[WHATIF\|/gi, close: /\[\/WHATIF\]/gi },
+  { open: /\[(?:character_phone|private_phone)\b[^\]]*\]/gi, close: /\[\/(?:character_phone|private_phone)\]/gi },
+  { open: /\[\[(?:else|npc|place)\b[^\]]*\]\]/gi, close: /\[\[\/(?:else|npc|place)\]\]/gi }
+];
+function lastMatchIndex(input, pattern, before) {
+  pattern.lastIndex = 0;
+  let last = -1;
+  let match;
+  while ((match = pattern.exec(input)) !== null && match.index < before) {
+    last = match.index;
+    if (!match[0].length)
+      pattern.lastIndex += 1;
+  }
+  return last;
+}
+function isNarrativeOwnedImageRequest(content, requestIndex) {
+  for (const context of NARRATIVE_MEDIA_CONTEXTS) {
+    const openIndex = lastMatchIndex(content, new RegExp(context.open.source, context.open.flags), requestIndex);
+    if (openIndex < 0)
+      continue;
+    const close = new RegExp(context.close.source, context.close.flags);
+    close.lastIndex = requestIndex;
+    const closeMatch = close.exec(content);
+    if (closeMatch && closeMatch.index >= requestIndex)
+      return true;
+  }
+  return false;
+}
+function isImageTarget(value) {
+  return TARGETS.has(value) || /^custom\.[a-z0-9][a-z0-9._-]{1,62}$/i.test(value);
+}
+function parseImageRequests(content) {
+  content = normalizeProseIllustrationContracts(content).markup;
+  const out = [];
+  const phoneRanges = [];
+  const phoneRe = /<(?:smart_phone|smartphone)\b([^>]*)>([\s\S]*?)<\/(?:smart_phone|smartphone)>/gi;
+  let phoneMatch;
+  while ((phoneMatch = phoneRe.exec(content)) !== null) {
+    const rootAttrs = parseAttrs(phoneMatch[1] || "");
+    const openEnd = phoneMatch[0].indexOf(">") + 1;
+    phoneRanges.push({ start: phoneMatch.index, end: phoneMatch.index + phoneMatch[0].length, bodyStart: phoneMatch.index + openEnd, time: rootAttrs.time?.trim() || "" });
+  }
+  const bracketPhoneRe = /\[(?:smart_phone|smartphone)\]([\s\S]*?)\[\/(?:smart_phone|smartphone)\]/gi;
+  while ((phoneMatch = bracketPhoneRe.exec(content)) !== null) {
+    const openEnd = phoneMatch[0].indexOf("]") + 1;
+    phoneRanges.push({
+      start: phoneMatch.index,
+      end: phoneMatch.index + phoneMatch[0].length,
+      bodyStart: phoneMatch.index + openEnd,
+      time: firstBracketTagText(phoneMatch[1] || "", "time")?.trim() || ""
+    });
+  }
+  const re = /<(image_request|reverie-illustration)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
+  const invalidProseSpans = new Set(inspectProseIllustrationSchemas(content).map((diagnostic) => `${diagnostic.index}:${diagnostic.fullMatch.length}`));
+  let match;
+  while ((match = re.exec(content)) !== null) {
+    const tagName = match[1].toLocaleLowerCase();
+    const attrs = parseAttrs(match[2]);
+    const body = match[3].trim();
+    const isIllustrationProtocol = tagName === "reverie-illustration";
+    if (isIllustrationProtocol && invalidProseSpans.has(`${match.index}:${match[0].length}`))
+      continue;
+    const narrativeOwned = isNarrativeOwnedImageRequest(content, match.index);
+    const id = (attrs.id || attrs.request_id || (isIllustrationProtocol ? attrs.slot : ""))?.trim();
+    const authoredTarget = isIllustrationProtocol ? "prose.illustration" : attrs.target?.trim();
+    const target = narrativeOwned && authoredTarget === "prose.illustration" ? "custom.artifact-media" : authoredTarget;
+    if (!id || !target || !isImageTarget(target))
+      continue;
+    const visualPrompt = isIllustrationProtocol ? firstTagText(body, "visual_prompt")?.trim() : "";
+    const structuredPrompt = firstTagText(body, "scene_brief") || firstTagText(body, "prompt");
+    const prompt = (isIllustrationProtocol ? visualPrompt : structuredPrompt || stripKnownTags(body)) || "";
+    if (!prompt.trim())
+      continue;
+    const rawCast = String(attrs.cast || "").trim().toLocaleLowerCase();
+    const cast = isIllustrationProtocol && ["char", "user", "char+user", "none"].includes(rawCast) ? rawCast : undefined;
+    const count = clampInt(attrs.count ? Number(attrs.count) : 1, 1, MAX_COUNT);
+    const caption = firstTagText(body, "context_caption")?.trim();
+    const alt = attrs.alt?.trim() || caption || "";
+    let requestTime = attrs.time?.trim() || undefined;
+    if (target === "smartphone.message-image" && !requestTime) {
+      const phone = phoneRanges.find((range) => match.index >= range.start && match.index < range.end);
+      if (phone) {
+        const beforeRequest = content.slice(phone.bodyStart, match.index);
+        const messageTimeRe = /<(?:s_recv|s_sent)\b[^>]*\btime\s*=\s*["']([^"']+)["'][^>]*>/gi;
+        let messageTime;
+        let latest = "";
+        while ((messageTime = messageTimeRe.exec(beforeRequest)) !== null)
+          latest = messageTime[1].trim();
+        requestTime = latest || phone.time || undefined;
+      }
+    }
+    out.push({
+      id,
+      target,
+      intent: normalizeImageIntent(attrs.intent),
+      count: target === "instagram.carousel" ? count : 1,
+      aspect: attrs.aspect,
+      alt,
+      caption,
+      time: requestTime,
+      prompt: prompt.trim().slice(0, MAX_PROMPT_CHARS),
+      cast,
+      promptSource: isIllustrationProtocol && narrativeOwned ? "structured" : isIllustrationProtocol ? "visual_prompt" : "structured",
+      negative: firstTagText(body, "negative")?.trim(),
+      slot: attrs.slot?.trim() || (isIllustrationProtocol ? "illustration" : undefined),
+      fullMatch: match[0],
+      index: match.index
+    });
+  }
+  const bracketRe = /\[image_request\]([\s\S]*?)\[\/image_request\]/gi;
+  while ((match = bracketRe.exec(content)) !== null) {
+    const body = match[1] || "";
+    const id = (firstBracketTagText(body, "id") || firstBracketTagText(body, "request_id") || "").trim();
+    const authoredTarget = firstBracketTagText(body, "target")?.trim();
+    const narrativeOwned = isNarrativeOwnedImageRequest(content, match.index);
+    const target = narrativeOwned && authoredTarget === "prose.illustration" ? "custom.artifact-media" : authoredTarget;
+    if (!id || !target || !isImageTarget(target))
+      continue;
+    const structuredPrompt = firstBracketTagText(body, "scene_brief") || firstBracketTagText(body, "prompt") || firstBracketTagText(body, "visual_prompt");
+    if (!structuredPrompt?.trim())
+      continue;
+    const rawCast = String(firstBracketTagText(body, "cast") || "").trim().toLocaleLowerCase();
+    const cast = ["char", "user", "char+user", "none"].includes(rawCast) ? rawCast : undefined;
+    const countValue = firstBracketTagText(body, "count");
+    const count = clampInt(countValue ? Number(countValue) : 1, 1, MAX_COUNT);
+    const caption = firstBracketTagText(body, "context_caption")?.trim();
+    const alt = firstBracketTagText(body, "alt")?.trim() || caption || "";
+    let requestTime = firstBracketTagText(body, "time")?.trim() || undefined;
+    if (target === "smartphone.message-image" && !requestTime) {
+      const phone = phoneRanges.find((range) => match.index >= range.start && match.index < range.end);
+      if (phone) {
+        const beforeRequest = content.slice(phone.bodyStart, match.index);
+        requestTime = lastBracketTagText(beforeRequest, "time")?.trim() || phone.time || undefined;
+      }
+    }
+    out.push({
+      id,
+      target,
+      intent: normalizeImageIntent(firstBracketTagText(body, "intent")),
+      count: target === "instagram.carousel" ? count : 1,
+      aspect: firstBracketTagText(body, "aspect")?.trim(),
+      alt,
+      caption,
+      time: requestTime,
+      prompt: structuredPrompt.trim().slice(0, MAX_PROMPT_CHARS),
+      cast,
+      promptSource: "structured",
+      negative: (firstBracketTagText(body, "negative_prompt") || firstBracketTagText(body, "negative"))?.trim(),
+      slot: firstBracketTagText(body, "slot")?.trim() || undefined,
+      fullMatch: match[0],
+      index: match.index
+    });
+  }
+  const unique = new Map;
+  for (const request of out.sort((left, right) => left.index - right.index)) {
+    const key = `${request.target}:${request.id}:${request.slot || ""}`;
+    if (!unique.has(key))
+      unique.set(key, request);
+  }
+  return [...unique.values()];
+}
+function parseAttrs(input) {
+  const attrs = {};
+  const re = /([A-Za-z_:][\w:.-]*)\s*=\s*"([^"]*)"/g;
+  let match;
+  while ((match = re.exec(input)) !== null) {
+    attrs[match[1]] = match[2];
+  }
+  return attrs;
+}
+function firstTagText(body, tag) {
+  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
+  const match = body.match(re);
+  return match?.[1]?.trim();
+}
+function firstBracketTagText(body, tag) {
+  const re = new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`, "i");
+  return re.exec(body)?.[1]?.trim();
+}
+function lastBracketTagText(body, tag) {
+  const re = new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`, "gi");
+  let value;
+  for (const match of body.matchAll(re))
+    value = match[1]?.trim();
+  return value;
+}
+function stripKnownTags(body) {
+  return body.replace(/<\/?(?:scene_brief|context_caption|prompt|negative)\b[^>]*>/gi, "").trim();
+}
+function clampInt(value, min, max) {
+  if (!Number.isFinite(value))
+    return min;
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
 
 // src/slotActionFeedback.ts
 class SlotActionFeedbackCoordinator {
@@ -1595,7 +1890,7 @@ var DEFAULT_PROMPT_REGISTRY_VERSIONS = Object.fromEntries(PROMPT_REGISTRY_DEFINI
 var ATTR_RE = /\s+([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 var TOKEN_RE = /<!--[\s\S]*?-->|<\/?[A-Za-z][\w:-]*(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*)?\s*\/?>/g;
 var VOID_TAGS = new Set("img br hr input meta link".split(" "));
-var MEDIA_TAGS = new Set(["image_request", "image_request_error", "img"]);
+var RENDERED_MEDIA_TAGS = new Set(["image_request_error", "img"]);
 var tagOf = (token) => /^<\/?([\w:-]+)/.exec(token)?.[1]?.toLowerCase() || "";
 var attrsOf = (token) => Object.fromEntries([...String(token || "").matchAll(ATTR_RE)].map((match) => [match[1], match[2] ?? match[3] ?? ""]));
 function parseLooseXml(source) {
@@ -1637,7 +1932,7 @@ function bracketValue(value) {
   return String(value || "").replace(/\[/g, "(").replace(/\]/g, ")");
 }
 function bracketExample(node, depth = 0) {
-  if (MEDIA_TAGS.has(node.tag))
+  if (RENDERED_MEDIA_TAGS.has(node.tag))
     return serializeXml(node);
   const pad = "  ".repeat(depth);
   const lines = [`${pad}[${node.tag}]`];
@@ -1648,7 +1943,7 @@ function bracketExample(node, depth = 0) {
       const text = child.trim();
       if (text)
         lines.push(`${pad}  ${bracketValue(text)}`);
-    } else if (MEDIA_TAGS.has(child.tag)) {
+    } else if (RENDERED_MEDIA_TAGS.has(child.tag)) {
       lines.push(`${pad}  ${serializeXml(child)}`);
     } else {
       lines.push(bracketExample(child, depth + 1));
@@ -1664,8 +1959,6 @@ function bracketExampleFromXml(sampleXml) {
 }
 function compactBracketSchema(node, depth = 0) {
   const pad = "  ".repeat(depth);
-  if (node.tag === "image_request")
-    return `${pad}<image_request/>`;
   const lines = [`${pad}[${node.tag}]`];
   for (const key of Object.keys(node.attrs)) {
     lines.push(`${pad}  [${key}]…[/${key}]`);
@@ -1674,10 +1967,6 @@ function compactBracketSchema(node, depth = 0) {
     if (typeof child === "string") {
       if (child.trim())
         lines.push(`${pad}  …`);
-      continue;
-    }
-    if (child.tag === "image_request") {
-      lines.push(`${pad}  <image_request/>`);
       continue;
     }
     lines.push(compactBracketSchema(child, depth + 1));
@@ -134050,11 +134339,11 @@ function renderShippedSurface(spec, _attrs, _body, _preset, _context) {
   return reviewedContractError(spec.id, "The FINAL R4.5 renderer did not consume this approved Surface.");
 }
 function renderCaseFileDossier(attrs, body, preset, context) {
-  const sheet = firstTagText(body, "cf_sheet") || body;
-  const mediaPayload = firstTagText(sheet, "cf_media");
+  const sheet = firstTagText2(body, "cf_sheet") || body;
+  const mediaPayload = firstTagText2(sheet, "cf_media");
   const media = renderedLifecycleMarkup(mediaPayload) || renderAnyMedia(mediaPayload, context, "case-file");
-  const facts = allTagMatches(firstTagText(sheet, "cf_facts"), "cf_fact").map((fact) => {
-    const values = parseAttrs(fact.attrs);
+  const facts = allTagMatches(firstTagText2(sheet, "cf_facts"), "cf_fact").map((fact) => {
+    const values = parseAttrs2(fact.attrs);
     return `<div class="rrn-case-fact"><small>${escapeHtml(plainSurfaceText(values.label || "Record"))}</small><b>${escapeHtml(plainSurfaceText(values.value || fact.body))}</b></div>`;
   }).join("");
   const meta = [attrs.case, attrs.status, attrs.risk, attrs.agent].filter(Boolean).map((value) => escapeHtml(plainSurfaceText(value))).join(" · ");
@@ -134064,16 +134353,16 @@ function renderCaseFileDossier(attrs, body, preset, context) {
     meta,
     media,
     facts,
-    timeline: escapeHtml(plainSurfaceText(firstTagText(body, "cf_timeline") || (attrs.last_seen ? `Last seen: ${attrs.last_seen}` : ""))),
-    evidence: escapeHtml(plainSurfaceText(firstTagText(body, "cf_evidence"))),
-    notes: escapeHtml(plainSurfaceText(firstTagText(body, "cf_notes") || firstTagText(body, "notes")))
+    timeline: escapeHtml(plainSurfaceText(firstTagText2(body, "cf_timeline") || (attrs.last_seen ? `Last seen: ${attrs.last_seen}` : ""))),
+    evidence: escapeHtml(plainSurfaceText(firstTagText2(body, "cf_evidence"))),
+    notes: escapeHtml(plainSurfaceText(firstTagText2(body, "cf_notes") || firstTagText2(body, "notes")))
   });
 }
 function renderAlbumCoverRedesign(attrs, body, preset, context) {
-  const title = plainSurfaceText(firstTagText(body, "title") || attrs.title || attrs.album || "");
-  const artist = plainSurfaceText(firstTagText(body, "artist") || attrs.artist || "");
-  const release = plainSurfaceText(firstTagText(body, "release") || attrs.release || attrs.date || "");
-  const mediaPayload = firstTagText(body, "artwork") || firstTagText(body, "media") || body.replace(/<(title|artist|release)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
+  const title = plainSurfaceText(firstTagText2(body, "title") || attrs.title || attrs.album || "");
+  const artist = plainSurfaceText(firstTagText2(body, "artist") || attrs.artist || "");
+  const release = plainSurfaceText(firstTagText2(body, "release") || attrs.release || attrs.date || "");
+  const mediaPayload = firstTagText2(body, "artwork") || firstTagText2(body, "media") || body.replace(/<(title|artist|release)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
   const media = renderedLifecycleMarkup(mediaPayload) || renderAnyMedia(mediaPayload, context, "album-cover");
   return NATIVE_SURFACE_CSS + albumPresentation({ title: escapeHtml(title), artist: escapeHtml(artist), release: escapeHtml(release), art: media });
 }
@@ -134171,8 +134460,27 @@ function resolvedParityRequestMarkup(attrs, records) {
   return null;
 }
 function hydrateParityRequests(markup, baseSurfaceId, context, options = {}) {
-  let content = String(markup || "").replace(/<image_request\b([^>]*)>([\s\S]*?)<\/image_request>/gi, (full, rawAttrs, body) => {
-    const attrs = parseAttrs(rawAttrs);
+  let content = String(markup || "").replace(/\[image_request\]([\s\S]*?)\[\/image_request\]/gi, (full) => {
+    const request2 = parseImageRequests(full)[0];
+    if (!request2)
+      return full;
+    const attrs = [
+      ["id", request2.id],
+      ["target", request2.target],
+      ["slot", request2.slot],
+      ["aspect", request2.aspect],
+      ["alt", request2.alt],
+      ["count", request2.count > 1 ? String(request2.count) : ""],
+      ["intent", request2.intent !== "auto" ? request2.intent : ""],
+      ["cast", request2.cast],
+      ["time", request2.time]
+    ].filter((entry) => Boolean(entry[1])).map(([name, value]) => ` ${name}="${escapeAttr(value)}"`).join("");
+    const caption = request2.caption ? `<context_caption>${escapeHtml(request2.caption)}</context_caption>` : "";
+    const negative = request2.negative ? `<negative>${escapeHtml(request2.negative)}</negative>` : "";
+    return `<image_request${attrs}><scene_brief>${escapeHtml(request2.prompt)}</scene_brief>${caption}${negative}</image_request>`;
+  });
+  content = content.replace(/<image_request\b([^>]*)>([\s\S]*?)<\/image_request>/gi, (full, rawAttrs, body) => {
+    const attrs = parseAttrs2(rawAttrs);
     const requestId = attrs.id || attrs.request_id || attrs.slot || "";
     const records = matchingRequestRecords(context, requestId, attrs.target || "");
     const resolved = resolvedParityRequestMarkup(attrs, records);
@@ -134184,7 +134492,7 @@ function hydrateParityRequests(markup, baseSurfaceId, context, options = {}) {
     const failed = record?.status === "failed" || record?.status === "image-unavailable" || record?.status === "cancelled";
     return lifecycleCardIsland(renderRequestCard({
       title: failed ? "Media unavailable" : "Media requested",
-      brief: firstTagText(body, "scene_brief") || firstTagText(body, "prompt") || stripMarkup(body),
+      brief: firstTagText2(body, "scene_brief") || firstTagText2(body, "prompt") || stripMarkup(body),
       requestId,
       aspect: attrs.aspect || record?.requestAspect || "16:9",
       rootTag: "image_request",
@@ -134194,7 +134502,7 @@ function hydrateParityRequests(markup, baseSurfaceId, context, options = {}) {
     }, true));
   });
   content = content.replace(/<image_request_error\b([^>]*)>([\s\S]*?)<\/image_request_error>/gi, (_full, rawAttrs, body) => {
-    const attrs = parseAttrs(rawAttrs);
+    const attrs = parseAttrs2(rawAttrs);
     const requestId = attrs.id || attrs.request_id || attrs.slot || "";
     const records = matchingRequestRecords(context, requestId, attrs.target || "");
     const record = records[0];
@@ -134217,7 +134525,7 @@ function decorateParityImages(markup, context) {
   if (!records.length)
     return markup;
   return String(markup || "").replace(/<img\b([^>]*)>/gi, (full, rawAttrs) => {
-    const attrs = parseAttrs(rawAttrs);
+    const attrs = parseAttrs2(rawAttrs);
     const src = attrs.src || "";
     const record = records.find((candidate) => candidate.imageUrl === src);
     if (!record || /\bdata-dgir-(?:key|request-id|image-id)\s*=/.test(rawAttrs))
@@ -134229,7 +134537,7 @@ function normalizeTwitterContract(markup) {
   let output = String(markup || "");
   output = output.replace(/<tw_media\s*>\s*(<tw_media\b[\s\S]*?<\/tw_media>)\s*<\/tw_media>/gi, "$1");
   output = output.replace(/<tw_post\b([^>]*)>/gi, (full, rawAttrs) => {
-    const attrs = parseAttrs(rawAttrs);
+    const attrs = parseAttrs2(rawAttrs);
     if (!attrs.user || attrs.author)
       return full;
     const author = attrs.user;
@@ -134237,7 +134545,7 @@ function normalizeTwitterContract(markup) {
     return `<tw_post author="${escapeAttr(author)}" handle="${escapeAttr(handle)}" time="${escapeAttr(attrs.time || "")}" verified="${escapeAttr(attrs.verified || "")}" replies="${escapeAttr(attrs.replies || "")}" reposts="${escapeAttr(attrs.reposts || "")}" likes="${escapeAttr(attrs.likes || "")}" views="${escapeAttr(attrs.views || "")}" pinned="${escapeAttr(attrs.pinned || "")}">`;
   });
   output = output.replace(/<tw_comment\b([^>]*)>/gi, (full, rawAttrs) => {
-    const attrs = parseAttrs(rawAttrs);
+    const attrs = parseAttrs2(rawAttrs);
     if (!attrs.user || attrs.author)
       return full;
     const author = attrs.user;
@@ -134288,7 +134596,7 @@ function recordSurfacePipelineDiagnostic(surfaceId, stage, detail) {
     reviewedSurfacePipelineDiagnostics.delete(reviewedSurfacePipelineDiagnostics.keys().next().value);
 }
 function directKakaoMessageChildTags(markup) {
-  const messages = firstTagText(markup, "messages") || "";
+  const messages = firstTagText2(markup, "messages") || "";
   const tags = [];
   const re = /<\/?([A-Za-z][\w:-]*)\b(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*)?\s*\/?>/g;
   let depth = 0;
@@ -134313,7 +134621,7 @@ function kakaoCanonicalRows(markup) {
 function recordKakaoNormalizationTrace(original, canonical) {
   const rawTags = directKakaoMessageChildTags(original);
   const canonicalTags = directKakaoMessageChildTags(canonical);
-  const senderRows = allTagMatches(firstTagText(canonical, "messages") || "", "k_msg").map((row) => parseAttrs(row.attrs)).map((attrs) => `${attrs.sender || "Participant"}:${attrs.side || "left"}:${attrs.time || ""}`);
+  const senderRows = allTagMatches(firstTagText2(canonical, "messages") || "", "k_msg").map((row) => parseAttrs2(row.attrs)).map((attrs) => `${attrs.sender || "Participant"}:${attrs.side || "left"}:${attrs.time || ""}`);
   recordSurfacePipelineDiagnostic("kakao", "raw-messages", `${rawTags.length} children: ${rawTags.join(", ") || "none"}`);
   recordSurfacePipelineDiagnostic("kakao", "canonical-messages", `${canonicalTags.length} children: ${kakaoCanonicalRows(canonical).map((row) => row.type).join(", ") || "none"}`);
   recordSurfacePipelineDiagnostic("kakao", "sender-side-resolution", senderRows.join("; ") || "none");
@@ -134447,11 +134755,11 @@ function renderNativeSurfaceMarkup(input, studio, context) {
       const originalMarkup = String(fullMatch || "");
       const canonicalMarkup = baseSurfaceId === "character-profile" ? normalizeCharacterProfileContract(originalMarkup) : originalMarkup;
       const canonicalOpen = /^<([A-Za-z0-9_:-]+)\b([^>]*)>([\s\S]*)<\/\1>$/.exec(canonicalMarkup.trim());
-      return editableRelaySurface(renderBySurface(baseSurfaceId, canonicalOpen?.[1] || tagName, parseAttrs(canonicalOpen?.[2] || rawAttrs), canonicalOpen?.[3] || String(body || ""), preset, instanceContext), canonicalMarkup, tagName, baseSurfaceId, instanceContext, originalMarkup);
+      return editableRelaySurface(renderBySurface(baseSurfaceId, canonicalOpen?.[1] || tagName, parseAttrs2(canonicalOpen?.[2] || rawAttrs), canonicalOpen?.[3] || String(body || ""), preset, instanceContext), canonicalMarkup, tagName, baseSurfaceId, instanceContext, originalMarkup);
     });
   }
   content = content.replace(/<scene_image\b([^>]*)>([\s\S]*?)<\/scene_image>/gi, (full, rawAttrs, body) => {
-    const attrs = parseAttrs(rawAttrs);
+    const attrs = parseAttrs2(rawAttrs);
     const pending = /^(?:true|1|pending)$/i.test(attrs.pending || "");
     const requestId = attrs.requestId || attrs.requestid || attrs.request_id || attrs.planId || attrs.planid || attrs.id || "";
     if (!pending || !requestId || /<img\b/i.test(body))
@@ -134470,7 +134778,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
     }, true));
   });
   content = content.replace(/<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi, (_full, rawAttrs, body) => {
-    const attrs = parseAttrs(rawAttrs);
+    const attrs = parseAttrs2(rawAttrs);
     if ((attrs.request || "").toLowerCase() !== "generate")
       return "";
     renderedCount += 1;
@@ -134487,14 +134795,14 @@ function renderNativeSurfaceMarkup(input, studio, context) {
     }, true));
   });
   content = content.replace(/<image_request\b([^>]*)>([\s\S]*?)<\/image_request>/gi, (full, rawAttrs, body) => {
-    const attrs = parseAttrs(rawAttrs);
+    const attrs = parseAttrs2(rawAttrs);
     if (attrs.target !== "custom.artifact-media")
       return full;
     renderedCount += 1;
     renderedSurfaceIds.push("artifact-media");
     return lifecycleCardIsland(renderRequestCard({
       title: "Artifact media requested",
-      brief: firstTagText(body, "scene_brief") || stripMarkup(body),
+      brief: firstTagText2(body, "scene_brief") || stripMarkup(body),
       requestId: attrs.id || attrs.request_id || "",
       aspect: attrs.aspect || "4:3",
       rootTag: "image_request",
@@ -134504,14 +134812,14 @@ function renderNativeSurfaceMarkup(input, studio, context) {
     }, true));
   });
   content = content.replace(/<image_request\b([^>]*)>([\s\S]*?)<\/image_request>/gi, (_full, rawAttrs, body) => {
-    const attrs = parseAttrs(rawAttrs);
+    const attrs = parseAttrs2(rawAttrs);
     const target = attrs.target || "";
     const baseSurfaceId = baseSurfaceIdForTarget(target);
     renderedCount += 1;
     renderedSurfaceIds.push(baseSurfaceId);
     return lifecycleCardIsland(renderRequestCard({
       title: "Media requested",
-      brief: firstTagText(body, "scene_brief") || firstTagText(body, "prompt") || stripMarkup(body),
+      brief: firstTagText2(body, "scene_brief") || firstTagText2(body, "prompt") || stripMarkup(body),
       requestId: attrs.id || attrs.request_id || "",
       aspect: attrs.aspect || "16:9",
       rootTag: "image_request",
@@ -134521,7 +134829,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
     }, true));
   });
   content = content.replace(/<image_request_error\b([^>]*)>([\s\S]*?)<\/image_request_error>/gi, (_full, rawAttrs, body) => {
-    const attrs = parseAttrs(rawAttrs);
+    const attrs = parseAttrs2(rawAttrs);
     const target = attrs.target || "";
     const baseSurfaceId = baseSurfaceIdForTarget(target);
     renderedCount += 1;
@@ -134602,13 +134910,13 @@ function normalizeSmartphoneBody(body) {
     return `<s_note app="${escapeAttr(app)}" sender="${escapeAttr(sender)}" time="${escapeAttr(time)}">${escapeHtml(text)}</s_note>`;
   });
   normalized = normalized.replace(/<contact\b([^>]*)\/>/gi, (_m, rawAttrs) => {
-    const a = parseAttrs(rawAttrs);
+    const a = parseAttrs2(rawAttrs);
     warnings.push("self-closing contact → paired contact");
     const rows2 = [a.name || "", a.status || "", a.avatar || ""].filter(Boolean);
     return `<contact>${rows2.map((row) => escapeHtml(row)).join("<br>")}</contact>`;
   });
   normalized = normalized.replace(/<k_msg\b([^>]*)>([\s\S]*?)<\/k_msg>/gi, (_m, rawAttrs, content) => {
-    const a = parseAttrs(rawAttrs);
+    const a = parseAttrs2(rawAttrs);
     const side = String(a.side || "").toLowerCase();
     if (side !== "left" && side !== "right")
       return _m;
@@ -134620,12 +134928,12 @@ function normalizeSmartphoneBody(body) {
 function renderSmartphone(attrs, body, preset, context) {
   const normalized = normalizeSmartphoneBody(body);
   body = normalized.body;
-  const notes = firstTagText(body, "notifications") || "";
-  const contact = removeMediaMarkup(firstTagText(body, "contact") || "") || attrs.sender || "Contact";
-  const messages = firstTagText(body, "messages") || "";
-  const info = removeMediaMarkup(firstTagText(body, "info") || "");
+  const notes = firstTagText2(body, "notifications") || "";
+  const contact = removeMediaMarkup(firstTagText2(body, "contact") || "") || attrs.sender || "Contact";
+  const messages = firstTagText2(body, "messages") || "";
+  const info = removeMediaMarkup(firstTagText2(body, "info") || "");
   const noteRows = allTagMatches(notes, "s_note").map((row) => {
-    const a = parseAttrs(row.attrs);
+    const a = parseAttrs2(row.attrs);
     return `<div class="rrn-note"><div class="rrn-meta"><b>${escapeHtml(a.app || "Notification")}</b><span>${escapeHtml(a.sender || "")}</span><time>${escapeHtml(a.time || "")}</time></div><div>${sanitizeInline(row.body)}</div></div>`;
   }).join("");
   const messageRows = renderMessageChildren(messages, context, "smartphone");
@@ -134650,7 +134958,7 @@ function renderInlineChat(attrs, body, preset, context) {
   let match;
   while ((match = tokenRe.exec(body)) !== null) {
     const tag = match[1].toLowerCase();
-    const a = parseAttrs(match[2] || "");
+    const a = parseAttrs2(match[2] || "");
     const sent = tag === "s_sent" || a.side === "right" || a.side === "sent" || a.sender === "self";
     rows2.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"><div class="rrn-copy"><div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(match[3])}</div>${a.time ? `<div class="rrn-meta"><time>${escapeHtml(a.time)}</time></div>` : ""}</div></div>`);
   }
@@ -134659,17 +134967,17 @@ function renderInlineChat(attrs, body, preset, context) {
   return shell("inline-chat", attrs.header || attrs.sender || "Inline Chat", "Compact conversation", `<div class="rrn-card">${fallback || '<div class="rrn-sub">No visible messages</div>'}${media}</div>`, preset, context);
 }
 function renderInstagram(attrs, body, preset, context) {
-  const caption = firstTagText(body, "caption") || "";
-  const commentsBody = firstTagText(body, "comments") || firstTagText(body, "ig_comments") || "";
+  const caption = firstTagText2(body, "caption") || "";
+  const commentsBody = firstTagText2(body, "comments") || firstTagText2(body, "ig_comments") || "";
   const media = renderInstagramMedia(body, context);
   const commentRows = [...allTagMatches(commentsBody, "i_comment"), ...allTagMatches(commentsBody, "ig_comment")];
   const comments = commentRows.map((row) => {
-    const a = parseAttrs(row.attrs);
+    const a = parseAttrs2(row.attrs);
     const replyRows = [...allTagMatches(row.body, "i_reply"), ...allTagMatches(row.body, "ig_reply")];
     let commentBody = removeNestedTag(row.body, "i_reply");
     commentBody = removeNestedTag(commentBody, "ig_reply");
     const replies = replyRows.map((reply) => {
-      const ra = parseAttrs(reply.attrs);
+      const ra = parseAttrs2(reply.attrs);
       return `<div class="rrn-card rrn-ig-reply" style="margin-top:8px"><div class="rrn-meta"><b>${escapeHtml(ra.user || "user")}</b><span>${escapeHtml(ra.time || "")}</span></div><div>${sanitizeInline(reply.body)}</div></div>`;
     }).join("");
     return `<div class="rrn-comment"><div class="rrn-meta"><b>${escapeHtml(a.user || "user")}</b><span>${escapeHtml(a.time || "")}</span>${a.verified ? '<span class="rrn-chip">verified</span>' : ""}${a.likes ? `<span>${escapeHtml(a.likes)} likes</span>` : ""}</div><div>${sanitizeInline(commentBody)}</div>${replies}</div>`;
@@ -134686,9 +134994,9 @@ function renderInstagramMedia(body, context) {
   const slides = allTagMatches(source, "ig_slide");
   if (slides.length) {
     const rendered = slides.map((slide, index) => {
-      const attrs = parseAttrs(slide.attrs);
+      const attrs = parseAttrs2(slide.attrs);
       const nested = /<img\b([^>]*)>/i.exec(slide.body);
-      const nestedAttrs = nested ? parseAttrs(nested[1]) : {};
+      const nestedAttrs = nested ? parseAttrs2(nested[1]) : {};
       const src = attrs.src || nestedAttrs.src || "";
       const alt = attrs.alt || nestedAttrs.alt || `Instagram slide ${index + 1}`;
       const caption = stripMarkup(slide.body.replace(/<img\b[^>]*>/gi, ""));
@@ -134700,55 +135008,55 @@ function renderInstagramMedia(body, context) {
 }
 function renderTwitter(body, preset, context) {
   const sections = ["for_you", "following", "thread", "trends"];
-  const available = sections.filter((tag) => firstTagText(body, tag));
+  const available = sections.filter((tag) => firstTagText2(body, tag));
   const tabs = (available.length ? available : ["for_you"]).map((tag) => `<span>${titleCase(tag.replace("_", " "))}</span>`).join("");
-  const feedBody = ["for_you", "following", "thread"].map((tag) => firstTagText(body, tag) || "").join(`
+  const feedBody = ["for_you", "following", "thread"].map((tag) => firstTagText2(body, tag) || "").join(`
 `);
   const posts = [
     ...allTagMatches(feedBody, "tw_post"),
     ...allTagMatches(feedBody, "tw_thread_main"),
     ...allTagMatches(feedBody, "tw_reply")
   ].map((row) => renderTwitterPost(row.attrs, row.body, context)).join("");
-  const trendBody = firstTagText(body, "trends") || "";
+  const trendBody = firstTagText2(body, "trends") || "";
   const trends = allTagMatches(trendBody, "tw_trend").map((row) => {
-    const a = parseAttrs(row.attrs);
+    const a = parseAttrs2(row.attrs);
     return `<div class="rrn-trend"><div><b>${sanitizeInline(row.body)}</b><div class="rrn-sub">${escapeHtml(a.posts || "")} posts${a.category ? ` · ${escapeHtml(a.category)}` : ""}</div></div><span class="rrn-chip">#${escapeHtml(a.rank || "")}</span></div>`;
   }).join("");
   const inner = `<div class="rrn-twitter"><div class="rrn-twitter-nav">${tabs}</div><div class="rrn-twitter-feed">${posts || '<div class="rrn-twitter-empty">No posts yet</div>'}</div>${trends ? `<div class="rrn-twitter-trends">${trends}</div>` : ""}</div>`;
   return shell("twitter", "X", "Timeline", inner, preset, context);
 }
 function renderTwitterPost(rawAttrs, body, context) {
-  const attrs = parseAttrs(rawAttrs);
+  const attrs = parseAttrs2(rawAttrs);
   const author = attrs.author || attrs.user || "User";
   const handle = attrs.handle || `@${author.toLowerCase().replace(/\s+/g, "_")}`;
-  const commentsBody = firstTagText(body, "tw_comments") || "";
+  const commentsBody = firstTagText2(body, "tw_comments") || "";
   let mainBody = removeNestedTag(body, "tw_comments");
   const media = renderAnyMedia(mainBody, context, "twitter");
   const quotes = allTagMatches(mainBody, "tw_quote").map((row) => {
-    const a = parseAttrs(row.attrs);
+    const a = parseAttrs2(row.attrs);
     return `<div class="rrn-card rrn-quote"><div class="rrn-meta"><b>${escapeHtml(a.author || a.user || "")}</b><span>${escapeHtml(a.handle || "")}</span><time>${escapeHtml(a.time || "")}</time></div><div>${sanitizeInline(row.body)}</div></div>`;
   }).join("");
   const polls = allTagMatches(mainBody, "tw_poll").map((row) => {
-    const a = parseAttrs(row.attrs);
+    const a = parseAttrs2(row.attrs);
     const options = allTagMatches(row.body, "tw_option").map((opt) => {
-      const oa = parseAttrs(opt.attrs);
+      const oa = parseAttrs2(opt.attrs);
       return `<div class="rrn-trend"><span>${sanitizeInline(opt.body)}</span><b>${escapeHtml(oa.percent || "")}%</b></div>`;
     }).join("");
     return `<div class="rrn-card">${options}<div class="rrn-sub">${a.votes ? `${escapeHtml(a.votes)} votes` : ""}${a.ends ? ` · ends ${escapeHtml(a.ends)}` : ""}</div></div>`;
   }).join("");
   const links = allTagMatches(mainBody, "tw_link").map((row) => {
-    const a = parseAttrs(row.attrs);
+    const a = parseAttrs2(row.attrs);
     const href = /^https?:\/\//i.test(a.url || "") ? a.url : "#";
     return `<a class="rrn-link" href="${escapeAttr(href)}" target="_blank" rel="noopener"><div class="rrn-kicker">${escapeHtml(a.domain || "")}</div><b>${escapeHtml(a.title || "")}</b>${a.description ? `<div class="rrn-sub">${escapeHtml(a.description)}</div>` : ""}${stripMarkup(row.body) ? `<div class="rrn-caption">${sanitizeInline(row.body)}</div>` : ""}</a>`;
   }).join("");
   const notes = allTagMatches(mainBody, "tw_note").map((row) => `<div class="rrn-card"><div class="rrn-kicker">Community Note</div>${sanitizeInline(row.body)}</div>`).join("");
-  mainBody = removeMediaMarkup(stripKnownTags(mainBody, ["tw_quote", "tw_poll", "tw_link", "tw_note"]));
+  mainBody = removeMediaMarkup(stripKnownTags2(mainBody, ["tw_quote", "tw_poll", "tw_link", "tw_note"]));
   const commentRows = allTagMatches(commentsBody, "tw_comment");
   const comments = commentRows.map((row) => {
-    const a = parseAttrs(row.attrs);
+    const a = parseAttrs2(row.attrs);
     const replyAuthor = a.author || a.user || "User";
     const replies = allTagMatches(row.body, "tw_comment_reply").map((reply) => {
-      const ra = parseAttrs(reply.attrs);
+      const ra = parseAttrs2(reply.attrs);
       return `<div class="rrn-comment"><div class="rrn-meta"><b>${escapeHtml(ra.author || ra.user || "")}</b><span>${escapeHtml(ra.handle || "")}</span><time>${escapeHtml(ra.time || "")}</time></div>${sanitizeInline(reply.body)}</div>`;
     }).join("");
     return `<div class="rrn-comment"><div class="rrn-meta"><b>${escapeHtml(replyAuthor)}</b><span>${escapeHtml(a.handle || "")}</span><time>${escapeHtml(a.time || "")}</time>${a.likes ? `<span>${escapeHtml(a.likes)} likes</span>` : ""}</div><div>${sanitizeInline(removeNestedTag(row.body, "tw_comment_reply"))}</div>${replies}</div>`;
@@ -134757,10 +135065,10 @@ function renderTwitterPost(rawAttrs, body, context) {
   return `<article class="rrn-tweet"><div class="rrn-tweet-grid"><span class="rrn-avatar">${escapeHtml(initial(author))}</span><div><div class="rrn-tweet-head"><b>${escapeHtml(author)}</b>${attrs.verified ? '<span aria-label="Verified">✓</span>' : ""}<span>${escapeHtml(handle)}</span><span>·</span><time>${escapeHtml(attrs.time || "")}</time></div><div class="rrn-tweet-text">${sanitizeInline(mainBody)}</div>${quotes}${polls}${links}${notes}${media}<div class="rrn-tweet-actions"><span>↩ ${escapeHtml(attrs.replies || "")}</span><span>⟳ ${escapeHtml(attrs.reposts || "")}</span><span>♡ ${escapeHtml(attrs.likes || "")}</span><span>◉ ${escapeHtml(attrs.views || "")}</span></div>${commentsDrawer}</div></div></article>`;
 }
 function renderKakao(attrs, body, preset, context) {
-  const participants = firstTagText(body, "participants") || "";
-  const messages = firstTagText(body, "messages") || "";
+  const participants = firstTagText2(body, "participants") || "";
+  const messages = firstTagText2(body, "messages") || "";
   const chips = allTagMatches(participants, "k_part").map((row) => {
-    const a = parseAttrs(row.attrs);
+    const a = parseAttrs2(row.attrs);
     return `<span class="rrn-chip">${escapeHtml(a.avatar || initial(a.name || "K"))} ${escapeHtml(a.name || "")}</span>`;
   }).join("");
   const rows2 = [];
@@ -134768,7 +135076,7 @@ function renderKakao(attrs, body, preset, context) {
   let match;
   while ((match = tokenRe.exec(messages)) !== null) {
     const tag = match[1] || match[4];
-    const a = parseAttrs(match[2] || match[5] || "");
+    const a = parseAttrs2(match[2] || match[5] || "");
     const value = match[3] || "";
     if (tag === "k_msg") {
       const sent = a.side === "right";
@@ -134777,14 +135085,14 @@ function renderKakao(attrs, body, preset, context) {
       const reply = firstTagMatch(value, "k_reply");
       const file = firstTagMatch(value, "k_file");
       const reactions = allTagMatches(value, "k_react").map((row) => {
-        const ra = parseAttrs(row.attrs);
+        const ra = parseAttrs2(row.attrs);
         return `<span class="rrn-chip">${escapeHtml(ra.emoji || "")} ${escapeHtml(ra.count || "")}</span>`;
       }).join("");
       let clean = removeMediaMarkup(value);
-      clean = stripKnownTags(clean, ["k_reply", "k_file", "k_react"]);
-      const replyMarkup = reply ? `<div class="rrn-card rrn-quote"><div class="rrn-meta"><b>${escapeHtml(parseAttrs(reply.attrs).sender || "")}</b></div>${sanitizeInline(reply.body)}</div>` : "";
+      clean = stripKnownTags2(clean, ["k_reply", "k_file", "k_react"]);
+      const replyMarkup = reply ? `<div class="rrn-card rrn-quote"><div class="rrn-meta"><b>${escapeHtml(parseAttrs2(reply.attrs).sender || "")}</b></div>${sanitizeInline(reply.body)}</div>` : "";
       const fileMarkup = file ? (() => {
-        const fa = parseAttrs(file.attrs);
+        const fa = parseAttrs2(file.attrs);
         return `<div class="rrn-file"><span>▧</span><div><b>${escapeHtml(fa.name || "Attachment")}</b><div class="rrn-sub">${escapeHtml(fa.type || "")}${fa.size ? ` · ${escapeHtml(fa.size)}` : ""}</div>${stripMarkup(file.body) ? `<div>${sanitizeInline(file.body)}</div>` : ""}</div></div>`;
       })() : "";
       rows2.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"${colorAttr}>${sent ? "" : `<span class="rrn-avatar">${escapeHtml(a.avatar || initial(a.sender || "K"))}</span>`}<div class="rrn-copy"><div class="rrn-meta">${sent ? "" : `<b>${escapeHtml(a.sender || "")}</b>`}<time>${escapeHtml(a.time || "")}</time>${a.read ? `<span>${escapeHtml(a.read)}</span>` : ""}</div>${replyMarkup}<div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(clean)}</div>${renderAnyMedia(value, context, "kakao")}${fileMarkup}${reactions ? `<div class="rrn-reactions">${reactions}</div>` : ""}</div></div>`);
@@ -134823,29 +135131,29 @@ function renderImageSurface(baseSurfaceId, rootTag, attrs, body, preset, context
   return shell(baseSurfaceId, title, subtitle, pending, preset, context, extraClass);
 }
 function renderNews(body, preset, context, dispatch) {
-  const headline = firstTagText(body, "headline") || (dispatch ? "Dispatch" : "News");
-  const source = firstTagText(body, dispatch ? "agency" : "source") || "";
-  const byline = firstTagText(body, "byline") || "";
-  const timestamp = firstTagText(body, "timestamp") || "";
-  const article = firstTagText(body, dispatch ? "content" : "body") || "";
-  const tags = firstTagText(body, dispatch ? "tags" : "category") || "";
+  const headline = firstTagText2(body, "headline") || (dispatch ? "Dispatch" : "News");
+  const source = firstTagText2(body, dispatch ? "agency" : "source") || "";
+  const byline = firstTagText2(body, "byline") || "";
+  const timestamp = firstTagText2(body, "timestamp") || "";
+  const article = firstTagText2(body, dispatch ? "content" : "body") || "";
+  const tags = firstTagText2(body, dispatch ? "tags" : "category") || "";
   const inner = `<div class="rrn-kicker">${escapeHtml(source)}</div><div class="rrn-title">${sanitizeInline(headline)}</div><div class="rrn-meta"><span>${escapeHtml(byline)}</span><time>${escapeHtml(timestamp)}</time></div><div class="rrn-card" style="margin-top:14px">${sanitizeParagraphs(article)}</div>${tags ? `<div class="rrn-actions"><span class="rrn-chip">${sanitizeInline(tags)}</span></div>` : ""}`;
   return shell(dispatch ? "dispatch" : "news", dispatch ? "Dispatch" : "News", "Structured article", inner, preset, context, "rrn-document");
 }
 function renderLetter(body, preset, context) {
-  const from = firstTagText(body, "from") || "";
-  const to = firstTagText(body, "to") || "";
-  const date = firstTagText(body, "date") || "";
-  const letterBody = firstTagText(body, "body") || "";
-  const folded = firstTagText(body, "folded") || "";
+  const from = firstTagText2(body, "from") || "";
+  const to = firstTagText2(body, "to") || "";
+  const date = firstTagText2(body, "date") || "";
+  const letterBody = firstTagText2(body, "body") || "";
+  const folded = firstTagText2(body, "folded") || "";
   return shell("letter", `Letter from ${from || "Unknown"}`, `To ${to}${date ? ` · ${date}` : ""}`, `<div class="rrn-card">${sanitizeParagraphs(letterBody)}</div>${folded ? `<div class="rrn-sub" style="margin-top:12px">Folded note: ${sanitizeInline(folded)}</div>` : ""}`, preset, context, "rrn-document");
 }
 function renderCharacterProfile(body, preset, context) {
-  const portrait = firstTagText(body, "portrait") || "";
-  const name = firstTagText(body, "name") || "New character";
-  const role = firstTagText(body, "role") || "";
-  const hook = firstTagText(body, "hook") || "";
-  const trait = firstTagText(body, "trait") || "";
+  const portrait = firstTagText2(body, "portrait") || "";
+  const name = firstTagText2(body, "name") || "New character";
+  const role = firstTagText2(body, "role") || "";
+  const hook = firstTagText2(body, "hook") || "";
+  const trait = firstTagText2(body, "trait") || "";
   const media = renderAnyMedia(portrait, context, "character-profile") || '<div class="rrn-parity-slot-pending">Portrait request unavailable</div>';
   const card = `<div class="rr-character-profile" data-rrn-surface="character-profile"><article class="cp-card"><div class="cp-portrait">${media}</div><div class="cp-copy"><div class="cp-kicker">Cast Sheet</div><div class="cp-name">${sanitizeInline(name)}</div><div class="cp-role">${sanitizeInline(role)}</div><div class="cp-hook"><span>${sanitizeInline(hook)}</span></div><div class="cp-trait">${sanitizeInline(trait)}</div></div></article></div>`;
   const shellMode = context.defaultShellMode || preset?.shellMode || defaultShellMode("character-profile");
@@ -134864,7 +135172,7 @@ function renderMessageChildren(body, context, baseSurfaceId) {
       continue;
     }
     const sent = tag === "s_sent";
-    const attrs = parseAttrs(match[2]);
+    const attrs = parseAttrs2(match[2]);
     rows2.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"><div class="rrn-copy"><div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(match[3])}</div><div class="rrn-meta"><time>${escapeHtml(attrs.time || "")}</time></div></div></div>`);
   }
   return rows2.join("");
@@ -134872,12 +135180,12 @@ function renderMessageChildren(body, context, baseSurfaceId) {
 function renderAnyMedia(body, context, baseSurfaceId) {
   const request2 = firstTagMatch(body, "image_request");
   if (request2) {
-    const attrs = parseAttrs(request2.attrs);
-    return renderRequestCard({ title: "Media requested", brief: firstTagText(request2.body, "scene_brief") || firstTagText(request2.body, "prompt") || stripMarkup(request2.body), requestId: attrs.id || attrs.request_id || "", aspect: attrs.aspect || "16:9", rootTag: "image_request", baseSurfaceId, preset: undefined, context }, true);
+    const attrs = parseAttrs2(request2.attrs);
+    return renderRequestCard({ title: "Media requested", brief: firstTagText2(request2.body, "scene_brief") || firstTagText2(request2.body, "prompt") || stripMarkup(request2.body), requestId: attrs.id || attrs.request_id || "", aspect: attrs.aspect || "16:9", rootTag: "image_request", baseSurfaceId, preset: undefined, context }, true);
   }
   const error = firstTagMatch(body, "image_request_error");
   if (error) {
-    const attrs = parseAttrs(error.attrs);
+    const attrs = parseAttrs2(error.attrs);
     return renderRequestCard({ title: "Generation failed", brief: stripMarkup(error.body) || "Relay could not generate this media.", requestId: attrs.id || "", aspect: attrs.aspect || "16:9", rootTag: "image_request_error", baseSurfaceId, preset: undefined, context, failed: true }, true);
   }
   const image2 = extractImage(body);
@@ -134895,16 +135203,16 @@ function renderAnyMedia(body, context, baseSurfaceId) {
 function extractImage(body) {
   const img = /<img\b([^>]*)>/i.exec(body);
   if (img) {
-    const attrs = parseAttrs(img[1]);
+    const attrs = parseAttrs2(img[1]);
     return { src: attrs.src || "", alt: attrs.alt || "", caption: attrs["data-caption"] || "", requestId: attrs["data-dgir-request-id"] || attrs["data-request-id"] || "", aspect: attrs["data-aspect"] || "", key: attrs["data-dgir-key"] || "", imageId: attrs["data-dgir-image-id"] || "", slot: attrs["data-dgir-slot"] || "" };
   }
   for (const tag of ["ig_slide", "tw_media", "s_img", "k_img"]) {
     const match = firstTagMatch(body, tag);
     if (!match)
       continue;
-    const attrs = parseAttrs(match.attrs);
+    const attrs = parseAttrs2(match.attrs);
     const nested = /<img\b([^>]*)>/i.exec(match.body);
-    const nestedAttrs = nested ? parseAttrs(nested[1]) : {};
+    const nestedAttrs = nested ? parseAttrs2(nested[1]) : {};
     return { src: attrs.src || nestedAttrs.src || "", alt: attrs.alt || nestedAttrs.alt || "", caption: tag === "k_img" ? attrs.caption || stripMarkup(match.body) : stripMarkup(match.body), requestId: attrs["data-dgir-request-id"] || nestedAttrs["data-dgir-request-id"] || "", aspect: attrs.aspect || "", key: attrs["data-dgir-key"] || nestedAttrs["data-dgir-key"] || "", imageId: attrs["data-dgir-image-id"] || nestedAttrs["data-dgir-image-id"] || "", slot: attrs["data-dgir-slot"] || nestedAttrs["data-dgir-slot"] || "" };
   }
   return null;
@@ -135059,7 +135367,7 @@ function sanitizeCssLength(value) {
   const clean = value.trim();
   return /^(?:\d+(?:\.\d+)?(?:px|rem|em|%|vw)|min\([^;{}]+\)|clamp\([^;{}]+\))$/i.test(clean) ? clean : "760px";
 }
-function parseAttrs(raw) {
+function parseAttrs2(raw) {
   const out = {};
   const re = /([A-Za-z_:][A-Za-z0-9_.:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
   let match;
@@ -135067,7 +135375,7 @@ function parseAttrs(raw) {
     out[match[1]] = match[2] ?? match[3] ?? match[4] ?? "";
   return out;
 }
-function firstTagText(body, tagName) {
+function firstTagText2(body, tagName) {
   const match = new RegExp(`<${escapeRegExp(tagName)}\\b[^>]*>([\\s\\S]*?)</${escapeRegExp(tagName)}>`, "i").exec(body);
   return match?.[1]?.trim() || "";
 }
@@ -135086,7 +135394,7 @@ function allTagMatches(body, tagName) {
 function removeNestedTag(body, tagName) {
   return body.replace(new RegExp(`<${escapeRegExp(tagName)}\\b[^>]*>[\\s\\S]*?</${escapeRegExp(tagName)}>`, "gi"), "");
 }
-function stripKnownTags(body, tagNames) {
+function stripKnownTags2(body, tagNames) {
   let value = body;
   for (const tag of tagNames)
     value = removeNestedTag(value, tag);
@@ -135101,22 +135409,22 @@ function removeMediaMarkup(body) {
 }
 function firstSceneBrief(body) {
   const request2 = firstTagMatch(body, "image_request");
-  return request2 ? firstTagText(request2.body, "scene_brief") || firstTagText(request2.body, "prompt") || stripMarkup(request2.body) : "";
+  return request2 ? firstTagText2(request2.body, "scene_brief") || firstTagText2(request2.body, "prompt") || stripMarkup(request2.body) : "";
 }
 function firstRequestId(body) {
   const request2 = firstTagMatch(body, "image_request");
   if (request2) {
-    const attrs = parseAttrs(request2.attrs);
+    const attrs = parseAttrs2(request2.attrs);
     return attrs.id || attrs.request_id || "";
   }
   const img = /<img\b([^>]*)>/i.exec(body);
   if (img)
-    return parseAttrs(img[1])["data-dgir-request-id"] || "";
+    return parseAttrs2(img[1])["data-dgir-request-id"] || "";
   return "";
 }
 function firstRequestAspect(body) {
   const request2 = firstTagMatch(body, "image_request");
-  return request2 ? parseAttrs(request2.attrs).aspect || "" : "";
+  return request2 ? parseAttrs2(request2.attrs).aspect || "" : "";
 }
 function sanitizeParagraphs(value) {
   const paragraphs = allTagMatches(value, "p");

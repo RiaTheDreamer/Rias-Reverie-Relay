@@ -1965,6 +1965,10 @@ export function isImageTarget(value: string): value is ImageTarget {
   return TARGETS.has(value as ImageTarget) || /^custom\.[a-z0-9][a-z0-9._-]{1,62}$/i.test(value)
 }
 
+export function containsImageRequestMarkup(value: unknown): boolean {
+  return typeof value === 'string' && /<(?:image_request|reverie-illustration)\b|\[image_request\]/i.test(value)
+}
+
 export function slotKey(parts: {
   chatId: string
   messageId: string
@@ -2035,6 +2039,16 @@ export function parseImageRequests(content: string): ImageRequest[] {
     const openEnd = phoneMatch[0].indexOf('>') + 1
     phoneRanges.push({ start: phoneMatch.index, end: phoneMatch.index + phoneMatch[0].length, bodyStart: phoneMatch.index + openEnd, time: rootAttrs.time?.trim() || '' })
   }
+  const bracketPhoneRe = /\[(?:smart_phone|smartphone)\]([\s\S]*?)\[\/(?:smart_phone|smartphone)\]/gi
+  while ((phoneMatch = bracketPhoneRe.exec(content)) !== null) {
+    const openEnd = phoneMatch[0].indexOf(']') + 1
+    phoneRanges.push({
+      start: phoneMatch.index,
+      end: phoneMatch.index + phoneMatch[0].length,
+      bodyStart: phoneMatch.index + openEnd,
+      time: firstBracketTagText(phoneMatch[1] || '', 'time')?.trim() || '',
+    })
+  }
 
   const re = /<(image_request|reverie-illustration)\b([^>]*)>([\s\S]*?)<\/\1>/gi
   const invalidProseSpans = new Set(inspectProseIllustrationSchemas(content).map(diagnostic => `${diagnostic.index}:${diagnostic.fullMatch.length}`))
@@ -2101,10 +2115,65 @@ export function parseImageRequests(content: string): ImageRequest[] {
     })
   }
 
+  // Current story-model authoring is bracket-only. Keep legacy XML above as
+  // an explicit compatibility ingress, but normalize both grammars into the
+  // same ImageRequest shape before generation and placement logic sees them.
+  const bracketRe = /\[image_request\]([\s\S]*?)\[\/image_request\]/gi
+  while ((match = bracketRe.exec(content)) !== null) {
+    const body = match[1] || ''
+    const id = (firstBracketTagText(body, 'id') || firstBracketTagText(body, 'request_id') || '').trim()
+    const authoredTarget = firstBracketTagText(body, 'target')?.trim() as ImageTarget | undefined
+    const narrativeOwned = isNarrativeOwnedImageRequest(content, match.index)
+    const target = (narrativeOwned && authoredTarget === 'prose.illustration'
+      ? 'custom.artifact-media'
+      : authoredTarget) as ImageTarget | undefined
+    if (!id || !target || !isImageTarget(target)) continue
+
+    const structuredPrompt = firstBracketTagText(body, 'scene_brief')
+      || firstBracketTagText(body, 'prompt')
+      || firstBracketTagText(body, 'visual_prompt')
+    if (!structuredPrompt?.trim()) continue
+
+    const rawCast = String(firstBracketTagText(body, 'cast') || '').trim().toLocaleLowerCase()
+    const cast = ['char', 'user', 'char+user', 'none'].includes(rawCast)
+      ? rawCast as ImageRequest['cast']
+      : undefined
+    const countValue = firstBracketTagText(body, 'count')
+    const count = clampInt(countValue ? Number(countValue) : 1, 1, MAX_COUNT)
+    const caption = firstBracketTagText(body, 'context_caption')?.trim()
+    const alt = firstBracketTagText(body, 'alt')?.trim() || caption || ''
+    let requestTime = firstBracketTagText(body, 'time')?.trim() || undefined
+    if (target === 'smartphone.message-image' && !requestTime) {
+      const phone = phoneRanges.find(range => match!.index >= range.start && match!.index < range.end)
+      if (phone) {
+        const beforeRequest = content.slice(phone.bodyStart, match.index)
+        requestTime = lastBracketTagText(beforeRequest, 'time')?.trim() || phone.time || undefined
+      }
+    }
+
+    out.push({
+      id,
+      target,
+      intent: normalizeImageIntent(firstBracketTagText(body, 'intent')),
+      count: target === 'instagram.carousel' ? count : 1,
+      aspect: firstBracketTagText(body, 'aspect')?.trim(),
+      alt,
+      caption,
+      time: requestTime,
+      prompt: structuredPrompt.trim().slice(0, MAX_PROMPT_CHARS),
+      cast,
+      promptSource: 'structured',
+      negative: (firstBracketTagText(body, 'negative_prompt') || firstBracketTagText(body, 'negative'))?.trim(),
+      slot: firstBracketTagText(body, 'slot')?.trim() || undefined,
+      fullMatch: match[0],
+      index: match.index,
+    })
+  }
+
   // A reusable Surface avatar can intentionally appear in several message rows.
   // Its stable id/slot identifies one generation job, not one job per placement.
   const unique = new Map<string, ImageRequest>()
-  for (const request of out) {
+  for (const request of out.sort((left, right) => left.index - right.index)) {
     const key = `${request.target}:${request.id}:${request.slot || ''}`
     if (!unique.has(key)) unique.set(key, request)
   }
@@ -2426,6 +2495,18 @@ function firstTagText(body: string, tag: string): string | undefined {
   const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i')
   const match = body.match(re)
   return match?.[1]?.trim()
+}
+
+function firstBracketTagText(body: string, tag: string): string | undefined {
+  const re = new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`, 'i')
+  return re.exec(body)?.[1]?.trim()
+}
+
+function lastBracketTagText(body: string, tag: string): string | undefined {
+  const re = new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`, 'gi')
+  let value: string | undefined
+  for (const match of body.matchAll(re)) value = match[1]?.trim()
+  return value
 }
 
 function stripKnownTags(body: string): string {
