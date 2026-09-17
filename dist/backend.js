@@ -157551,8 +157551,12 @@ for (const eventName of ["MESSAGE_DELETED", "MESSAGE_REMOVED", "CHAT_MESSAGE_DEL
       latestMessageSnapshots.delete(messageSnapshotKey(chatId, messageId));
       const batchPrefix = `${relayQueueScope(userId)}:${chatId}:${messageId}:`;
       for (const key2 of [...pendingPlacementBatches.keys()])
-        if (key2.startsWith(batchPrefix))
+        if (key2.startsWith(batchPrefix)) {
+          const batch = pendingPlacementBatches.get(key2);
+          if (batch)
+            clearInitialPlacementVisualFallback(batch);
           pendingPlacementBatches.delete(key2);
+        }
     }
     handleMessageDeleted(payload, userId).catch((error) => spindle.log.error(`[Reverie Relay:${eventName.toLocaleLowerCase()}] ${error instanceof Error ? error.message : String(error)}`));
   });
@@ -158921,12 +158925,13 @@ async function handleFrontendMessage(payload, userId) {
       const broker = nativeSettingsBroker(userId);
       broker.frontendSessions.set(payload.sessionId, {
         sessionId: payload.sessionId,
+        chatId: payload.chatId || null,
         connected: payload.connected,
         nativeSettingsAvailable: payload.nativeSettingsAvailable,
         lastSeenAt: Date.now(),
         platformClass: payload.platformClass
       });
-      if (payload.chatId)
+      if (payload.chatId && !payload.heartbeat)
         await mutateState(payload.chatId, userId, (state) => appendStateLog(state, {
           severity: "info",
           stage: "frontend-session",
@@ -158935,13 +158940,25 @@ async function handleFrontendMessage(payload, userId) {
           message: `${payload.platformClass} frontend ${payload.connected ? "connected" : "disconnected"}.`,
           details: { sessionId: payload.sessionId, platformClass: payload.platformClass, nativeSettingsAvailable: payload.nativeSettingsAvailable }
         }));
+      reconsiderPendingPlacementBatches(userId).catch((error) => spindle.log.error(`[Reverie Relay:placement_visual_session] ${error instanceof Error ? error.message : String(error)}`));
       return;
     }
+    case "placement_visual_started":
+      await handlePlacementVisualStarted(payload, userId);
+      return;
+    case "placement_visual_settled":
+      await handlePlacementVisualSettled(payload, userId);
+      return;
+    case "placement_visual_unavailable":
+      await handlePlacementVisualUnavailable(payload, userId);
+      return;
     case "sync_native_settings":
       if (payload.frontendSessionId) {
         const broker = nativeSettingsBroker(userId);
+        const existingSession = broker.frontendSessions.get(payload.frontendSessionId);
         broker.frontendSessions.set(payload.frontendSessionId, {
           sessionId: payload.frontendSessionId,
+          chatId: payload.chatId || existingSession?.chatId || null,
           connected: true,
           nativeSettingsAvailable: Boolean(Object.keys(payload.imageGeneration || {}).length),
           lastSeenAt: Date.now(),
@@ -162614,14 +162631,38 @@ function replaceOwningMessageMediaWrapper(content, job, replacement) {
   const owner = matches[0];
   return `${content.slice(0, owner.start)}${replacement}${content.slice(owner.end)}`;
 }
-async function stageInitialPlacementBatchEntry(batch, job, results, replaceExisting, userId) {
-  await markGeneratedPlacementPending(job, results, userId);
+function hasConnectedFrontendForChat(chatId, userId) {
+  return [...nativeSettingsBroker(userId).frontendSessions.values()].some((session) => session.connected && session.chatId === chatId);
+}
+function visualSettlementsForResults(job, results, required) {
+  return results.map((result) => ({
+    key: slotKey({ ...job, slot: result.slot }),
+    requestId: job.requestId,
+    slot: result.slot,
+    imageUrl: result.imageUrl,
+    imageId: result.imageId,
+    required,
+    started: false,
+    settled: false
+  }));
+}
+async function stageInitialPlacementBatchEntry(batch, job, results, replaceExisting, requireVisualSettlement, userId) {
   const existing = batch.entries.findIndex((entry2) => entry2.job.requestId === job.requestId);
-  const entry = { job, results, replaceExisting };
+  const previousEntry = existing >= 0 ? batch.entries[existing] : undefined;
+  const entry = { job, results, replaceExisting, visualSettlements: visualSettlementsForResults(job, results, requireVisualSettlement && hasConnectedFrontendForChat(job.chatId, userId)) };
   if (existing >= 0)
     batch.entries[existing] = entry;
   else
     batch.entries.push(entry);
+  try {
+    await markGeneratedPlacementPending(job, results, userId);
+  } catch (error) {
+    if (existing >= 0 && previousEntry)
+      batch.entries[existing] = previousEntry;
+    else
+      batch.entries.splice(batch.entries.indexOf(entry), 1);
+    throw error;
+  }
 }
 function composeInitialPlacementBatchContent(content, entries) {
   let nextContent = content;
@@ -162671,6 +162712,53 @@ function composeInitialPlacementBatchContent(content, entries) {
     error: failedEntries.length ? `No deterministic anchor remained for ${failedEntries.map((entry) => entry.job.requestId).join(", ")}.` : undefined,
     failedEntries: failedEntries.length ? failedEntries : undefined
   };
+}
+function findInitialPlacementVisualSettlement(batch, acknowledgement) {
+  if (batch.chatId !== acknowledgement.chatId || batch.messageId !== acknowledgement.messageId || batch.swipeId !== acknowledgement.swipeId)
+    return;
+  return batch.entries.flatMap((entry) => entry.visualSettlements || []).find((candidate) => candidate.key === acknowledgement.key && candidate.requestId === acknowledgement.requestId && candidate.slot === acknowledgement.slot && candidate.imageUrl === acknowledgement.imageUrl && (!candidate.imageId || candidate.imageId === acknowledgement.imageId));
+}
+function markInitialPlacementVisualStarted(batch, acknowledgement, startedAt = Date.now()) {
+  const settlement = findInitialPlacementVisualSettlement(batch, acknowledgement);
+  if (!settlement)
+    return "stale";
+  if (settlement.started)
+    return "duplicate";
+  settlement.started = true;
+  settlement.startedAt = startedAt;
+  return "started";
+}
+function markInitialPlacementVisualSettled(batch, acknowledgement, settledAt = Date.now()) {
+  const settlement = findInitialPlacementVisualSettlement(batch, acknowledgement);
+  if (!settlement)
+    return "stale";
+  if (settlement.settled)
+    return "duplicate";
+  settlement.settled = true;
+  settlement.settledAt = settledAt;
+  return "settled";
+}
+function markInitialPlacementVisualUnavailable(batch, acknowledgement) {
+  const settlement = findInitialPlacementVisualSettlement(batch, acknowledgement);
+  if (!settlement)
+    return "stale";
+  if (!settlement.required || settlement.settled)
+    return "duplicate";
+  settlement.required = false;
+  return "released";
+}
+function hasUnsettledVisiblePlacement(batch) {
+  return batch.entries.some((entry) => (entry.visualSettlements || []).some((settlement) => settlement.required && !settlement.settled));
+}
+function hasStartedUnsettledVisiblePlacement(batch) {
+  return batch.entries.some((entry) => (entry.visualSettlements || []).some((settlement) => settlement.required && settlement.started && !settlement.settled));
+}
+function initialPlacementBatchCommitGate(batch, options) {
+  if (options.hasGenerationSibling)
+    return "generation-pending";
+  if (hasUnsettledVisiblePlacement(batch) && options.hasVisibleFrontend && (!options.allowSafetyFallback || options.healthyStartedVisual))
+    return "visual-pending";
+  return "ready";
 }
 async function markInitialPlacementBatchForRepair(batch, reason, currentContent, userId, entries = batch.entries) {
   await mutateState(batch.chatId, userId, (state) => {
@@ -162764,7 +162852,7 @@ async function commitInitialPlacementBatch(batch, userId) {
         messageId: batch.messageId,
         swipeId: batch.swipeId,
         message: `Persisted ${verifiedEntries.reduce((total, entry) => total + entry.results.length, 0)} generated image slot(s) in one message-scoped update.`,
-        details: { requestIds: verifiedEntries.map((entry) => entry.job.requestId), sourceFingerprint: batch.sourceFingerprint, sourceChanged: contentFingerprint(currentContent) !== batch.sourceFingerprint }
+        details: { requestIds: verifiedEntries.map((entry) => entry.job.requestId), sourceFingerprint: batch.sourceFingerprint, sourceChanged: contentFingerprint(currentContent) !== batch.sourceFingerprint, visualFallbackReason: batch.visualFallbackReason }
       });
     });
     if (failedEntries.length)
@@ -162782,18 +162870,94 @@ function hasUnsettledPlacementSibling(batch, userId) {
   const queuePrefix = `${relayQueueScope(userId)}:${batch.chatId}:${batch.messageId}:${batch.swipeId}:`;
   return [...enqueuedRelayJobs.keys()].some((key2) => key2.startsWith(queuePrefix) && !staged.has(key2.slice(queuePrefix.length)));
 }
-async function maybeCommitInitialPlacementBatch(job, userId) {
+var PLACEMENT_VISUAL_SETTLEMENT_SAFETY_MS = 30000;
+var PLACEMENT_VISUAL_SESSION_LEASE_MS = 25000;
+function hasFreshFrontendForChat(chatId, userId) {
+  const now = Date.now();
+  return [...nativeSettingsBroker(userId).frontendSessions.values()].some((session) => session.connected && session.chatId === chatId && now - session.lastSeenAt <= PLACEMENT_VISUAL_SESSION_LEASE_MS);
+}
+function clearInitialPlacementVisualFallback(batch) {
+  if (batch.visualFallbackTimer)
+    clearTimeout(batch.visualFallbackTimer);
+  batch.visualFallbackTimer = undefined;
+}
+function scheduleInitialPlacementVisualFallback(batch, userId) {
+  if (batch.visualFallbackTimer)
+    return;
+  batch.visualFallbackTimer = setTimeout(() => {
+    batch.visualFallbackTimer = undefined;
+    maybeCommitInitialPlacementBatch(batch, userId, true).catch((error) => spindle.log.error(`[Reverie Relay:placement_visual_fallback] ${error instanceof Error ? error.message : String(error)}`));
+  }, PLACEMENT_VISUAL_SETTLEMENT_SAFETY_MS);
+}
+async function maybeCommitInitialPlacementBatch(job, userId, allowSafetyFallback = false) {
   return withPlacementMutationLock(job, async () => {
     const key2 = placementBatchKey(job, userId);
     const batch = pendingPlacementBatches.get(key2);
-    if (!batch || hasUnsettledPlacementSibling(batch, userId))
+    if (!batch)
       return false;
+    const healthyStartedVisual = allowSafetyFallback && hasStartedUnsettledVisiblePlacement(batch) && hasFreshFrontendForChat(batch.chatId, userId);
+    const gate = initialPlacementBatchCommitGate(batch, {
+      hasGenerationSibling: hasUnsettledPlacementSibling(batch, userId),
+      hasVisibleFrontend: hasConnectedFrontendForChat(batch.chatId, userId),
+      allowSafetyFallback,
+      healthyStartedVisual
+    });
+    if (gate === "generation-pending")
+      return false;
+    if (gate === "visual-pending") {
+      scheduleInitialPlacementVisualFallback(batch, userId);
+      return false;
+    }
+    if (hasUnsettledVisiblePlacement(batch)) {
+      batch.visualFallbackReason = allowSafetyFallback ? "bounded-safety-recovery" : "frontend-no-longer-visible";
+      spindle.log.warn(`[Reverie Relay:placement_visual_fallback] Persisting ${batch.chatId}/${batch.messageId}/${batch.swipeId} through ${batch.visualFallbackReason}; visual settlement was not used as a synthetic Reveal timer.`);
+    }
+    clearInitialPlacementVisualFallback(batch);
     pendingPlacementBatches.delete(key2);
     await commitInitialPlacementBatch(batch, userId);
     return true;
   });
 }
-async function stageGeneratedPlacement(job, results, replaceExisting, userId) {
+async function handlePlacementVisualSettled(payload, userId) {
+  const session = nativeSettingsBroker(userId).frontendSessions.get(payload.sessionId);
+  if (!session?.connected || session.chatId !== payload.chatId)
+    return;
+  session.lastSeenAt = Date.now();
+  const batch = pendingPlacementBatches.get(placementBatchKey(payload, userId));
+  if (!batch)
+    return;
+  const outcome = markInitialPlacementVisualSettled(batch, payload);
+  if (outcome === "stale")
+    return;
+  await maybeCommitInitialPlacementBatch(payload, userId);
+}
+async function handlePlacementVisualStarted(payload, userId) {
+  const session = nativeSettingsBroker(userId).frontendSessions.get(payload.sessionId);
+  if (!session?.connected || session.chatId !== payload.chatId)
+    return;
+  session.lastSeenAt = Date.now();
+  const batch = pendingPlacementBatches.get(placementBatchKey(payload, userId));
+  if (!batch)
+    return;
+  markInitialPlacementVisualStarted(batch, payload);
+}
+async function handlePlacementVisualUnavailable(payload, userId) {
+  const session = nativeSettingsBroker(userId).frontendSessions.get(payload.sessionId);
+  if (!session?.connected || session.chatId !== payload.chatId)
+    return;
+  session.lastSeenAt = Date.now();
+  const batch = pendingPlacementBatches.get(placementBatchKey(payload, userId));
+  if (!batch || markInitialPlacementVisualUnavailable(batch, payload) === "stale")
+    return;
+  await maybeCommitInitialPlacementBatch(payload, userId);
+}
+async function reconsiderPendingPlacementBatches(userId) {
+  const scopePrefix = `${relayQueueScope(userId)}:`;
+  const batches = [...pendingPlacementBatches.entries()].filter(([key2]) => key2.startsWith(scopePrefix)).map(([, batch]) => batch);
+  for (const batch of batches)
+    await maybeCommitInitialPlacementBatch(batch, userId);
+}
+async function stageGeneratedPlacement(job, results, replaceExisting, requireVisualSettlement, userId) {
   const key2 = placementBatchKey(job, userId);
   await withPlacementMutationLock(job, async () => {
     let batch = pendingPlacementBatches.get(key2);
@@ -162803,7 +162967,7 @@ async function stageGeneratedPlacement(job, results, replaceExisting, userId) {
       batch = { chatId: job.chatId, messageId: job.messageId, swipeId: job.swipeId, sourceFingerprint: contentFingerprint(content), entries: [] };
       pendingPlacementBatches.set(key2, batch);
     }
-    await stageInitialPlacementBatchEntry(batch, job, results, replaceExisting, userId);
+    await stageInitialPlacementBatchEntry(batch, job, results, replaceExisting, requireVisualSettlement, userId);
   });
   return maybeCommitInitialPlacementBatch(job, userId);
 }
@@ -162818,7 +162982,7 @@ async function applyJobSuccess(job, results, replaceExisting, userId, bypassImag
     spindle.sendToFrontend({ type: "status", status: "Preview Ready", requestId: job.requestId }, userId);
     return "placement-pending";
   }
-  const committed = await stageGeneratedPlacement(job, results, replaceExisting, userId);
+  const committed = await stageGeneratedPlacement(job, results, replaceExisting, !bypassImagePreview, userId);
   if (!committed)
     return "placement-pending";
   const state = await getState(job.chatId, userId);
@@ -172343,11 +172507,16 @@ export {
   normalizeProseIllustratorSettings,
   normalizeImageGenerationStreamEvent,
   migrateRelayStateSnapshot,
+  markInitialPlacementVisualUnavailable,
+  markInitialPlacementVisualStarted,
+  markInitialPlacementVisualSettled,
   isUnresolvedCharacterMacro,
   isExplicitAdultScene,
   isEligibleProseContent,
   invalidateRenderOutputForMessage,
   inspectProviderImageFreshness,
+  initialPlacementBatchCommitGate,
+  hasUnsettledVisiblePlacement,
   hasUnrequestedExplicitEscalation,
   hasExplicitNoHumanIntent,
   getConfig,

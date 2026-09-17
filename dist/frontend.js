@@ -135864,6 +135864,68 @@ function frontendSurfaceFallback() {
     updatedAt: 0
   };
 }
+async function settlePlacementVisualLifecycle(options) {
+  const { image: image2, isCurrent, reducedMotion, onSettled } = options;
+  if (!image2.complete) {
+    const loaded = await new Promise((resolve) => {
+      const cleanup = () => {
+        image2.removeEventListener("load", onLoad);
+        image2.removeEventListener("error", onError);
+      };
+      const onLoad = () => {
+        cleanup();
+        resolve(true);
+      };
+      const onError = () => {
+        cleanup();
+        resolve(false);
+      };
+      image2.addEventListener("load", onLoad, { once: true });
+      image2.addEventListener("error", onError, { once: true });
+    });
+    if (!loaded)
+      return "failed";
+  }
+  if (image2.naturalWidth <= 0 || !isCurrent())
+    return isCurrent() ? "failed" : "stale";
+  try {
+    await image2.decode?.();
+  } catch {}
+  if (!isCurrent())
+    return "stale";
+  image2.classList.remove("rrl-final-reveal");
+  if (reducedMotion) {
+    onSettled();
+    return "settled";
+  }
+  const animationFinished = new Promise((resolve) => {
+    const cleanup = () => {
+      image2.removeEventListener("animationend", onAnimationEnd);
+      image2.removeEventListener("animationcancel", onAnimationCancel);
+    };
+    const onAnimationEnd = (event) => {
+      if (event.target !== image2)
+        return;
+      cleanup();
+      resolve(true);
+    };
+    const onAnimationCancel = (event) => {
+      if (event.target !== image2)
+        return;
+      cleanup();
+      resolve(false);
+    };
+    image2.addEventListener("animationend", onAnimationEnd);
+    image2.addEventListener("animationcancel", onAnimationCancel);
+  });
+  image2.classList.add("rrl-final-reveal");
+  const finished = await animationFinished;
+  image2.classList.remove("rrl-final-reveal");
+  if (!finished || !isCurrent())
+    return "stale";
+  onSettled();
+  return "settled";
+}
 function setup(ctx) {
   const runtimeHost = globalThis;
   runtimeHost.__REVERIE_RELAY_FRONTEND_DISPOSE__?.();
@@ -135960,6 +136022,36 @@ function setup(ctx) {
   const autoResumeRecoveredSignatures = new Map;
   let lastRescanSummary = null;
   let lastStatus = "";
+  const sendFrontendSession = (connected, heartbeat = false) => ctx.sendToBackend({
+    type: "frontend_session",
+    chatId: activeChatId,
+    sessionId: frontendSessionId,
+    connected,
+    nativeSettingsAvailable: Boolean(Object.keys(nativeImageSettingsCache).length),
+    platformClass: frontendPlatformClass,
+    heartbeat
+  });
+  const activePlacementVisuals = new Set;
+  let placementVisualHeartbeatTimer = 0;
+  const beginPlacementVisualHeartbeat = (versionKey) => {
+    activePlacementVisuals.add(versionKey);
+    if (placementVisualHeartbeatTimer)
+      return;
+    placementVisualHeartbeatTimer = window.setInterval(() => sendFrontendSession(true, true), 1e4);
+  };
+  const finishPlacementVisualHeartbeat = (versionKey) => {
+    activePlacementVisuals.delete(versionKey);
+    if (activePlacementVisuals.size || !placementVisualHeartbeatTimer)
+      return;
+    window.clearInterval(placementVisualHeartbeatTimer);
+    placementVisualHeartbeatTimer = 0;
+  };
+  const clearPlacementVisualHeartbeats = () => {
+    activePlacementVisuals.clear();
+    if (placementVisualHeartbeatTimer)
+      window.clearInterval(placementVisualHeartbeatTimer);
+    placementVisualHeartbeatTimer = 0;
+  };
   const submissionId = (action, key) => `${action}:${key}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
   function surfaceDisplayContractSignature(nextConfig, studio) {
     const definitions = Object.values(studio.definitions || {}).map((definition) => {
@@ -137145,7 +137237,9 @@ ${message.prompt}`;
   const switchActiveChat = (chatId) => {
     if (chatId === activeChatId)
       return;
+    clearPlacementVisualHeartbeats();
     activeChatId = chatId;
+    sendFrontendSession(true);
     slotActionFeedback.clear();
     optimisticSlotActions.clear();
     records = [];
@@ -137193,8 +137287,10 @@ ${message.prompt}`;
     const messageId = String(event?.messageId ?? event?.message_id ?? event?.message?.id ?? event?.message?.messageId ?? "").trim();
     const rawSwipe = event?.swipeId ?? event?.swipe_id ?? event?.message?.swipeId ?? event?.message?.swipe_id;
     const swipeId = Number(rawSwipe);
-    if (messageId && Number.isFinite(swipeId))
+    if (messageId && Number.isFinite(swipeId)) {
       rememberBoundedMap(activeSwipeByMessage, messageId, swipeId, C5B_CACHE_LIMITS.activeSwipes);
+      clearPlacementVisualHeartbeats();
+    }
     const root = messageId ? ctx.dom.findMessageElement(messageId) : null;
     if (root) {
       for (const image2 of deepQueryAll(root, relayImageSelector)) {
@@ -137613,7 +137709,7 @@ ${message.prompt}`;
     scheduleActiveChatSync();
   });
   lifecycle2.track(stopMediaObserver, "observer");
-  ctx.sendToBackend({ type: "frontend_session", chatId: activeChatId, sessionId: frontendSessionId, connected: true, nativeSettingsAvailable: false, platformClass: frontendPlatformClass });
+  sendFrontendSession(true);
   refreshState(false);
   renderPanel();
   renderRelayOrb();
@@ -137995,27 +138091,65 @@ ${message.prompt}`;
   }
   const mediaCardUpdates = new WeakMap;
   const revealedFinalImageByRecord = new Map;
-  function revealFinalImageWhenReady(card, image2, expectedUrl, expectedRecordKey, update) {
+  const startedPlacementVisuals = new Map;
+  const acknowledgedPlacementVisuals = new Map;
+  function revealFinalImageWhenReady(card, image2, expectedUrl, record, update) {
+    const expectedRecordKey = record.key;
     const isCurrentFinalImage = () => card.isConnected && image2.isConnected && card.contains(image2) && card.dataset.rrnRecordKey === expectedRecordKey && mediaCardUpdates.get(card) === update && urlMatches(image2.currentSrc || image2.src, expectedUrl);
-    const reveal = () => {
+    const isCurrentPendingPlacement = () => {
+      const current = recordByKey.get(expectedRecordKey);
+      const pending = current?.pendingPlacement;
+      const visibleSwipe = activeSwipeByMessage.get(record.messageId);
+      return activeChatId === record.chatId && Boolean(current && current.status === "placement-pending" && pending) && current?.requestId === record.requestId && current?.slot === record.slot && current?.swipeId === record.swipeId && (visibleSwipe === undefined || visibleSwipe === record.swipeId) && urlMatches(pending?.imageUrl || "", expectedUrl) && (!record.pendingPlacement?.imageId || !pending?.imageId || record.pendingPlacement.imageId === pending.imageId);
+    };
+    const visualVersionKey = JSON.stringify([record.chatId, record.messageId, record.swipeId, expectedRecordKey, expectedUrl, record.pendingPlacement?.imageId || ""]);
+    const visualMessage = {
+      chatId: record.chatId,
+      messageId: record.messageId,
+      swipeId: record.swipeId,
+      key: expectedRecordKey,
+      requestId: record.requestId,
+      slot: record.slot,
+      imageUrl: expectedUrl,
+      imageId: record.pendingPlacement?.imageId,
+      sessionId: frontendSessionId
+    };
+    const visualLifecycleTracked = isCurrentPendingPlacement();
+    if (visualLifecycleTracked) {
+      beginPlacementVisualHeartbeat(visualVersionKey);
+      if (!startedPlacementVisuals.has(visualVersionKey)) {
+        rememberBoundedMap(startedPlacementVisuals, visualVersionKey, expectedUrl, C5B_CACHE_LIMITS.messageSnapshots);
+        ctx.sendToBackend({ type: "placement_visual_started", ...visualMessage });
+      }
+    }
+    const onSettled = () => {
       if (!isCurrentFinalImage())
         return;
-      image2.classList.remove("rrl-final-reveal");
-      if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+      update.revealedImageUrl = expectedUrl;
+      rememberBoundedMap(revealedFinalImageByRecord, expectedRecordKey, expectedUrl, C5B_CACHE_LIMITS.messageSnapshots);
+      if (!isCurrentPendingPlacement())
         return;
-      image2.addEventListener("animationend", () => image2.classList.remove("rrl-final-reveal"), { once: true });
-      image2.classList.add("rrl-final-reveal");
+      if (acknowledgedPlacementVisuals.has(visualVersionKey))
+        return;
+      rememberBoundedMap(acknowledgedPlacementVisuals, visualVersionKey, expectedUrl, C5B_CACHE_LIMITS.messageSnapshots);
+      ctx.sendToBackend({ type: "placement_visual_settled", ...visualMessage });
     };
-    if (image2.complete && image2.naturalWidth > 0) {
-      (async () => {
-        try {
-          await image2.decode?.();
-        } catch {}
-        reveal();
-      })();
-      return;
-    }
-    image2.addEventListener("load", reveal, { once: true });
+    settlePlacementVisualLifecycle({
+      image: image2,
+      isCurrent: isCurrentFinalImage,
+      reducedMotion: Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches),
+      onSettled
+    }).then((outcome) => {
+      if (visualLifecycleTracked)
+        finishPlacementVisualHeartbeat(visualVersionKey);
+      if ((outcome === "failed" || outcome === "stale") && isCurrentFinalImage() && isCurrentPendingPlacement()) {
+        ctx.sendToBackend({
+          type: "placement_visual_unavailable",
+          ...visualMessage,
+          reason: outcome === "failed" ? "image-load-failed" : "visual-lifecycle-cancelled"
+        });
+      }
+    });
   }
   const boundNarrativeControls = new WeakSet;
   function bindNarrativeInteractiveControls() {
@@ -138180,9 +138314,7 @@ ${message.prompt}`;
             mediaSlot.dataset.rrnMediaEmpty = "false";
             if (shouldReveal) {
               update.sawActiveLifecycle = false;
-              update.revealedImageUrl = visualImageUrl;
-              rememberBoundedMap(revealedFinalImageByRecord, record.key, visualImageUrl, C5B_CACHE_LIMITS.messageSnapshots);
-              revealFinalImageWhenReady(card, slotImage, visualImageUrl, record.key, update);
+              revealFinalImageWhenReady(card, slotImage, visualImageUrl, record, update);
             } else if (record.status === "completed") {
               update.sawActiveLifecycle = false;
             }
@@ -145411,7 +145543,8 @@ Original prompt metadata unavailable`;
     if (disposed)
       return;
     disposed = true;
-    ctx.sendToBackend({ type: "frontend_session", chatId: activeChatId, sessionId: frontendSessionId, connected: false, nativeSettingsAvailable: Boolean(Object.keys(nativeImageSettingsCache).length), platformClass: frontendPlatformClass });
+    sendFrontendSession(false);
+    clearPlacementVisualHeartbeats();
     enforceNativeAutoGenerationGuard(true);
     streamPreviews.clear();
     completedPreviewGenerations.clear();
@@ -145465,5 +145598,6 @@ Original prompt metadata unavailable`;
   return cleanup;
 }
 export {
-  setup
+  setup,
+  settlePlacementVisualLifecycle
 };

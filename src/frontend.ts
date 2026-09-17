@@ -324,6 +324,64 @@ type HistorySubTab = 'all-chats-gallery' | 'slot-history' | 'illustrator-candida
 
 const PANEL_ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16"/><path d="M7 4v16"/><path d="M17 4v16"/><path d="M4 17h16"/><circle cx="12" cy="12" r="3"/></svg>'
 
+export async function settlePlacementVisualLifecycle(options: {
+  image: HTMLImageElement
+  isCurrent: () => boolean
+  reducedMotion: boolean
+  onSettled: () => void
+}): Promise<'settled' | 'stale' | 'failed'> {
+  const { image, isCurrent, reducedMotion, onSettled } = options
+  if (!image.complete) {
+    const loaded = await new Promise<boolean>(resolve => {
+      const cleanup = () => {
+        image.removeEventListener('load', onLoad)
+        image.removeEventListener('error', onError)
+      }
+      const onLoad = () => { cleanup(); resolve(true) }
+      const onError = () => { cleanup(); resolve(false) }
+      image.addEventListener('load', onLoad, { once: true })
+      image.addEventListener('error', onError, { once: true })
+    })
+    if (!loaded) return 'failed'
+  }
+  if (image.naturalWidth <= 0 || !isCurrent()) return isCurrent() ? 'failed' : 'stale'
+  try {
+    await image.decode?.()
+  } catch {
+    // Some browsers reject decode() for an otherwise loaded, paintable image.
+  }
+  if (!isCurrent()) return 'stale'
+  image.classList.remove('rrl-final-reveal')
+  if (reducedMotion) {
+    onSettled()
+    return 'settled'
+  }
+  const animationFinished = new Promise<boolean>(resolve => {
+    const cleanup = () => {
+      image.removeEventListener('animationend', onAnimationEnd)
+      image.removeEventListener('animationcancel', onAnimationCancel)
+    }
+    const onAnimationEnd = (event: Event) => {
+      if (event.target !== image) return
+      cleanup()
+      resolve(true)
+    }
+    const onAnimationCancel = (event: Event) => {
+      if (event.target !== image) return
+      cleanup()
+      resolve(false)
+    }
+    image.addEventListener('animationend', onAnimationEnd)
+    image.addEventListener('animationcancel', onAnimationCancel)
+  })
+  image.classList.add('rrl-final-reveal')
+  const finished = await animationFinished
+  image.classList.remove('rrl-final-reveal')
+  if (!finished || !isCurrent()) return 'stale'
+  onSettled()
+  return 'settled'
+}
+
 export function setup(ctx: SpindleFrontendContext) {
   const runtimeHost = globalThis as typeof globalThis & {
     __REVERIE_RELAY_FRONTEND_DISPOSE__?: () => void
@@ -423,6 +481,34 @@ export function setup(ctx: SpindleFrontendContext) {
   const autoResumeRecoveredSignatures = new Map<string, string>()
   let lastRescanSummary: ChatRescanSummary | null = null
   let lastStatus = ''
+
+  const sendFrontendSession = (connected: boolean, heartbeat = false) => ctx.sendToBackend({
+    type: 'frontend_session',
+    chatId: activeChatId,
+    sessionId: frontendSessionId,
+    connected,
+    nativeSettingsAvailable: Boolean(Object.keys(nativeImageSettingsCache).length),
+    platformClass: frontendPlatformClass,
+    heartbeat,
+  })
+  const activePlacementVisuals = new Set<string>()
+  let placementVisualHeartbeatTimer = 0
+  const beginPlacementVisualHeartbeat = (versionKey: string) => {
+    activePlacementVisuals.add(versionKey)
+    if (placementVisualHeartbeatTimer) return
+    placementVisualHeartbeatTimer = window.setInterval(() => sendFrontendSession(true, true), 10_000)
+  }
+  const finishPlacementVisualHeartbeat = (versionKey: string) => {
+    activePlacementVisuals.delete(versionKey)
+    if (activePlacementVisuals.size || !placementVisualHeartbeatTimer) return
+    window.clearInterval(placementVisualHeartbeatTimer)
+    placementVisualHeartbeatTimer = 0
+  }
+  const clearPlacementVisualHeartbeats = () => {
+    activePlacementVisuals.clear()
+    if (placementVisualHeartbeatTimer) window.clearInterval(placementVisualHeartbeatTimer)
+    placementVisualHeartbeatTimer = 0
+  }
 
   const submissionId = (action: SlotActionKind, key: string) => `${action}:${key}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`
 
@@ -1617,7 +1703,9 @@ export function setup(ctx: SpindleFrontendContext) {
 
   const switchActiveChat = (chatId: string | null) => {
     if (chatId === activeChatId) return
+    clearPlacementVisualHeartbeats()
     activeChatId = chatId
+    sendFrontendSession(true)
     slotActionFeedback.clear()
     optimisticSlotActions.clear()
     records = []
@@ -1665,7 +1753,10 @@ export function setup(ctx: SpindleFrontendContext) {
     const messageId = String(event?.messageId ?? event?.message_id ?? event?.message?.id ?? event?.message?.messageId ?? '').trim()
     const rawSwipe = event?.swipeId ?? event?.swipe_id ?? event?.message?.swipeId ?? event?.message?.swipe_id
     const swipeId = Number(rawSwipe)
-    if (messageId && Number.isFinite(swipeId)) rememberBoundedMap(activeSwipeByMessage, messageId, swipeId, C5B_CACHE_LIMITS.activeSwipes)
+    if (messageId && Number.isFinite(swipeId)) {
+      rememberBoundedMap(activeSwipeByMessage, messageId, swipeId, C5B_CACHE_LIMITS.activeSwipes)
+      clearPlacementVisualHeartbeats()
+    }
     const root = messageId ? ctx.dom.findMessageElement(messageId) : null
     if (root) {
       for (const image of deepQueryAll<HTMLImageElement>(root as ParentNode, relayImageSelector)) {
@@ -2040,7 +2131,7 @@ export function setup(ctx: SpindleFrontendContext) {
   // Load Relay's persisted state before any write-capable native-settings sync.
   // Cold extension restarts can expose host settings before userStorage has
   // hydrated; syncing first allowed a fallback config to be saved as defaults.
-  ctx.sendToBackend({ type: 'frontend_session', chatId: activeChatId, sessionId: frontendSessionId, connected: true, nativeSettingsAvailable: false, platformClass: frontendPlatformClass })
+  sendFrontendSession(true)
   void refreshState(false)
   renderPanel()
   renderRelayOrb()
@@ -2450,14 +2541,17 @@ export function setup(ctx: SpindleFrontendContext) {
 
   const mediaCardUpdates = new WeakMap<HTMLElement, MediaCardUpdate>()
   const revealedFinalImageByRecord = new Map<string, string>()
+  const startedPlacementVisuals = new Map<string, string>()
+  const acknowledgedPlacementVisuals = new Map<string, string>()
 
   function revealFinalImageWhenReady(
     card: HTMLElement,
     image: HTMLImageElement,
     expectedUrl: string,
-    expectedRecordKey: string,
+    record: SlotRecord,
     update: MediaCardUpdate,
   ): void {
+    const expectedRecordKey = record.key
     const isCurrentFinalImage = () => card.isConnected
       && image.isConnected
       && card.contains(image)
@@ -2465,27 +2559,63 @@ export function setup(ctx: SpindleFrontendContext) {
       && mediaCardUpdates.get(card) === update
       && urlMatches(image.currentSrc || image.src, expectedUrl)
 
-    const reveal = () => {
+    const isCurrentPendingPlacement = () => {
+      const current = recordByKey.get(expectedRecordKey)
+      const pending = current?.pendingPlacement
+      const visibleSwipe = activeSwipeByMessage.get(record.messageId)
+      return activeChatId === record.chatId
+        && Boolean(current && current.status === 'placement-pending' && pending)
+        && current?.requestId === record.requestId
+        && current?.slot === record.slot
+        && current?.swipeId === record.swipeId
+        && (visibleSwipe === undefined || visibleSwipe === record.swipeId)
+        && urlMatches(pending?.imageUrl || '', expectedUrl)
+        && (!record.pendingPlacement?.imageId || !pending?.imageId || record.pendingPlacement.imageId === pending.imageId)
+    }
+    const visualVersionKey = JSON.stringify([record.chatId, record.messageId, record.swipeId, expectedRecordKey, expectedUrl, record.pendingPlacement?.imageId || ''])
+    const visualMessage = {
+      chatId: record.chatId,
+      messageId: record.messageId,
+      swipeId: record.swipeId,
+      key: expectedRecordKey,
+      requestId: record.requestId,
+      slot: record.slot,
+      imageUrl: expectedUrl,
+      imageId: record.pendingPlacement?.imageId,
+      sessionId: frontendSessionId,
+    }
+    const visualLifecycleTracked = isCurrentPendingPlacement()
+    if (visualLifecycleTracked) {
+      beginPlacementVisualHeartbeat(visualVersionKey)
+      if (!startedPlacementVisuals.has(visualVersionKey)) {
+        rememberBoundedMap(startedPlacementVisuals, visualVersionKey, expectedUrl, C5B_CACHE_LIMITS.messageSnapshots)
+        ctx.sendToBackend({ type: 'placement_visual_started', ...visualMessage })
+      }
+    }
+    const onSettled = () => {
       if (!isCurrentFinalImage()) return
-      image.classList.remove('rrl-final-reveal')
-      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
-      image.addEventListener('animationend', () => image.classList.remove('rrl-final-reveal'), { once: true })
-      image.classList.add('rrl-final-reveal')
+      update.revealedImageUrl = expectedUrl
+      rememberBoundedMap(revealedFinalImageByRecord, expectedRecordKey, expectedUrl, C5B_CACHE_LIMITS.messageSnapshots)
+      if (!isCurrentPendingPlacement()) return
+      if (acknowledgedPlacementVisuals.has(visualVersionKey)) return
+      rememberBoundedMap(acknowledgedPlacementVisuals, visualVersionKey, expectedUrl, C5B_CACHE_LIMITS.messageSnapshots)
+      ctx.sendToBackend({ type: 'placement_visual_settled', ...visualMessage })
     }
-
-    if (image.complete && image.naturalWidth > 0) {
-      void (async () => {
-        try {
-          await image.decode?.()
-        } catch {
-          // A decoded image can still be usable when decode() rejects.
-        }
-        reveal()
-      })()
-      return
-    }
-
-    image.addEventListener('load', reveal, { once: true })
+    void settlePlacementVisualLifecycle({
+      image,
+      isCurrent: isCurrentFinalImage,
+      reducedMotion: Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches),
+      onSettled,
+    }).then(outcome => {
+      if (visualLifecycleTracked) finishPlacementVisualHeartbeat(visualVersionKey)
+      if ((outcome === 'failed' || outcome === 'stale') && isCurrentFinalImage() && isCurrentPendingPlacement()) {
+        ctx.sendToBackend({
+          type: 'placement_visual_unavailable',
+          ...visualMessage,
+          reason: outcome === 'failed' ? 'image-load-failed' : 'visual-lifecycle-cancelled',
+        })
+      }
+    })
   }
   const boundNarrativeControls = new WeakSet<HTMLElement>()
   function bindNarrativeInteractiveControls(): void {
@@ -2644,9 +2774,7 @@ export function setup(ctx: SpindleFrontendContext) {
             mediaSlot.dataset.rrnMediaEmpty = 'false'
             if (shouldReveal) {
               update.sawActiveLifecycle = false
-              update.revealedImageUrl = visualImageUrl
-              rememberBoundedMap(revealedFinalImageByRecord, record.key, visualImageUrl, C5B_CACHE_LIMITS.messageSnapshots)
-              revealFinalImageWhenReady(card, slotImage, visualImageUrl, record.key, update)
+              revealFinalImageWhenReady(card, slotImage, visualImageUrl, record, update)
             } else if (record.status === 'completed') {
               update.sawActiveLifecycle = false
             }
@@ -9716,7 +9844,8 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
   const cleanup = () => {
     if (disposed) return
     disposed = true
-    ctx.sendToBackend({ type: 'frontend_session', chatId: activeChatId, sessionId: frontendSessionId, connected: false, nativeSettingsAvailable: Boolean(Object.keys(nativeImageSettingsCache).length), platformClass: frontendPlatformClass })
+    sendFrontendSession(false)
+    clearPlacementVisualHeartbeats()
     // Best effort only. Persisted ownership is cleared only after the host
     // setting write succeeds, so a later startup can repair a torn teardown.
     void enforceNativeAutoGenerationGuard(true)

@@ -382,13 +382,47 @@ function sanitizeRelayPromptMessage(message: LlmMessage): LlmMessage {
   return sanitizeRelayPromptMessageWithMetrics(message).message
 }
 
-type InitialPlacementBatchEntry = { job: RouterJob; results: SlotGenerationResult[]; replaceExisting?: boolean }
-type InitialPlacementBatch = {
+export type PlacementVisualSettledMessage = {
+  type: 'placement_visual_settled' | 'placement_visual_started' | 'placement_visual_unavailable'
+  chatId: string
+  messageId: string
+  swipeId: number
+  key: string
+  requestId: string
+  slot: string
+  imageUrl: string
+  imageId?: string
+  sessionId: string
+  reason?: 'image-load-failed' | 'visual-lifecycle-cancelled'
+}
+
+export type InitialPlacementVisualSettlement = {
+  key: string
+  requestId: string
+  slot: string
+  imageUrl: string
+  imageId?: string
+  required: boolean
+  started: boolean
+  settled: boolean
+  startedAt?: number
+  settledAt?: number
+}
+
+export type InitialPlacementBatchEntry = {
+  job: RouterJob
+  results: SlotGenerationResult[]
+  replaceExisting?: boolean
+  visualSettlements?: InitialPlacementVisualSettlement[]
+}
+export type InitialPlacementBatch = {
   chatId: string
   messageId: string
   swipeId: number
   sourceFingerprint: string
   entries: InitialPlacementBatchEntry[]
+  visualFallbackTimer?: ReturnType<typeof setTimeout>
+  visualFallbackReason?: 'frontend-no-longer-visible' | 'bounded-safety-recovery'
 }
 
 type PromptHistoryMessageMetric = {
@@ -655,7 +689,8 @@ type FrontendMessage =
     nativeSettingsCapturedAt?: number
   }
   | { type: 'sync_native_settings'; chatId?: string | null; imageGeneration?: NativeImageSettings; nativeSettingsCapturedAt?: number; frontendSessionId?: string; platformClass?: 'mobile' | 'desktop' }
-  | { type: 'frontend_session'; chatId?: string | null; sessionId: string; connected: boolean; nativeSettingsAvailable: boolean; platformClass: 'mobile' | 'desktop' }
+  | { type: 'frontend_session'; chatId?: string | null; sessionId: string; connected: boolean; nativeSettingsAvailable: boolean; platformClass: 'mobile' | 'desktop'; heartbeat?: boolean }
+  | PlacementVisualSettledMessage
   | { type: 'set_config'; chatId?: string | null; patch: Partial<RouterConfig> }
   | { type: 'relay_settings_patch'; chatId?: string | null; operationId: string; expectedRevision: number; patch: RelaySettingsPatch }
   | { type: 'narrative_utility_registry'; requestId: string }
@@ -1225,7 +1260,7 @@ type NativeSettingsBrokerRuntime = {
   refreshInFlight: boolean
   refreshRequestedAt?: number
   waiters: Set<string>
-  frontendSessions: Map<string, { sessionId: string; connected: boolean; nativeSettingsAvailable: boolean; lastSeenAt: number; platformClass: 'mobile' | 'desktop' }>
+  frontendSessions: Map<string, { sessionId: string; chatId: string | null; connected: boolean; nativeSettingsAvailable: boolean; lastSeenAt: number; platformClass: 'mobile' | 'desktop' }>
 }
 
 const relayDispatchQueues = new Map<string, RelayDispatchQueue>()
@@ -2491,7 +2526,11 @@ for (const eventName of ['MESSAGE_DELETED', 'MESSAGE_REMOVED', 'CHAT_MESSAGE_DEL
     if (chatId && messageId) {
       latestMessageSnapshots.delete(messageSnapshotKey(chatId, messageId))
       const batchPrefix = `${relayQueueScope(userId)}:${chatId}:${messageId}:`
-      for (const key of [...pendingPlacementBatches.keys()]) if (key.startsWith(batchPrefix)) pendingPlacementBatches.delete(key)
+      for (const key of [...pendingPlacementBatches.keys()]) if (key.startsWith(batchPrefix)) {
+        const batch = pendingPlacementBatches.get(key)
+        if (batch) clearInitialPlacementVisualFallback(batch)
+        pendingPlacementBatches.delete(key)
+      }
     }
     void handleMessageDeleted(payload, userId).catch(error => spindle.log.error(`[Reverie Relay:${eventName.toLocaleLowerCase()}] ${error instanceof Error ? error.message : String(error)}`))
   })
@@ -3938,23 +3977,36 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
       const broker = nativeSettingsBroker(userId)
       broker.frontendSessions.set(payload.sessionId, {
         sessionId: payload.sessionId,
+        chatId: payload.chatId || null,
         connected: payload.connected,
         nativeSettingsAvailable: payload.nativeSettingsAvailable,
         lastSeenAt: Date.now(),
         platformClass: payload.platformClass,
       })
-      if (payload.chatId) await mutateState(payload.chatId, userId, state => appendStateLog(state, {
+      if (payload.chatId && !payload.heartbeat) await mutateState(payload.chatId, userId, state => appendStateLog(state, {
         severity: 'info', stage: 'frontend-session', eventType: payload.connected ? 'frontend_connected' : 'frontend_disconnected', chatId: payload.chatId || undefined,
         message: `${payload.platformClass} frontend ${payload.connected ? 'connected' : 'disconnected'}.`,
         details: { sessionId: payload.sessionId, platformClass: payload.platformClass, nativeSettingsAvailable: payload.nativeSettingsAvailable },
       }))
+      void reconsiderPendingPlacementBatches(userId).catch(error => spindle.log.error(`[Reverie Relay:placement_visual_session] ${error instanceof Error ? error.message : String(error)}`))
       return
     }
+    case 'placement_visual_started':
+      await handlePlacementVisualStarted(payload, userId)
+      return
+    case 'placement_visual_settled':
+      await handlePlacementVisualSettled(payload, userId)
+      return
+    case 'placement_visual_unavailable':
+      await handlePlacementVisualUnavailable(payload, userId)
+      return
     case 'sync_native_settings':
       if (payload.frontendSessionId) {
         const broker = nativeSettingsBroker(userId)
+        const existingSession = broker.frontendSessions.get(payload.frontendSessionId)
         broker.frontendSessions.set(payload.frontendSessionId, {
           sessionId: payload.frontendSessionId,
+          chatId: payload.chatId || existingSession?.chatId || null,
           connected: true,
           nativeSettingsAvailable: Boolean(Object.keys(payload.imageGeneration || {}).length),
           lastSeenAt: Date.now(),
@@ -7325,12 +7377,38 @@ function replaceOwningMessageMediaWrapper(content: string, job: RouterJob, repla
   return `${content.slice(0, owner.start)}${replacement}${content.slice(owner.end)}`
 }
 
-async function stageInitialPlacementBatchEntry(batch: InitialPlacementBatch, job: RouterJob, results: SlotGenerationResult[], replaceExisting: boolean, userId?: string): Promise<void> {
-  await markGeneratedPlacementPending(job, results, userId)
+function hasConnectedFrontendForChat(chatId: string, userId?: string): boolean {
+  return [...nativeSettingsBroker(userId).frontendSessions.values()].some(session => session.connected && session.chatId === chatId)
+}
+
+function visualSettlementsForResults(job: RouterJob, results: SlotGenerationResult[], required: boolean): InitialPlacementVisualSettlement[] {
+  return results.map(result => ({
+    key: slotKey({ ...job, slot: result.slot }),
+    requestId: job.requestId,
+    slot: result.slot,
+    imageUrl: result.imageUrl,
+    imageId: result.imageId,
+    required,
+    started: false,
+    settled: false,
+  }))
+}
+
+async function stageInitialPlacementBatchEntry(batch: InitialPlacementBatch, job: RouterJob, results: SlotGenerationResult[], replaceExisting: boolean, requireVisualSettlement: boolean, userId?: string): Promise<void> {
   const existing = batch.entries.findIndex(entry => entry.job.requestId === job.requestId)
-  const entry = { job, results, replaceExisting }
+  const previousEntry = existing >= 0 ? batch.entries[existing] : undefined
+  const entry = { job, results, replaceExisting, visualSettlements: visualSettlementsForResults(job, results, requireVisualSettlement && hasConnectedFrontendForChat(job.chatId, userId)) }
   if (existing >= 0) batch.entries[existing] = entry
   else batch.entries.push(entry)
+  try {
+    // Register the exact version before broadcasting placement-pending state so
+    // even a very fast reduced-motion frontend cannot ACK ahead of the batch.
+    await markGeneratedPlacementPending(job, results, userId)
+  } catch (error) {
+    if (existing >= 0 && previousEntry) batch.entries[existing] = previousEntry
+    else batch.entries.splice(batch.entries.indexOf(entry), 1)
+    throw error
+  }
 }
 
 export function composeInitialPlacementBatchContent(content: string, entries: InitialPlacementBatchEntry[]): { content: string; error?: string; failedEntries?: InitialPlacementBatchEntry[] } {
@@ -7374,6 +7452,57 @@ export function composeInitialPlacementBatchContent(content: string, entries: In
     error: failedEntries.length ? `No deterministic anchor remained for ${failedEntries.map(entry => entry.job.requestId).join(', ')}.` : undefined,
     failedEntries: failedEntries.length ? failedEntries : undefined,
   }
+}
+
+function findInitialPlacementVisualSettlement(batch: InitialPlacementBatch, acknowledgement: Omit<PlacementVisualSettledMessage, 'type' | 'sessionId'>): InitialPlacementVisualSettlement | undefined {
+  if (batch.chatId !== acknowledgement.chatId || batch.messageId !== acknowledgement.messageId || batch.swipeId !== acknowledgement.swipeId) return undefined
+  return batch.entries
+    .flatMap(entry => entry.visualSettlements || [])
+    .find(candidate => candidate.key === acknowledgement.key
+      && candidate.requestId === acknowledgement.requestId
+      && candidate.slot === acknowledgement.slot
+      && candidate.imageUrl === acknowledgement.imageUrl
+      && (!candidate.imageId || candidate.imageId === acknowledgement.imageId))
+}
+
+export function markInitialPlacementVisualStarted(batch: InitialPlacementBatch, acknowledgement: Omit<PlacementVisualSettledMessage, 'type' | 'sessionId'>, startedAt = Date.now()): 'started' | 'duplicate' | 'stale' {
+  const settlement = findInitialPlacementVisualSettlement(batch, acknowledgement)
+  if (!settlement) return 'stale'
+  if (settlement.started) return 'duplicate'
+  settlement.started = true
+  settlement.startedAt = startedAt
+  return 'started'
+}
+
+export function markInitialPlacementVisualSettled(batch: InitialPlacementBatch, acknowledgement: Omit<PlacementVisualSettledMessage, 'type' | 'sessionId'>, settledAt = Date.now()): 'settled' | 'duplicate' | 'stale' {
+  const settlement = findInitialPlacementVisualSettlement(batch, acknowledgement)
+  if (!settlement) return 'stale'
+  if (settlement.settled) return 'duplicate'
+  settlement.settled = true
+  settlement.settledAt = settledAt
+  return 'settled'
+}
+
+export function markInitialPlacementVisualUnavailable(batch: InitialPlacementBatch, acknowledgement: Omit<PlacementVisualSettledMessage, 'type' | 'sessionId'>): 'released' | 'duplicate' | 'stale' {
+  const settlement = findInitialPlacementVisualSettlement(batch, acknowledgement)
+  if (!settlement) return 'stale'
+  if (!settlement.required || settlement.settled) return 'duplicate'
+  settlement.required = false
+  return 'released'
+}
+
+export function hasUnsettledVisiblePlacement(batch: InitialPlacementBatch): boolean {
+  return batch.entries.some(entry => (entry.visualSettlements || []).some(settlement => settlement.required && !settlement.settled))
+}
+
+function hasStartedUnsettledVisiblePlacement(batch: InitialPlacementBatch): boolean {
+  return batch.entries.some(entry => (entry.visualSettlements || []).some(settlement => settlement.required && settlement.started && !settlement.settled))
+}
+
+export function initialPlacementBatchCommitGate(batch: InitialPlacementBatch, options: { hasGenerationSibling: boolean; hasVisibleFrontend: boolean; allowSafetyFallback?: boolean; healthyStartedVisual?: boolean }): 'generation-pending' | 'visual-pending' | 'ready' {
+  if (options.hasGenerationSibling) return 'generation-pending'
+  if (hasUnsettledVisiblePlacement(batch) && options.hasVisibleFrontend && (!options.allowSafetyFallback || options.healthyStartedVisual)) return 'visual-pending'
+  return 'ready'
 }
 
 async function markInitialPlacementBatchForRepair(batch: InitialPlacementBatch, reason: string, currentContent: string, userId?: string, entries = batch.entries): Promise<void> {
@@ -7440,7 +7569,7 @@ async function commitInitialPlacementBatch(batch: InitialPlacementBatch, userId?
         severity: 'info', stage: 'placement-completed', eventType: 'message_batch_placement_completed', chatId: batch.chatId,
         messageId: batch.messageId, swipeId: batch.swipeId,
         message: `Persisted ${verifiedEntries.reduce((total, entry) => total + entry.results.length, 0)} generated image slot(s) in one message-scoped update.`,
-        details: { requestIds: verifiedEntries.map(entry => entry.job.requestId), sourceFingerprint: batch.sourceFingerprint, sourceChanged: contentFingerprint(currentContent) !== batch.sourceFingerprint },
+        details: { requestIds: verifiedEntries.map(entry => entry.job.requestId), sourceFingerprint: batch.sourceFingerprint, sourceChanged: contentFingerprint(currentContent) !== batch.sourceFingerprint, visualFallbackReason: batch.visualFallbackReason },
       })
     })
     if (failedEntries.length) await markInitialPlacementBatchForRepair(batch, composed.error || 'The single message update returned without every intended exact placement.', verifiedContent, userId, failedEntries)
@@ -7460,18 +7589,93 @@ function hasUnsettledPlacementSibling(batch: InitialPlacementBatch, userId?: str
   return [...enqueuedRelayJobs.keys()].some(key => key.startsWith(queuePrefix) && !staged.has(key.slice(queuePrefix.length)))
 }
 
-async function maybeCommitInitialPlacementBatch(job: Pick<RouterJob, 'chatId' | 'messageId' | 'swipeId'>, userId?: string): Promise<boolean> {
+const PLACEMENT_VISUAL_SETTLEMENT_SAFETY_MS = 30_000
+const PLACEMENT_VISUAL_SESSION_LEASE_MS = 25_000
+
+function hasFreshFrontendForChat(chatId: string, userId?: string): boolean {
+  const now = Date.now()
+  return [...nativeSettingsBroker(userId).frontendSessions.values()].some(session => session.connected && session.chatId === chatId && now - session.lastSeenAt <= PLACEMENT_VISUAL_SESSION_LEASE_MS)
+}
+
+function clearInitialPlacementVisualFallback(batch: InitialPlacementBatch): void {
+  if (batch.visualFallbackTimer) clearTimeout(batch.visualFallbackTimer)
+  batch.visualFallbackTimer = undefined
+}
+
+function scheduleInitialPlacementVisualFallback(batch: InitialPlacementBatch, userId?: string): void {
+  if (batch.visualFallbackTimer) return
+  batch.visualFallbackTimer = setTimeout(() => {
+    batch.visualFallbackTimer = undefined
+    void maybeCommitInitialPlacementBatch(batch, userId, true).catch(error => spindle.log.error(`[Reverie Relay:placement_visual_fallback] ${error instanceof Error ? error.message : String(error)}`))
+  }, PLACEMENT_VISUAL_SETTLEMENT_SAFETY_MS)
+}
+
+async function maybeCommitInitialPlacementBatch(job: Pick<RouterJob, 'chatId' | 'messageId' | 'swipeId'>, userId?: string, allowSafetyFallback = false): Promise<boolean> {
   return withPlacementMutationLock(job, async () => {
     const key = placementBatchKey(job, userId)
     const batch = pendingPlacementBatches.get(key)
-    if (!batch || hasUnsettledPlacementSibling(batch, userId)) return false
+    if (!batch) return false
+    const healthyStartedVisual = allowSafetyFallback && hasStartedUnsettledVisiblePlacement(batch) && hasFreshFrontendForChat(batch.chatId, userId)
+    const gate = initialPlacementBatchCommitGate(batch, {
+      hasGenerationSibling: hasUnsettledPlacementSibling(batch, userId),
+      hasVisibleFrontend: hasConnectedFrontendForChat(batch.chatId, userId),
+      allowSafetyFallback,
+      healthyStartedVisual,
+    })
+    if (gate === 'generation-pending') return false
+    if (gate === 'visual-pending') {
+      scheduleInitialPlacementVisualFallback(batch, userId)
+      return false
+    }
+    if (hasUnsettledVisiblePlacement(batch)) {
+      batch.visualFallbackReason = allowSafetyFallback ? 'bounded-safety-recovery' : 'frontend-no-longer-visible'
+      spindle.log.warn(`[Reverie Relay:placement_visual_fallback] Persisting ${batch.chatId}/${batch.messageId}/${batch.swipeId} through ${batch.visualFallbackReason}; visual settlement was not used as a synthetic Reveal timer.`)
+    }
+    clearInitialPlacementVisualFallback(batch)
     pendingPlacementBatches.delete(key)
     await commitInitialPlacementBatch(batch, userId)
     return true
   })
 }
 
-async function stageGeneratedPlacement(job: RouterJob, results: SlotGenerationResult[], replaceExisting: boolean, userId?: string): Promise<boolean> {
+async function handlePlacementVisualSettled(payload: PlacementVisualSettledMessage, userId?: string): Promise<void> {
+  const session = nativeSettingsBroker(userId).frontendSessions.get(payload.sessionId)
+  if (!session?.connected || session.chatId !== payload.chatId) return
+  session.lastSeenAt = Date.now()
+  const batch = pendingPlacementBatches.get(placementBatchKey(payload, userId))
+  if (!batch) return
+  const outcome = markInitialPlacementVisualSettled(batch, payload)
+  if (outcome === 'stale') return
+  await maybeCommitInitialPlacementBatch(payload, userId)
+}
+
+async function handlePlacementVisualStarted(payload: PlacementVisualSettledMessage, userId?: string): Promise<void> {
+  const session = nativeSettingsBroker(userId).frontendSessions.get(payload.sessionId)
+  if (!session?.connected || session.chatId !== payload.chatId) return
+  session.lastSeenAt = Date.now()
+  const batch = pendingPlacementBatches.get(placementBatchKey(payload, userId))
+  if (!batch) return
+  markInitialPlacementVisualStarted(batch, payload)
+}
+
+async function handlePlacementVisualUnavailable(payload: PlacementVisualSettledMessage, userId?: string): Promise<void> {
+  const session = nativeSettingsBroker(userId).frontendSessions.get(payload.sessionId)
+  if (!session?.connected || session.chatId !== payload.chatId) return
+  session.lastSeenAt = Date.now()
+  const batch = pendingPlacementBatches.get(placementBatchKey(payload, userId))
+  if (!batch || markInitialPlacementVisualUnavailable(batch, payload) === 'stale') return
+  await maybeCommitInitialPlacementBatch(payload, userId)
+}
+
+async function reconsiderPendingPlacementBatches(userId?: string): Promise<void> {
+  const scopePrefix = `${relayQueueScope(userId)}:`
+  const batches = [...pendingPlacementBatches.entries()]
+    .filter(([key]) => key.startsWith(scopePrefix))
+    .map(([, batch]) => batch)
+  for (const batch of batches) await maybeCommitInitialPlacementBatch(batch, userId)
+}
+
+async function stageGeneratedPlacement(job: RouterJob, results: SlotGenerationResult[], replaceExisting: boolean, requireVisualSettlement: boolean, userId?: string): Promise<boolean> {
   const key = placementBatchKey(job, userId)
   await withPlacementMutationLock(job, async () => {
     let batch = pendingPlacementBatches.get(key)
@@ -7481,7 +7685,7 @@ async function stageGeneratedPlacement(job: RouterJob, results: SlotGenerationRe
       batch = { chatId: job.chatId, messageId: job.messageId, swipeId: job.swipeId, sourceFingerprint: contentFingerprint(content), entries: [] }
       pendingPlacementBatches.set(key, batch)
     }
-    await stageInitialPlacementBatchEntry(batch, job, results, replaceExisting, userId)
+    await stageInitialPlacementBatchEntry(batch, job, results, replaceExisting, requireVisualSettlement, userId)
   })
   return maybeCommitInitialPlacementBatch(job, userId)
 }
@@ -7496,7 +7700,7 @@ async function applyJobSuccess(job: RouterJob, results: SlotGenerationResult[], 
     spindle.sendToFrontend({ type: 'status', status: 'Preview Ready', requestId: job.requestId }, userId)
     return 'placement-pending'
   }
-  const committed = await stageGeneratedPlacement(job, results, replaceExisting, userId)
+  const committed = await stageGeneratedPlacement(job, results, replaceExisting, !bypassImagePreview, userId)
   if (!committed) return 'placement-pending'
   const state = await getState(job.chatId, userId)
   const statuses = results.map(result => state.slots[slotKey({ ...job, slot: result.slot })]?.status)
