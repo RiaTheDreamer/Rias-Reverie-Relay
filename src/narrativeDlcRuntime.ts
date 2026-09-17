@@ -250,10 +250,53 @@ const PLOT_SPARK_COMPLETION_LOCK = `PLOT SPARKS STRUCTURAL LOCK — BEFORE ENDIN
 
 Mandatory structured contracts outrank prose length. Shorten nonessential prose before dropping required Plot Sparks structure.
 
-Verify exactly seven hooks with each key exactly once and this exact mapping:
+Verify exactly seven [Spark] blocks with keys a through g, each key exactly once, and this exact mapping:
 ${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key} = ${vector}`).join('\n')}
 
-Every hook_text must be non-empty. Every hook_media must be non-empty and contain one complete canonical raw current <reverie-illustration request="generate"> with a non-empty <visual_prompt>. Plot Sparks D–G and required closing tags may never be silently dropped. Resolved historical images and Relay runtime markup do not count. If any check fails, fix the Plot Sparks block before stopping.`
+Every [Spark] must contain one non-empty [Text] and one non-empty [Media]. Every [Media] must contain exactly one complete current <reverie-illustration request="generate"> ... <visual_prompt> ... </visual_prompt> ... </reverie-illustration> with a non-empty <visual_prompt>. Close every Spark with [/Spark] and close the root with [/Plot_Sparks]. Plot Sparks d through g and required closing tags may never be silently dropped. Resolved historical images and Relay runtime markup do not count. If any check fails, fix the [Plot_Sparks] block before stopping.`
+
+function countMatches(value: string, pattern: RegExp): number {
+  return [...value.matchAll(pattern)].length
+}
+
+function singlePlotSparkField(block: string, field: 'Key' | 'Vector' | 'Text' | 'Media'): string | undefined {
+  const opening = new RegExp(`\\[${field}\\]`, 'gi')
+  const closing = new RegExp(`\\[\\/${field}\\]`, 'gi')
+  if (countMatches(block, opening) !== 1 || countMatches(block, closing) !== 1) return undefined
+  return new RegExp(`\\[${field}\\]([\\s\\S]*?)\\[\\/${field}\\]`, 'i').exec(block)?.[1].trim()
+}
+
+function containsOneCurrentPlotSparkIllustration(media: string): boolean {
+  const openings = [...media.matchAll(/<reverie-illustration\b([^>]*)>/gi)]
+  if (openings.length !== 1 || countMatches(media, /<\/reverie-illustration>/gi) !== 1) return false
+  if (!/\brequest\s*=\s*(["'])generate\1/i.test(openings[0][1])) return false
+  const illustration = /<reverie-illustration\b[^>]*>([\s\S]*?)<\/reverie-illustration>/i.exec(media)?.[1]
+  if (!illustration) return false
+  if (countMatches(illustration, /<visual_prompt>/gi) !== 1 || countMatches(illustration, /<\/visual_prompt>/gi) !== 1) return false
+  return Boolean(/<visual_prompt>([\s\S]*?)<\/visual_prompt>/i.exec(illustration)?.[1].trim())
+}
+
+export function isCurrentPlotSparksUtilityContent(content: string): boolean {
+  for (const root of content.matchAll(/\[Plot_Sparks\]([\s\S]*?)\[\/Plot_Sparks\]/gi)) {
+    const body = root[1]
+    if (countMatches(body, /\[Spark\]/gi) !== 7 || countMatches(body, /\[\/Spark\]/gi) !== 7) continue
+    const sparks = [...body.matchAll(/\[Spark\]([\s\S]*?)\[\/Spark\]/gi)].map(match => match[1])
+    if (sparks.length !== 7) continue
+    const seenKeys = new Set<string>()
+    const valid = sparks.every(spark => {
+      const key = singlePlotSparkField(spark, 'Key')
+      const vector = singlePlotSparkField(spark, 'Vector')
+      const text = singlePlotSparkField(spark, 'Text')
+      const media = singlePlotSparkField(spark, 'Media')
+      const expectedVector = key ? PLOT_SPARK_VECTOR_BY_KEY[key as keyof typeof PLOT_SPARK_VECTOR_BY_KEY] : undefined
+      if (!key || seenKeys.has(key) || !expectedVector || vector !== expectedVector || !text || !media) return false
+      seenKeys.add(key)
+      return containsOneCurrentPlotSparkIllustration(media)
+    })
+    if (valid && Object.keys(PLOT_SPARK_VECTOR_BY_KEY).every(key => seenKeys.has(key))) return true
+  }
+  return false
+}
 
 export function buildNarrativeUtilityPrompt(
   selectedNames: string[] = narrativeUtilityNames(),
@@ -264,7 +307,10 @@ export function buildNarrativeUtilityPrompt(
     .filter(item => allow.has(item.loomName) && String(item.loomContent || '').trim())
     .map(item => {
       const authoredContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, overrides[item.loomName])
-      return { ...item, loomContent: authoredContent }
+      const loomContent = item.loomName === 'Chaos Hooks'
+        ? `${authoredContent}\n\n${PLOT_SPARK_COMPLETION_LOCK}`
+        : authoredContent
+      return { ...item, loomContent }
     })
   return {
     content: items.length
@@ -276,7 +322,6 @@ export function buildNarrativeUtilityPrompt(
 
 export function effectiveNarrativeUtilityContent(name: string, defaultContent: string, override?: string): string {
   const candidate = typeof override === 'string' && override.trim() ? override : ''
-  const legacyPlotSparksOverride = name === 'Chaos Hooks' && candidate
-    && (!/\[Plot_Sparks\]/i.test(candidate) || /<\/?(?:chaos_payload|chaos_hook)\b|<\/?(?:hook_text|hook_media)\b/i.test(candidate))
-  return applyNarrativeDisplayNames(candidate && !legacyPlotSparksOverride ? candidate : defaultContent)
+  const useCandidate = Boolean(candidate) && (name !== 'Chaos Hooks' || isCurrentPlotSparksUtilityContent(candidate))
+  return applyNarrativeDisplayNames(useCandidate ? candidate : defaultContent)
 }

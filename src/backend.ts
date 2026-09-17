@@ -165,6 +165,7 @@ import {
   buildNarrativeUtilityPrompt,
   effectiveNarrativeUtilityContent,
   inspectNarrativeRegex,
+  isCurrentPlotSparksUtilityContent,
   reconcileNarrativeRegex,
   removeNarrativeRegex,
   type NarrativeDlcHealth,
@@ -13968,8 +13969,8 @@ function narrativeUtilityRegistry(config: RouterConfig): Array<{
   return narrativeUtilityItems().map(item => {
     const override = config.narrativeUtilityOverrides[item.loomName]
     const effectiveContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, override?.content)
-    const usesOverride = Boolean(override?.content?.trim()) && !(item.loomName === 'Chaos Hooks'
-      && (!/\[Plot_Sparks\]/i.test(override!.content) || /<\/?(?:chaos_payload|chaos_hook|hook_text|hook_media)\b/i.test(override!.content)))
+    const usesOverride = Boolean(override?.content?.trim())
+      && (item.loomName !== 'Chaos Hooks' || isCurrentPlotSparksUtilityContent(override!.content))
     return {
       id: item.loomName,
       name: item.loomName,
