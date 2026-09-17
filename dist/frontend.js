@@ -137182,6 +137182,13 @@ ${message.prompt}`;
     if (event.chatId === activeChatId)
       refreshState(false);
   }), "subscription");
+  lifecycle2.track(ctx.events.on("CHARACTER_MESSAGE_RENDERED", (event) => {
+    const chatId = String(event?.chatId ?? event?.chat_id ?? "").trim();
+    const messageId = String(event?.messageId ?? event?.message_id ?? event?.message?.id ?? "").trim();
+    if (!messageId || chatId && chatId !== activeChatId)
+      return;
+    reconcileRenderedRelayMessage(messageId);
+  }), "subscription");
   const rememberActiveSwipe = (event) => {
     const messageId = String(event?.messageId ?? event?.message_id ?? event?.message?.id ?? event?.message?.messageId ?? "").trim();
     const rawSwipe = event?.swipeId ?? event?.swipe_id ?? event?.message?.swipeId ?? event?.message?.swipe_id;
@@ -137987,6 +137994,7 @@ ${message.prompt}`;
     });
   }
   const mediaCardUpdates = new WeakMap;
+  const revealedFinalImageByRecord = new Map;
   function revealFinalImageWhenReady(card, image2, expectedUrl, expectedRecordKey, update) {
     const isCurrentFinalImage = () => card.isConnected && image2.isConnected && card.contains(image2) && card.dataset.rrnRecordKey === expectedRecordKey && mediaCardUpdates.get(card) === update && urlMatches(image2.currentSrc || image2.src, expectedUrl);
     const reveal = () => {
@@ -138080,12 +138088,16 @@ ${message.prompt}`;
       });
     }
   }
-  function bindInlineImages() {
-    bindNarrativeInteractiveControls();
-    for (const row of deepQueryAll(document, "[data-rr-kakao-color]"))
-      applyKakaoColorBinding(row);
+  function bindInlineImages(messageId) {
+    if (!messageId) {
+      bindNarrativeInteractiveControls();
+      for (const row of deepQueryAll(document, "[data-rr-kakao-color]"))
+        applyKakaoColorBinding(row);
+    }
     const now = Date.now();
     for (const record of records) {
+      if (messageId && record.messageId !== messageId)
+        continue;
       const visibleSwipe = activeSwipeByMessage.get(record.messageId);
       if (visibleSwipe !== undefined && record.swipeId !== visibleSwipe)
         continue;
@@ -138096,6 +138108,7 @@ ${message.prompt}`;
       const active = ["preparing", "queued", "awaiting-native-settings", "parsing", "generating", "previewing", "placement-pending"].includes(record.status);
       const stallEligible = ["preparing", "parsing", "generating", "previewing", "placement-pending"].includes(record.status);
       const stream = streamPreviews.get(record.key);
+      const visualImageUrl = record.pendingPlacement?.imageUrl || record.imageUrl;
       const lastActivityAt = Math.max(record.updatedAt || record.createdAt || now, stream?.updatedAt || 0);
       const stalled = stallEligible && now - lastActivityAt > 90000;
       const needsPlacementRepair = record.status === "placement-repair-needed";
@@ -138108,7 +138121,7 @@ ${message.prompt}`;
           continue;
         if (active)
           syncGenerationPlaceholderEffect(card);
-        const signature = JSON.stringify([record.key, record.status, stalled, record.imageUrl, record.requestAspect, record.error, stream]);
+        const signature = JSON.stringify([record.key, record.status, stalled, visualImageUrl, record.requestAspect, record.error, stream]);
         const media = card.querySelector(".rrl-media-slot");
         const previous = mediaCardUpdates.get(card);
         const update = previous?.media === media ? previous : { signature: "", media, sawActiveLifecycle: false };
@@ -138156,19 +138169,20 @@ ${message.prompt}`;
             if (ratio)
               mediaSlot.style.setProperty("--reverie-media-aspect", `${Number(ratio[1])} / ${Number(ratio[2])}`);
           }
-          if (record.imageUrl && slotImage) {
+          if (visualImageUrl && slotImage) {
             slotImage.loading = "lazy";
             slotImage.decoding = "async";
-            const imageChanged = !urlMatches(slotImage.currentSrc || slotImage.src, record.imageUrl);
-            const shouldReveal = imageChanged && update.sawActiveLifecycle && !urlMatches(update.revealedImageUrl || "", record.imageUrl);
+            const imageChanged = !urlMatches(slotImage.currentSrc || slotImage.src, visualImageUrl);
+            const shouldReveal = imageChanged && update.sawActiveLifecycle && !urlMatches(update.revealedImageUrl || "", visualImageUrl) && !urlMatches(revealedFinalImageByRecord.get(record.key) || "", visualImageUrl);
             if (imageChanged)
-              slotImage.src = record.imageUrl;
+              slotImage.src = visualImageUrl;
             slotImage.hidden = false;
             mediaSlot.dataset.rrnMediaEmpty = "false";
             if (shouldReveal) {
               update.sawActiveLifecycle = false;
-              update.revealedImageUrl = record.imageUrl;
-              revealFinalImageWhenReady(card, slotImage, record.imageUrl, record.key, update);
+              update.revealedImageUrl = visualImageUrl;
+              rememberBoundedMap(revealedFinalImageByRecord, record.key, visualImageUrl, C5B_CACHE_LIMITS.messageSnapshots);
+              revealFinalImageWhenReady(card, slotImage, visualImageUrl, record.key, update);
             } else if (record.status === "completed") {
               update.sawActiveLifecycle = false;
             }
@@ -138254,25 +138268,27 @@ ${message.prompt}`;
         }
       }
     }
-    const completed = records.filter((record) => record.imageUrl);
+    const completed = records.filter((record) => (!messageId || record.messageId === messageId) && (record.pendingPlacement?.imageUrl || record.imageUrl));
     for (const record of completed) {
+      const visualImageUrl = record.pendingPlacement?.imageUrl || record.imageUrl || "";
+      const visualImageId = record.pendingPlacement?.imageId || record.imageId || "";
       const root = ctx.dom.findMessageElement(record.messageId);
       if (!root)
         continue;
       const stableSelector = [
         `img[data-dgir-key="${cssEscape(record.key)}"]`,
         `img[data-dgir-request-id="${cssEscape(record.requestId)}"][data-dgir-slot="${cssEscape(record.slot)}"]`,
-        record.imageId ? `img[data-dgir-image-id="${cssEscape(record.imageId)}"]` : ""
+        visualImageId ? `img[data-dgir-image-id="${cssEscape(visualImageId)}"]` : ""
       ].filter(Boolean).join(",");
       const activeSwipe = activeSwipeByMessage.get(record.messageId);
       if (activeSwipe !== undefined && record.swipeId !== activeSwipe)
         continue;
       const allMessageImages = deepQueryAll(root, "img");
-      const urlImages = allMessageImages.filter((image2) => urlMatches(image2.currentSrc || image2.src, record.imageUrl || ""));
+      const urlImages = allMessageImages.filter((image2) => urlMatches(image2.currentSrc || image2.src, visualImageUrl));
       const stableImages = stableSelector ? deepQueryAll(root, stableSelector).filter((image2) => {
         const imageSwipeText = image2.dataset.dgirSwipeId || "";
         const imageSwipe = imageSwipeText ? Number(imageSwipeText) : Number.NaN;
-        return (!Number.isFinite(imageSwipe) || imageSwipe === record.swipeId) && (!image2.src || urlMatches(image2.currentSrc || image2.src, record.imageUrl || ""));
+        return (!Number.isFinite(imageSwipe) || imageSwipe === record.swipeId) && (!image2.src || urlMatches(image2.currentSrc || image2.src, visualImageUrl));
       }) : [];
       const images = urlImages.length > 0 ? urlImages : stableImages;
       const authoredImages = images.filter((image2) => !image2.closest("[data-rrn-native-request]"));
@@ -138286,7 +138302,7 @@ ${message.prompt}`;
         image2.dataset.dgirKey = record.key;
         image2.dataset.dgirRequestId = record.requestId;
         image2.dataset.dgirSlot = record.slot;
-        image2.dataset.dgirImageId = record.imageId || "";
+        image2.dataset.dgirImageId = visualImageId;
         image2.dataset.dgirApp = record.targetApp;
         image2.dataset.dgirMessageId = record.messageId;
         image2.dataset.dgirSwipeId = String(record.swipeId);
@@ -138305,6 +138321,23 @@ ${message.prompt}`;
         }
       }
     }
+  }
+  function reconcileRenderedRelayMessage(messageId) {
+    const root = ctx.dom.findMessageElement(messageId);
+    if (!root)
+      return;
+    const hadMountedContent = root.childNodes.length > 0;
+    bindInlineImages(messageId);
+    const expected = records.filter((record) => record.messageId === messageId && (record.pendingPlacement?.imageUrl || record.imageUrl));
+    const images = deepQueryAll(root, "img");
+    const missing = expected.filter((record) => {
+      const expectedUrl = record.pendingPlacement?.imageUrl || record.imageUrl || "";
+      return !images.some((image2) => urlMatches(image2.currentSrc || image2.src, expectedUrl));
+    });
+    if (hadMountedContent && root.childNodes.length === 0)
+      console.warn("[Reverie Relay] Render reconciliation found an emptied message root.", { messageId });
+    if (missing.length)
+      console.warn("[Reverie Relay] Render reconciliation could not hydrate every expected media slot.", { messageId, slotKeys: missing.map((record) => record.key) });
   }
   function stripHealthyCompletedLifecycleUi(card) {
     card.removeAttribute("aria-live");

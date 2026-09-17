@@ -103,10 +103,10 @@ const capturedContinuationFragment = `Middle prose.\n${request('scene-19')}`
 assert.equal(backend.selectCompletedRequestContent(storedCompletedResponse, capturedContinuationFragment), storedCompletedResponse)
 assert.equal(backend.selectCompletedRequestContent('Opening prose.', capturedContinuationFragment), capturedContinuationFragment)
 
-// Multiple completed requests compose against one unchanged message snapshot.
-// The caller can then perform exactly one host update; a missing anchor aborts
-// the whole composition instead of partially overwriting prose.
-const batchSource = `Opening prose.\n${request('batch-one')}\nMiddle prose.\n${request('batch-two')}\nClosing prose.`
+// Multiple completed requests compose against one authoritative message
+// snapshot. A missing anchor isolates only that placement; deterministic
+// siblings remain eligible for the transaction's single host update.
+const batchSource = `Opening prose.\n${request('batch-one')}\nMiddle prose.\n${request('batch-two')}\nMore prose.\n${request('batch-three')}\nClosing prose.`
 const batchEntry = (id: string, imageUrl: string) => ({
   job: {
     chatId: 'batch-chat', messageId: 'batch-message', swipeId: 0, requestId: id,
@@ -115,13 +115,27 @@ const batchEntry = (id: string, imageUrl: string) => ({
   },
   results: [{ slot: id, imageId: id, imageUrl }],
 })
-const composedBatch = backend.composeInitialPlacementBatchContent(batchSource, [batchEntry('batch-two', '/batch-two.png'), batchEntry('batch-one', '/batch-one.png')])
+const composedBatch = backend.composeInitialPlacementBatchContent(batchSource, [batchEntry('batch-two', '/batch-two.png'), batchEntry('batch-one', '/batch-one.png'), batchEntry('batch-three', '/batch-three.png')])
 assert.equal(composedBatch.error, undefined)
 assert(composedBatch.content.includes('Opening prose.') && composedBatch.content.includes('Middle prose.') && composedBatch.content.includes('Closing prose.'))
-assert(composedBatch.content.includes('/batch-one.png') && composedBatch.content.includes('/batch-two.png'))
-const missingAnchorBatch = backend.composeInitialPlacementBatchContent(batchSource.replace(request('batch-one'), ''), [batchEntry('batch-one', '/batch-one.png'), batchEntry('batch-two', '/batch-two.png')])
+assert(composedBatch.content.includes('/batch-one.png') && composedBatch.content.includes('/batch-two.png') && composedBatch.content.includes('/batch-three.png'))
+const missingAnchorBatch = backend.composeInitialPlacementBatchContent(batchSource.replace(request('batch-two'), ''), [batchEntry('batch-one', '/batch-one.png'), batchEntry('batch-two', '/batch-two.png'), batchEntry('batch-three', '/batch-three.png')])
 assert.match(missingAnchorBatch.error || '', /No deterministic anchor/)
-assert.equal(missingAnchorBatch.content, batchSource.replace(request('batch-one'), ''), 'failed atomic composition returned partial write-back content')
+assert(missingAnchorBatch.content.includes('/batch-one.png') && missingAnchorBatch.content.includes('/batch-three.png'), 'one lost anchor poisoned its successful siblings')
+assert(!missingAnchorBatch.content.includes('/batch-two.png'))
+assert.deepEqual(missingAnchorBatch.failedEntries?.map((entry: any) => entry.job.requestId), ['batch-two'])
+
+// Relay media persistence is content-only for the active swipe, explicitly
+// targets the swipe array only for an inactive swipe, and never rebuilds chunks.
+const swipeMessage = { id: 'message', role: 'assistant', content: 'active', swipe_id: 1, swipes: ['old', 'active'], metadata: { kept: true } }
+const activePatch = backend.relayMediaPersistencePatch(swipeMessage, 1, 'active-with-images')
+assert.equal(activePatch.content, 'active-with-images')
+assert.equal(activePatch.skipChunkRebuild, true)
+assert.equal('swipes' in activePatch, false, 'active swipe persistence rewrote the full swipe array')
+const inactivePatch = backend.relayMediaPersistencePatch(swipeMessage, 0, 'inactive-with-images')
+assert.equal(inactivePatch.content, undefined)
+assert.equal(inactivePatch.skipChunkRebuild, true)
+assert.deepEqual(inactivePatch.swipes, ['inactive-with-images', 'active'])
 
 // Deferred registration: enabling before permission must recover without reload,
 // remain idempotent, and recover again after revoke/re-grant.

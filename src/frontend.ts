@@ -1653,6 +1653,14 @@ export function setup(ctx: SpindleFrontendContext) {
   const unsubEdit = lifecycle.track(ctx.events.on('MESSAGE_EDITED', (event: any) => {
     if (event.chatId === activeChatId) void refreshState(false)
   }), 'subscription')
+  lifecycle.track(ctx.events.on('CHARACTER_MESSAGE_RENDERED', (event: any) => {
+    const chatId = String(event?.chatId ?? event?.chat_id ?? '').trim()
+    const messageId = String(event?.messageId ?? event?.message_id ?? event?.message?.id ?? '').trim()
+    if (!messageId || chatId && chatId !== activeChatId) return
+    // The host has finished replacing this one message. Reconcile only its
+    // Relay slots; a document-wide rescan would amplify the render churn.
+    reconcileRenderedRelayMessage(messageId)
+  }), 'subscription')
   const rememberActiveSwipe = (event: any) => {
     const messageId = String(event?.messageId ?? event?.message_id ?? event?.message?.id ?? event?.message?.messageId ?? '').trim()
     const rawSwipe = event?.swipeId ?? event?.swipe_id ?? event?.message?.swipeId ?? event?.message?.swipe_id
@@ -2441,6 +2449,7 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   const mediaCardUpdates = new WeakMap<HTMLElement, MediaCardUpdate>()
+  const revealedFinalImageByRecord = new Map<string, string>()
 
   function revealFinalImageWhenReady(
     card: HTMLElement,
@@ -2541,11 +2550,14 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   }
 
-  function bindInlineImages(): void {
-    bindNarrativeInteractiveControls()
-    for (const row of deepQueryAll<HTMLElement>(document, '[data-rr-kakao-color]')) applyKakaoColorBinding(row)
+  function bindInlineImages(messageId?: string): void {
+    if (!messageId) {
+      bindNarrativeInteractiveControls()
+      for (const row of deepQueryAll<HTMLElement>(document, '[data-rr-kakao-color]')) applyKakaoColorBinding(row)
+    }
     const now = Date.now()
     for (const record of records) {
+      if (messageId && record.messageId !== messageId) continue
       const visibleSwipe = activeSwipeByMessage.get(record.messageId)
       if (visibleSwipe !== undefined && record.swipeId !== visibleSwipe) continue
       const root = ctx.dom.findMessageElement(record.messageId)
@@ -2554,6 +2566,10 @@ export function setup(ctx: SpindleFrontendContext) {
       const active = ['preparing', 'queued', 'awaiting-native-settings', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)
       const stallEligible = ['preparing', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)
       const stream = streamPreviews.get(record.key)
+      // A provider result is visually final before its message-scoped
+      // persistence transaction commits. Hydrate that preserved asset directly
+      // into the mounted slot so sibling completions never require a host remount.
+      const visualImageUrl = record.pendingPlacement?.imageUrl || record.imageUrl
       const lastActivityAt = Math.max(record.updatedAt || record.createdAt || now, stream?.updatedAt || 0)
       const stalled = stallEligible && now - lastActivityAt > 90_000
       const needsPlacementRepair = record.status === 'placement-repair-needed'
@@ -2578,7 +2594,7 @@ export function setup(ctx: SpindleFrontendContext) {
         const owningKey = card.dataset.rrnRecordKey
         if (owningKey && owningKey !== record.key) continue
         if (active) syncGenerationPlaceholderEffect(card)
-        const signature = JSON.stringify([record.key, record.status, stalled, record.imageUrl, record.requestAspect, record.error, stream])
+        const signature = JSON.stringify([record.key, record.status, stalled, visualImageUrl, record.requestAspect, record.error, stream])
         const media = card.querySelector('.rrl-media-slot')
         const previous = mediaCardUpdates.get(card)
         const update: MediaCardUpdate = previous?.media === media
@@ -2615,20 +2631,22 @@ export function setup(ctx: SpindleFrontendContext) {
             const ratio = /^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/.exec(record.requestAspect.trim())
             if (ratio) mediaSlot.style.setProperty('--reverie-media-aspect', `${Number(ratio[1])} / ${Number(ratio[2])}`)
           }
-          if (record.imageUrl && slotImage) {
+          if (visualImageUrl && slotImage) {
             slotImage.loading = 'lazy'
             slotImage.decoding = 'async'
-            const imageChanged = !urlMatches(slotImage.currentSrc || slotImage.src, record.imageUrl)
+            const imageChanged = !urlMatches(slotImage.currentSrc || slotImage.src, visualImageUrl)
             const shouldReveal = imageChanged
               && update.sawActiveLifecycle
-              && !urlMatches(update.revealedImageUrl || '', record.imageUrl)
-            if (imageChanged) slotImage.src = record.imageUrl
+              && !urlMatches(update.revealedImageUrl || '', visualImageUrl)
+              && !urlMatches(revealedFinalImageByRecord.get(record.key) || '', visualImageUrl)
+            if (imageChanged) slotImage.src = visualImageUrl
             slotImage.hidden = false
             mediaSlot.dataset.rrnMediaEmpty = 'false'
             if (shouldReveal) {
               update.sawActiveLifecycle = false
-              update.revealedImageUrl = record.imageUrl
-              revealFinalImageWhenReady(card, slotImage, record.imageUrl, record.key, update)
+              update.revealedImageUrl = visualImageUrl
+              rememberBoundedMap(revealedFinalImageByRecord, record.key, visualImageUrl, C5B_CACHE_LIMITS.messageSnapshots)
+              revealFinalImageWhenReady(card, slotImage, visualImageUrl, record.key, update)
             } else if (record.status === 'completed') {
               update.sawActiveLifecycle = false
             }
@@ -2715,24 +2733,26 @@ export function setup(ctx: SpindleFrontendContext) {
         }
       }
     }
-    const completed = records.filter(record => record.imageUrl)
+    const completed = records.filter(record => (!messageId || record.messageId === messageId) && (record.pendingPlacement?.imageUrl || record.imageUrl))
     for (const record of completed) {
+      const visualImageUrl = record.pendingPlacement?.imageUrl || record.imageUrl || ''
+      const visualImageId = record.pendingPlacement?.imageId || record.imageId || ''
       const root = ctx.dom.findMessageElement(record.messageId)
       if (!root) continue
       const stableSelector = [
         `img[data-dgir-key="${cssEscape(record.key)}"]`,
         `img[data-dgir-request-id="${cssEscape(record.requestId)}"][data-dgir-slot="${cssEscape(record.slot)}"]`,
-        record.imageId ? `img[data-dgir-image-id="${cssEscape(record.imageId)}"]` : '',
+        visualImageId ? `img[data-dgir-image-id="${cssEscape(visualImageId)}"]` : '',
       ].filter(Boolean).join(',')
       const activeSwipe = activeSwipeByMessage.get(record.messageId)
       if (activeSwipe !== undefined && record.swipeId !== activeSwipe) continue
       const allMessageImages = deepQueryAll<HTMLImageElement>(root as ParentNode, 'img')
-      const urlImages = allMessageImages.filter(image => urlMatches(image.currentSrc || image.src, record.imageUrl || ''))
+      const urlImages = allMessageImages.filter(image => urlMatches(image.currentSrc || image.src, visualImageUrl))
       const stableImages = stableSelector
         ? deepQueryAll<HTMLImageElement>(root as ParentNode, stableSelector).filter(image => {
             const imageSwipeText = image.dataset.dgirSwipeId || ''
             const imageSwipe = imageSwipeText ? Number(imageSwipeText) : Number.NaN
-            return (!Number.isFinite(imageSwipe) || imageSwipe === record.swipeId) && (!image.src || urlMatches(image.currentSrc || image.src, record.imageUrl || ''))
+            return (!Number.isFinite(imageSwipe) || imageSwipe === record.swipeId) && (!image.src || urlMatches(image.currentSrc || image.src, visualImageUrl))
           })
         : []
       const images = urlImages.length > 0 ? urlImages : stableImages
@@ -2747,7 +2767,7 @@ export function setup(ctx: SpindleFrontendContext) {
         image.dataset.dgirKey = record.key
         image.dataset.dgirRequestId = record.requestId
         image.dataset.dgirSlot = record.slot
-        image.dataset.dgirImageId = record.imageId || ''
+        image.dataset.dgirImageId = visualImageId
         image.dataset.dgirApp = record.targetApp
         image.dataset.dgirMessageId = record.messageId
         image.dataset.dgirSwipeId = String(record.swipeId)
@@ -2765,6 +2785,21 @@ export function setup(ctx: SpindleFrontendContext) {
         }
       }
     }
+  }
+
+  function reconcileRenderedRelayMessage(messageId: string): void {
+    const root = ctx.dom.findMessageElement(messageId)
+    if (!root) return
+    const hadMountedContent = root.childNodes.length > 0
+    bindInlineImages(messageId)
+    const expected = records.filter(record => record.messageId === messageId && (record.pendingPlacement?.imageUrl || record.imageUrl))
+    const images = deepQueryAll<HTMLImageElement>(root as ParentNode, 'img')
+    const missing = expected.filter(record => {
+      const expectedUrl = record.pendingPlacement?.imageUrl || record.imageUrl || ''
+      return !images.some(image => urlMatches(image.currentSrc || image.src, expectedUrl))
+    })
+    if (hadMountedContent && root.childNodes.length === 0) console.warn('[Reverie Relay] Render reconciliation found an emptied message root.', { messageId })
+    if (missing.length) console.warn('[Reverie Relay] Render reconciliation could not hydrate every expected media slot.', { messageId, slotKeys: missing.map(record => record.key) })
   }
 
   function stripHealthyCompletedLifecycleUi(card: HTMLElement): void {

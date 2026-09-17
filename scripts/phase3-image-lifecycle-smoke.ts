@@ -5,7 +5,6 @@ import { shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
-const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 
 ;(globalThis as any).spindle = {
   registerMessageContentProcessor() {}, registerMacro() {}, on() {}, onFrontendMessage() {}, sendToFrontend() {},
@@ -13,21 +12,34 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 }
 const backend = await import('../src/backend')
 
-let content = '[a] [b] [c]'
+const requestMarkup = (id: string) => `<image_request id="${id}" target="custom.artifact-media" slot="${id}"><scene_brief>${id}</scene_brief></image_request>`
+const sourceContent = `Story before. ${requestMarkup('a')} Story middle. ${requestMarkup('b')} More story. ${requestMarkup('c')} Story after.`
+let mountedProse = 'Story before. Story middle. More story. Story after.'
+let persistedContent = sourceContent
+let hostMutationCount = 0
 const events: string[] = []
-const place = async (id: string, generationDelay: number) => {
-  await sleep(generationDelay)
+const visibleImages = new Set<string>()
+const entries: any[] = []
+const complete = (id: string) => {
   events.push(`generated-${id}`)
-  await backend.withPlacementMutationLock({ chatId: 'phase3', messageId: 'message', swipeId: 0 }, async () => {
-    const latest = content
-    await sleep(10)
-    content = latest.replace(`[${id}]`, `<img src="/${id}.png">`)
-    events.push(`placed-${id}`)
+  visibleImages.add(id)
+  entries.push({
+    job: { chatId: 'phase3', messageId: 'message', swipeId: 0, requestId: id, target: 'custom.artifact-media', count: 1, slots: [id], alt: id, originalSceneBrief: id, originalNegativePrompt: '', originalRequestXml: requestMarkup(id), sourceContent },
+    results: [{ slot: id, imageId: id, imageUrl: `/${id}.png` }],
   })
+  assert(mountedProse === 'Story before. Story middle. More story. Story after.', `${id}: live hydration blanked or replaced mounted prose`)
 }
-await Promise.all([place('a', 0), place('b', 40), place('c', 80)])
-assert(content.includes('/a.png') && content.includes('/b.png') && content.includes('/c.png'), 'serialized per-message placement must retain every sibling insertion')
-assert(events.indexOf('placed-a') < events.indexOf('generated-b'), 'first completed generation must place before slower siblings finish')
+complete('a')
+assert(visibleImages.has('a') && !visibleImages.has('b') && !visibleImages.has('c'), 'A must hydrate before B/C complete')
+complete('b')
+assert(visibleImages.has('a') && visibleImages.has('b') && !visibleImages.has('c'), 'B must hydrate before C completes')
+complete('c')
+const transaction = backend.composeInitialPlacementBatchContent(persistedContent, entries)
+assert(!transaction.error, transaction.error || 'three-image persistence composition failed')
+persistedContent = transaction.content
+hostMutationCount += 1
+assert(hostMutationCount === 1, 'three successful siblings performed more than one canonical host mutation')
+assert(persistedContent.includes('/a.png') && persistedContent.includes('/b.png') && persistedContent.includes('/c.png'), 'message-scoped persistence lost a successful sibling')
 
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
 const studio = {
@@ -56,4 +68,4 @@ assert(backendSource.includes("eventType: 'invalid_prose_illustration_schema'") 
 assert(nativeSource.includes('.rrl-media-slot{box-shadow:0 2px 10px rgba(0,0,0,.12)') && !nativeSource.includes('.rrl-media-slot{box-shadow:0 16px 50px'), 'reservation shell must constrain downward shadow bleed')
 assert(nativeSource.includes('`request-${input.requestId}`') && nativeSource.includes('data-reverie-stream-island'), 'request lifecycle must keep a stable stream-island identity')
 
-console.log(`Phase 3 image lifecycle smoke passed: ${events.join(' -> ')}; three sibling placements retained; pending, repair, completion, diagnostics, schema isolation, and stable island contracts verified.`)
+console.log(`Phase 3 image lifecycle smoke passed: ${events.join(' -> ')} hydrated with prose continuously mounted; one canonical mutation retained all siblings; pending, repair, completion, diagnostics, schema isolation, and stable island contracts verified.`)

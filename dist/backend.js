@@ -156396,6 +156396,7 @@ var relayProcessingKeys = new Set;
 var BACKEND_STARTED_AT = Date.now();
 var stateMutationQueues = new Map;
 var placementMutationQueues = new Map;
+var pendingPlacementBatches = new Map;
 var narrativeStartupReconciledUsers = new Set;
 var configMutationQueues = new Map;
 var pendingGenerationContent = new Map;
@@ -157546,8 +157547,13 @@ var lifecycleOn = spindle.on;
 for (const eventName of ["MESSAGE_DELETED", "MESSAGE_REMOVED", "CHAT_MESSAGE_DELETED"]) {
   lifecycleOn(eventName, (payload, userId) => {
     const { chatId, messageId } = deletedMessageIdentity(payload);
-    if (chatId && messageId)
+    if (chatId && messageId) {
       latestMessageSnapshots.delete(messageSnapshotKey(chatId, messageId));
+      const batchPrefix = `${relayQueueScope(userId)}:${chatId}:${messageId}:`;
+      for (const key2 of [...pendingPlacementBatches.keys()])
+        if (key2.startsWith(batchPrefix))
+          pendingPlacementBatches.delete(key2);
+    }
     handleMessageDeleted(payload, userId).catch((error) => spindle.log.error(`[Reverie Relay:${eventName.toLocaleLowerCase()}] ${error instanceof Error ? error.message : String(error)}`));
   });
 }
@@ -159871,6 +159877,7 @@ async function drainRelayDispatchQueue(scope) {
         enqueuedRelayJobs.delete(entry.queueKey);
         queue.active = Math.max(0, queue.active - 1);
         entry.resolve();
+        maybeCommitInitialPlacementBatch(entry.job, entry.userId).catch((error) => spindle.log.error(`[Reverie Relay:placement_batch] ${error instanceof Error ? error.message : String(error)}`));
         drainRelayDispatchQueue(scope);
       }
     })().catch((error) => spindle.log.error(`[Reverie Relay:dispatch_queue] ${error instanceof Error ? error.message : String(error)}`));
@@ -162607,25 +162614,44 @@ function replaceOwningMessageMediaWrapper(content, job, replacement) {
   const owner = matches[0];
   return `${content.slice(0, owner.start)}${replacement}${content.slice(owner.end)}`;
 }
+async function stageInitialPlacementBatchEntry(batch, job, results, replaceExisting, userId) {
+  await markGeneratedPlacementPending(job, results, userId);
+  const existing = batch.entries.findIndex((entry2) => entry2.job.requestId === job.requestId);
+  const entry = { job, results, replaceExisting };
+  if (existing >= 0)
+    batch.entries[existing] = entry;
+  else
+    batch.entries.push(entry);
+}
 function composeInitialPlacementBatchContent(content, entries) {
   let nextContent = content;
+  const failedEntries = [];
   const ordered = [...entries].sort((left, right) => {
     const leftIndex = content.indexOf(left.job.originalRequestXml);
     const rightIndex = content.indexOf(right.job.originalRequestXml);
     return (leftIndex < 0 ? Number.MAX_SAFE_INTEGER : leftIndex) - (rightIndex < 0 ? Number.MAX_SAFE_INTEGER : rightIndex);
   });
-  for (const { job, results } of ordered) {
+  for (const entry of ordered) {
+    const { job, results, replaceExisting } = entry;
+    if (placementIsPresent(nextContent, job, results))
+      continue;
     const expectedPlacements = new Map(results.map((result) => [result.slot, expectedPlacementCount(nextContent, job, result)]));
-    const replacement = renderResolvedMarkup(job, results);
     let placed = nextContent;
-    if (placed.includes(job.originalRequestXml)) {
-      const ownedMediaReplacement = replaceOwningMessageMediaWrapper(placed, job, replacement);
-      placed = ownedMediaReplacement || placed.split(job.originalRequestXml).join(replacement);
+    if (replaceExisting) {
+      for (const result of results)
+        placed = replaceResolvedSlotAfterComment(placed, job, result) || placed;
     } else {
-      placed = replaceErrorAfterComment(placed, job, replacement) || placed;
+      const replacement = renderResolvedMarkup(job, results);
+      if (placed.includes(job.originalRequestXml)) {
+        const ownedMediaReplacement = replaceOwningMessageMediaWrapper(placed, job, replacement);
+        placed = ownedMediaReplacement || placed.split(job.originalRequestXml).join(replacement);
+      } else {
+        placed = replaceErrorAfterComment(placed, job, replacement) || placed;
+      }
     }
     if (!placementIsPresent(placed, job, results, expectedPlacements)) {
-      return { content, error: `No deterministic anchor remained for request ${job.requestId}.` };
+      failedEntries.push(entry);
+      continue;
     }
     if (isCharacterProfileArtifactJob(placed, job, results) && !results.every((result) => characterProfilePortraitHasExactRelayImage(placed, {
       chatId: job.chatId,
@@ -162634,11 +162660,152 @@ function composeInitialPlacementBatchContent(content, entries) {
       requestId: job.requestId,
       slot: result.slot,
       imageUrl: result.imageUrl
-    })))
-      return { content, error: `The generated Character Profile image for ${job.requestId} is not renderable in its owned portrait.` };
+    }))) {
+      failedEntries.push(entry);
+      continue;
+    }
     nextContent = placed;
   }
-  return { content: nextContent };
+  return {
+    content: nextContent,
+    error: failedEntries.length ? `No deterministic anchor remained for ${failedEntries.map((entry) => entry.job.requestId).join(", ")}.` : undefined,
+    failedEntries: failedEntries.length ? failedEntries : undefined
+  };
+}
+async function markInitialPlacementBatchForRepair(batch, reason, currentContent, userId, entries = batch.entries) {
+  await mutateState(batch.chatId, userId, (state) => {
+    const now = Date.now();
+    for (const { job, results } of entries)
+      for (const result of results) {
+        const record4 = state.slots[slotKey({ ...job, slot: result.slot })];
+        if (!record4 || !placementFailureCanReplaceRecord(record4, result) || placementIsPresent(currentContent, job, [result]))
+          continue;
+        record4.status = "placement-repair-needed";
+        record4.pendingPlacement = result;
+        record4.previewPending = false;
+        record4.placementFailure = {
+          failedAt: now,
+          reason,
+          anchorsChecked: ["message/swipe generation-start fingerprint", "exact original request or Relay error marker", "atomic final placement verification"],
+          contentFingerprint: contentFingerprint(currentContent),
+          retryCount: (record4.placementFailure?.retryCount || 0) + 1
+        };
+        record4.error = undefined;
+        record4.errorToastKey = undefined;
+        record4.updatedAt = now;
+        finishAttempt(record4, "placement-repair-needed", now, reason);
+        appendStateLog(state, {
+          severity: "warning",
+          stage: "placement-repair-needed",
+          eventType: "placement_repair_needed",
+          chatId: job.chatId,
+          messageId: job.messageId,
+          swipeId: job.swipeId,
+          requestId: job.requestId,
+          slot: result.slot,
+          target: job.target,
+          message: "Generated pixels were preserved, but atomic message persistence stopped without overwriting newer content.",
+          details: { reason, sourceFingerprint: batch.sourceFingerprint, currentFingerprint: contentFingerprint(currentContent), imageId: result.imageId, imageUrl: result.imageUrl }
+        });
+      }
+  });
+  await sendState(userId, batch.chatId);
+}
+async function commitInitialPlacementBatch(batch, userId) {
+  if (!batch.entries.length)
+    return;
+  const message = await resolveHostMessage(batch.chatId, batch.messageId);
+  const currentContent = message ? getAuthoritativeSwipeContent(message, batch.swipeId) : "";
+  if (!message) {
+    await markInitialPlacementBatchForRepair(batch, "The original message is no longer available.", currentContent, userId);
+    return;
+  }
+  const composed = composeInitialPlacementBatchContent(currentContent, batch.entries);
+  try {
+    if (composed.content !== currentContent)
+      await patchSwipeContent(batch.chatId, message, batch.swipeId, composed.content);
+    const verifiedMessage = await resolveHostMessage(batch.chatId, batch.messageId);
+    const verifiedContent = verifiedMessage ? getAuthoritativeSwipeContent(verifiedMessage, batch.swipeId) : "";
+    const verifiedEntries = batch.entries.filter(({ job, results }) => placementIsPresent(verifiedContent, job, results));
+    const failedEntries = batch.entries.filter((entry) => !verifiedEntries.includes(entry));
+    await mutateState(batch.chatId, userId, (state) => {
+      const now = Date.now();
+      for (const { job, results } of verifiedEntries)
+        for (const result of results) {
+          const record4 = state.slots[slotKey({ ...job, slot: result.slot })];
+          if (!record4)
+            continue;
+          applyGeneration(state, record4, result, now);
+          appendStateLog(state, {
+            severity: "info",
+            stage: "image-generation-completed",
+            eventType: "image_generation_completed",
+            chatId: job.chatId,
+            messageId: job.messageId,
+            swipeId: job.swipeId,
+            requestId: job.requestId,
+            slot: result.slot,
+            target: job.target,
+            attemptNumber: record4.attemptNumber,
+            triggerType: result.triggerType,
+            provider: result.imageProvider,
+            connectionId: result.imageConnectionId,
+            connectionName: result.imageConnectionName,
+            model: result.imageModel,
+            durationMs: currentAttempt(record4)?.durationMs,
+            message: "Image generation completed and its message-scoped placement was verified."
+          });
+        }
+      appendStateLog(state, {
+        severity: "info",
+        stage: "placement-completed",
+        eventType: "message_batch_placement_completed",
+        chatId: batch.chatId,
+        messageId: batch.messageId,
+        swipeId: batch.swipeId,
+        message: `Persisted ${verifiedEntries.reduce((total, entry) => total + entry.results.length, 0)} generated image slot(s) in one message-scoped update.`,
+        details: { requestIds: verifiedEntries.map((entry) => entry.job.requestId), sourceFingerprint: batch.sourceFingerprint, sourceChanged: contentFingerprint(currentContent) !== batch.sourceFingerprint }
+      });
+    });
+    if (failedEntries.length)
+      await markInitialPlacementBatchForRepair(batch, composed.error || "The single message update returned without every intended exact placement.", verifiedContent, userId, failedEntries);
+    await sendState(userId, batch.chatId);
+  } catch (error) {
+    await markInitialPlacementBatchForRepair(batch, error instanceof Error ? error.message : String(error), currentContent, userId);
+  }
+}
+function placementBatchKey(job, userId) {
+  return `${relayQueueScope(userId)}:${job.chatId}:${job.messageId}:${job.swipeId}`;
+}
+function hasUnsettledPlacementSibling(batch, userId) {
+  const staged = new Set(batch.entries.map((entry) => entry.job.requestId));
+  const queuePrefix = `${relayQueueScope(userId)}:${batch.chatId}:${batch.messageId}:${batch.swipeId}:`;
+  return [...enqueuedRelayJobs.keys()].some((key2) => key2.startsWith(queuePrefix) && !staged.has(key2.slice(queuePrefix.length)));
+}
+async function maybeCommitInitialPlacementBatch(job, userId) {
+  return withPlacementMutationLock(job, async () => {
+    const key2 = placementBatchKey(job, userId);
+    const batch = pendingPlacementBatches.get(key2);
+    if (!batch || hasUnsettledPlacementSibling(batch, userId))
+      return false;
+    pendingPlacementBatches.delete(key2);
+    await commitInitialPlacementBatch(batch, userId);
+    return true;
+  });
+}
+async function stageGeneratedPlacement(job, results, replaceExisting, userId) {
+  const key2 = placementBatchKey(job, userId);
+  await withPlacementMutationLock(job, async () => {
+    let batch = pendingPlacementBatches.get(key2);
+    if (!batch) {
+      const message = await resolveHostMessage(job.chatId, job.messageId);
+      const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : "";
+      batch = { chatId: job.chatId, messageId: job.messageId, swipeId: job.swipeId, sourceFingerprint: contentFingerprint(content), entries: [] };
+      pendingPlacementBatches.set(key2, batch);
+    }
+    await stageInitialPlacementBatchEntry(batch, job, results, replaceExisting, userId);
+  });
+  return maybeCommitInitialPlacementBatch(job, userId);
 }
 async function applyJobSuccess(job, results, replaceExisting, userId, bypassImagePreview = false, forceImagePreview = false) {
   if (results.length === 0)
@@ -162651,101 +162818,12 @@ async function applyJobSuccess(job, results, replaceExisting, userId, bypassImag
     spindle.sendToFrontend({ type: "status", status: "Preview Ready", requestId: job.requestId }, userId);
     return "placement-pending";
   }
-  await markGeneratedPlacementPending(job, results, userId);
-  return withPlacementMutationLock(job, async () => {
-    const anchorsChecked = ["exact resolved slot marker", "exact original image_request or reverie-illustration tag", "exact Relay error marker"];
-    const message = await resolveMessage(job.chatId, job.messageId);
-    if (!message) {
-      await storePendingPlacement(job, results, "The generated image is ready, but the original message is unavailable.", anchorsChecked, "", userId);
-      return "placement-repair-needed";
-    }
-    try {
-      const rawContent = getAuthoritativeSwipeContent(message, job.swipeId);
-      const content = normalizeRelaySurfaceContracts(rawContent);
-      const expectedPlacements = new Map(results.map((result) => [result.slot, expectedPlacementCount(content, job, result)]));
-      const requiresCharacterProfilePortrait = isCharacterProfileArtifactJob(rawContent, job, results);
-      if (requiresCharacterProfilePortrait)
-        anchorsChecked.push("exact Character Profile portrait ownership and renderable image");
-      let nextContent = content;
-      if (replaceExisting) {
-        for (const result of results) {
-          const replaced = replaceResolvedSlotAfterComment(nextContent, job, result);
-          if (replaced)
-            nextContent = replaced;
-        }
-      } else {
-        const replacement = renderResolvedMarkup(job, results);
-        if (nextContent.includes(job.originalRequestXml)) {
-          const ownedMediaReplacement = replaceOwningMessageMediaWrapper(nextContent, job, replacement);
-          nextContent = ownedMediaReplacement || nextContent.split(job.originalRequestXml).join(replacement);
-        } else {
-          const replaced = replaceErrorAfterComment(nextContent, job, replacement);
-          if (replaced)
-            nextContent = replaced;
-        }
-      }
-      if (isJobCancelled(job))
-        throw new JobCancelledError;
-      if (nextContent !== rawContent)
-        await patchSwipeContent(job.chatId, message, job.swipeId, nextContent);
-      else if (!placementIsPresent(content, job, results, expectedPlacements)) {
-        await storePendingPlacement(job, results, "No deterministic request, error, or resolved slot anchor was found.", anchorsChecked, content, userId);
-        return "placement-repair-needed";
-      }
-      if (isJobCancelled(job))
-        throw new JobCancelledError;
-      const verifiedMessage = await resolveMessage(job.chatId, job.messageId);
-      const verifiedContent = verifiedMessage ? getAuthoritativeSwipeContent(verifiedMessage, job.swipeId) : "";
-      if (!placementIsPresent(verifiedContent, job, results, expectedPlacements)) {
-        await storePendingPlacement(job, results, "Message update completed without a verifiable exact slot marker and image URL.", anchorsChecked, verifiedContent, userId);
-        return "placement-repair-needed";
-      }
-      if (requiresCharacterProfilePortrait && !results.every((result) => characterProfilePortraitHasExactRelayImage(verifiedContent, {
-        chatId: job.chatId,
-        messageId: job.messageId,
-        swipeId: job.swipeId,
-        requestId: job.requestId,
-        slot: result.slot,
-        imageUrl: result.imageUrl
-      }))) {
-        await storePendingPlacement(job, results, "Generation completed, but the exact Relay asset is not renderable inside its matching Character Profile portrait.", anchorsChecked, verifiedContent, userId);
-        return "placement-repair-needed";
-      }
-    } catch (error) {
-      if (error instanceof JobCancelledError)
-        throw error;
-      await storePendingPlacement(job, results, error instanceof Error ? error.message : String(error), anchorsChecked, "", userId);
-      return "placement-repair-needed";
-    }
-    await mutateJobState(job, userId, (state) => {
-      const now = Date.now();
-      for (const result of results) {
-        const record4 = state.slots[slotKey({ ...job, slot: result.slot })];
-        applyGeneration(state, record4, result, now);
-        appendStateLog(state, {
-          severity: "info",
-          stage: "image-generation-completed",
-          eventType: "image_generation_completed",
-          chatId: job.chatId,
-          messageId: job.messageId,
-          swipeId: job.swipeId,
-          requestId: job.requestId,
-          slot: result.slot,
-          target: job.target,
-          attemptNumber: record4.attemptNumber,
-          triggerType: result.triggerType,
-          provider: result.imageProvider,
-          connectionId: result.imageConnectionId,
-          connectionName: result.imageConnectionName,
-          model: result.imageModel,
-          durationMs: currentAttempt(record4)?.durationMs,
-          message: "Image generation completed."
-        });
-      }
-    });
-    await sendState(userId, job.chatId);
-    return "completed";
-  });
+  const committed = await stageGeneratedPlacement(job, results, replaceExisting, userId);
+  if (!committed)
+    return "placement-pending";
+  const state = await getState(job.chatId, userId);
+  const statuses = results.map((result) => state.slots[slotKey({ ...job, slot: result.slot })]?.status);
+  return statuses.every((status) => status === "completed") ? "completed" : "placement-repair-needed";
 }
 async function markGeneratedPlacementPending(job, results, userId) {
   await mutateJobState(job, userId, (state) => {
@@ -164435,6 +164513,7 @@ async function discardPendingPlacement(key2, userId) {
 }
 async function applyJobFailure(job, error, stage, userId, expectedAttemptNumbers = {}) {
   let acceptedFailure = false;
+  let stateDrivenFailure = false;
   await mutateJobState(job, userId, async (state) => {
     const now = Date.now();
     for (const slot of job.slots) {
@@ -164442,6 +164521,8 @@ async function applyJobFailure(job, error, stage, userId, expectedAttemptNumbers
       if (!record4 || expectedAttemptNumbers[slot] && record4.attemptNumber !== expectedAttemptNumbers[slot])
         continue;
       acceptedFailure = true;
+      if (record4.triggerType === "initial")
+        stateDrivenFailure = true;
       record4.status = "failed";
       record4.error = error;
       record4.errorToastKey = `${record4.key}:${record4.attemptNumber || 0}:${error}`;
@@ -164476,7 +164557,7 @@ async function applyJobFailure(job, error, stage, userId, expectedAttemptNumbers
     }
     if (isJobCancelled(job))
       throw new JobCancelledError;
-    const message = acceptedFailure ? await resolveMessage(job.chatId, job.messageId) : null;
+    const message = acceptedFailure && !stateDrivenFailure ? await resolveMessage(job.chatId, job.messageId) : null;
     if (message) {
       const content = getSwipeContent(message, job.swipeId);
       if (content.includes(job.originalRequestXml)) {
@@ -170579,6 +170660,10 @@ async function resolveMessage(chatId, messageId) {
   }
   return [...messages].reverse().find((message) => isAssistantMessage(message) && !isOwnMessage(message)) ?? null;
 }
+async function resolveHostMessage(chatId, messageId) {
+  const messages = await spindle.chat.getMessages(chatId);
+  return messages.find((message) => message.id === messageId) ?? null;
+}
 function messageSnapshotKey(chatId, messageId) {
   return `${chatId}:${messageId}`;
 }
@@ -170616,35 +170701,35 @@ function canonicalEditedMessage(message) {
   }
   return next;
 }
+function relayMediaPersistencePatch(message, swipeId, content) {
+  const metadata = {
+    ...message.metadata || {},
+    dreamglassImageRouterUpdatedAt: new Date().toISOString()
+  };
+  if (swipeId === activeSwipeId(message))
+    return { content, skipChunkRebuild: true, metadata };
+  if (Array.isArray(message.swipes) && message.swipes.length > swipeId) {
+    const swipes = [...message.swipes];
+    swipes[swipeId] = content;
+    const patch = { swipes, skipChunkRebuild: true, metadata };
+    if (Array.isArray(message.swipe_dates) && message.swipe_dates.length === swipes.length)
+      patch.swipe_dates = message.swipe_dates;
+    return patch;
+  }
+  return { content, skipChunkRebuild: true, metadata };
+}
 async function patchSwipeContent(chatId, message, swipeId, content) {
   const mutationKey = `${chatId}:${message.id}`;
   extensionMessageMutations.add(mutationKey);
   try {
-    if (Array.isArray(message.swipes) && message.swipes.length > swipeId) {
-      const swipes = [...message.swipes];
-      swipes[swipeId] = content;
-      const patch = {
-        swipes,
-        metadata: {
-          ...message.metadata || {},
-          dreamglassImageRouterUpdatedAt: new Date().toISOString()
-        }
-      };
-      if (Array.isArray(message.swipe_dates) && message.swipe_dates.length === swipes.length)
-        patch.swipe_dates = message.swipe_dates;
-      await spindle.chat.updateMessage(chatId, message.id, patch);
-      rememberMessageSnapshot(chatId, { ...message, ...patch });
-    } else {
-      const patch = {
-        content,
-        metadata: {
-          ...message.metadata || {},
-          dreamglassImageRouterUpdatedAt: new Date().toISOString()
-        }
-      };
-      await spindle.chat.updateMessage(chatId, message.id, patch);
-      rememberMessageSnapshot(chatId, { ...message, ...patch });
+    const patch = relayMediaPersistencePatch(message, swipeId, content);
+    await spindle.chat.updateMessage(chatId, message.id, patch);
+    const snapshot = { ...message, ...patch };
+    if (swipeId === activeSwipeId(message) && Array.isArray(message.swipes)) {
+      snapshot.swipes = [...message.swipes];
+      snapshot.swipes[swipeId] = content;
     }
+    rememberMessageSnapshot(chatId, snapshot);
   } finally {
     setTimeout(() => extensionMessageMutations.delete(mutationKey), 250);
   }
@@ -172243,6 +172328,7 @@ export {
   replaceCharacterMacro,
   repairSelfieDeviceContamination,
   removeConflictingHumanNegatives,
+  relayMediaPersistencePatch,
   registerDirectHostAppearanceSources,
   proseAnalysisText,
   placementIsPresent,

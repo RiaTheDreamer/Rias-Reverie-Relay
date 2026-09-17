@@ -26,8 +26,8 @@ const rows = selectRescanSwipeRows({ content: healthyContent, swipe_id: 0, swipe
 assert(rows[0]?.content === healthyContent, 'rescan/reparse must inspect canonical active content, not stale swipes[]')
 
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
-assert(backendSource.includes('getAuthoritativeSwipeContent(verifiedMessage, batch.swipeId)') && backendSource.includes('const placementVerified = batch.entries.every'), 'atomic placement verification must accept valid canonical rendered output')
-assert(backendSource.includes("await storePendingPlacement(job, results, 'No deterministic request, error, or resolved slot anchor was found.'"), 'truly missing rendered media must still enter Repair Needed')
+assert(backendSource.includes('getAuthoritativeSwipeContent(verifiedMessage, batch.swipeId)') && backendSource.includes('const verifiedEntries = batch.entries.filter'), 'message-scoped placement verification must accept each valid canonical rendered output')
+assert(backendSource.includes('const failedEntries = batch.entries.filter') && backendSource.includes('markInitialPlacementBatchForRepair(batch'), 'truly missing rendered media must still enter Repair Needed without poisoning valid siblings')
 assert(backendSource.includes('record.attemptNumber !== expectedAttemptNumbers[slot]') && backendSource.includes('isJobCancelled(job) || !failureApplied'), 'stale generic failure state/toast protection is missing')
 assert(backendSource.includes("eventType: 'invalid_prose_illustration_schema'") && !backendSource.includes('invalidProseSchemaNotices'), 'malformed Prose schema must remain lane-scoped diagnostic evidence instead of becoming a generic toast')
 
