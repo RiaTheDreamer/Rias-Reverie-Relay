@@ -4,6 +4,41 @@ export const NATIVE_SETTINGS_SOFT_TTL_MS = 10 * 60_000
 export const NATIVE_SETTINGS_HARD_TTL_MS = 24 * 60 * 60_000
 export const AUTO_DISPATCH_STALE_MS = 10 * 60_000
 export const AUTO_RESUME_MAX_JOBS = 12
+export const NATIVE_SETTINGS_REFRESH_TIMEOUT_MS = 30_000
+export const NATIVE_SETTINGS_REFRESH_MAX_RETRIES = 1
+
+export type NativeSettingsWaitersByChat = Map<string, Set<string>>
+
+export function addNativeSettingsWaiters(registry: NativeSettingsWaitersByChat, chatId: string, keys: Iterable<string>): Set<string> {
+  const waiting = registry.get(chatId) || new Set<string>()
+  for (const key of keys) if (key) waiting.add(key)
+  if (waiting.size) registry.set(chatId, waiting)
+  return waiting
+}
+
+export function removeNativeSettingsWaiters(registry: NativeSettingsWaitersByChat, chatId: string, keys?: Iterable<string>): number {
+  const waiting = registry.get(chatId)
+  if (!waiting) return 0
+  if (!keys) {
+    const removed = waiting.size
+    registry.delete(chatId)
+    return removed
+  }
+  let removed = 0
+  for (const key of keys) if (waiting.delete(key)) removed += 1
+  if (!waiting.size) registry.delete(chatId)
+  return removed
+}
+
+export function nativeSettingsWaiterCount(registry: NativeSettingsWaitersByChat): number {
+  let count = 0
+  for (const waiting of registry.values()) count += waiting.size
+  return count
+}
+
+export function nativeSettingsWaiterCountsByChat(registry: NativeSettingsWaitersByChat): Record<string, number> {
+  return Object.fromEntries([...registry.entries()].map(([chatId, waiting]) => [chatId, waiting.size]))
+}
 
 export type DispatchLeaseStatus =
   | 'discovered'

@@ -350,8 +350,33 @@ function normalizeElsewhereMarkup(markup: string): string {
   })
 }
 
+const WORLD_OWNER_RANGE = /(\[WORLD\|[^\]\r\n]{1,500}\|[^\]\r\n]{1,500}\])((?:(?!\[WORLD\|)[\s\S])*?)(\[\/WORLD\])/gi
+const WORLD_BODY_SHELL = /^\s*\[world_media\]([\s\S]{1,24000}?)\[\/world_media\]\s*\[world_detail\]([\s\S]{1,12000}?)\[\/world_detail\]\s*\[world_context\]([\s\S]{1,16000}?)\[\/world_context\]\s*$/i
+const NESTED_NARRATIVE_OWNER = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i
+
+/** Repair one observed Setting the Scene contract violation inside a complete,
+ * otherwise canonical World owner. The first future-use closer is only changed
+ * when the following, separately opened future-use field is complete, leaving
+ * canonical and ambiguous payloads byte-identical. */
+export function normalizeWorldMarkup(markup: string): string {
+  return String(markup || '').replace(WORLD_OWNER_RANGE, (full, opening: string, body: string, closing: string) => {
+    const shell = WORLD_BODY_SHELL.exec(body)
+    if (!shell || NESTED_NARRATIVE_OWNER.test(body)) return full
+    const context = shell[3]
+    if ((context.match(/\[why_it_matters\]/gi) || []).length !== 1) return full
+    if ((context.match(/\[\/why_it_matters\]/gi) || []).length !== 0) return full
+    if ((context.match(/\[future_use\]/gi) || []).length !== 1) return full
+    if ((context.match(/\[\/future_use\]/gi) || []).length !== 2) return full
+    const malformed = /^\s*\[why_it_matters\]([\s\S]+?)\[\/future_use\]\s*\[future_use\]([\s\S]+?)\[\/future_use\]\s*$/i.exec(context)
+    if (!malformed || !malformed[1].trim() || !malformed[2].trim()) return full
+    const repairedContext = context.replace(/\[\/future_use\]/i, '[/why_it_matters]')
+    const repairedBody = body.slice(0, shell.index) + shell[0].replace(context, repairedContext) + body.slice(shell.index + shell[0].length)
+    return `${opening}${repairedBody}${closing}`
+  })
+}
+
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
-  return normalizeElsewhereMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(normalizeLegacyPlotSparksMarkup(String(markup || ''))))))
+  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(normalizeLegacyPlotSparksMarkup(String(markup || '')))))))
     .replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root: string, body: string) => {
       // A second observed phone drift uses an XML root around otherwise
       // canonical bracket fields. Convert only a complete, known phone root;

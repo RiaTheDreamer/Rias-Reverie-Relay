@@ -951,6 +951,7 @@ var SLOT_LIFECYCLE = {
   "paused-backlog": lifecycle(false, false, false, true),
   superseded: lifecycle(false, false, true),
   parsing: lifecycle(true, false, false),
+  "provider-waiting": lifecycle(true, false, false),
   generating: lifecycle(true, false, false),
   previewing: lifecycle(true, false, false),
   "placement-pending": lifecycle(false, true, false, false),
@@ -979,6 +980,43 @@ var NATIVE_SETTINGS_SOFT_TTL_MS = 10 * 60000;
 var NATIVE_SETTINGS_HARD_TTL_MS = 24 * 60 * 60000;
 var AUTO_DISPATCH_STALE_MS = 10 * 60000;
 var AUTO_RESUME_MAX_JOBS = 12;
+var NATIVE_SETTINGS_REFRESH_TIMEOUT_MS = 30000;
+var NATIVE_SETTINGS_REFRESH_MAX_RETRIES = 1;
+function addNativeSettingsWaiters(registry, chatId, keys) {
+  const waiting = registry.get(chatId) || new Set;
+  for (const key of keys)
+    if (key)
+      waiting.add(key);
+  if (waiting.size)
+    registry.set(chatId, waiting);
+  return waiting;
+}
+function removeNativeSettingsWaiters(registry, chatId, keys) {
+  const waiting = registry.get(chatId);
+  if (!waiting)
+    return 0;
+  if (!keys) {
+    const removed2 = waiting.size;
+    registry.delete(chatId);
+    return removed2;
+  }
+  let removed = 0;
+  for (const key of keys)
+    if (waiting.delete(key))
+      removed += 1;
+  if (!waiting.size)
+    registry.delete(chatId);
+  return removed;
+}
+function nativeSettingsWaiterCount(registry) {
+  let count = 0;
+  for (const waiting of registry.values())
+    count += waiting.size;
+  return count;
+}
+function nativeSettingsWaiterCountsByChat(registry) {
+  return Object.fromEntries([...registry.entries()].map(([chatId, waiting]) => [chatId, waiting.size]));
+}
 function canonicalDispatchKey(input) {
   return [input.chatId, input.messageId, input.swipeId, input.requestId, input.slot.trim().toLocaleLowerCase()].join(":");
 }
@@ -5113,12 +5151,6 @@ function summarizeRelayHealth(checks) {
 function abortableSlotKeys(records, canAbort) {
   return records.filter((record) => canAbort(record.status)).map((record) => record.key);
 }
-function cancelMapKeysFromSnapshot(map, cancel) {
-  const keys = [...map.keys()];
-  for (const key of keys)
-    cancel(key);
-  return keys.length;
-}
 
 // src/c5aIdentity.ts
 function clean(value) {
@@ -8421,8 +8453,8 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.2";
-var BUILD_ID = "20260917-0.2.8.2";
+var EXTENSION_VERSION = "0.2.8.3";
+var BUILD_ID = "20260919-0.2.8.3";
 
 // src/providerPromptSafety.ts
 class ProviderPromptSafetyError extends Error {
@@ -139505,6 +139537,7 @@ function renderRequestCard(input, bare = false) {
     "paused-backlog": "Pending review",
     superseded: "Superseded",
     parsing: "Parsing",
+    "provider-waiting": "Waiting for image worker",
     generating: "Generating",
     previewing: "Previewing",
     "placement-pending": "Inserting",
@@ -139522,6 +139555,7 @@ function renderRequestCard(input, bare = false) {
     "paused-backlog": "Pending generation review",
     superseded: "Request superseded",
     parsing: "Preparing prompt",
+    "provider-waiting": "Queued for ImageGen",
     generating: "Generating image",
     previewing: "Previewing image",
     "placement-pending": "Inserting image",
@@ -155671,8 +155705,33 @@ function normalizeElsewhereMarkup(markup) {
 [[/else]]`;
   });
 }
+var WORLD_OWNER_RANGE = /(\[WORLD\|[^\]\r\n]{1,500}\|[^\]\r\n]{1,500}\])((?:(?!\[WORLD\|)[\s\S])*?)(\[\/WORLD\])/gi;
+var WORLD_BODY_SHELL = /^\s*\[world_media\]([\s\S]{1,24000}?)\[\/world_media\]\s*\[world_detail\]([\s\S]{1,12000}?)\[\/world_detail\]\s*\[world_context\]([\s\S]{1,16000}?)\[\/world_context\]\s*$/i;
+var NESTED_NARRATIVE_OWNER = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i;
+function normalizeWorldMarkup(markup) {
+  return String(markup || "").replace(WORLD_OWNER_RANGE, (full, opening, body, closing) => {
+    const shell2 = WORLD_BODY_SHELL.exec(body);
+    if (!shell2 || NESTED_NARRATIVE_OWNER.test(body))
+      return full;
+    const context = shell2[3];
+    if ((context.match(/\[why_it_matters\]/gi) || []).length !== 1)
+      return full;
+    if ((context.match(/\[\/why_it_matters\]/gi) || []).length !== 0)
+      return full;
+    if ((context.match(/\[future_use\]/gi) || []).length !== 1)
+      return full;
+    if ((context.match(/\[\/future_use\]/gi) || []).length !== 2)
+      return full;
+    const malformed = /^\s*\[why_it_matters\]([\s\S]+?)\[\/future_use\]\s*\[future_use\]([\s\S]+?)\[\/future_use\]\s*$/i.exec(context);
+    if (!malformed || !malformed[1].trim() || !malformed[2].trim())
+      return full;
+    const repairedContext = context.replace(/\[\/future_use\]/i, "[/why_it_matters]");
+    const repairedBody = body.slice(0, shell2.index) + shell2[0].replace(context, repairedContext) + body.slice(shell2.index + shell2[0].length);
+    return `${opening}${repairedBody}${closing}`;
+  });
+}
 function normalizeNarrativeMarkupForRendering(markup) {
-  return normalizeElsewhereMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(normalizeLegacyPlotSparksMarkup(String(markup || "")))))).replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root, body) => {
+  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(normalizeLegacyPlotSparksMarkup(String(markup || ""))))))).replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root, body) => {
     const repairedBody = body.replace(/<\/(cp_[A-Za-z][A-Za-z0-9_]*)>/gi, "[/$1]");
     return `[${root}]${repairedBody}[/${root}]`;
   }).replace(/(\[(character_phone|private_phone)\b[^\]]*\])((?:(?!\[(?:character_phone|private_phone)\b)[\s\S])*?)\[\/\2\]/gi, (_full, opening, root, body) => {
@@ -156003,6 +156062,18 @@ ${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key2, vector]) => `${key2} = ${
 `)}
 
 Every [Spark] must contain one non-empty [Text] and one non-empty [Media]. Every [Media] must contain exactly one complete current <reverie-illustration request="generate"> ... <visual_prompt> ... </visual_prompt> ... </reverie-illustration> with a non-empty <visual_prompt>. Close every Spark with [/Spark] and close the root with [/Plot_Sparks]. Plot Sparks d through g and required closing tags may never be silently dropped. Resolved historical images and Relay runtime markup do not count. If any check fails, fix the [Plot_Sparks] block before stopping.`;
+var WORLD_DETAIL_COMPLETION_LOCK = `SETTING THE SCENE STRUCTURAL LOCK \u2014 BEFORE ENDING [WORLD]
+
+Verify this order before ending the Surface:
+[world_media]...[/world_media]
+[world_detail]...[/world_detail]
+[world_context]
+[why_it_matters]...[/why_it_matters]
+[future_use]...[/future_use]
+[/world_context]
+[/WORLD]
+
+[why_it_matters] must close with [/why_it_matters], and [future_use] must close with [/future_use]. Never use [/future_use] to close [why_it_matters]. If any World tag is mismatched or missing, repair the [WORLD] block before ending.`;
 function countMatches(value, pattern) {
   return [...value.matchAll(pattern)].length;
 }
@@ -156057,7 +156128,9 @@ function buildNarrativeUtilityPrompt(selectedNames = narrativeUtilityNames(), ov
     const authoredContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, overrides[item.loomName]);
     const loomContent = item.loomName === "Chaos Hooks" ? `${authoredContent}
 
-${PLOT_SPARK_COMPLETION_LOCK}` : authoredContent;
+${PLOT_SPARK_COMPLETION_LOCK}` : item.loomName === "World Texture" ? `${authoredContent}
+
+${WORLD_DETAIL_COMPLETION_LOCK}` : authoredContent;
     return { ...item, loomContent };
   });
   return {
@@ -156433,29 +156506,38 @@ function claimProviderImageResult(imageId, generationId, userId) {
 function imageStreamAliases(context) {
   return [...new Set([context.generationId, context.slotKey, context.requestId].filter((value) => Boolean(value)))];
 }
-function registerImageStream(context, controller) {
+function registerImageStream(context, controller, userId) {
+  const stream = { controller, userId: userId || "__default-user__", context };
   for (const alias of imageStreamAliases(context))
-    activeImageStreams.set(alias, controller);
+    activeImageStreams.set(alias, stream);
 }
 function releaseImageStream(context, controller) {
   for (const alias of imageStreamAliases(context)) {
-    if (activeImageStreams.get(alias) === controller)
+    if (activeImageStreams.get(alias)?.controller === controller)
       activeImageStreams.delete(alias);
   }
 }
 function abortImageStream(alias) {
-  const controller = activeImageStreams.get(alias);
-  if (!controller)
+  const stream = activeImageStreams.get(alias);
+  if (!stream)
     return false;
-  if (!controller.signal.aborted)
-    controller.abort("Cancelled by user.");
+  if (!stream.controller.signal.aborted)
+    stream.controller.abort("Cancelled by user.");
   return true;
 }
 function abortAllImageStreams() {
-  const controllers = new Set(activeImageStreams.values());
+  const controllers = new Set([...activeImageStreams.values()].map((stream) => stream.controller));
   for (const controller of controllers)
     if (!controller.signal.aborted)
       controller.abort("Cancelled by user.");
+  return controllers.size;
+}
+function abortImageStreamsForChat(chatId, userId) {
+  const scope = userId || "__default-user__";
+  const controllers = new Set([...activeImageStreams.values()].filter((stream) => stream.userId === scope && stream.context.chatId === chatId).map((stream) => stream.controller));
+  for (const controller of controllers)
+    if (!controller.signal.aborted)
+      controller.abort("Cancelled by Abort All for this chat.");
   return controllers.size;
 }
 function imageGenerationLaneKey(userId) {
@@ -156478,6 +156560,8 @@ function abortError(message = "Generation cancelled by user.") {
   return error;
 }
 var IMAGE_GENERATION_TIMEOUT_MS = 5 * 60000;
+var IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS = 6 * 60000;
+var IMAGE_GENERATION_DRAIN_TIMEOUT_MS = 2 * 60000;
 
 class ImageGenerationTimeoutError extends Error {
   constructor(timeoutMs) {
@@ -156486,9 +156570,18 @@ class ImageGenerationTimeoutError extends Error {
     this.name = "ImageGenerationTimeoutError";
   }
 }
+
+class ImageGenerationLaneWaitTimeoutError extends Error {
+  constructor(timeoutMs) {
+    const seconds = Math.max(1, Math.round(timeoutMs / 1000));
+    super(`Timed out after ${seconds} second${seconds === 1 ? "" : "s"} waiting for the image worker. Retry the slot when provider capacity is available.`);
+    this.name = "ImageGenerationLaneWaitTimeoutError";
+  }
+}
 async function withImageGenerationDeadline(operation, controller, timeoutMs = IMAGE_GENERATION_TIMEOUT_MS) {
   const boundedTimeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, Math.floor(timeoutMs)) : IMAGE_GENERATION_TIMEOUT_MS;
   let timer;
+  let abortHandler;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
       const error = new ImageGenerationTimeoutError(boundedTimeoutMs);
@@ -156502,25 +156595,48 @@ async function withImageGenerationDeadline(operation, controller, timeoutMs = IM
       reject(abortError());
       return;
     }
-    controller.signal.addEventListener("abort", () => reject(abortError()), { once: true });
+    abortHandler = () => reject(abortError());
+    controller.signal.addEventListener("abort", abortHandler, { once: true });
   });
   try {
     return await Promise.race([operation(), timeout, aborted]);
   } finally {
     if (timer)
       clearTimeout(timer);
+    if (abortHandler)
+      controller.signal.removeEventListener("abort", abortHandler);
   }
 }
-function releaseImageGenerationLane(key2) {
+function clearImageGenerationLaneWaiter(waiter) {
+  if (waiter.heartbeat)
+    clearInterval(waiter.heartbeat);
+  if (waiter.timeout)
+    clearTimeout(waiter.timeout);
+  if (waiter.abortHandler)
+    waiter.controller.signal.removeEventListener("abort", waiter.abortHandler);
+}
+function grantImageGenerationLane(key2, lane, context) {
+  const leaseId = `${context.generationId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+  lane.active = true;
+  lane.draining = false;
+  lane.activeLeaseId = leaseId;
+  lane.activeContext = context;
+  lane.activeSince = Date.now();
+  lane.drainStartedAt = undefined;
+  lane.drainReason = undefined;
+  return { key: key2, leaseId, context, release: () => releaseImageGenerationLane(key2, leaseId) };
+}
+function releaseImageGenerationLane(key2, leaseId) {
   const lane = imageGenerationLanes.get(key2);
-  if (!lane)
+  if (!lane || lane.activeLeaseId !== leaseId)
     return;
+  if (lane.drainWatchdog)
+    clearTimeout(lane.drainWatchdog);
+  lane.drainWatchdog = undefined;
+  lane.draining = false;
   while (lane.waiters.length) {
     const waiter = lane.waiters.shift();
-    if (waiter.heartbeat)
-      clearInterval(waiter.heartbeat);
-    if (waiter.abortHandler)
-      waiter.controller.signal.removeEventListener("abort", waiter.abortHandler);
+    clearImageGenerationLaneWaiter(waiter);
     if (waiter.controller.signal.aborted) {
       waiter.reject(abortError());
       continue;
@@ -156530,19 +156646,42 @@ function releaseImageGenerationLane(key2) {
       streaming: false,
       statusText: "Image worker available. Starting generation\u2026"
     });
-    waiter.resolve(() => releaseImageGenerationLane(key2));
+    waiter.resolve(grantImageGenerationLane(key2, lane, waiter.context));
     return;
   }
   lane.active = false;
   imageGenerationLanes.delete(key2);
 }
+function beginImageGenerationLaneDrain(lease, providerOperation, reason) {
+  const lane = imageGenerationLanes.get(lease.key);
+  if (!lane || lane.activeLeaseId !== lease.leaseId)
+    return;
+  lane.draining = true;
+  lane.drainStartedAt = Date.now();
+  lane.drainReason = reason instanceof Error ? reason.message : String(reason || "Local cancellation while provider work remained active.");
+  spindle.log.warn(`[ReverieRelay:image_provider_draining] ${lease.context.generationId}: ${lane.drainReason}`);
+  let released = false;
+  const release = (event) => {
+    if (released)
+      return;
+    released = true;
+    if (event === "watchdog")
+      spindle.log.error(`[ReverieRelay:image_provider_drain_watchdog] ${lease.context.generationId}: provider work did not settle within ${IMAGE_GENERATION_DRAIN_TIMEOUT_MS}ms; releasing the lane with possible orphaned host work.`);
+    else
+      spindle.log.info(`[ReverieRelay:image_provider_drained] ${lease.context.generationId}: underlying provider work settled; late result discarded.`);
+    lease.release();
+  };
+  lane.drainWatchdog = setTimeout(() => release("watchdog"), IMAGE_GENERATION_DRAIN_TIMEOUT_MS);
+  lane.drainWatchdog.unref?.();
+  providerOperation.then(() => release("settled"), () => release("settled"));
+}
 async function acquireImageGenerationLane(userId, context, controller) {
   const key2 = imageGenerationLaneKey(userId);
-  const lane = imageGenerationLanes.get(key2) || { active: false, waiters: [] };
+  const lane = imageGenerationLanes.get(key2) || { active: false, draining: false, waiters: [] };
   imageGenerationLanes.set(key2, lane);
+  await context.onProviderWaiting?.();
   if (!lane.active) {
-    lane.active = true;
-    return () => releaseImageGenerationLane(key2);
+    return grantImageGenerationLane(key2, lane, context);
   }
   sendImageStreamEvent(userId, context, {
     event: "status",
@@ -156550,13 +156689,15 @@ async function acquireImageGenerationLane(userId, context, controller) {
     statusText: "Queued behind the current image. Relay will start this one next."
   });
   return await new Promise((resolve, reject) => {
-    const waiter = { controller, context, userId, resolve, reject };
-    waiter.abortHandler = () => {
+    const waiter = { controller, context, userId, resolve, reject, queuedAt: Date.now() };
+    const removeWaiter = () => {
       const currentLane = imageGenerationLanes.get(key2);
       if (currentLane)
         currentLane.waiters = currentLane.waiters.filter((candidate) => candidate !== waiter);
-      if (waiter.heartbeat)
-        clearInterval(waiter.heartbeat);
+      clearImageGenerationLaneWaiter(waiter);
+    };
+    waiter.abortHandler = () => {
+      removeWaiter();
       reject(abortError());
     };
     controller.signal.addEventListener("abort", waiter.abortHandler, { once: true });
@@ -156566,11 +156707,47 @@ async function acquireImageGenerationLane(userId, context, controller) {
       sendImageStreamEvent(userId, context, {
         event: "status",
         streaming: false,
-        statusText: "Still queued. Waiting for the current image to finish\u2026"
+        statusText: "Still waiting for the image worker\u2026"
       });
     }, 20000);
+    waiter.heartbeat.unref?.();
+    const waitTimeoutMs = Number.isFinite(context.laneWaitTimeoutMs) ? Math.max(1, Math.floor(context.laneWaitTimeoutMs)) : IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS;
+    waiter.timeout = setTimeout(() => {
+      removeWaiter();
+      reject(new ImageGenerationLaneWaitTimeoutError(waitTimeoutMs));
+    }, waitTimeoutMs);
+    waiter.timeout.unref?.();
     lane.waiters.push(waiter);
   });
+}
+function inspectImageGenerationLaneDiagnostics(userId) {
+  const key2 = imageGenerationLaneKey(userId);
+  const lane = imageGenerationLanes.get(key2);
+  if (!lane)
+    return null;
+  const now = Date.now();
+  return {
+    laneKey: key2,
+    active: lane.active,
+    draining: lane.draining,
+    activeGenerationId: lane.activeContext?.generationId || null,
+    activeChatId: lane.activeContext?.chatId || null,
+    activeRequestId: lane.activeContext?.requestId || null,
+    activeSince: lane.activeSince || 0,
+    drainStartedAt: lane.drainStartedAt || 0,
+    drainReason: lane.drainReason || "",
+    waiterCount: lane.waiters.length,
+    waiters: lane.waiters.map((waiter) => ({
+      chatId: waiter.context.chatId || null,
+      messageId: waiter.context.messageId || null,
+      requestId: waiter.context.requestId || null,
+      slotKey: waiter.context.slotKey || null,
+      generationId: waiter.context.generationId,
+      queuedAt: waiter.queuedAt,
+      waitAgeMs: Math.max(0, now - waiter.queuedAt),
+      source: waiter.context.source
+    }))
+  };
 }
 function isAbortError(error) {
   if (!(error instanceof Error))
@@ -159162,11 +159339,10 @@ async function handleFrontendMessage(payload, userId) {
         });
       }
       await syncNativeSettings(payload.imageGeneration || {}, userId, payload.nativeSettingsCapturedAt);
-      if (payload.chatId)
-        await resumeNativeSettingsWaiters(payload.chatId, {
-          settings: cleanParameters(payload.imageGeneration),
-          capturedAt: Number(payload.nativeSettingsCapturedAt) || Date.now()
-        }, userId);
+      await resumeNativeSettingsWaiters({
+        settings: cleanParameters(payload.imageGeneration),
+        capturedAt: Number(payload.nativeSettingsCapturedAt) || Date.now()
+      }, userId);
       await sendState(userId, payload.chatId ?? undefined);
       return;
     case "set_config":
@@ -159855,27 +160031,81 @@ function relayQueueKey(job, userId) {
 }
 function nativeSettingsBroker(userId) {
   const scope = relayQueueScope(userId);
-  const broker = nativeSettingsBrokers.get(scope) || { refreshInFlight: false, waiters: new Set, frontendSessions: new Map };
+  const broker = nativeSettingsBrokers.get(scope) || { refreshInFlight: false, refreshRetryCount: 0, waiters: new Map, frontendSessions: new Map };
   nativeSettingsBrokers.set(scope, broker);
   return broker;
 }
 function requestNativeSettingsSnapshot(chatId, messageId, swipeId, userId, sourceContent, waiterKeys = []) {
   const broker = nativeSettingsBroker(userId);
-  for (const key2 of waiterKeys)
-    broker.waiters.add(key2);
+  addNativeSettingsWaiters(broker.waiters, chatId, waiterKeys);
   const now = Date.now();
-  if (broker.refreshInFlight && now - (broker.refreshRequestedAt || now) < 30000)
+  if (broker.refreshInFlight && now - (broker.refreshRequestedAt || now) < NATIVE_SETTINGS_REFRESH_TIMEOUT_MS)
     return;
+  if (broker.refreshWatchdog)
+    clearTimeout(broker.refreshWatchdog);
   broker.refreshInFlight = true;
   broker.refreshRequestedAt = now;
+  broker.lastRequest = { chatId, messageId, swipeId, sourceContent };
   spindle.sendToFrontend({
     type: "native_snapshot_requested",
     chatId,
     messageId: messageId ?? null,
     swipeId: swipeId ?? null,
     sourceContent,
-    coalescedWaiterCount: broker.waiters.size
+    coalescedWaiterCount: nativeSettingsWaiterCount(broker.waiters)
   }, userId);
+  broker.refreshWatchdog = setTimeout(() => {
+    handleNativeSettingsRefreshTimeout(userId);
+  }, NATIVE_SETTINGS_REFRESH_TIMEOUT_MS);
+  broker.refreshWatchdog.unref?.();
+}
+async function handleNativeSettingsRefreshTimeout(userId) {
+  const broker = nativeSettingsBroker(userId);
+  broker.refreshWatchdog = undefined;
+  broker.refreshInFlight = false;
+  broker.refreshRequestedAt = undefined;
+  if (!nativeSettingsWaiterCount(broker.waiters)) {
+    broker.refreshRetryCount = 0;
+    return;
+  }
+  const availableSession = [...broker.frontendSessions.values()].find((session) => session.connected && session.nativeSettingsAvailable);
+  if (availableSession && broker.refreshRetryCount < NATIVE_SETTINGS_REFRESH_MAX_RETRIES) {
+    broker.refreshRetryCount += 1;
+    const request2 = broker.lastRequest || { chatId: availableSession.chatId || [...broker.waiters.keys()][0] };
+    spindle.log.warn(`[ReverieRelay:native_settings_watchdog_retry] Native settings refresh timed out; retrying for ${nativeSettingsWaiterCount(broker.waiters)} waiter(s).`);
+    requestNativeSettingsSnapshot(request2.chatId, request2.messageId, request2.swipeId, userId, request2.sourceContent);
+    return;
+  }
+  const reason = "Timed out waiting for Native ImageGen settings. Retry the slot or sync Native settings when a frontend is connected.";
+  for (const [chatId, waiterKeys] of [...broker.waiters.entries()]) {
+    await mutateState(chatId, userId, (state) => {
+      const now = Date.now();
+      for (const record4 of Object.values(state.slots)) {
+        const dispatchKey = canonicalDispatchKey(record4);
+        if (record4.status !== "awaiting-native-settings" || !waiterKeys.has(dispatchKey))
+          continue;
+        record4.status = "failed";
+        record4.error = reason;
+        record4.failedAt = now;
+        record4.updatedAt = now;
+        const lease = state.dispatchLeases[dispatchKey];
+        if (lease)
+          lease.status = "failed";
+      }
+      updateQueueSafetySummary(state, now);
+      appendStateLog(state, {
+        severity: "error",
+        stage: "native-settings-broker",
+        eventType: "native_settings_refresh_timeout",
+        chatId,
+        message: reason,
+        details: { waiterCount: waiterKeys.size, retryCount: broker.refreshRetryCount }
+      });
+    });
+    removeNativeSettingsWaiters(broker.waiters, chatId);
+    await sendState(userId, chatId);
+  }
+  broker.refreshRetryCount = 0;
 }
 async function markJobsAwaitingNativeSettings(jobs, userId) {
   if (!jobs.length)
@@ -159909,87 +160139,100 @@ async function markJobsAwaitingNativeSettings(jobs, userId) {
   requestNativeSettingsSnapshot(chatId, jobs[0].messageId, jobs[0].swipeId, userId, undefined, waiterKeys);
   await sendState(userId, chatId);
 }
-async function resumeNativeSettingsWaiters(chatId, snapshot, userId) {
+async function resumeNativeSettingsWaiters(snapshot, userId) {
   if (!Object.keys(snapshot.settings || {}).length)
     return;
   const broker = nativeSettingsBroker(userId);
+  if (broker.refreshWatchdog)
+    clearTimeout(broker.refreshWatchdog);
+  broker.refreshWatchdog = undefined;
   broker.refreshInFlight = false;
   broker.refreshRequestedAt = undefined;
-  const state = await getState(chatId, userId);
-  const waiting = Object.values(state.slots).filter((record4) => record4.status === "awaiting-native-settings");
-  if (!waiting.length) {
-    broker.waiters.clear();
-    return;
-  }
-  const now = Date.now();
-  const decision = classifyBacklog(waiting, now);
-  if (decision.pause) {
-    await mutateState(chatId, userId, (next) => {
-      for (const record4 of Object.values(next.slots)) {
-        if (record4.status !== "awaiting-native-settings")
-          continue;
-        record4.status = "paused-backlog";
-        record4.updatedAt = now;
-        const lease = next.dispatchLeases[canonicalDispatchKey(record4)];
-        if (lease)
-          lease.status = "paused-backlog";
-      }
-      updateQueueSafetySummary(next, now);
-      appendStateLog(next, {
-        severity: "warning",
-        stage: "native-settings-broker",
-        eventType: "backlog_paused",
-        chatId,
-        message: `Paused ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? "" : "s"} instead of auto-dispatching an earlier-session backlog.`,
-        details: decision
-      });
-    });
-    broker.waiters.clear();
-    spindle.sendToFrontend({
-      type: "relay_notice",
-      level: "warning",
-      message: `Reverie Relay found ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? "" : "s"} from an earlier session. Review, generate, or discard them from Queue.`
-    }, userId);
-    return;
-  }
-  const validJobs = [];
-  const supersededKeys = new Set;
-  for (const job of groupRecordsIntoJobs(waiting)) {
-    const message = await resolveMessage(job.chatId, job.messageId);
-    const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : "";
-    const active = message ? activeSwipeId(message) === job.swipeId : false;
-    const authored = Boolean(job.originalRequestXml && content.includes(job.originalRequestXml)) || parseSafeSurfaceImageRequests(content).some((request2) => request2.id === job.requestId);
-    if (!active || !authored) {
-      for (const key2 of dispatchKeysForJob(job))
-        supersededKeys.add(key2);
+  broker.refreshRetryCount = 0;
+  const resumptions = [];
+  for (const [chatId, registeredKeys] of [...broker.waiters.entries()]) {
+    const state = await getState(chatId, userId);
+    const waiting = Object.values(state.slots).filter((record4) => record4.status === "awaiting-native-settings" && registeredKeys.has(canonicalDispatchKey(record4)));
+    if (!waiting.length) {
+      removeNativeSettingsWaiters(broker.waiters, chatId);
       continue;
     }
-    validJobs.push(job);
-  }
-  if (supersededKeys.size)
-    await mutateState(chatId, userId, (next) => {
-      for (const record4 of Object.values(next.slots)) {
-        if (!supersededKeys.has(canonicalDispatchKey(record4)))
-          continue;
-        record4.status = "superseded";
-        record4.updatedAt = now;
-        const lease = next.dispatchLeases[canonicalDispatchKey(record4)];
-        if (lease)
-          lease.status = "superseded";
+    const now = Date.now();
+    const decision = classifyBacklog(waiting, now);
+    if (decision.pause) {
+      await mutateState(chatId, userId, (next) => {
+        for (const record4 of Object.values(next.slots)) {
+          if (record4.status !== "awaiting-native-settings" || !registeredKeys.has(canonicalDispatchKey(record4)))
+            continue;
+          record4.status = "paused-backlog";
+          record4.updatedAt = now;
+          const lease = next.dispatchLeases[canonicalDispatchKey(record4)];
+          if (lease)
+            lease.status = "paused-backlog";
+        }
+        updateQueueSafetySummary(next, now);
+        appendStateLog(next, {
+          severity: "warning",
+          stage: "native-settings-broker",
+          eventType: "backlog_paused",
+          chatId,
+          message: `Paused ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? "" : "s"} instead of auto-dispatching an earlier-session backlog.`,
+          details: decision
+        });
+      });
+      removeNativeSettingsWaiters(broker.waiters, chatId, waiting.map(canonicalDispatchKey));
+      spindle.sendToFrontend({
+        type: "relay_notice",
+        level: "warning",
+        message: `Reverie Relay found ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? "" : "s"} from an earlier session. Review, generate, or discard them from Queue.`
+      }, userId);
+      await sendState(userId, chatId);
+      continue;
+    }
+    const validJobs = [];
+    const supersededKeys = new Set;
+    for (const job of groupRecordsIntoJobs(waiting)) {
+      const message = await resolveMessage(job.chatId, job.messageId);
+      const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : "";
+      const active = message ? activeSwipeId(message) === job.swipeId : false;
+      const authored = Boolean(job.originalRequestXml && content.includes(job.originalRequestXml)) || parseSafeSurfaceImageRequests(content).some((request2) => request2.id === job.requestId);
+      if (!active || !authored) {
+        for (const key2 of dispatchKeysForJob(job))
+          supersededKeys.add(key2);
+        continue;
       }
-      updateQueueSafetySummary(next, now);
-    });
-  broker.waiters.clear();
-  await Promise.all(validJobs.map((job) => enqueueRelayJob(job, {
-    replaceExisting: false,
-    reparse: true,
-    triggerType: "initial",
-    nativeSnapshot: snapshot,
-    automaticDispatch: true,
-    settingsSource: "fresh-after-coalesced-refresh",
-    settingsAgeMs: Math.max(0, Date.now() - snapshot.capturedAt),
-    dispatchReason: "native-settings-restored-recent-small-backlog"
-  }, userId)));
+      validJobs.push(job);
+    }
+    if (supersededKeys.size)
+      await mutateState(chatId, userId, (next) => {
+        for (const record4 of Object.values(next.slots)) {
+          if (!supersededKeys.has(canonicalDispatchKey(record4)))
+            continue;
+          record4.status = "superseded";
+          record4.updatedAt = now;
+          const lease = next.dispatchLeases[canonicalDispatchKey(record4)];
+          if (lease)
+            lease.status = "superseded";
+        }
+        updateQueueSafetySummary(next, now);
+      });
+    if (supersededKeys.size)
+      await sendState(userId, chatId);
+    const processedKeys = new Set([...supersededKeys, ...validJobs.flatMap(dispatchKeysForJob)]);
+    removeNativeSettingsWaiters(broker.waiters, chatId, processedKeys);
+    for (const job of validJobs)
+      resumptions.push(enqueueRelayJob(job, {
+        replaceExisting: false,
+        reparse: true,
+        triggerType: "initial",
+        nativeSnapshot: snapshot,
+        automaticDispatch: true,
+        settingsSource: "fresh-after-coalesced-refresh",
+        settingsAgeMs: Math.max(0, Date.now() - snapshot.capturedAt),
+        dispatchReason: "native-settings-restored-recent-small-backlog"
+      }, userId));
+  }
+  await Promise.all(resumptions);
 }
 function updateQueueSafetySummary(state, now = Date.now()) {
   const pending = Object.values(state.slots).filter((record4) => ["queued", "awaiting-native-settings", "paused-backlog"].includes(record4.status));
@@ -160940,12 +161183,12 @@ async function runJob(job, options, userId) {
           model: stored.imageModel,
           message: "Prompt parsing completed."
         });
-        markSlotStatus(stored, "generating");
-        updateBackgroundTask(state, backgroundTaskId, { stage: "waiting-for-provider", statusText: "Waiting for Swarm", current: 2, total: 3 });
+        markSlotStatus(stored, "provider-waiting");
+        updateBackgroundTask(state, backgroundTaskId, { stage: "provider-waiting", statusText: "Waiting for image worker", current: 2, total: 3 });
         appendStateLog(state, {
           severity: "info",
-          stage: "image-generation-start",
-          eventType: "image_generation_started",
+          stage: "provider-waiting",
+          eventType: "provider_waiting",
           chatId: job.chatId,
           messageId: job.messageId,
           swipeId: job.swipeId,
@@ -160958,7 +161201,7 @@ async function runJob(job, options, userId) {
           connectionId: stored.imageConnectionId,
           connectionName: stored.imageConnectionName,
           model: stored.imageModel,
-          message: "Native ImageGen request started."
+          message: "Prompt is ready and waiting for serialized ImageGen provider access."
         });
         return stored.attemptNumber;
       });
@@ -160968,12 +161211,42 @@ async function runJob(job, options, userId) {
         throw new JobCancelledError;
       const generated = await generateImage(job.chatId, prepared, imagePlan, userId, {
         chatId: job.chatId,
+        messageId: job.messageId,
         generationId: `${key2}:${attemptNumber}`,
         source: job.target === "prose.illustration" ? "relay-illustrator" : "relay-slot",
         slotKey: key2,
         requestId: job.requestId,
         addToGallery: config.galleryAutoLink,
-        attemptSignal: options.signal
+        attemptSignal: options.signal,
+        onProviderStarted: async () => {
+          throwIfAborted(options.signal);
+          await mutateJobState(job, userId, (state) => {
+            const stored = state.slots[key2];
+            if (!stored || stored.status !== "provider-waiting")
+              return;
+            markSlotStatus(stored, "generating");
+            updateBackgroundTask(state, backgroundTaskId, { stage: "generating", statusText: "Generating with ImageGen", current: 2, total: 3 });
+            appendStateLog(state, {
+              severity: "info",
+              stage: "image-generation-start",
+              eventType: "image_generation_started",
+              chatId: job.chatId,
+              messageId: job.messageId,
+              swipeId: job.swipeId,
+              requestId: job.requestId,
+              slot,
+              target: job.target,
+              attemptNumber: stored.attemptNumber,
+              triggerType: options.triggerType,
+              provider: stored.imageProvider,
+              connectionId: stored.imageConnectionId,
+              connectionName: stored.imageConnectionName,
+              model: stored.imageModel,
+              message: "Native ImageGen provider call started."
+            });
+          });
+          await sendState(userId, job.chatId);
+        }
       });
       if (isJobCancelled(job))
         throw new JobCancelledError;
@@ -161583,13 +161856,19 @@ async function generateRelayCandidate(batch, candidate, record4, messages, targe
   validateImagePlan(imagePlan);
   const prepared = await parseSlotPrompt(job, candidate.slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings, candidate.highResMode);
   enrichPromptPipelineWithImagePlan(prepared.promptPipeline, imagePlan, prepared.prompt, prepared.negativePrompt);
+  await updateRelayCandidate(batch.chatId, batch.batchId, candidate.candidateKey, { status: "provider-waiting" }, userId);
   const generated = await generateImage(job.chatId, prepared, imagePlan, userId, {
     chatId: job.chatId,
+    messageId: job.messageId,
     generationId: candidate.candidateKey,
     source: "relay-candidate",
     slotKey: candidate.stableSlotKey,
     requestId: candidate.requestId,
-    addToGallery: false
+    addToGallery: false,
+    onProviderStarted: async () => {
+      await updateRelayCandidate(batch.chatId, batch.batchId, candidate.candidateKey, { status: "generating" }, userId);
+      await sendState(userId, batch.chatId);
+    }
   });
   const attemptNumber = candidate.attemptNumber;
   return {
@@ -161665,7 +161944,7 @@ async function updateRelayCandidate(chatId, batchId, candidateKey, patch, userId
 function refreshRelayBatchStatus(batch) {
   const terminal = new Set(["ready", "failed", "unavailable", "replaced", "discarded"]);
   const finished = batch.candidates.every((candidate) => terminal.has(candidate.status));
-  const unresolved = batch.candidates.some((candidate) => ["preflight", "parsing", "generating"].includes(candidate.status));
+  const unresolved = batch.candidates.some((candidate) => ["preflight", "parsing", "provider-waiting", "generating"].includes(candidate.status));
   if (batch.status === "discarded" || batch.status === "completed")
     return;
   if (unresolved)
@@ -162557,7 +162836,7 @@ async function previewReparse(key2, userId, nativeSnapshot) {
   const { chatId, record: record4 } = await getRecordByKey(key2, userId);
   if (!canReparseRecord(record4))
     throw new Error("Original request metadata was not available when this slot was recovered. Rebuild the request first.");
-  if ((record4.status === "parsing" || record4.status === "generating") && relayProcessingKeys.has(record4.key))
+  if ((record4.status === "parsing" || record4.status === "provider-waiting" || record4.status === "generating") && relayProcessingKeys.has(record4.key))
     throw new Error("This slot is already processing.");
   const config = await getConfig(userId);
   const job = jobFromRecord(record4);
@@ -162722,18 +163001,27 @@ async function editPrompt(key2, prompt, negativePrompt, imageIntent, nativeSnaps
     if (isJobCancelled(job))
       throw new JobCancelledError;
     validateImagePlan(imagePlan);
-    await mutateJobState(job, userId, (state) => markSlotStatus(state.slots[key2], "generating"));
+    await mutateJobState(job, userId, (state) => markSlotStatus(state.slots[key2], "provider-waiting"));
     await sendState(userId, chatId);
     failureStage = "image-generation-failed";
     if (isJobCancelled(job))
       throw new JobCancelledError;
     const generated = await generateImage(chatId, prepared, imagePlan, userId, {
       chatId,
+      messageId: record4.messageId,
       generationId: `${key2}:${attemptNumber}`,
       source: job.target === "prose.illustration" ? "relay-illustrator" : "relay-slot",
       slotKey: key2,
       requestId: job.requestId,
-      addToGallery: config.galleryAutoLink
+      addToGallery: config.galleryAutoLink,
+      onProviderStarted: async () => {
+        await mutateJobState(job, userId, (state) => {
+          const stored = state.slots[key2];
+          if (stored?.status === "provider-waiting")
+            markSlotStatus(stored, "generating");
+        });
+        await sendState(userId, chatId);
+      }
     });
     if (isJobCancelled(job))
       throw new JobCancelledError;
@@ -163545,8 +163833,10 @@ async function discardRelayCandidate(chatId, batchId, candidateKey, userId) {
 async function handleQueueAction(payload, nativeSnapshot, userId) {
   if (payload.action === "abort_all") {
     const queueAbort = cancelRelayDispatchScope(payload.chatId, userId);
-    const stoppedStreams = abortAllImageStreams();
-    cancelMapKeysFromSnapshot(abortableOperationSerials, cancelAbortableOperation);
+    const stoppedStreams = abortImageStreamsForChat(payload.chatId, userId);
+    for (const key2 of [...abortableOperationSerials.keys()])
+      if (key2 === `prose:${payload.chatId}`)
+        cancelAbortableOperation(key2);
     for (const [key2, scheduled] of [...scheduledAssistantScans.entries()]) {
       if (scheduled.chatId !== payload.chatId)
         continue;
@@ -163587,7 +163877,7 @@ async function handleQueueAction(payload, nativeSnapshot, userId) {
         if (!isGenerationActiveStatus(record4.status) && record4.status !== "paused-backlog")
           continue;
         cancelledJobs.add(jobCancellationKey(record4));
-        broker.waiters.delete(canonicalDispatchKey(record4));
+        removeNativeSettingsWaiters(broker.waiters, payload.chatId, [canonicalDispatchKey(record4)]);
         if (record4.status !== "cancelled")
           state.stats.cancelledTotal += 1;
         record4.status = "cancelled";
@@ -169206,7 +169496,7 @@ function normalizeBackgroundQueue(value) {
       chatId: cleanString(row.chatId),
       source: ["relay-slot", "relay-candidate", "relay-illustrator", "analysis", "gallery-link", "unknown"].includes(cleanString(row.source)) ? cleanString(row.source) : "unknown",
       label: cleanString(row.label) || "Relay task",
-      stage: ["queued", "analyzing", "composing-prompt", "waiting-for-provider", "generating", "saving-preview", "saving-gallery", "placing", "completed", "failed", "cancelled"].includes(stage) ? stage : "queued",
+      stage: ["queued", "awaiting-native-settings", "paused-backlog", "analyzing", "composing-prompt", "provider-waiting", "generating", "saving-preview", "saving-gallery", "placing", "completed", "failed", "cancelled"].includes(stage) ? stage : stage === "waiting-for-provider" ? "provider-waiting" : "queued",
       statusText: cleanString(row.statusText) || "Queued",
       current: Math.max(0, Number(row.current) || 0),
       total: Math.max(1, Number(row.total) || 1),
@@ -169441,22 +169731,48 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     abortFromAttempt();
   else
     context.attemptSignal?.addEventListener("abort", abortFromAttempt, { once: true });
-  registerImageStream(context, controller);
-  let releaseLane = null;
+  registerImageStream(context, controller, userId);
+  let laneLease = null;
   try {
-    releaseLane = await acquireImageGenerationLane(userId, context, controller);
+    laneLease = await acquireImageGenerationLane(userId, context, controller);
     if (controller.signal.aborted)
       throw abortError();
     const standardInput = { ...finalRequest, userId };
     const streamInput = { ...standardInput, signal: controller.signal };
     const api = spindle.imageGen;
+    let providerStarted = false;
+    const notifyProviderStarted = async () => {
+      if (providerStarted)
+        return;
+      providerStarted = true;
+      await context.onProviderStarted?.();
+    };
+    const runStandardGeneration = async () => {
+      await notifyProviderStarted();
+      let providerSettled = false;
+      const providerOperation = Promise.resolve().then(() => api.generate(standardInput));
+      providerOperation.then(() => {
+        providerSettled = true;
+      }, () => {
+        providerSettled = true;
+      });
+      try {
+        return await withImageGenerationDeadline(() => providerOperation, controller, timeoutMs);
+      } catch (error) {
+        if (!providerSettled && laneLease && (controller.signal.aborted || error instanceof ImageGenerationTimeoutError || isAbortError(error))) {
+          beginImageGenerationLaneDrain(laneLease, providerOperation, controller.signal.reason || error);
+          laneLease = null;
+        }
+        throw error;
+      }
+    };
     const providerInfo = await withImageGenerationDeadline(() => streamProviderInfo(plan.provider, userId), controller, timeoutMs);
     const canStream = !forceStandard && imageProviderSupportsStreaming(plan.provider, providerInfo, typeof api.generateStream === "function");
     sendImageStreamEvent(userId, context, { event: "started", streaming: canStream, statusText: canStream ? "Connecting to live preview\u2026" : "Starting generation\u2026" });
     if (!canStream || !api.generateStream) {
       if (controller.signal.aborted)
         throw abortError();
-      const result2 = await withImageGenerationDeadline(() => api.generate(standardInput), controller, timeoutMs);
+      const result2 = await runStandardGeneration();
       if (controller.signal.aborted)
         throw abortError();
       const finalPreview = streamImageValue(result2);
@@ -169468,6 +169784,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     let result = null;
     let streamFailure;
     try {
+      await notifyProviderStarted();
       await withImageGenerationDeadline(async () => {
         for await (const rawEvent of api.generateStream(streamInput)) {
           if (controller.signal.aborted)
@@ -169524,7 +169841,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
       sendImageStreamEvent(userId, context, { event: "status", streaming: false, statusText: "Live preview unavailable. Finishing through standard ImageGen\u2026" });
       if (controller.signal.aborted)
         throw abortError();
-      result = await withImageGenerationDeadline(() => api.generate(standardInput), controller, timeoutMs);
+      result = await runStandardGeneration();
       if (controller.signal.aborted)
         throw abortError();
       const finalPreview = streamImageValue(result);
@@ -169536,6 +169853,10 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     sendImageStreamEvent(userId, context, { event: "done", streaming: canStream, statusText: "Generation complete." });
     return result;
   } catch (error) {
+    if (error instanceof ImageGenerationLaneWaitTimeoutError) {
+      sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Waiting for image worker timed out.", error: error.message });
+      throw error;
+    }
     const timeoutError = controller.signal.reason instanceof ImageGenerationTimeoutError ? controller.signal.reason : null;
     if (timeoutError) {
       sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Generation timed out.", error: timeoutError.message });
@@ -169550,7 +169871,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     throw error;
   } finally {
     context.attemptSignal?.removeEventListener("abort", abortFromAttempt);
-    releaseLane?.();
+    laneLease?.release();
     releaseImageStream(context, controller);
   }
 }
@@ -169648,9 +169969,11 @@ async function exportQueueDispatchDiagnostic(chatId, userId) {
   const state = await getState(chatId, userId);
   const config = await getConfig(userId);
   const broker = nativeSettingsBroker(userId);
+  const dispatchQueue = relayDispatchQueues.get(relayQueueScope(userId));
   const snapshot = nativeSnapshotFromConfig(config);
   const freshness = classifyNativeSettings(snapshot?.capturedAt);
-  const jobs = Object.values(state.slots).filter((record4) => ["queued", "awaiting-native-settings", "paused-backlog", "parsing", "generating"].includes(record4.status)).map((record4) => {
+  const now = Date.now();
+  const jobs = Object.values(state.slots).filter((record4) => ["queued", "awaiting-native-settings", "paused-backlog", "parsing", "provider-waiting", "generating", "placement-pending"].includes(record4.status)).map((record4) => {
     const lease = state.dispatchLeases[canonicalDispatchKey(record4)];
     return {
       dispatchKey: lease?.dispatchKey || canonicalDispatchKey(record4),
@@ -169663,7 +169986,7 @@ async function exportQueueDispatchDiagnostic(chatId, userId) {
       discoveredAt: record4.discoveredAt || record4.createdAt,
       dispatchEligibleAt: lease?.dispatchEligibleAt || 0,
       dispatchedAt: lease?.dispatchedAt || 0,
-      awaitingNativeSettingsMs: record4.status === "awaiting-native-settings" ? Math.max(0, Date.now() - (record4.queuedAt || record4.discoveredAt || record4.createdAt)) : 0,
+      awaitingNativeSettingsMs: record4.status === "awaiting-native-settings" ? Math.max(0, now - (record4.queuedAt || record4.discoveredAt || record4.createdAt)) : 0,
       settingsSource: lease?.settingsSource || freshness.source,
       settingsAgeMs: Number.isFinite(lease?.settingsAgeMs) ? lease.settingsAgeMs : freshness.ageMs,
       dispatchReason: lease?.dispatchReason || ""
@@ -169672,15 +169995,25 @@ async function exportQueueDispatchDiagnostic(chatId, userId) {
   spindle.sendToFrontend({
     type: "queue_dispatch_diagnostic",
     diagnostic: {
-      generatedAt: Date.now(),
+      generatedAt: now,
       frontendSessions: [...broker.frontendSessions.values()].map((session) => ({ ...session })),
       nativeSettingsBroker: {
         hasSnapshot: Boolean(snapshot),
         capturedAt: snapshot?.capturedAt || 0,
         ageMs: Number.isFinite(freshness.ageMs) ? freshness.ageMs : null,
         refreshInFlight: broker.refreshInFlight,
-        waiterCount: broker.waiters.size
+        refreshRequestedAt: broker.refreshRequestedAt || 0,
+        refreshAgeMs: broker.refreshRequestedAt ? Math.max(0, now - broker.refreshRequestedAt) : 0,
+        waitingChats: [...broker.waiters.keys()],
+        waiterCount: nativeSettingsWaiterCount(broker.waiters),
+        waiterCountsByChat: nativeSettingsWaiterCountsByChat(broker.waiters)
       },
+      relayDispatchQueue: {
+        active: dispatchQueue?.active || 0,
+        pending: dispatchQueue?.pending.length || 0,
+        concurrency: dispatchQueue?.concurrency || config.queueConcurrencyLimit
+      },
+      providerLane: inspectImageGenerationLaneDiagnostics(userId),
       queue: state.queueSafety,
       stateDispatch: lastStateDispatchMetrics.get(`${userId || "__default__"}:${chatId}`) || null,
       jobs
@@ -169983,7 +170316,7 @@ function migrateSlotRecord(record4) {
   const processingAge = Date.now() - lastProcessingAt;
   const persistedBeforeThisRuntime = lastProcessingAt > 0 && lastProcessingAt < BACKEND_STARTED_AT;
   const activeInThisRuntime = relayProcessingKeys.has(record4.key) || isRecordJobActive(record4);
-  if ((record4.status === "parsing" || record4.status === "generating") && !activeInThisRuntime && (persistedBeforeThisRuntime || processingAge > 90000)) {
+  if ((record4.status === "parsing" || record4.status === "provider-waiting" || record4.status === "generating") && !activeInThisRuntime && (persistedBeforeThisRuntime || processingAge > 90000)) {
     record4.status = canReparseRecord(record4) ? "recovered-pending" : "failed";
     record4.error = "Recovered after the app closed or generation state became stale. Reparse or generate this slot again.";
     record4.updatedAt = Date.now();
@@ -172719,6 +173052,7 @@ export {
   isEligibleProseContent,
   invalidateRenderOutputForMessage,
   inspectProviderImageFreshness,
+  inspectImageGenerationLaneDiagnostics,
   initialPlacementBatchCommitGate,
   hasUnsettledVisiblePlacement,
   hasUnrequestedExplicitEscalation,
@@ -172762,9 +173096,13 @@ export {
   applyRelaySettingsPatchToConfig,
   applyPromptProfileToPositivePrompt,
   applyLorasToProviderParameters,
+  abortImageStreamsForChat,
   abortImageStream,
   REGENERATION_INTENTS,
+  ImageGenerationLaneWaitTimeoutError,
   IMAGE_GENERATION_TIMEOUT_MS,
+  IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS,
+  IMAGE_GENERATION_DRAIN_TIMEOUT_MS,
   ILLUSTRATOR_RUNTIME_CACHE_POLICY,
   BUILT_IN_PROMPT_PROFILES
 };

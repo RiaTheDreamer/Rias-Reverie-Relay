@@ -215,7 +215,7 @@ assert(containsR45RenderedSurface(renderedLegacyDiscord) && !renderedLegacyDisco
 assert(renderR45SurfaceAuthority(discord.sample, 'inline', 'realistic', 'discord-current').includes('1,284'), 'provided Discord member count must be rendered instead of replaced')
 
 const profileXml = '<character_profile><portrait><image_request id="profile-a" target="custom.artifact-media" slot="profile-a" aspect="3:4" alt="Portrait of Character A"><scene_brief>Current portrait of Character A.</scene_brief></image_request></portrait><name>Character A</name><role>Witness</role><hook>Knows the missing detail.</hook><trait>Silver glasses.</trait></character_profile>'
-for (const [status, label] of [['queued', 'Queued'], ['parsing', 'Parsing'], ['generating', 'Generating'], ['placement-pending', 'Inserting'], ['failed', 'Failed']] as const) {
+for (const [status, label] of [['queued', 'Queued'], ['parsing', 'Parsing'], ['provider-waiting', 'Waiting for image worker'], ['generating', 'Generating'], ['placement-pending', 'Inserting'], ['failed', 'Failed']] as const) {
   const result = renderNativeSurfaceMarkup(profileXml, studio, { chatId: 'profile-chat', messageId: 'profile-message', records: [{ requestId: 'profile-a', messageId: 'profile-message', slot: 'profile-a', target: 'custom.artifact-media', requestAspect: '3:4', status, error: status === 'failed' ? 'Mock failure' : undefined }] })
   const active = status !== 'failed'
   assert(result.content.includes(`data-rrn-live-status="${status}"`) && (active ? result.content.includes('data-rr-placeholder-effect="glitter"') && !result.content.includes(`<span class="rrl-status">${label}</span>`) : result.content.includes(label)), `Character Profile ${status}: lifecycle presentation missing`)

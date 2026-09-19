@@ -163,6 +163,60 @@ for (const forbidden of ['<else-media>', '<else-scene>', '<else-context>', '<vis
 }
 assert(offStagePrompt.includes('[else_media]') && offStagePrompt.includes('[[/else]]'), 'model-facing Off-Stage prompt lost its canonical bracket contract')
 
+const canonicalWorld = `[WORLD|🌿 ENVIRONMENT|Basalt Sea Cave South of Jeju]
+[world_media]<image_request id="world-canonical" target="custom.artifact-media" slot="world-canonical" aspect="16:9"><scene_brief>Basalt sea cave.</scene_brief></image_request>[/world_media]
+[world_detail]The cave remains warm through winter currents.[/world_detail]
+[world_context]
+[why_it_matters]It provides a survivable air pocket.[/why_it_matters]
+[future_use]The cave can conceal a traveler from patrols.[/future_use]
+[/world_context]
+[/WORLD]`
+assert(normalizeNarrativeMarkupForRendering(canonicalWorld) === canonicalWorld, 'canonical World normalization must remain byte-for-byte unchanged')
+
+const malformedBasaltWorld = `[WORLD|🌿 ENVIRONMENT|Basalt Sea Cave South of Jeju]
+[world_media]<image_request id="world-detail-basalt-sea-cave-01" target="custom.artifact-media" slot="world-detail-basalt-sea-cave-01" aspect="16:9" alt="Interior of half-submerged basalt sea cave with glowing lichen and salvaged human artifacts"><scene_brief>Secluded volcanic sea cave interior, dark basalt columns and damp stone shelves, glowing emerald bioluminescent moss on walls, black tide pool reflecting faint green light, shelves littered with salvaged rusted watch casings and maritime tags, no people visible.</scene_brief></image_request>[/world_media]
+[world_detail]Formed by ancient volcanic activity, this thermal cave pocket stays warm despite freezing winter sea currents, providing an undetectable air chamber shielded by basalt rifts from siren sonar networks.[/world_detail]
+[world_context]
+[why_it_matters]It allows an altered human to stabilize both air-breathing lungs and gill tissue without immediately freezing or suffocating.[/future_use]
+[future_use]Arin can use the cave's natural acoustic dead zones to conceal herself when border patrols sweep the outer reefs.[/future_use]
+[/world_context]
+[/WORLD]`
+const recoveredBasaltWorld = normalizeNarrativeMarkupForRendering(malformedBasaltWorld)
+const expectedBasaltWorld = malformedBasaltWorld.replace('suffocating.[/future_use]', 'suffocating.[/why_it_matters]')
+assert(recoveredBasaltWorld === expectedBasaltWorld, 'the live Basalt Sea Cave fixture did not repair only its swapped closer')
+const basaltImageControl = `<image_request id="world-detail-basalt-sea-cave-01" target="custom.artifact-media" slot="world-detail-basalt-sea-cave-01" aspect="16:9" alt="Interior of half-submerged basalt sea cave with glowing lichen and salvaged human artifacts"><scene_brief>Secluded volcanic sea cave interior, dark basalt columns and damp stone shelves, glowing emerald bioluminescent moss on walls, black tide pool reflecting faint green light, shelves littered with salvaged rusted watch casings and maritime tags, no people visible.</scene_brief></image_request>`
+assert(recoveredBasaltWorld.includes(basaltImageControl), 'World recovery changed the canonical Relay image-control owner')
+for (const variant of NARRATIVE_REGEX_VARIANTS) {
+  const rendered = renderNarrativeRegex(malformedBasaltWorld, variant, `world-recovery-${variant}`)
+  assert(rendered.includes('class="r65"') && rendered.includes('Setting the Scene'), `${variant}: recovered World did not use the current presentation`)
+  assert(rendered.includes('world-detail-basalt-sea-cave-01') && rendered.includes('<scene_brief>Secluded volcanic sea cave interior'), `${variant}: recovered World lost its image request`)
+  assert(!rendered.includes('[WORLD|') && !rendered.includes('Relay Surface needs repair'), `${variant}: recovered World leaked or fell through to repair`)
+}
+
+const incompleteWorld = `[WORLD|🌿 ENVIRONMENT|Incomplete]
+[world_media]${image('world-incomplete')}[/world_media]
+[world_detail]Still forming.[/world_detail]
+[world_context]
+[why_it_matters]Still streaming...`
+assert(normalizeNarrativeMarkupForRendering(incompleteWorld) === incompleteWorld, 'incomplete streaming World was repaired eagerly')
+const ambiguousWorld = malformedBasaltWorld.replace('[future_use]Arin can use', '[future_use]First possibility.[/future_use]\n[future_use]Arin can use')
+assert(normalizeNarrativeMarkupForRendering(ambiguousWorld) === ambiguousWorld, 'ambiguous World with multiple future-use fields was guessed at')
+
+for (const variant of NARRATIVE_REGEX_VARIANTS) {
+  const worldScript = narrativeRegexScripts(variant).find(script => script.script_id === 'reverie_world_detail_images_v1')
+  assert(worldScript, `${variant}: canonical World presentation is missing`)
+  const strictWorldMatcher = new RegExp(worldScript.find_regex, worldScript.flags.replace(/g/g, ''))
+  assert(!strictWorldMatcher.test(malformedBasaltWorld), `${variant}: canonical World matcher was loosened to accept the malformed source`)
+  assert(strictWorldMatcher.test(recoveredBasaltWorld), `${variant}: recovered World does not satisfy the canonical matcher`)
+}
+
+const worldPrompt = buildNarrativeUtilityPrompt(['World Texture']).content
+assert(worldPrompt.includes('SETTING THE SCENE STRUCTURAL LOCK'), 'Setting the Scene structural lock is missing')
+assert(worldPrompt.includes('[why_it_matters]...[/why_it_matters]') && worldPrompt.includes('[future_use]...[/future_use]'), 'Setting the Scene lock lost the canonical paired fields')
+assert(worldPrompt.includes('Never use [/future_use] to close [why_it_matters]'), 'Setting the Scene lock does not prohibit the observed swapped closer')
+const overriddenWorldPrompt = buildNarrativeUtilityPrompt(['World Texture'], { 'World Texture': 'CUSTOM WORLD OVERRIDE' }).content
+assert(overriddenWorldPrompt.includes('CUSTOM WORLD OVERRIDE') && overriddenWorldPrompt.includes('SETTING THE SCENE STRUCTURAL LOCK'), 'World structural lock was not appended after effective override content')
+
 const validParallel = fixtures['Parallel Scene'].source
 const malformedParallel = validParallel.replace('[/parallel_entry]', '')
 const isolated = renderNarrativeRegex(`${malformedParallel}\n${validParallel}\n${fixtures['Scene Shift'].source}`, 'inline', 'batch-d-isolation')
@@ -177,7 +231,13 @@ assert((elsewhereIsolated.match(/class="r65-thread"/g) || []).length === 3, 'mal
 assert(elsewhereIsolated.includes('rr-scene-compass'), 'malformed Off-Stage poisoned valid Scene Shift')
 assert(elsewhereIsolated.includes('class="ch-og') && !elsewhereIsolated.includes('[Plot_Sparks]'), 'malformed Off-Stage poisoned valid Plot Sparks')
 
+const worldIsolated = renderNarrativeRegex(`${ambiguousWorld}\n${validParallel}\n${fixtures['Scene Shift'].source}\n${plotSparks}`, 'inline', 'world-sibling-isolation')
+assert(worldIsolated.includes('[WORLD|🌿 ENVIRONMENT|Basalt Sea Cave South of Jeju]'), 'unrecoverable World was unexpectedly consumed')
+assert((worldIsolated.match(/class="r65-thread"/g) || []).length === 3, 'malformed World poisoned valid Parallel')
+assert(worldIsolated.includes('rr-scene-compass'), 'malformed World poisoned valid Scene Shift')
+assert(worldIsolated.includes('class="ch-og') && !worldIsolated.includes('[Plot_Sparks]'), 'malformed World poisoned valid Plot Sparks')
+
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
-assert(packageJson.version === '0.2.8.2', `version changed: ${packageJson.version}`)
+assert(packageJson.version === '0.2.8.3', `version changed: ${packageJson.version}`)
 
 console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} Utilities, ${renderCases} dedicated presentation renders, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone three-variant regression passed, malformed-sibling isolation passed, Stella absent.`)

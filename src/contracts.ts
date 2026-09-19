@@ -111,7 +111,7 @@ export type BackgroundQueueStage =
   | 'paused-backlog'
   | 'analyzing'
   | 'composing-prompt'
-  | 'waiting-for-provider'
+  | 'provider-waiting'
   | 'generating'
   | 'saving-preview'
   | 'saving-gallery'
@@ -219,6 +219,7 @@ export type SlotStatus =
   | 'paused-backlog'
   | 'superseded'
   | 'parsing'
+  | 'provider-waiting'
   | 'generating'
   | 'previewing'
   | 'placement-pending'
@@ -1409,7 +1410,7 @@ export function placementFailureCanReplaceRecord(
   return true
 }
 
-export type RelayCandidateStatus = 'preflight' | 'parsing' | 'generating' | 'ready' | 'failed' | 'unavailable' | 'replaced' | 'discarded'
+export type RelayCandidateStatus = 'preflight' | 'parsing' | 'provider-waiting' | 'generating' | 'ready' | 'failed' | 'unavailable' | 'replaced' | 'discarded'
 
 export type RelayCandidate = {
   candidateKey: string

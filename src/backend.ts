@@ -115,14 +115,21 @@ import { canAbortSlotStatus, isGenerationActiveStatus, isSlotLifecycleActive } f
 import {
   AUTO_DISPATCH_STALE_MS,
   AUTO_RESUME_MAX_JOBS,
+  NATIVE_SETTINGS_REFRESH_MAX_RETRIES,
+  NATIVE_SETTINGS_REFRESH_TIMEOUT_MS,
+  addNativeSettingsWaiters,
   canonicalDispatchKey,
   classifyBacklog,
   classifyNativeSettings,
   dispatchKeysForJob,
   groupRecordsIntoJobs,
+  nativeSettingsWaiterCount,
+  nativeSettingsWaiterCountsByChat,
   raceWithAbort,
+  removeNativeSettingsWaiters,
   throwIfAborted,
   type DispatchLease,
+  type NativeSettingsWaitersByChat,
 } from './queueSafety'
 import {
   COMPLETED_HISTORY_PAGE_SIZE,
@@ -834,12 +841,16 @@ type ImagePlan = {
 
 type ImageGenerationStreamContext = {
   chatId?: string
+  messageId?: string
   generationId: string
   source: 'relay-slot' | 'relay-illustrator' | 'relay-candidate'
   slotKey?: string
   requestId?: string
   addToGallery?: boolean
   attemptSignal?: AbortSignal
+  laneWaitTimeoutMs?: number
+  onProviderWaiting?: () => void | Promise<void>
+  onProviderStarted?: () => void | Promise<void>
 }
 
 type JobTrigger = NonNullable<GenerationSnapshot['triggerType']>
@@ -960,21 +971,43 @@ let lastBackendResponseAt = BACKEND_LOADED_AT
 const messageLocks = new Set<string>()
 const slotLocks = new Set<string>()
 const cancelledJobs = new Set<string>()
-const activeImageStreams = new Map<string, AbortController>()
+type ActiveImageStream = {
+  controller: AbortController
+  userId: string
+  context: ImageGenerationStreamContext
+}
+
+const activeImageStreams = new Map<string, ActiveImageStream>()
 
 type ImageGenerationLaneWaiter = {
   controller: AbortController
   context: ImageGenerationStreamContext
   userId?: string
-  resolve: (release: () => void) => void
+  resolve: (lease: ImageGenerationLaneLease) => void
   reject: (error: Error) => void
+  queuedAt: number
   heartbeat?: ReturnType<typeof setInterval>
+  timeout?: ReturnType<typeof setTimeout>
   abortHandler?: () => void
 }
 
 type ImageGenerationLane = {
   active: boolean
+  draining: boolean
+  activeLeaseId?: string
+  activeContext?: ImageGenerationStreamContext
+  activeSince?: number
+  drainStartedAt?: number
+  drainWatchdog?: ReturnType<typeof setTimeout>
+  drainReason?: string
   waiters: ImageGenerationLaneWaiter[]
+}
+
+type ImageGenerationLaneLease = {
+  key: string
+  leaseId: string
+  context: ImageGenerationStreamContext
+  release: () => void
 }
 
 // SwarmUI and several local ImageGen bridges expose one mutable WebSocket/session
@@ -999,26 +1032,36 @@ function imageStreamAliases(context: ImageGenerationStreamContext): string[] {
   return [...new Set([context.generationId, context.slotKey, context.requestId].filter((value): value is string => Boolean(value)))]
 }
 
-function registerImageStream(context: ImageGenerationStreamContext, controller: AbortController): void {
-  for (const alias of imageStreamAliases(context)) activeImageStreams.set(alias, controller)
+function registerImageStream(context: ImageGenerationStreamContext, controller: AbortController, userId?: string): void {
+  const stream = { controller, userId: userId || '__default-user__', context }
+  for (const alias of imageStreamAliases(context)) activeImageStreams.set(alias, stream)
 }
 
 function releaseImageStream(context: ImageGenerationStreamContext, controller: AbortController): void {
   for (const alias of imageStreamAliases(context)) {
-    if (activeImageStreams.get(alias) === controller) activeImageStreams.delete(alias)
+    if (activeImageStreams.get(alias)?.controller === controller) activeImageStreams.delete(alias)
   }
 }
 
 export function abortImageStream(alias: string): boolean {
-  const controller = activeImageStreams.get(alias)
-  if (!controller) return false
-  if (!controller.signal.aborted) controller.abort('Cancelled by user.')
+  const stream = activeImageStreams.get(alias)
+  if (!stream) return false
+  if (!stream.controller.signal.aborted) stream.controller.abort('Cancelled by user.')
   return true
 }
 
 function abortAllImageStreams(): number {
-  const controllers = new Set(activeImageStreams.values())
+  const controllers = new Set([...activeImageStreams.values()].map(stream => stream.controller))
   for (const controller of controllers) if (!controller.signal.aborted) controller.abort('Cancelled by user.')
+  return controllers.size
+}
+
+export function abortImageStreamsForChat(chatId: string, userId?: string): number {
+  const scope = userId || '__default-user__'
+  const controllers = new Set([...activeImageStreams.values()]
+    .filter(stream => stream.userId === scope && stream.context.chatId === chatId)
+    .map(stream => stream.controller))
+  for (const controller of controllers) if (!controller.signal.aborted) controller.abort('Cancelled by Abort All for this chat.')
   return controllers.size
 }
 
@@ -1054,12 +1097,22 @@ function abortError(message = 'Generation cancelled by user.'): Error {
 }
 
 export const IMAGE_GENERATION_TIMEOUT_MS = 5 * 60_000
+export const IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS = 6 * 60_000
+export const IMAGE_GENERATION_DRAIN_TIMEOUT_MS = 2 * 60_000
 
 class ImageGenerationTimeoutError extends Error {
   constructor(timeoutMs: number) {
     const minutes = Math.max(1, Math.round(timeoutMs / 60_000))
     super(`ImageGen did not finish within ${minutes} minute${minutes === 1 ? '' : 's'}. Retry the slot when the provider is ready.`)
     this.name = 'ImageGenerationTimeoutError'
+  }
+}
+
+export class ImageGenerationLaneWaitTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    const seconds = Math.max(1, Math.round(timeoutMs / 1000))
+    super(`Timed out after ${seconds} second${seconds === 1 ? '' : 's'} waiting for the image worker. Retry the slot when provider capacity is available.`)
+    this.name = 'ImageGenerationLaneWaitTimeoutError'
   }
 }
 
@@ -1070,6 +1123,7 @@ async function withImageGenerationDeadline<T>(
 ): Promise<T> {
   const boundedTimeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, Math.floor(timeoutMs)) : IMAGE_GENERATION_TIMEOUT_MS
   let timer: ReturnType<typeof setTimeout> | undefined
+  let abortHandler: (() => void) | undefined
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       const error = new ImageGenerationTimeoutError(boundedTimeoutMs)
@@ -1079,22 +1133,44 @@ async function withImageGenerationDeadline<T>(
   })
   const aborted = new Promise<never>((_, reject) => {
     if (controller.signal.aborted) { reject(abortError()); return }
-    controller.signal.addEventListener('abort', () => reject(abortError()), { once: true })
+    abortHandler = () => reject(abortError())
+    controller.signal.addEventListener('abort', abortHandler, { once: true })
   })
   try {
     return await Promise.race([operation(), timeout, aborted])
   } finally {
     if (timer) clearTimeout(timer)
+    if (abortHandler) controller.signal.removeEventListener('abort', abortHandler)
   }
 }
 
-function releaseImageGenerationLane(key: string): void {
+function clearImageGenerationLaneWaiter(waiter: ImageGenerationLaneWaiter): void {
+  if (waiter.heartbeat) clearInterval(waiter.heartbeat)
+  if (waiter.timeout) clearTimeout(waiter.timeout)
+  if (waiter.abortHandler) waiter.controller.signal.removeEventListener('abort', waiter.abortHandler)
+}
+
+function grantImageGenerationLane(key: string, lane: ImageGenerationLane, context: ImageGenerationStreamContext): ImageGenerationLaneLease {
+  const leaseId = `${context.generationId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`
+  lane.active = true
+  lane.draining = false
+  lane.activeLeaseId = leaseId
+  lane.activeContext = context
+  lane.activeSince = Date.now()
+  lane.drainStartedAt = undefined
+  lane.drainReason = undefined
+  return { key, leaseId, context, release: () => releaseImageGenerationLane(key, leaseId) }
+}
+
+function releaseImageGenerationLane(key: string, leaseId: string): void {
   const lane = imageGenerationLanes.get(key)
-  if (!lane) return
+  if (!lane || lane.activeLeaseId !== leaseId) return
+  if (lane.drainWatchdog) clearTimeout(lane.drainWatchdog)
+  lane.drainWatchdog = undefined
+  lane.draining = false
   while (lane.waiters.length) {
     const waiter = lane.waiters.shift()!
-    if (waiter.heartbeat) clearInterval(waiter.heartbeat)
-    if (waiter.abortHandler) waiter.controller.signal.removeEventListener('abort', waiter.abortHandler)
+    clearImageGenerationLaneWaiter(waiter)
     if (waiter.controller.signal.aborted) {
       waiter.reject(abortError())
       continue
@@ -1104,24 +1180,44 @@ function releaseImageGenerationLane(key: string): void {
       streaming: false,
       statusText: 'Image worker available. Starting generation…',
     })
-    waiter.resolve(() => releaseImageGenerationLane(key))
+    waiter.resolve(grantImageGenerationLane(key, lane, waiter.context))
     return
   }
   lane.active = false
   imageGenerationLanes.delete(key)
 }
 
+function beginImageGenerationLaneDrain(lease: ImageGenerationLaneLease, providerOperation: Promise<unknown>, reason: unknown): void {
+  const lane = imageGenerationLanes.get(lease.key)
+  if (!lane || lane.activeLeaseId !== lease.leaseId) return
+  lane.draining = true
+  lane.drainStartedAt = Date.now()
+  lane.drainReason = reason instanceof Error ? reason.message : String(reason || 'Local cancellation while provider work remained active.')
+  spindle.log.warn(`[ReverieRelay:image_provider_draining] ${lease.context.generationId}: ${lane.drainReason}`)
+  let released = false
+  const release = (event: 'settled' | 'watchdog') => {
+    if (released) return
+    released = true
+    if (event === 'watchdog') spindle.log.error(`[ReverieRelay:image_provider_drain_watchdog] ${lease.context.generationId}: provider work did not settle within ${IMAGE_GENERATION_DRAIN_TIMEOUT_MS}ms; releasing the lane with possible orphaned host work.`)
+    else spindle.log.info(`[ReverieRelay:image_provider_drained] ${lease.context.generationId}: underlying provider work settled; late result discarded.`)
+    lease.release()
+  }
+  lane.drainWatchdog = setTimeout(() => release('watchdog'), IMAGE_GENERATION_DRAIN_TIMEOUT_MS)
+  ;(lane.drainWatchdog as any).unref?.()
+  void providerOperation.then(() => release('settled'), () => release('settled'))
+}
+
 async function acquireImageGenerationLane(
   userId: string | undefined,
   context: ImageGenerationStreamContext,
   controller: AbortController,
-): Promise<() => void> {
+): Promise<ImageGenerationLaneLease> {
   const key = imageGenerationLaneKey(userId)
-  const lane = imageGenerationLanes.get(key) || { active: false, waiters: [] }
+  const lane = imageGenerationLanes.get(key) || { active: false, draining: false, waiters: [] }
   imageGenerationLanes.set(key, lane)
+  await context.onProviderWaiting?.()
   if (!lane.active) {
-    lane.active = true
-    return () => releaseImageGenerationLane(key)
+    return grantImageGenerationLane(key, lane, context)
   }
 
   sendImageStreamEvent(userId, context, {
@@ -1130,12 +1226,15 @@ async function acquireImageGenerationLane(
     statusText: 'Queued behind the current image. Relay will start this one next.',
   })
 
-  return await new Promise<() => void>((resolve, reject) => {
-    const waiter: ImageGenerationLaneWaiter = { controller, context, userId, resolve, reject }
-    waiter.abortHandler = () => {
+  return await new Promise<ImageGenerationLaneLease>((resolve, reject) => {
+    const waiter: ImageGenerationLaneWaiter = { controller, context, userId, resolve, reject, queuedAt: Date.now() }
+    const removeWaiter = () => {
       const currentLane = imageGenerationLanes.get(key)
       if (currentLane) currentLane.waiters = currentLane.waiters.filter(candidate => candidate !== waiter)
-      if (waiter.heartbeat) clearInterval(waiter.heartbeat)
+      clearImageGenerationLaneWaiter(waiter)
+    }
+    waiter.abortHandler = () => {
+      removeWaiter()
       reject(abortError())
     }
     controller.signal.addEventListener('abort', waiter.abortHandler, { once: true })
@@ -1144,11 +1243,49 @@ async function acquireImageGenerationLane(
       sendImageStreamEvent(userId, context, {
         event: 'status',
         streaming: false,
-        statusText: 'Still queued. Waiting for the current image to finish…',
+        statusText: 'Still waiting for the image worker…',
       })
     }, 20_000)
+    ;(waiter.heartbeat as any).unref?.()
+    const waitTimeoutMs = Number.isFinite(context.laneWaitTimeoutMs)
+      ? Math.max(1, Math.floor(context.laneWaitTimeoutMs!))
+      : IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS
+    waiter.timeout = setTimeout(() => {
+      removeWaiter()
+      reject(new ImageGenerationLaneWaitTimeoutError(waitTimeoutMs))
+    }, waitTimeoutMs)
+    ;(waiter.timeout as any).unref?.()
     lane.waiters.push(waiter)
   })
+}
+
+export function inspectImageGenerationLaneDiagnostics(userId?: string): Record<string, unknown> | null {
+  const key = imageGenerationLaneKey(userId)
+  const lane = imageGenerationLanes.get(key)
+  if (!lane) return null
+  const now = Date.now()
+  return {
+    laneKey: key,
+    active: lane.active,
+    draining: lane.draining,
+    activeGenerationId: lane.activeContext?.generationId || null,
+    activeChatId: lane.activeContext?.chatId || null,
+    activeRequestId: lane.activeContext?.requestId || null,
+    activeSince: lane.activeSince || 0,
+    drainStartedAt: lane.drainStartedAt || 0,
+    drainReason: lane.drainReason || '',
+    waiterCount: lane.waiters.length,
+    waiters: lane.waiters.map(waiter => ({
+      chatId: waiter.context.chatId || null,
+      messageId: waiter.context.messageId || null,
+      requestId: waiter.context.requestId || null,
+      slotKey: waiter.context.slotKey || null,
+      generationId: waiter.context.generationId,
+      queuedAt: waiter.queuedAt,
+      waitAgeMs: Math.max(0, now - waiter.queuedAt),
+      source: waiter.context.source,
+    })),
+  }
 }
 
 function isAbortError(error: unknown): boolean {
@@ -1260,7 +1397,10 @@ type RelayAttemptCancellation = {
 type NativeSettingsBrokerRuntime = {
   refreshInFlight: boolean
   refreshRequestedAt?: number
-  waiters: Set<string>
+  refreshRetryCount: number
+  refreshWatchdog?: ReturnType<typeof setTimeout>
+  waiters: NativeSettingsWaitersByChat
+  lastRequest?: { chatId: string; messageId?: string; swipeId?: number; sourceContent?: string }
   frontendSessions: Map<string, { sessionId: string; chatId: string | null; connected: boolean; nativeSettingsAvailable: boolean; lastSeenAt: number; platformClass: 'mobile' | 'desktop' }>
 }
 
@@ -4026,7 +4166,7 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
         })
       }
       await syncNativeSettings(payload.imageGeneration || {}, userId, payload.nativeSettingsCapturedAt)
-      if (payload.chatId) await resumeNativeSettingsWaiters(payload.chatId, {
+      await resumeNativeSettingsWaiters({
         settings: cleanParameters(payload.imageGeneration) as NativeImageSettings,
         capturedAt: Number(payload.nativeSettingsCapturedAt) || Date.now(),
       }, userId)
@@ -4739,26 +4879,70 @@ function relayQueueKey(job: RouterJob, userId?: string): string {
 
 function nativeSettingsBroker(userId?: string): NativeSettingsBrokerRuntime {
   const scope = relayQueueScope(userId)
-  const broker = nativeSettingsBrokers.get(scope) || { refreshInFlight: false, waiters: new Set<string>(), frontendSessions: new Map() }
+  const broker = nativeSettingsBrokers.get(scope) || { refreshInFlight: false, refreshRetryCount: 0, waiters: new Map(), frontendSessions: new Map() }
   nativeSettingsBrokers.set(scope, broker)
   return broker
 }
 
 function requestNativeSettingsSnapshot(chatId: string, messageId: string | undefined, swipeId: number | undefined, userId?: string, sourceContent?: string, waiterKeys: string[] = []): void {
   const broker = nativeSettingsBroker(userId)
-  for (const key of waiterKeys) broker.waiters.add(key)
+  addNativeSettingsWaiters(broker.waiters, chatId, waiterKeys)
   const now = Date.now()
-  if (broker.refreshInFlight && now - (broker.refreshRequestedAt || now) < 30_000) return
+  if (broker.refreshInFlight && now - (broker.refreshRequestedAt || now) < NATIVE_SETTINGS_REFRESH_TIMEOUT_MS) return
+  if (broker.refreshWatchdog) clearTimeout(broker.refreshWatchdog)
   broker.refreshInFlight = true
   broker.refreshRequestedAt = now
+  broker.lastRequest = { chatId, messageId, swipeId, sourceContent }
   spindle.sendToFrontend({
     type: 'native_snapshot_requested',
     chatId,
     messageId: messageId ?? null,
     swipeId: swipeId ?? null,
     sourceContent,
-    coalescedWaiterCount: broker.waiters.size,
+    coalescedWaiterCount: nativeSettingsWaiterCount(broker.waiters),
   }, userId)
+  broker.refreshWatchdog = setTimeout(() => { void handleNativeSettingsRefreshTimeout(userId) }, NATIVE_SETTINGS_REFRESH_TIMEOUT_MS)
+  ;(broker.refreshWatchdog as any).unref?.()
+}
+
+async function handleNativeSettingsRefreshTimeout(userId?: string): Promise<void> {
+  const broker = nativeSettingsBroker(userId)
+  broker.refreshWatchdog = undefined
+  broker.refreshInFlight = false
+  broker.refreshRequestedAt = undefined
+  if (!nativeSettingsWaiterCount(broker.waiters)) { broker.refreshRetryCount = 0; return }
+  const availableSession = [...broker.frontendSessions.values()].find(session => session.connected && session.nativeSettingsAvailable)
+  if (availableSession && broker.refreshRetryCount < NATIVE_SETTINGS_REFRESH_MAX_RETRIES) {
+    broker.refreshRetryCount += 1
+    const request = broker.lastRequest || { chatId: availableSession.chatId || [...broker.waiters.keys()][0] }
+    spindle.log.warn(`[ReverieRelay:native_settings_watchdog_retry] Native settings refresh timed out; retrying for ${nativeSettingsWaiterCount(broker.waiters)} waiter(s).`)
+    requestNativeSettingsSnapshot(request.chatId, request.messageId, request.swipeId, userId, request.sourceContent)
+    return
+  }
+  const reason = 'Timed out waiting for Native ImageGen settings. Retry the slot or sync Native settings when a frontend is connected.'
+  for (const [chatId, waiterKeys] of [...broker.waiters.entries()]) {
+    await mutateState(chatId, userId, state => {
+      const now = Date.now()
+      for (const record of Object.values(state.slots)) {
+        const dispatchKey = canonicalDispatchKey(record)
+        if (record.status !== 'awaiting-native-settings' || !waiterKeys.has(dispatchKey)) continue
+        record.status = 'failed'
+        record.error = reason
+        record.failedAt = now
+        record.updatedAt = now
+        const lease = state.dispatchLeases[dispatchKey]
+        if (lease) lease.status = 'failed'
+      }
+      updateQueueSafetySummary(state, now)
+      appendStateLog(state, {
+        severity: 'error', stage: 'native-settings-broker', eventType: 'native_settings_refresh_timeout', chatId,
+        message: reason, details: { waiterCount: waiterKeys.size, retryCount: broker.refreshRetryCount },
+      })
+    })
+    removeNativeSettingsWaiters(broker.waiters, chatId)
+    await sendState(userId, chatId)
+  }
+  broker.refreshRetryCount = 0
 }
 
 async function markJobsAwaitingNativeSettings(jobs: RouterJob[], userId?: string): Promise<void> {
@@ -4787,75 +4971,88 @@ async function markJobsAwaitingNativeSettings(jobs: RouterJob[], userId?: string
   await sendState(userId, chatId)
 }
 
-async function resumeNativeSettingsWaiters(chatId: string, snapshot: NativeSettingsSnapshot, userId?: string): Promise<void> {
+async function resumeNativeSettingsWaiters(snapshot: NativeSettingsSnapshot, userId?: string): Promise<void> {
   if (!Object.keys(snapshot.settings || {}).length) return
   const broker = nativeSettingsBroker(userId)
+  if (broker.refreshWatchdog) clearTimeout(broker.refreshWatchdog)
+  broker.refreshWatchdog = undefined
   broker.refreshInFlight = false
   broker.refreshRequestedAt = undefined
-  const state = await getState(chatId, userId)
-  const waiting = Object.values(state.slots).filter(record => record.status === 'awaiting-native-settings')
-  if (!waiting.length) { broker.waiters.clear(); return }
-  const now = Date.now()
-  const decision = classifyBacklog(waiting, now)
-  if (decision.pause) {
-    await mutateState(chatId, userId, next => {
-      for (const record of Object.values(next.slots)) {
-        if (record.status !== 'awaiting-native-settings') continue
-        record.status = 'paused-backlog'
-        record.updatedAt = now
-        const lease = next.dispatchLeases[canonicalDispatchKey(record)]
-        if (lease) lease.status = 'paused-backlog'
-      }
-      updateQueueSafetySummary(next, now)
-      appendStateLog(next, {
-        severity: 'warning', stage: 'native-settings-broker', eventType: 'backlog_paused', chatId,
-        message: `Paused ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? '' : 's'} instead of auto-dispatching an earlier-session backlog.`,
-        details: decision,
-      })
-    })
-    broker.waiters.clear()
-    spindle.sendToFrontend({
-      type: 'relay_notice', level: 'warning',
-      message: `Reverie Relay found ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? '' : 's'} from an earlier session. Review, generate, or discard them from Queue.`,
-    }, userId)
-    return
-  }
-
-  const validJobs: RouterJob[] = []
-  const supersededKeys = new Set<string>()
-  for (const job of groupRecordsIntoJobs(waiting)) {
-    const message = await resolveMessage(job.chatId, job.messageId)
-    const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : ''
-    const active = message ? activeSwipeId(message) === job.swipeId : false
-    const authored = Boolean(job.originalRequestXml && content.includes(job.originalRequestXml))
-      || parseSafeSurfaceImageRequests(content).some(request => request.id === job.requestId)
-    if (!active || !authored) {
-      for (const key of dispatchKeysForJob(job)) supersededKeys.add(key)
+  broker.refreshRetryCount = 0
+  const resumptions: Promise<void>[] = []
+  for (const [chatId, registeredKeys] of [...broker.waiters.entries()]) {
+    const state = await getState(chatId, userId)
+    const waiting = Object.values(state.slots).filter(record => record.status === 'awaiting-native-settings' && registeredKeys.has(canonicalDispatchKey(record)))
+    if (!waiting.length) {
+      removeNativeSettingsWaiters(broker.waiters, chatId)
       continue
     }
-    validJobs.push(job)
-  }
-  if (supersededKeys.size) await mutateState(chatId, userId, next => {
-    for (const record of Object.values(next.slots)) {
-      if (!supersededKeys.has(canonicalDispatchKey(record))) continue
-      record.status = 'superseded'
-      record.updatedAt = now
-      const lease = next.dispatchLeases[canonicalDispatchKey(record)]
-      if (lease) lease.status = 'superseded'
+    const now = Date.now()
+    const decision = classifyBacklog(waiting, now)
+    if (decision.pause) {
+      await mutateState(chatId, userId, next => {
+        for (const record of Object.values(next.slots)) {
+          if (record.status !== 'awaiting-native-settings' || !registeredKeys.has(canonicalDispatchKey(record))) continue
+          record.status = 'paused-backlog'
+          record.updatedAt = now
+          const lease = next.dispatchLeases[canonicalDispatchKey(record)]
+          if (lease) lease.status = 'paused-backlog'
+        }
+        updateQueueSafetySummary(next, now)
+        appendStateLog(next, {
+          severity: 'warning', stage: 'native-settings-broker', eventType: 'backlog_paused', chatId,
+          message: `Paused ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? '' : 's'} instead of auto-dispatching an earlier-session backlog.`,
+          details: decision,
+        })
+      })
+      removeNativeSettingsWaiters(broker.waiters, chatId, waiting.map(canonicalDispatchKey))
+      spindle.sendToFrontend({
+        type: 'relay_notice', level: 'warning',
+        message: `Reverie Relay found ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? '' : 's'} from an earlier session. Review, generate, or discard them from Queue.`,
+      }, userId)
+      await sendState(userId, chatId)
+      continue
     }
-    updateQueueSafetySummary(next, now)
-  })
-  broker.waiters.clear()
-  await Promise.all(validJobs.map(job => enqueueRelayJob(job, {
-    replaceExisting: false,
-    reparse: true,
-    triggerType: 'initial',
-    nativeSnapshot: snapshot,
-    automaticDispatch: true,
-    settingsSource: 'fresh-after-coalesced-refresh',
-    settingsAgeMs: Math.max(0, Date.now() - snapshot.capturedAt),
-    dispatchReason: 'native-settings-restored-recent-small-backlog',
-  }, userId)))
+
+    const validJobs: RouterJob[] = []
+    const supersededKeys = new Set<string>()
+    for (const job of groupRecordsIntoJobs(waiting)) {
+      const message = await resolveMessage(job.chatId, job.messageId)
+      const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : ''
+      const active = message ? activeSwipeId(message) === job.swipeId : false
+      const authored = Boolean(job.originalRequestXml && content.includes(job.originalRequestXml))
+        || parseSafeSurfaceImageRequests(content).some(request => request.id === job.requestId)
+      if (!active || !authored) {
+        for (const key of dispatchKeysForJob(job)) supersededKeys.add(key)
+        continue
+      }
+      validJobs.push(job)
+    }
+    if (supersededKeys.size) await mutateState(chatId, userId, next => {
+      for (const record of Object.values(next.slots)) {
+        if (!supersededKeys.has(canonicalDispatchKey(record))) continue
+        record.status = 'superseded'
+        record.updatedAt = now
+        const lease = next.dispatchLeases[canonicalDispatchKey(record)]
+        if (lease) lease.status = 'superseded'
+      }
+      updateQueueSafetySummary(next, now)
+    })
+    if (supersededKeys.size) await sendState(userId, chatId)
+    const processedKeys = new Set([...supersededKeys, ...validJobs.flatMap(dispatchKeysForJob)])
+    removeNativeSettingsWaiters(broker.waiters, chatId, processedKeys)
+    for (const job of validJobs) resumptions.push(enqueueRelayJob(job, {
+      replaceExisting: false,
+      reparse: true,
+      triggerType: 'initial',
+      nativeSnapshot: snapshot,
+      automaticDispatch: true,
+      settingsSource: 'fresh-after-coalesced-refresh',
+      settingsAgeMs: Math.max(0, Date.now() - snapshot.capturedAt),
+      dispatchReason: 'native-settings-restored-recent-small-backlog',
+    }, userId))
+  }
+  await Promise.all(resumptions)
 }
 
 function updateQueueSafetySummary(state: StateFile, now = Date.now()): void {
@@ -5779,13 +5976,13 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
           triggerType: options.triggerType, provider: stored.imageProvider, connectionId: stored.imageConnectionId,
           connectionName: stored.imageConnectionName, model: stored.imageModel, message: 'Prompt parsing completed.',
         })
-        markSlotStatus(stored, 'generating')
-        updateBackgroundTask(state, backgroundTaskId, { stage: 'waiting-for-provider', statusText: 'Waiting for Swarm', current: 2, total: 3 })
+        markSlotStatus(stored, 'provider-waiting')
+        updateBackgroundTask(state, backgroundTaskId, { stage: 'provider-waiting', statusText: 'Waiting for image worker', current: 2, total: 3 })
         appendStateLog(state, {
-          severity: 'info', stage: 'image-generation-start', eventType: 'image_generation_started', chatId: job.chatId, messageId: job.messageId,
+          severity: 'info', stage: 'provider-waiting', eventType: 'provider_waiting', chatId: job.chatId, messageId: job.messageId,
           swipeId: job.swipeId, requestId: job.requestId, slot, target: job.target, attemptNumber: stored.attemptNumber,
           triggerType: options.triggerType, provider: stored.imageProvider, connectionId: stored.imageConnectionId,
-          connectionName: stored.imageConnectionName, model: stored.imageModel, message: 'Native ImageGen request started.',
+          connectionName: stored.imageConnectionName, model: stored.imageModel, message: 'Prompt is ready and waiting for serialized ImageGen provider access.',
         })
         return stored.attemptNumber
       })
@@ -5795,12 +5992,29 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
       if (isJobCancelled(job)) throw new JobCancelledError()
       const generated = await generateImage(job.chatId, prepared, imagePlan, userId, {
         chatId: job.chatId,
+        messageId: job.messageId,
         generationId: `${key}:${attemptNumber}`,
         source: job.target === 'prose.illustration' ? 'relay-illustrator' : 'relay-slot',
         slotKey: key,
         requestId: job.requestId,
         addToGallery: config.galleryAutoLink,
         attemptSignal: options.signal,
+        onProviderStarted: async () => {
+          throwIfAborted(options.signal)
+          await mutateJobState(job, userId, state => {
+            const stored = state.slots[key]
+            if (!stored || stored.status !== 'provider-waiting') return
+            markSlotStatus(stored, 'generating')
+            updateBackgroundTask(state, backgroundTaskId, { stage: 'generating', statusText: 'Generating with ImageGen', current: 2, total: 3 })
+            appendStateLog(state, {
+              severity: 'info', stage: 'image-generation-start', eventType: 'image_generation_started', chatId: job.chatId, messageId: job.messageId,
+              swipeId: job.swipeId, requestId: job.requestId, slot, target: job.target, attemptNumber: stored.attemptNumber,
+              triggerType: options.triggerType, provider: stored.imageProvider, connectionId: stored.imageConnectionId,
+              connectionName: stored.imageConnectionName, model: stored.imageModel, message: 'Native ImageGen provider call started.',
+            })
+          })
+          await sendState(userId, job.chatId)
+        },
       })
       if (isJobCancelled(job)) throw new JobCancelledError()
       await mutateJobState(job, userId, state => updateBackgroundTask(state, backgroundTaskId, { stage: 'placing', statusText: 'Saving and placing 3/3', current: 3, total: 3 }))
@@ -6378,13 +6592,19 @@ async function generateRelayCandidate(
   validateImagePlan(imagePlan)
   const prepared = await parseSlotPrompt(job, candidate.slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings as NativeImageSettings, candidate.highResMode)
   enrichPromptPipelineWithImagePlan(prepared.promptPipeline, imagePlan, prepared.prompt, prepared.negativePrompt)
+  await updateRelayCandidate(batch.chatId, batch.batchId, candidate.candidateKey, { status: 'provider-waiting' }, userId)
   const generated = await generateImage(job.chatId, prepared, imagePlan, userId, {
     chatId: job.chatId,
+    messageId: job.messageId,
     generationId: candidate.candidateKey,
     source: 'relay-candidate',
     slotKey: candidate.stableSlotKey,
     requestId: candidate.requestId,
     addToGallery: false,
+    onProviderStarted: async () => {
+      await updateRelayCandidate(batch.chatId, batch.batchId, candidate.candidateKey, { status: 'generating' }, userId)
+      await sendState(userId, batch.chatId)
+    },
   })
   const attemptNumber = candidate.attemptNumber
   return {
@@ -6459,7 +6679,7 @@ async function updateRelayCandidate(chatId: string, batchId: string, candidateKe
 function refreshRelayBatchStatus(batch: RelayCandidateBatch): void {
   const terminal = new Set<RelayCandidate['status']>(['ready', 'failed', 'unavailable', 'replaced', 'discarded'])
   const finished = batch.candidates.every(candidate => terminal.has(candidate.status))
-  const unresolved = batch.candidates.some(candidate => ['preflight', 'parsing', 'generating'].includes(candidate.status))
+  const unresolved = batch.candidates.some(candidate => ['preflight', 'parsing', 'provider-waiting', 'generating'].includes(candidate.status))
   if (batch.status === 'discarded' || batch.status === 'completed') return
   if (unresolved) batch.status = 'processing'
   else batch.status = finished ? 'review' : batch.status
@@ -7170,7 +7390,7 @@ async function cleanupState(payload: Extract<FrontendMessage, { type: 'cleanup' 
 async function previewReparse(key: string, userId?: string, nativeSnapshot?: NativeSettingsSnapshot): Promise<void> {
   const { chatId, record } = await getRecordByKey(key, userId)
   if (!canReparseRecord(record)) throw new Error('Original request metadata was not available when this slot was recovered. Rebuild the request first.')
-  if ((record.status === 'parsing' || record.status === 'generating') && relayProcessingKeys.has(record.key)) throw new Error('This slot is already processing.')
+  if ((record.status === 'parsing' || record.status === 'provider-waiting' || record.status === 'generating') && relayProcessingKeys.has(record.key)) throw new Error('This slot is already processing.')
   const config = await getConfig(userId)
   const job = jobFromRecord(record)
   await assertPersonaPovDispatchAllowed(job, userId)
@@ -7286,17 +7506,25 @@ async function editPrompt(key: string, prompt: string, negativePrompt: string, i
     await mutateJobState(job, userId, state => stampImagePlan(state.slots[key], imagePlan))
     if (isJobCancelled(job)) throw new JobCancelledError()
     validateImagePlan(imagePlan)
-    await mutateJobState(job, userId, state => markSlotStatus(state.slots[key], 'generating'))
+    await mutateJobState(job, userId, state => markSlotStatus(state.slots[key], 'provider-waiting'))
     await sendState(userId, chatId)
     failureStage = 'image-generation-failed'
     if (isJobCancelled(job)) throw new JobCancelledError()
     const generated = await generateImage(chatId, prepared, imagePlan, userId, {
       chatId,
+      messageId: record.messageId,
       generationId: `${key}:${attemptNumber}`,
       source: job.target === 'prose.illustration' ? 'relay-illustrator' : 'relay-slot',
       slotKey: key,
       requestId: job.requestId,
       addToGallery: config.galleryAutoLink,
+      onProviderStarted: async () => {
+        await mutateJobState(job, userId, state => {
+          const stored = state.slots[key]
+          if (stored?.status === 'provider-waiting') markSlotStatus(stored, 'generating')
+        })
+        await sendState(userId, chatId)
+      },
     })
     if (isJobCancelled(job)) throw new JobCancelledError()
     await applyJobSuccess(job, [{
@@ -8046,8 +8274,8 @@ async function discardRelayCandidate(chatId: string, batchId: string, candidateK
 async function handleQueueAction(payload: Extract<FrontendMessage, { type: 'queue_action' }>, nativeSnapshot?: NativeSettingsSnapshot, userId?: string): Promise<void> {
   if (payload.action === 'abort_all') {
     const queueAbort = cancelRelayDispatchScope(payload.chatId, userId)
-    const stoppedStreams = abortAllImageStreams()
-    cancelMapKeysFromSnapshot(abortableOperationSerials, cancelAbortableOperation)
+    const stoppedStreams = abortImageStreamsForChat(payload.chatId, userId)
+    for (const key of [...abortableOperationSerials.keys()]) if (key === `prose:${payload.chatId}`) cancelAbortableOperation(key)
     for (const [key, scheduled] of [...scheduledAssistantScans.entries()]) {
       if (scheduled.chatId !== payload.chatId) continue
       if (scheduled.timer) clearTimeout(scheduled.timer)
@@ -8077,7 +8305,7 @@ async function handleQueueAction(payload: Extract<FrontendMessage, { type: 'queu
       for (const record of Object.values(state.slots)) {
         if (!isGenerationActiveStatus(record.status) && record.status !== 'paused-backlog') continue
         cancelledJobs.add(jobCancellationKey(record))
-        broker.waiters.delete(canonicalDispatchKey(record))
+        removeNativeSettingsWaiters(broker.waiters, payload.chatId, [canonicalDispatchKey(record)])
         if (record.status !== 'cancelled') state.stats.cancelledTotal += 1
         record.status = 'cancelled'
         record.cancelledAt = now
@@ -13593,14 +13821,16 @@ function normalizeBackgroundQueue(value: unknown): BackgroundQueueState {
   const items: Record<string, BackgroundQueueItem> = {}
   for (const [id, value] of Object.entries(itemsRaw)) {
     const row = cleanParameters(value)
-    const stage = cleanString(row.stage) as BackgroundQueueStage
+    const stage = cleanString(row.stage)
     if (!id || !stage) continue
     items[id] = {
       id,
       chatId: cleanString(row.chatId),
       source: (['relay-slot','relay-candidate','relay-illustrator','analysis','gallery-link','unknown'].includes(cleanString(row.source)) ? cleanString(row.source) : 'unknown') as BackgroundQueueItem['source'],
       label: cleanString(row.label) || 'Relay task',
-      stage: (['queued','analyzing','composing-prompt','waiting-for-provider','generating','saving-preview','saving-gallery','placing','completed','failed','cancelled'].includes(stage) ? stage : 'queued') as BackgroundQueueStage,
+      stage: (['queued','awaiting-native-settings','paused-backlog','analyzing','composing-prompt','provider-waiting','generating','saving-preview','saving-gallery','placing','completed','failed','cancelled'].includes(stage)
+        ? stage
+        : stage === 'waiting-for-provider' ? 'provider-waiting' : 'queued') as BackgroundQueueStage,
       statusText: cleanString(row.statusText) || 'Queued',
       current: Math.max(0, Number(row.current) || 0),
       total: Math.max(1, Number(row.total) || 1),
@@ -13850,10 +14080,10 @@ export async function generateWithOptionalStream(
   const abortFromAttempt = () => controller.abort(context.attemptSignal?.reason || 'Cancelled by user.')
   if (context.attemptSignal?.aborted) abortFromAttempt()
   else context.attemptSignal?.addEventListener('abort', abortFromAttempt, { once: true })
-  registerImageStream(context, controller)
-  let releaseLane: (() => void) | null = null
+  registerImageStream(context, controller, userId)
+  let laneLease: ImageGenerationLaneLease | null = null
   try {
-    releaseLane = await acquireImageGenerationLane(userId, context, controller)
+    laneLease = await acquireImageGenerationLane(userId, context, controller)
     if (controller.signal.aborted) throw abortError()
 
     const standardInput = { ...finalRequest, userId }
@@ -13862,13 +14092,34 @@ export async function generateWithOptionalStream(
       generate: (input: Record<string, unknown>) => Promise<any>
       generateStream?: (input: Record<string, unknown>) => AsyncIterable<any>
     }
+    let providerStarted = false
+    const notifyProviderStarted = async () => {
+      if (providerStarted) return
+      providerStarted = true
+      await context.onProviderStarted?.()
+    }
+    const runStandardGeneration = async (): Promise<any> => {
+      await notifyProviderStarted()
+      let providerSettled = false
+      const providerOperation = Promise.resolve().then(() => api.generate(standardInput))
+      void providerOperation.then(() => { providerSettled = true }, () => { providerSettled = true })
+      try {
+        return await withImageGenerationDeadline(() => providerOperation, controller, timeoutMs)
+      } catch (error) {
+        if (!providerSettled && laneLease && (controller.signal.aborted || error instanceof ImageGenerationTimeoutError || isAbortError(error))) {
+          beginImageGenerationLaneDrain(laneLease, providerOperation, controller.signal.reason || error)
+          laneLease = null
+        }
+        throw error
+      }
+    }
     const providerInfo = await withImageGenerationDeadline(() => streamProviderInfo(plan.provider, userId), controller, timeoutMs)
     const canStream = !forceStandard && imageProviderSupportsStreaming(plan.provider, providerInfo, typeof api.generateStream === 'function')
     sendImageStreamEvent(userId, context, { event: 'started', streaming: canStream, statusText: canStream ? 'Connecting to live preview…' : 'Starting generation…' })
 
     if (!canStream || !api.generateStream) {
       if (controller.signal.aborted) throw abortError()
-      const result = await withImageGenerationDeadline(() => api.generate(standardInput), controller, timeoutMs)
+      const result = await runStandardGeneration()
       if (controller.signal.aborted) throw abortError()
       const finalPreview = streamImageValue(result)
       if (finalPreview) sendImageStreamEvent(userId, context, { event: 'preview', previewImageDataUrl: finalPreview, streaming: false, statusText: 'Final preview ready.' })
@@ -13879,6 +14130,7 @@ export async function generateWithOptionalStream(
     let result: any = null
     let streamFailure: unknown
     try {
+      await notifyProviderStarted()
       await withImageGenerationDeadline(async () => {
         for await (const rawEvent of api.generateStream!(streamInput)) {
           if (controller.signal.aborted) throw abortError()
@@ -13932,7 +14184,7 @@ export async function generateWithOptionalStream(
       if (streamFailure) spindle.log.warn(`[ReverieRelay:image_stream_fallback] ${streamFailure instanceof Error ? streamFailure.message : String(streamFailure)}`)
       sendImageStreamEvent(userId, context, { event: 'status', streaming: false, statusText: 'Live preview unavailable. Finishing through standard ImageGen…' })
       if (controller.signal.aborted) throw abortError()
-      result = await withImageGenerationDeadline(() => api.generate(standardInput), controller, timeoutMs)
+      result = await runStandardGeneration()
       if (controller.signal.aborted) throw abortError()
       const finalPreview = streamImageValue(result)
       if (finalPreview) sendImageStreamEvent(userId, context, { event: 'preview', previewImageDataUrl: finalPreview, streaming: false, statusText: 'Final preview ready.' })
@@ -13941,6 +14193,10 @@ export async function generateWithOptionalStream(
     sendImageStreamEvent(userId, context, { event: 'done', streaming: canStream, statusText: 'Generation complete.' })
     return result
   } catch (error) {
+    if (error instanceof ImageGenerationLaneWaitTimeoutError) {
+      sendImageStreamEvent(userId, context, { event: 'error', streaming: false, statusText: 'Waiting for image worker timed out.', error: error.message })
+      throw error
+    }
     const timeoutError = controller.signal.reason instanceof ImageGenerationTimeoutError ? controller.signal.reason : null
     if (timeoutError) {
       sendImageStreamEvent(userId, context, { event: 'error', streaming: false, statusText: 'Generation timed out.', error: timeoutError.message })
@@ -13955,7 +14211,7 @@ export async function generateWithOptionalStream(
     throw error
   } finally {
     context.attemptSignal?.removeEventListener('abort', abortFromAttempt)
-    releaseLane?.()
+    laneLease?.release()
     releaseImageStream(context, controller)
   }
 }
@@ -14061,10 +14317,12 @@ async function exportQueueDispatchDiagnostic(chatId: string, userId?: string): P
   const state = await getState(chatId, userId)
   const config = await getConfig(userId)
   const broker = nativeSettingsBroker(userId)
+  const dispatchQueue = relayDispatchQueues.get(relayQueueScope(userId))
   const snapshot = nativeSnapshotFromConfig(config)
   const freshness = classifyNativeSettings(snapshot?.capturedAt)
+  const now = Date.now()
   const jobs = Object.values(state.slots)
-    .filter(record => ['queued', 'awaiting-native-settings', 'paused-backlog', 'parsing', 'generating'].includes(record.status))
+    .filter(record => ['queued', 'awaiting-native-settings', 'paused-backlog', 'parsing', 'provider-waiting', 'generating', 'placement-pending'].includes(record.status))
     .map(record => {
       const lease = state.dispatchLeases[canonicalDispatchKey(record)]
       return {
@@ -14078,7 +14336,7 @@ async function exportQueueDispatchDiagnostic(chatId: string, userId?: string): P
         discoveredAt: record.discoveredAt || record.createdAt,
         dispatchEligibleAt: lease?.dispatchEligibleAt || 0,
         dispatchedAt: lease?.dispatchedAt || 0,
-        awaitingNativeSettingsMs: record.status === 'awaiting-native-settings' ? Math.max(0, Date.now() - (record.queuedAt || record.discoveredAt || record.createdAt)) : 0,
+        awaitingNativeSettingsMs: record.status === 'awaiting-native-settings' ? Math.max(0, now - (record.queuedAt || record.discoveredAt || record.createdAt)) : 0,
         settingsSource: lease?.settingsSource || freshness.source,
         settingsAgeMs: Number.isFinite(lease?.settingsAgeMs) ? lease!.settingsAgeMs : freshness.ageMs,
         dispatchReason: lease?.dispatchReason || '',
@@ -14087,15 +14345,25 @@ async function exportQueueDispatchDiagnostic(chatId: string, userId?: string): P
   spindle.sendToFrontend({
     type: 'queue_dispatch_diagnostic',
     diagnostic: {
-      generatedAt: Date.now(),
+      generatedAt: now,
       frontendSessions: [...broker.frontendSessions.values()].map(session => ({ ...session })),
       nativeSettingsBroker: {
         hasSnapshot: Boolean(snapshot),
         capturedAt: snapshot?.capturedAt || 0,
         ageMs: Number.isFinite(freshness.ageMs) ? freshness.ageMs : null,
         refreshInFlight: broker.refreshInFlight,
-        waiterCount: broker.waiters.size,
+        refreshRequestedAt: broker.refreshRequestedAt || 0,
+        refreshAgeMs: broker.refreshRequestedAt ? Math.max(0, now - broker.refreshRequestedAt) : 0,
+        waitingChats: [...broker.waiters.keys()],
+        waiterCount: nativeSettingsWaiterCount(broker.waiters),
+        waiterCountsByChat: nativeSettingsWaiterCountsByChat(broker.waiters),
       },
+      relayDispatchQueue: {
+        active: dispatchQueue?.active || 0,
+        pending: dispatchQueue?.pending.length || 0,
+        concurrency: dispatchQueue?.concurrency || config.queueConcurrencyLimit,
+      },
+      providerLane: inspectImageGenerationLaneDiagnostics(userId),
       queue: state.queueSafety,
       stateDispatch: lastStateDispatchMetrics.get(`${userId || '__default__'}:${chatId}`) || null,
       jobs,
@@ -14401,7 +14669,7 @@ function migrateSlotRecord(record: SlotRecord): void {
   const processingAge = Date.now() - lastProcessingAt
   const persistedBeforeThisRuntime = lastProcessingAt > 0 && lastProcessingAt < BACKEND_STARTED_AT
   const activeInThisRuntime = relayProcessingKeys.has(record.key) || isRecordJobActive(record)
-  if ((record.status === 'parsing' || record.status === 'generating') && !activeInThisRuntime && (persistedBeforeThisRuntime || processingAge > 90_000)) {
+  if ((record.status === 'parsing' || record.status === 'provider-waiting' || record.status === 'generating') && !activeInThisRuntime && (persistedBeforeThisRuntime || processingAge > 90_000)) {
     record.status = canReparseRecord(record) ? 'recovered-pending' : 'failed'
     record.error = 'Recovered after the app closed or generation state became stale. Reparse or generate this slot again.'
     record.updatedAt = Date.now()

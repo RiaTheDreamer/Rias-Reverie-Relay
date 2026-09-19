@@ -81,7 +81,7 @@ export const SETTING_HELP: Readonly<Record<string, string>> = {
   'Model Weight': 'How strongly this LoRA affects the diffusion model. Start near the model author’s recommended value.',
   'CLIP Weight': 'How strongly this LoRA affects text conditioning. Leave at the model weight unless the LoRA documents a different value.',
   'Auto Generate': 'When off, Relay may prepare requests but cannot spend an image-generation job automatically. This is enforced by the backend.',
-  'Concurrent Image Jobs': 'Maximum Relay image jobs allowed at once. Lower values use less GPU memory and reduce provider contention.',
+  'Concurrent Relay Preprocessing Jobs': 'Maximum Relay jobs that may parse and prepare concurrently. Actual ImageGen calls still use the provider-safe serialized lane when required.',
   'Appearance Memory Strength': 'Controls how strongly Relay carries established visual identity into new image prompts.',
   'Appearance Sidecar Source': 'Chooses whether Illustrator uses the shared global Appearance Sidecar routing or its own connection, model, and parameter overrides.',
   'Global Appearance Sidecar Connection': 'Selects the Lumiverse text connection used by the shared Appearance Sidecar. Use Relay Parser Connection to inherit the parser connection instead.',

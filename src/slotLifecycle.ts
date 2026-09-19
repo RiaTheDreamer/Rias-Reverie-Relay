@@ -29,6 +29,7 @@ export const SLOT_LIFECYCLE: Readonly<Record<SlotStatus, SlotLifecycleSemantics>
   'paused-backlog': lifecycle(false, false, false, true),
   superseded: lifecycle(false, false, true),
   parsing: lifecycle(true, false, false),
+  'provider-waiting': lifecycle(true, false, false),
   generating: lifecycle(true, false, false),
   previewing: lifecycle(true, false, false),
   'placement-pending': lifecycle(false, true, false, false),

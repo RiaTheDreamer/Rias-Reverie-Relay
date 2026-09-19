@@ -155,6 +155,13 @@ const structuralXmlTags = (value: string) => [...value.matchAll(/<\/?([A-Za-z][A
   .filter(match => !protectedRelayControlTags.has(match[1].toLowerCase()))
 const bracketImageControlTags = (value: string) => value.match(/\[\/?(?:image_request|scene_brief|reverie-illustration|visual_prompt)\b/gi) || []
 const expectedNarrativeUtility = buildNarrativeUtilityPrompt()
+const worldUtilityWithOverride = buildNarrativeUtilityPrompt(['World Texture'], { 'World Texture': 'CUSTOM WORLD CONTRACT' }).content
+assert(worldUtilityWithOverride.includes('CUSTOM WORLD CONTRACT'))
+assert(worldUtilityWithOverride.includes('SETTING THE SCENE STRUCTURAL LOCK'))
+assert(worldUtilityWithOverride.includes('[why_it_matters]...[/why_it_matters]'))
+assert(worldUtilityWithOverride.includes('[future_use]...[/future_use]'))
+assert(worldUtilityWithOverride.includes('Never use [/future_use] to close [why_it_matters]'))
+assert(!/\[\/?(?:image_request|scene_brief)\b/i.test(worldUtilityWithOverride), 'World prompt lock converted canonical Relay XML image controls to brackets')
 const expectedSurfaceIds = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).map(surface => surface.id).sort()
 const assertUtilitiesInjected = (text: string, stage: string) => {
   const surfaceWrapper = text.match(/<reverie_surface_utility\b[^>]*\bmodules="([^"]*)"[\s\S]*?<\/reverie_surface_utility>/i)
@@ -338,17 +345,89 @@ await assert.rejects(cancelledStandard, (error: any) => error?.name === 'AbortEr
 assert.equal('signal' in capturedStandard, false)
 structuredClone(capturedStandard)
 
-// A provider promise or stream iterator that never settles must fail the slot,
-// release the shared generation lane, and allow a later retry to start.
+// Waiting behind a serialized provider is a distinct bounded state. A queued
+// operation may report provider-waiting, but not generating, until it owns the
+// lane and is about to invoke the provider.
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 imageApi.getProviders = async () => [{ id: 'provider', capabilities: {} }]
-imageApi.generate = async () => new Promise(() => {})
+let resolveLaneA: ((value: any) => void) | undefined
+let laneBCalls = 0
+imageApi.generate = (input: any) => input.prompt === 'lane-a'
+  ? new Promise(resolve => { resolveLaneA = resolve })
+  : Promise.resolve().then(() => { laneBCalls += 1; return { imageId: 'lane-b', imageUrl: '/lane-b' } })
+const laneA = backend.generateWithOptionalStream({ prompt: 'lane-a' }, plan, 'u1', { ...context('lane-a'), chatId: 'chat-a' }, false, 500)
+while (!resolveLaneA) await Promise.resolve()
+const laneBTransitions: string[] = []
+const laneB = backend.generateWithOptionalStream({ prompt: 'lane-b' }, plan, 'u1', {
+  ...context('lane-b'), chatId: 'chat-b', laneWaitTimeoutMs: 200,
+  onProviderWaiting: () => laneBTransitions.push('provider-waiting'),
+  onProviderStarted: () => laneBTransitions.push('generating'),
+}, false, 500)
+await delay(10)
+assert.deepEqual(laneBTransitions, ['provider-waiting'])
+assert.equal(laneBCalls, 0)
+assert.equal((backend.inspectImageGenerationLaneDiagnostics('u1') as any).waiterCount, 1)
+resolveLaneA!({ imageId: 'lane-a', imageUrl: '/lane-a' })
+await laneA
+assert.equal((await laneB).imageId, 'lane-b')
+assert.deepEqual(laneBTransitions, ['provider-waiting', 'generating'])
+
+// Provider-lane waiting has its own timeout and removes the waiter without
+// disturbing the active provider operation.
+let resolveWaitOwner: ((value: any) => void) | undefined
+imageApi.generate = (input: any) => input.prompt === 'wait-owner'
+  ? new Promise(resolve => { resolveWaitOwner = resolve })
+  : Promise.resolve({ imageId: 'should-not-start', imageUrl: '/should-not-start' })
+const waitOwner = backend.generateWithOptionalStream({ prompt: 'wait-owner' }, plan, 'u1', { ...context('wait-owner'), chatId: 'chat-owner' }, false, 500)
+while (!resolveWaitOwner) await Promise.resolve()
 await assert.rejects(
-  backend.generateWithOptionalStream({ prompt: 'hung-standard' }, plan, 'u1', context('hung-standard'), false, 20),
+  backend.generateWithOptionalStream({ prompt: 'wait-timeout' }, plan, 'u1', { ...context('wait-timeout'), chatId: 'chat-waiter', laneWaitTimeoutMs: 20 }, false, 500),
+  (error: any) => error?.name === 'ImageGenerationLaneWaitTimeoutError' && /waiting for the image worker/i.test(error.message),
+)
+assert.equal((backend.inspectImageGenerationLaneDiagnostics('u1') as any).waiterCount, 0)
+resolveWaitOwner!({ imageId: 'wait-owner', imageUrl: '/wait-owner' })
+await waitOwner
+
+// A local timeout of uncancellable standard host work makes the caller
+// recoverable immediately, but the serialized lane drains until the actual
+// host promise settles. Its late result is discarded and cannot start/claim B.
+let resolveHungStandard: ((value: any) => void) | undefined
+let postTimeoutCalls = 0
+imageApi.generate = (input: any) => input.prompt === 'hung-standard'
+  ? new Promise(resolve => { resolveHungStandard = resolve })
+  : Promise.resolve().then(() => { postTimeoutCalls += 1; return { imageId: 'after-standard-timeout', imageUrl: '/after-standard-timeout' } })
+await assert.rejects(
+  backend.generateWithOptionalStream({ prompt: 'hung-standard' }, plan, 'u1', { ...context('hung-standard'), chatId: 'chat-hung' }, false, 20),
   (error: any) => error?.name === 'ImageGenerationTimeoutError' && /Retry the slot/.test(error.message),
 )
-imageApi.generate = async () => ({ imageId: 'after-standard-timeout', imageUrl: '/after-standard-timeout' })
-const afterStandardTimeout = await backend.generateWithOptionalStream({ prompt: 'retry-standard' }, plan, 'u1', context('retry-standard'), false, 100)
-assert.equal(afterStandardTimeout.imageId, 'after-standard-timeout', 'standard timeout did not release the generation lane')
+assert.equal((backend.inspectImageGenerationLaneDiagnostics('u1') as any).draining, true)
+const afterStandardTimeoutPromise = backend.generateWithOptionalStream({ prompt: 'retry-standard' }, plan, 'u1', { ...context('retry-standard'), chatId: 'chat-retry' }, false, 500)
+await delay(10)
+assert.equal(postTimeoutCalls, 0, 'standard timeout allowed unsafe provider overlap')
+resolveHungStandard!({ imageId: 'late-standard-result', imageUrl: '/late-standard-result' })
+const afterStandardTimeout = await afterStandardTimeoutPromise
+assert.equal(afterStandardTimeout.imageId, 'after-standard-timeout')
+assert.equal(postTimeoutCalls, 1)
+assert(!frontendEvents.some(event => event?.generationId === 'hung-standard' && event?.event === 'done'), 'late timed-out standard result resurrected completion')
+
+// Chat-scoped Abort All semantics: cancelling Chat A must not cancel Chat B's
+// provider waiter. B remains queued while A drains, then proceeds normally.
+let resolveChatA: ((value: any) => void) | undefined
+let chatBCalls = 0
+imageApi.generate = (input: any) => input.prompt === 'chat-a-active'
+  ? new Promise(resolve => { resolveChatA = resolve })
+  : Promise.resolve().then(() => { chatBCalls += 1; return { imageId: 'chat-b-result', imageUrl: '/chat-b-result' } })
+const chatAActive = backend.generateWithOptionalStream({ prompt: 'chat-a-active' }, plan, 'u1', { ...context('chat-a-active'), chatId: 'chat-a' }, false, 500)
+while (!resolveChatA) await Promise.resolve()
+const chatBWaiting = backend.generateWithOptionalStream({ prompt: 'chat-b-waiting' }, plan, 'u1', { ...context('chat-b-waiting'), chatId: 'chat-b', laneWaitTimeoutMs: 500 }, false, 500)
+await delay(10)
+assert.equal(backend.abortImageStreamsForChat('chat-a', 'u1'), 1)
+await assert.rejects(chatAActive, (error: any) => error?.name === 'AbortError')
+assert.equal(chatBCalls, 0)
+assert.equal((backend.inspectImageGenerationLaneDiagnostics('u1') as any).waiterCount, 1)
+resolveChatA!({ imageId: 'cancelled-chat-a-late', imageUrl: '/cancelled-chat-a-late' })
+assert.equal((await chatBWaiting).imageId, 'chat-b-result')
+assert.equal(chatBCalls, 1)
 
 imageApi.getProviders = async () => [{ id: 'provider', capabilities: { websocketPreviewStreaming: { previews: true, status: true } } }]
 imageApi.generateStream = async function* () { await new Promise(() => {}); yield { type: 'done', result: { imageId: 'impossible' } } }

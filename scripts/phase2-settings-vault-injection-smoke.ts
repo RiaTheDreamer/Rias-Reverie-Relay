@@ -48,18 +48,19 @@ const categoryValues = Object.fromEntries(Object.values(draft.globalSurfaceStudi
 draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'surface-prompt-enabled', categoryId: category, values: categoryValues })
 assert(Object.keys(categoryValues).every(id => draft.globalSurfaceStudio.definitions[id].promptEnabled === false), 'category All must apply one atomic map')
 
-draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-enabled', enabledNames: ['Chaos Hooks'] })
+draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-enabled', enabledNames: ['World Texture'] })
 assert(draft.narrativeDlcEnabled && draft.narrativeDlcUtilityNames.length === 1, 'Narrative Utility enable state must share the revisioned mutation path')
 
-const exactOverride = 'CUSTOM PLOT CONTRACT\n[Plot_Sparks][Spark][Media]keep [literal] syntax[/Media][/Spark][/Plot_Sparks]'
-draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-override', utilityName: 'Chaos Hooks', content: exactOverride })
-assert(draft.narrativeUtilityOverrides['Chaos Hooks'].content === exactOverride, 'Narrative Utility override must be stored verbatim')
+const exactOverride = 'CUSTOM WORLD CONTRACT\n[WORLD|Category|Location][world_media]<image_request id="world-custom" target="custom.artifact-media" slot="world-custom" aspect="16:9"><scene_brief>Custom world detail.</scene_brief></image_request>[/world_media][world_detail]Detail.[/world_detail][world_context][why_it_matters]Reason.[/why_it_matters][future_use]Use.[/future_use][/world_context][/WORLD]'
+draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-override', utilityName: 'World Texture', content: exactOverride })
+assert(draft.narrativeUtilityOverrides['World Texture'].content === exactOverride, 'Narrative Utility override must be stored verbatim')
 const resolved = backend.buildResolvedNarrativeUtilityPrompt(draft)
 assert(resolved.content.includes(exactOverride), 'automatic Narrative resolver must use the saved override')
-assert((resolved.content.match(/CUSTOM PLOT CONTRACT/g) || []).length === 1, 'resolved Narrative bundle must contain one override copy')
+assert((resolved.content.match(/CUSTOM WORLD CONTRACT/g) || []).length === 1, 'resolved Narrative bundle must contain one override copy')
+assert(resolved.content.includes('SETTING THE SCENE STRUCTURAL LOCK'), 'World structural lock must survive a saved override')
 
-draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-override', utilityName: 'Chaos Hooks', content: null })
-assert(!draft.narrativeUtilityOverrides['Chaos Hooks'], 'Reset to Default must clear, not copy, the override')
+draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-override', utilityName: 'World Texture', content: null })
+assert(!draft.narrativeUtilityOverrides['World Texture'], 'Reset to Default must clear, not copy, the override')
 
 const revisionBeforeSurfacePreferences = draft.settingsRevision
 draft = backend.applyRelaySettingsPatchToConfig(draft, {

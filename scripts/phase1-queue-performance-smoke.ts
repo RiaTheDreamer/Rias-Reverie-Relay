@@ -1,7 +1,7 @@
 // @ts-nocheck -- Deterministic Bun smoke harness; no host/provider calls.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { AUTO_RESUME_MAX_JOBS, NATIVE_SETTINGS_HARD_TTL_MS, NATIVE_SETTINGS_SOFT_TTL_MS, canonicalDispatchKey, classifyBacklog, classifyNativeSettings, raceWithAbort } from '../src/queueSafety'
+import { AUTO_RESUME_MAX_JOBS, NATIVE_SETTINGS_HARD_TTL_MS, NATIVE_SETTINGS_REFRESH_TIMEOUT_MS, NATIVE_SETTINGS_SOFT_TTL_MS, addNativeSettingsWaiters, canonicalDispatchKey, classifyBacklog, classifyNativeSettings, nativeSettingsWaiterCount, nativeSettingsWaiterCountsByChat, raceWithAbort, removeNativeSettingsWaiters } from '../src/queueSafety'
 import { HOT_LOG_LIMIT, RECENT_COMPLETED_HOT_LIMIT, compactCompletedRecord, serializedBytes, stripCompletedRecord } from '../src/completedState'
 import type { SlotRecord } from '../src/contracts'
 
@@ -40,6 +40,19 @@ assert.equal(new Set(incident.map(canonicalDispatchKey)).size, 88)
 assert.equal(classifyBacklog(Array.from({ length: 5 }, (_, index) => record(index, 0)), now).pause, false)
 assert.equal(classifyBacklog(Array.from({ length: AUTO_RESUME_MAX_JOBS + 1 }, (_, index) => record(index, 0)), now).reason, 'large')
 
+// One user-level Native settings refresh may satisfy multiple chats, but the
+// waiter registry must retain chat ownership until each chat is processed.
+const settingsWaiters = new Map<string, Set<string>>()
+addNativeSettingsWaiters(settingsWaiters, 'chat-a', ['a:1', 'a:2'])
+addNativeSettingsWaiters(settingsWaiters, 'chat-b', ['b:1'])
+assert.deepEqual(nativeSettingsWaiterCountsByChat(settingsWaiters), { 'chat-a': 2, 'chat-b': 1 })
+assert.equal(nativeSettingsWaiterCount(settingsWaiters), 3)
+removeNativeSettingsWaiters(settingsWaiters, 'chat-a', ['a:1', 'a:2'])
+assert.deepEqual(nativeSettingsWaiterCountsByChat(settingsWaiters), { 'chat-b': 1 }, 'processing Chat A erased Chat B waiter ownership')
+removeNativeSettingsWaiters(settingsWaiters, 'chat-b', ['b:1'])
+assert.equal(nativeSettingsWaiterCount(settingsWaiters), 0)
+assert.equal(NATIVE_SETTINGS_REFRESH_TIMEOUT_MS, 30_000)
+
 const completed = Array.from({ length: 393 }, (_, index) => ({
   ...record(index, 0), status: 'completed' as const, imageId: `fixture-image-${index}`,
   imageUrl: `/api/v1/image-gen/results/fixture-image-${index}`, completedAt: 1_000_000_000 + index,
@@ -70,7 +83,14 @@ const backend = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf
 const frontend = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')
 assert.match(backend, /nativeSettingsBrokers/)
 assert.match(backend, /broker\.refreshInFlight/)
+assert.match(backend, /handleNativeSettingsRefreshTimeout/)
+assert.match(backend, /for \(const \[chatId, registeredKeys\] of \[\.\.\.broker\.waiters\.entries\(\)\]\)/)
+assert.doesNotMatch(backend, /broker\.waiters\.clear\(\)/)
 assert.match(backend, /cancelRelayDispatchScope/)
+assert.match(backend, /abortImageStreamsForChat\(payload\.chatId, userId\)/)
+assert.match(backend, /inspectImageGenerationLaneDiagnostics/)
+assert.match(backend, /providerLane:/)
+assert.match(backend, /waiterCountsByChat:/)
 assert.match(backend, /activeRelayAttempts/)
 assert.match(backend, /attemptSignal: options\.signal/)
 assert.match(backend, /includeDataUrl: false/)

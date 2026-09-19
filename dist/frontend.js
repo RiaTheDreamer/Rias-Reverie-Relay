@@ -525,6 +525,7 @@ var SLOT_LIFECYCLE = {
   "paused-backlog": lifecycle(false, false, false, true),
   superseded: lifecycle(false, false, true),
   parsing: lifecycle(true, false, false),
+  "provider-waiting": lifecycle(true, false, false),
   generating: lifecycle(true, false, false),
   previewing: lifecycle(true, false, false),
   "placement-pending": lifecycle(false, true, false, false),
@@ -4369,8 +4370,8 @@ function summarizeRelayHealth(checks) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.2";
-var BUILD_ID = "20260917-0.2.8.2";
+var EXTENSION_VERSION = "0.2.8.3";
+var BUILD_ID = "20260919-0.2.8.3";
 
 // src/orbIconData.ts
 var ORB_IMAGE_DESIGNS = [
@@ -134320,6 +134321,7 @@ var SHIPPED_SURFACE_CSS = `<style data-reverie-shipped-surface-style="1">
 </style>`;
 var LIFECYCLE_CARD_CSS = `<style data-reverie-lifecycle-style="release">
 .rrl-island{--rrl-accent:var(--lumiverse-primary,var(--lumiverse-accent,#c24b78));--rrl-bg:color-mix(in srgb,var(--lumiverse-bg-deep,var(--lumiverse-fill,#150a11)) 94%,#000);--rrl-panel:color-mix(in srgb,var(--lumiverse-bg-elevated,var(--lumiverse-fill-subtle,#24131d)) 91%,var(--rrl-accent) 9%);--rrl-border:color-mix(in srgb,var(--rrl-accent) 34%,var(--lumiverse-border,transparent));--rrl-text:var(--lumiverse-text-primary,var(--lumiverse-text,#f7eaf0));--rrl-muted:var(--lumiverse-text-secondary,var(--lumiverse-text-muted,#c8aeb9));display:block;width:min(100%,680px);margin:8px auto;font-family:var(--lumiverse-font-family,system-ui,-apple-system,"Segoe UI",sans-serif);color:var(--rrl-text);box-sizing:border-box}.rrl-island *{box-sizing:border-box}.rrl-card{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px 10px;min-height:54px;padding:9px 10px;border:1px solid var(--rrl-border);border-radius:15px;background:linear-gradient(145deg,color-mix(in srgb,var(--rrl-panel) 96%,transparent),color-mix(in srgb,var(--rrl-bg) 98%,transparent));box-shadow:0 8px 24px rgba(0,0,0,.22),inset 0 1px rgba(255,255,255,.045);overflow:hidden}.rrl-preview{grid-column:1/-1;position:relative;width:100%;max-height:320px;overflow:hidden;border:1px solid var(--rrl-border);border-radius:11px;background:#070507}.rrl-preview[hidden]{display:none}.rrl-preview img{display:block;width:100%;max-height:320px;object-fit:contain;background:#070507}.rrl-preview-badge{position:absolute;right:7px;bottom:7px;padding:3px 7px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(0,0,0,.62);backdrop-filter:blur(8px);color:#fff;font-size:9px}.rrl-main{display:flex;align-items:center;gap:9px;min-width:0}.rrl-icon{display:grid;place-items:center;flex:0 0 30px;width:30px;height:30px;border:1px solid var(--rrl-border);border-radius:10px;background:color-mix(in srgb,var(--rrl-accent) 12%,transparent)}.rrl-spinner{display:none;width:15px;height:15px;border:2px solid color-mix(in srgb,var(--rrl-accent) 22%,transparent);border-top-color:var(--rrl-accent);border-radius:50%;animation:rrlSpin .78s linear infinite}.rrl-state-icon{font:800 13px/1 system-ui,sans-serif}.rrl-card[data-rrn-live-status="preparing"] .rrl-spinner,.rrl-card[data-rrn-live-status="queued"] .rrl-spinner,.rrl-card[data-rrn-live-status="parsing"] .rrl-spinner,.rrl-card[data-rrn-live-status="generating"] .rrl-spinner,.rrl-card[data-rrn-live-status="previewing"] .rrl-spinner,.rrl-card[data-rrn-live-status="placement-pending"] .rrl-spinner{display:block}.rrl-card[data-rrn-live-status="preparing"] .rrl-state-icon,.rrl-card[data-rrn-live-status="queued"] .rrl-state-icon,.rrl-card[data-rrn-live-status="parsing"] .rrl-state-icon,.rrl-card[data-rrn-live-status="generating"] .rrl-state-icon,.rrl-card[data-rrn-live-status="previewing"] .rrl-state-icon,.rrl-card[data-rrn-live-status="placement-pending"] .rrl-state-icon{display:none}.rrl-copy{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:3px 8px;min-width:0;flex:1}.rrl-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:700 12px/1.25 Georgia,"Times New Roman",serif}.rrl-status{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;padding:3px 7px;border:1px solid var(--rrl-border);border-radius:999px;color:var(--rrl-muted);font-size:9px;white-space:nowrap}.rrl-status:before{content:"";width:5px;height:5px;border-radius:50%;background:var(--rrl-accent);box-shadow:0 0 8px var(--rrl-accent)}.rrl-stream-status{grid-column:1/-1;color:var(--rrl-muted);font-size:9px;line-height:1.25;min-height:0}.rrl-stream-status:empty{display:none}.rrl-progress{grid-column:1/-1;height:3px;border-radius:99px;background:color-mix(in srgb,var(--rrl-border) 36%,transparent);overflow:hidden}.rrl-progress[hidden]{display:none}.rrl-progress>span{display:block;width:0;height:100%;border-radius:inherit;background:var(--rrl-accent);box-shadow:0 0 9px color-mix(in srgb,var(--rrl-accent) 70%,transparent);transition:width .18s ease}.rrl-actions{display:flex;align-items:center;justify-content:flex-end;gap:5px;min-width:0}.rrl-actions button{appearance:none;min-height:28px;padding:4px 8px;border:1px solid var(--rrl-border);border-radius:9px;background:color-mix(in srgb,var(--rrl-panel) 91%,transparent);color:var(--rrl-text);font:700 9px/1 system-ui,sans-serif;white-space:nowrap;cursor:pointer}.rrl-actions button:hover{background:color-mix(in srgb,var(--rrl-accent) 18%,var(--rrl-panel))}.rrl-actions button[data-rrn-action="abort"]{color:#ffc2cf;border-color:color-mix(in srgb,#ff5f7d 45%,transparent)}.rrl-detail{grid-column:1/-1;margin:0}.rrl-detail>summary{width:max-content;cursor:pointer;list-style:none;color:var(--rrl-muted);font-size:9px;line-height:1.2}.rrl-detail>summary::-webkit-details-marker{display:none}.rrl-detail>summary:before{content:"Details"}.rrl-detail[open]>summary:before{content:"Hide details"}.rrl-detail p{margin:5px 0 0;padding:7px 9px;border-radius:8px;background:rgba(0,0,0,.15);color:var(--rrl-muted);font-size:10px;line-height:1.4;max-height:7em;overflow:auto}.rrl-error{--rrl-accent:#ff5f7d}.rrl-card[data-rrn-live-status="generating"] .rrl-status:before,.rrl-card[data-rrn-live-status="parsing"] .rrl-status:before{animation:rrlPulse 1.05s ease-in-out infinite}.rrl-resolved{position:relative;width:100%;margin:0}.rrl-resolved img{display:block;width:100%;height:auto;border-radius:13px}.rrl-resolved-actions{margin-top:6px;justify-content:flex-start}@keyframes rrlPulse{0%,100%{opacity:.38;transform:scale(.8)}50%{opacity:1;transform:scale(1.18)}}@keyframes rrlSpin{to{transform:rotate(360deg)}}@media(max-width:560px){.rrl-island{margin:7px 0}.rrl-card{grid-template-columns:1fr;padding:8px}.rrl-actions{justify-content:flex-start;overflow-x:auto;scrollbar-width:none}.rrl-actions::-webkit-scrollbar{display:none}.rrl-actions button{flex:0 0 auto}.rrl-copy{gap:3px 5px}.rrl-status{font-size:8px}.rrl-title{font-size:11px}.rrl-preview,.rrl-preview img{max-height:260px}}@media(prefers-reduced-motion:reduce){.rrl-card *{animation:none!important}.rrl-progress>span{transition:none}}
+.rrl-card[data-rrn-live-status="provider-waiting"] .rrl-spinner{display:block}.rrl-card[data-rrn-live-status="provider-waiting"] .rrl-state-icon{display:none}.rrl-card[data-rrn-live-status="provider-waiting"] .rrl-status:before{animation:rrlPulse 1.05s ease-in-out infinite}
 </style>`;
 var STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="2">
 .rrn-editable-surface,.rrl-island,.rrn-media,.rrl-media-slot,[data-reverie-r45-lifecycle-media]{overflow-anchor:none}.rrn-media{aspect-ratio:var(--reverie-media-aspect,16/9);min-height:0;contain:layout paint}.rrn-media img{width:100%;height:100%;object-fit:var(--rrn-fit,contain)}.rrl-card>.rrl-media-slot{grid-column:1/-1}.rrl-media-slot{--reverie-media-aspect:1/1;--rr-primary:var(--lumiverse-primary,var(--rrl-accent));--rr-secondary:var(--lumiverse-secondary,var(--rrl-accent));--rr-text:var(--lumiverse-text,var(--rrl-text));--rr-accent:var(--lumiverse-secondary,var(--rrl-accent));--rr-accent-text:var(--lumiverse-primary,var(--rrl-text));--rr-border:var(--lumiverse-border,var(--rrl-border));--rr-bg:var(--lumiverse-bg-deep-080,var(--rrl-bg));position:relative;display:block;width:100%;aspect-ratio:var(--reverie-media-aspect);min-height:0;overflow:hidden;border:1px solid var(--rr-border);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.045),rgba(255,255,255,.015)),var(--rr-bg);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 16px 50px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.055);contain:layout paint;overflow-anchor:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-resolved{position:absolute;inset:0;width:100%;height:100%;margin:0;border:0;border-radius:0;background:transparent}.rrl-media-slot .rrl-preview{max-height:none}.rrl-media-slot .rrl-preview[hidden]{display:none}.rrl-media-slot .rrl-preview-image,.rrl-media-slot .rrl-slot-image,.rrl-media-slot .rrl-resolved img{display:block;width:100%;height:100%;max-height:none;object-fit:contain;background:#070507;border-radius:0}.rrl-actions button[data-rrn-action]{touch-action:manipulation;pointer-events:auto}.rrl-actions button[data-rrl-submitting="true"]{opacity:.68;cursor:progress}.rrl-media-skeleton{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden;padding:0;color:transparent;pointer-events:none}.rrl-media-slot[data-rrn-media-empty="false"] .rrl-media-skeleton,.rrl-media-slot[data-rrn-media-state="previewing"] .rrl-media-skeleton{opacity:0;pointer-events:none}.rrl-card{display:block;min-height:0;padding:0;border:0;border-radius:18px;background:transparent;box-shadow:none;overflow:visible}.rrl-main{position:absolute;z-index:3;left:8px;top:8px;max-width:calc(100% - 16px);padding:4px 7px;border-radius:999px;background:rgba(5,3,6,.62);backdrop-filter:blur(7px);pointer-events:none}.rrl-main .rrl-icon{width:18px;height:18px;flex-basis:18px;border:0;background:transparent}.rrl-main .rrl-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.rrl-main .rrl-copy{display:block}.rrl-main .rrl-status{padding:0;border:0;color:#fff;font-size:9px}.rrl-stream-status,.rrl-progress{display:none!important}.rrl-actions{position:absolute;z-index:4;right:8px;bottom:8px;max-width:calc(100% - 16px);padding:4px;border-radius:10px;background:rgba(5,3,6,.68);backdrop-filter:blur(7px);opacity:0;transform:translateY(3px);pointer-events:none;transition:opacity .16s ease,transform .16s ease}.rrl-card:hover .rrl-actions,.rrl-card:focus-within .rrl-actions,.rrl-card[data-rrn-live-status="completed"] .rrl-actions,.rrl-card[data-rrn-live-status="failed"] .rrl-actions,.rrl-card[data-rrn-live-status="image-unavailable"] .rrl-actions,.rrl-card[data-rrn-live-status="cancelled"] .rrl-actions,.rrl-card[data-rrn-live-status="placement-repair-needed"] .rrl-actions{opacity:1;transform:none;pointer-events:auto}.rrl-detail{display:none}.rrl-card[data-rrn-live-status="completed"] .rrl-main{opacity:0;transition:opacity .16s ease}.rrl-card[data-rrn-live-status="completed"]:hover .rrl-main,.rrl-card[data-rrn-live-status="completed"]:focus-within .rrl-main{opacity:.9}.rrn-message[data-rr-kakao-color] .rrn-avatar{background:color-mix(in srgb,var(--kk-color) 38%,var(--rrn-panel));border-color:color-mix(in srgb,var(--kk-color) 54%,transparent)}.rrn-message[data-rr-kakao-color] .rrn-meta b{color:color-mix(in srgb,var(--kk-color) 65%,var(--rrn-text))}.rrn-message[data-rr-kakao-color] .rrn-bubble{border:1px solid color-mix(in srgb,var(--kk-color) 35%,var(--rrn-border));background:color-mix(in srgb,var(--rrn-panel) 82%,var(--kk-color) 18%)}.rrn-message[data-rr-kakao-color] .rrn-bubble.is-sent{background:color-mix(in srgb,var(--rrn-panel) 68%,var(--kk-color) 32%)}@media(max-width:560px){.rrl-media-slot{width:100%;max-height:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-preview-image{max-height:none}}
@@ -135265,6 +135267,7 @@ function renderRequestCard(input, bare = false) {
     "paused-backlog": "Pending review",
     superseded: "Superseded",
     parsing: "Parsing",
+    "provider-waiting": "Waiting for image worker",
     generating: "Generating",
     previewing: "Previewing",
     "placement-pending": "Inserting",
@@ -135282,6 +135285,7 @@ function renderRequestCard(input, bare = false) {
     "paused-backlog": "Pending generation review",
     superseded: "Request superseded",
     parsing: "Preparing prompt",
+    "provider-waiting": "Queued for ImageGen",
     generating: "Generating image",
     previewing: "Previewing image",
     "placement-pending": "Inserting image",
@@ -135599,7 +135603,7 @@ var SETTING_HELP = {
   "Model Weight": "How strongly this LoRA affects the diffusion model. Start near the model author’s recommended value.",
   "CLIP Weight": "How strongly this LoRA affects text conditioning. Leave at the model weight unless the LoRA documents a different value.",
   "Auto Generate": "When off, Relay may prepare requests but cannot spend an image-generation job automatically. This is enforced by the backend.",
-  "Concurrent Image Jobs": "Maximum Relay image jobs allowed at once. Lower values use less GPU memory and reduce provider contention.",
+  "Concurrent Relay Preprocessing Jobs": "Maximum Relay jobs that may parse and prepare concurrently. Actual ImageGen calls still use the provider-safe serialized lane when required.",
   "Appearance Memory Strength": "Controls how strongly Relay carries established visual identity into new image prompts.",
   "Appearance Sidecar Source": "Chooses whether Illustrator uses the shared global Appearance Sidecar routing or its own connection, model, and parameter overrides.",
   "Global Appearance Sidecar Connection": "Selects the Lumiverse text connection used by the shared Appearance Sidecar. Use Relay Parser Connection to inherit the parser connection instead.",
@@ -136684,7 +136688,7 @@ function setup(ctx) {
     .dg-router-panel .dg-slot-placement-pending { border-left: 2px solid var(--dgir-success); }
     .dg-router-panel .dg-slot-image-unavailable { border-left: 2px solid var(--dgir-danger); }
     .dg-router-panel .dg-slot-recovered { border-left: 2px solid color-mix(in srgb, var(--dgir-warning) 70%, var(--dgir-lavender)); }
-    .dg-router-panel .dg-slot-generating, .dg-router-panel .dg-slot-parsing, .dg-router-panel .dg-slot-queued { border-left: 2px solid var(--dgir-lavender); }
+    .dg-router-panel .dg-slot-generating, .dg-router-panel .dg-slot-provider-waiting, .dg-router-panel .dg-slot-parsing, .dg-router-panel .dg-slot-queued { border-left: 2px solid var(--dgir-lavender); }
     .dg-router-panel .dg-slot-grid { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; align-items: start; }
     .dg-router-panel .dg-thumb { width: 92px; height: 92px; object-fit: cover; border: 1px solid var(--dgir-border-bright); border-radius: var(--dgir-radius-md); background: var(--dgir-bg); box-shadow: 0 0 0 2px rgba(255,255,255,.02), 0 8px 20px rgba(0,0,0,.22); cursor: zoom-in; }
     .dg-router-panel .dg-thumb-empty { position: relative; width: 92px; height: 92px; overflow: hidden; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-md); display: grid; place-items: center; color: var(--dgir-text-muted); background: linear-gradient(145deg, var(--dgir-surface-soft), color-mix(in srgb, var(--dgir-bg) 78%, transparent)); font-size: 10px; text-align: center; }
@@ -136703,7 +136707,7 @@ function setup(ctx) {
     .dg-router-panel .dg-chip-recovered-pending { color: var(--dgir-warning); border-color: color-mix(in srgb, var(--dgir-warning) 55%, var(--dgir-border)); }
     .dg-router-panel .dg-chip-placement-pending { color: var(--dgir-success); border-color: color-mix(in srgb, var(--dgir-success) 55%, var(--dgir-border)); }
     .dg-router-panel .dg-chip-image-unavailable { color: var(--dgir-danger); border-color: color-mix(in srgb, var(--dgir-danger) 55%, var(--dgir-border)); }
-    .dg-router-panel .dg-chip-generating, .dg-router-panel .dg-chip-parsing, .dg-router-panel .dg-chip-queued { color: var(--dgir-lavender); border-color: color-mix(in srgb, var(--dgir-lavender) 55%, var(--dgir-border)); }
+    .dg-router-panel .dg-chip-generating, .dg-router-panel .dg-chip-provider-waiting, .dg-router-panel .dg-chip-parsing, .dg-router-panel .dg-chip-queued { color: var(--dgir-lavender); border-color: color-mix(in srgb, var(--dgir-lavender) 55%, var(--dgir-border)); }
     .dg-router-panel .dg-actions { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
     .dg-router-panel .dg-primary-actions { padding-top: 1px; }
     .dg-router-panel .dg-background-queue { display: grid; gap: 7px; margin: 0 0 11px; padding: 10px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: radial-gradient(circle at 8% 0, color-mix(in srgb, var(--dgir-lavender) 14%, transparent), transparent 42%), color-mix(in srgb, var(--dgir-surface-soft) 92%, transparent); box-shadow: inset 0 1px rgba(255,255,255,.035); }
@@ -137181,7 +137185,7 @@ function setup(ctx) {
           const optimistic = optimisticSlotActions.get(record.key);
           if (!optimistic)
             return record;
-          if (record.updatedAt > optimistic.basedOnUpdatedAt || ["preparing", "queued", "parsing", "generating", "previewing", "placement-pending"].includes(record.status)) {
+          if (record.updatedAt > optimistic.basedOnUpdatedAt || ["preparing", "queued", "parsing", "provider-waiting", "generating", "previewing", "placement-pending"].includes(record.status)) {
             optimisticSlotActions.delete(record.key);
             return record;
           }
@@ -138588,7 +138592,7 @@ ${message.prompt}`;
       if (!root)
         continue;
       const requestCards = deepQueryAll(root, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`);
-      const active = ["preparing", "queued", "awaiting-native-settings", "parsing", "generating", "previewing", "placement-pending"].includes(record.status);
+      const active = ["preparing", "queued", "awaiting-native-settings", "parsing", "provider-waiting", "generating", "previewing", "placement-pending"].includes(record.status);
       const stallEligible = ["preparing", "parsing", "generating", "previewing", "placement-pending"].includes(record.status);
       const stream = streamPreviews.get(record.key);
       const visualImageUrl = record.pendingPlacement?.imageUrl || record.imageUrl;
@@ -138597,7 +138601,7 @@ ${message.prompt}`;
       const needsPlacementRepair = record.status === "placement-repair-needed";
       const canonicalFailure = isFailureRecoveryStatus(record.status);
       const recoverable = stalled || canonicalFailure;
-      const statusLabel = stalled ? "Stalled" : record.status === "recovered-pending" ? "Ready" : record.status === "preparing" ? "Preparing" : record.status === "queued" ? "Queued" : record.status === "awaiting-native-settings" ? "Waiting for settings" : record.status === "paused-backlog" ? "Pending review" : record.status === "superseded" ? "Superseded" : record.status === "parsing" ? "Preparing" : record.status === "generating" ? "Generating" : record.status === "placement-pending" ? "Inserting" : record.status === "placement-repair-needed" ? "Repair needed" : record.status === "completed" ? "Ready" : record.status === "failed" || record.status === "image-unavailable" ? "Failed" : record.status === "cancelled" ? "Stopped" : "Requested";
+      const statusLabel = stalled ? "Stalled" : record.status === "recovered-pending" ? "Ready" : record.status === "preparing" ? "Preparing" : record.status === "queued" ? "Queued" : record.status === "awaiting-native-settings" ? "Waiting for settings" : record.status === "paused-backlog" ? "Pending review" : record.status === "superseded" ? "Superseded" : record.status === "parsing" ? "Preparing" : record.status === "provider-waiting" ? "Waiting for image worker" : record.status === "generating" ? "Generating" : record.status === "placement-pending" ? "Inserting" : record.status === "placement-repair-needed" ? "Repair needed" : record.status === "completed" ? "Ready" : record.status === "failed" || record.status === "image-unavailable" ? "Failed" : record.status === "cancelled" ? "Stopped" : "Requested";
       for (const card of requestCards) {
         const owningKey = card.dataset.rrnRecordKey;
         if (owningKey && owningKey !== record.key)
@@ -138627,6 +138631,8 @@ ${message.prompt}`;
           title.textContent = "Preparing generation…";
         else if (title && record.status === "generating")
           title.textContent = "Generating image…";
+        else if (title && record.status === "provider-waiting")
+          title.textContent = "Queued for ImageGen…";
         else if (title && record.status === "parsing")
           title.textContent = "Preparing image…";
         else if (title && record.status === "queued")
@@ -139547,7 +139553,7 @@ ${message.prompt}`;
       nextLabel.className = "dg-relay-candidate-label";
       nextLabel.textContent = candidate.status === "ready" ? "Candidate image" : titleCase2(candidate.status);
       next.appendChild(nextLabel);
-      if (stream?.statusText && ["preflight", "parsing", "generating"].includes(candidate.status)) {
+      if (stream?.statusText && ["preflight", "parsing", "provider-waiting", "generating"].includes(candidate.status)) {
         const streamStatus = document.createElement("div");
         streamStatus.className = "dg-stream-status";
         streamStatus.textContent = stream.statusText;
@@ -139570,7 +139576,7 @@ ${candidate.error}` : ""}`;
         const snapshot = await syncNativeSettings();
         ctx.sendToBackend({ type: "relay_retry_candidate", chatId: batch.chatId, batchId: batch.batchId, candidateKey: candidate.candidateKey, nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt });
         modal.dismiss();
-      }, ["preflight", "parsing", "generating", "replaced"].includes(candidate.status), "subtle"), useButton);
+      }, ["preflight", "parsing", "provider-waiting", "generating", "replaced"].includes(candidate.status), "subtle"), useButton);
       card.appendChild(candidateActions);
       list.appendChild(card);
     }
@@ -140976,7 +140982,7 @@ Model enumeration unavailable; Relay can only show models exposed by configured 
       ctx.sendToBackend({ type: "queue_action", chatId: activeChatId, action: "cancel_selected", selectedKeys: activeKeys });
     }
     for (const batch of candidateBatches.filter((item) => item.chatId === activeChatId && item.status === "processing")) {
-      for (const candidate of batch.candidates.filter((item) => ["preflight", "parsing", "generating"].includes(item.status))) {
+      for (const candidate of batch.candidates.filter((item) => ["preflight", "parsing", "provider-waiting", "generating"].includes(item.status))) {
         ctx.sendToBackend({ type: "relay_discard_candidate", chatId: batch.chatId, batchId: batch.batchId, candidateKey: candidate.candidateKey });
       }
     }
@@ -142772,7 +142778,7 @@ ${bracketFixture}`);
     if (filter === "active")
       return !record.recoveredFromInactiveSwipe;
     if (filter === "generating")
-      return isGenerationActiveStatus(record.status);
+      return record.status === "generating";
     if (filter === "recovered")
       return Boolean(record.recoverySource);
     if (filter === "inactive")
@@ -143566,7 +143572,7 @@ Generated image assets and message content will remain, but Relay history and me
     box.appendChild(panelSection("Interface", interfaceControls));
     const workload = document.createElement("div");
     workload.className = "dg-settings-grid";
-    workload.append(selectField("Candidate Count", String(current.defaultCandidateCount), [["1", "1"], ["2", "2"], ["4", "4"]], (value) => patchConfig({ defaultCandidateCount: Number(value) })), numberInput("Concurrent Image Jobs", current.queueConcurrencyLimit, 1, 4, (value) => patchConfig({ queueConcurrencyLimit: value })));
+    workload.append(selectField("Candidate Count", String(current.defaultCandidateCount), [["1", "1"], ["2", "2"], ["4", "4"]], (value) => patchConfig({ defaultCandidateCount: Number(value) })), numberInput("Concurrent Relay Preprocessing Jobs", current.queueConcurrencyLimit, 1, 4, (value) => patchConfig({ queueConcurrencyLimit: value })));
     box.appendChild(panelSection("Workload", workload));
     const sidecar = document.createElement("div");
     sidecar.className = "dg-settings-grid";
@@ -145819,7 +145825,7 @@ Original prompt metadata unavailable`;
     return isSlotLifecycleActive(record.status);
   }
   function isRelaySlotProcessing(record) {
-    return candidateBatches.some((batch) => batch.chatId === record.chatId && batch.status === "processing" && batch.candidates.some((candidate) => candidate.stableSlotKey === record.key && ["preflight", "parsing", "generating"].includes(candidate.status)));
+    return candidateBatches.some((batch) => batch.chatId === record.chatId && batch.status === "processing" && batch.candidates.some((candidate) => candidate.stableSlotKey === record.key && ["preflight", "parsing", "provider-waiting", "generating"].includes(candidate.status)));
   }
   function isSlotActionBusy(record) {
     return isProcessing(record) || isRelaySlotProcessing(record);

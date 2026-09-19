@@ -825,7 +825,7 @@ assert(frontendSource.includes("const relayImageSelector = 'img[data-dgir-key], 
 
 assert(frontendSource.includes('Slot Workflow') && frontendSource.includes('Preview Prompt') && frontendSource.includes('Preview Image'), 'expected explicit slot workflows')
 assert(frontendSource.includes('autoResumeRecoveredSignatures') && backendSource.includes('reparseChatSlots'), 'expected recovery and reparse support')
-assert(frontendSource.includes('Concurrent Image Jobs') && backendSource.includes('runWithConcurrency'), 'expected bounded analysis concurrency with serialized provider generation')
+assert(frontendSource.includes('Concurrent Relay Preprocessing Jobs') && backendSource.includes('runWithConcurrency'), 'expected bounded analysis concurrency with serialized provider generation')
 assert(frontendSource.includes('Dry Run') && backendSource.includes('dryRunReportFromPlan') && backendSource.includes('explain_no_generation'), 'expected Dry Run and blocker diagnostics')
 assert(!frontendSource.includes("button('Beginner Mode'") && !frontendSource.includes("button('Expert Mode'") && frontendSource.includes("panelSection('Core Settings'"), 'expected one unified settings interface without beginner/expert gating')
 assert(frontendSource.includes('tutorialModeEnabled') && frontendSource.includes('Quick Start Overview'), 'expected first-run Quick Start Overview')

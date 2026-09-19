@@ -812,7 +812,7 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-slot-placement-pending { border-left: 2px solid var(--dgir-success); }
     .dg-router-panel .dg-slot-image-unavailable { border-left: 2px solid var(--dgir-danger); }
     .dg-router-panel .dg-slot-recovered { border-left: 2px solid color-mix(in srgb, var(--dgir-warning) 70%, var(--dgir-lavender)); }
-    .dg-router-panel .dg-slot-generating, .dg-router-panel .dg-slot-parsing, .dg-router-panel .dg-slot-queued { border-left: 2px solid var(--dgir-lavender); }
+    .dg-router-panel .dg-slot-generating, .dg-router-panel .dg-slot-provider-waiting, .dg-router-panel .dg-slot-parsing, .dg-router-panel .dg-slot-queued { border-left: 2px solid var(--dgir-lavender); }
     .dg-router-panel .dg-slot-grid { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; align-items: start; }
     .dg-router-panel .dg-thumb { width: 92px; height: 92px; object-fit: cover; border: 1px solid var(--dgir-border-bright); border-radius: var(--dgir-radius-md); background: var(--dgir-bg); box-shadow: 0 0 0 2px rgba(255,255,255,.02), 0 8px 20px rgba(0,0,0,.22); cursor: zoom-in; }
     .dg-router-panel .dg-thumb-empty { position: relative; width: 92px; height: 92px; overflow: hidden; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-md); display: grid; place-items: center; color: var(--dgir-text-muted); background: linear-gradient(145deg, var(--dgir-surface-soft), color-mix(in srgb, var(--dgir-bg) 78%, transparent)); font-size: 10px; text-align: center; }
@@ -831,7 +831,7 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-chip-recovered-pending { color: var(--dgir-warning); border-color: color-mix(in srgb, var(--dgir-warning) 55%, var(--dgir-border)); }
     .dg-router-panel .dg-chip-placement-pending { color: var(--dgir-success); border-color: color-mix(in srgb, var(--dgir-success) 55%, var(--dgir-border)); }
     .dg-router-panel .dg-chip-image-unavailable { color: var(--dgir-danger); border-color: color-mix(in srgb, var(--dgir-danger) 55%, var(--dgir-border)); }
-    .dg-router-panel .dg-chip-generating, .dg-router-panel .dg-chip-parsing, .dg-router-panel .dg-chip-queued { color: var(--dgir-lavender); border-color: color-mix(in srgb, var(--dgir-lavender) 55%, var(--dgir-border)); }
+    .dg-router-panel .dg-chip-generating, .dg-router-panel .dg-chip-provider-waiting, .dg-router-panel .dg-chip-parsing, .dg-router-panel .dg-chip-queued { color: var(--dgir-lavender); border-color: color-mix(in srgb, var(--dgir-lavender) 55%, var(--dgir-border)); }
     .dg-router-panel .dg-actions { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
     .dg-router-panel .dg-primary-actions { padding-top: 1px; }
     .dg-router-panel .dg-background-queue { display: grid; gap: 7px; margin: 0 0 11px; padding: 10px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: radial-gradient(circle at 8% 0, color-mix(in srgb, var(--dgir-lavender) 14%, transparent), transparent 42%), color-mix(in srgb, var(--dgir-surface-soft) 92%, transparent); box-shadow: inset 0 1px rgba(255,255,255,.035); }
@@ -1309,7 +1309,7 @@ export function setup(ctx: SpindleFrontendContext) {
         records = message.records.map(record => {
           const optimistic = optimisticSlotActions.get(record.key)
           if (!optimistic) return record
-          if (record.updatedAt > optimistic.basedOnUpdatedAt || ['preparing', 'queued', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)) {
+          if (record.updatedAt > optimistic.basedOnUpdatedAt || ['preparing', 'queued', 'parsing', 'provider-waiting', 'generating', 'previewing', 'placement-pending'].includes(record.status)) {
             optimisticSlotActions.delete(record.key)
             return record
           }
@@ -2693,7 +2693,7 @@ export function setup(ctx: SpindleFrontendContext) {
       const root = ctx.dom.findMessageElement(record.messageId)
       if (!root) continue
       const requestCards = deepQueryAll<HTMLElement>(root as ParentNode, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`)
-      const active = ['preparing', 'queued', 'awaiting-native-settings', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)
+      const active = ['preparing', 'queued', 'awaiting-native-settings', 'parsing', 'provider-waiting', 'generating', 'previewing', 'placement-pending'].includes(record.status)
       const stallEligible = ['preparing', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)
       const stream = streamPreviews.get(record.key)
       // A provider result is visually final before its message-scoped
@@ -2713,6 +2713,7 @@ export function setup(ctx: SpindleFrontendContext) {
               : record.status === 'paused-backlog' ? 'Pending review'
                 : record.status === 'superseded' ? 'Superseded'
                   : record.status === 'parsing' ? 'Preparing'
+                    : record.status === 'provider-waiting' ? 'Waiting for image worker'
               : record.status === 'generating' ? 'Generating'
                 : record.status === 'placement-pending' ? 'Inserting'
                   : record.status === 'placement-repair-needed' ? 'Repair needed'
@@ -2744,6 +2745,7 @@ export function setup(ctx: SpindleFrontendContext) {
         if (title && stalled) title.textContent = 'Generation stalled'
         else if (title && record.status === 'preparing') title.textContent = 'Preparing generation…'
         else if (title && record.status === 'generating') title.textContent = 'Generating image…'
+        else if (title && record.status === 'provider-waiting') title.textContent = 'Queued for ImageGen…'
         else if (title && record.status === 'parsing') title.textContent = 'Preparing image…'
         else if (title && record.status === 'queued') title.textContent = 'Waiting to generate…'
         else if (title && record.status === 'placement-pending') title.textContent = 'Inserting image…'
@@ -3622,7 +3624,7 @@ export function setup(ctx: SpindleFrontendContext) {
       if (candidate.candidateImageUrl || stream?.imageDataUrl) next.appendChild(nextImg)
       const nextLabel = document.createElement('div'); nextLabel.className = 'dg-relay-candidate-label'; nextLabel.textContent = candidate.status === 'ready' ? 'Candidate image' : titleCase(candidate.status)
       next.appendChild(nextLabel)
-      if (stream?.statusText && ['preflight', 'parsing', 'generating'].includes(candidate.status)) {
+      if (stream?.statusText && ['preflight', 'parsing', 'provider-waiting', 'generating'].includes(candidate.status)) {
         const streamStatus = document.createElement('div')
         streamStatus.className = 'dg-stream-status'
         streamStatus.textContent = stream.statusText
@@ -3642,7 +3644,7 @@ export function setup(ctx: SpindleFrontendContext) {
           const snapshot = await syncNativeSettings()
           ctx.sendToBackend({ type: 'relay_retry_candidate', chatId: batch.chatId, batchId: batch.batchId, candidateKey: candidate.candidateKey, nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt })
           modal.dismiss()
-        }, ['preflight', 'parsing', 'generating', 'replaced'].includes(candidate.status), 'subtle'),
+        }, ['preflight', 'parsing', 'provider-waiting', 'generating', 'replaced'].includes(candidate.status), 'subtle'),
         useButton,
       )
       card.appendChild(candidateActions)
@@ -5016,7 +5018,7 @@ memory: [['genetics', 'Appearance Memory']],
       ctx.sendToBackend({ type: 'queue_action', chatId: activeChatId, action: 'cancel_selected', selectedKeys: activeKeys })
     }
     for (const batch of candidateBatches.filter(item => item.chatId === activeChatId && item.status === 'processing')) {
-      for (const candidate of batch.candidates.filter(item => ['preflight', 'parsing', 'generating'].includes(item.status))) {
+      for (const candidate of batch.candidates.filter(item => ['preflight', 'parsing', 'provider-waiting', 'generating'].includes(item.status))) {
         ctx.sendToBackend({ type: 'relay_discard_candidate', chatId: batch.chatId, batchId: batch.batchId, candidateKey: candidate.candidateKey })
       }
     }
@@ -6866,7 +6868,7 @@ ${bracketFixture}`)
   function matchesSlotFilter(record: SlotRecord, filter: SlotFilter): boolean {
     if (filter === 'all') return true
     if (filter === 'active') return !record.recoveredFromInactiveSwipe
-    if (filter === 'generating') return isGenerationActiveStatus(record.status)
+    if (filter === 'generating') return record.status === 'generating'
     if (filter === 'recovered') return Boolean(record.recoverySource)
     if (filter === 'inactive') return record.recoveredFromInactiveSwipe === true
     return record.status === filter
@@ -7588,7 +7590,7 @@ ${bracketFixture}`)
     workload.className = 'dg-settings-grid'
     workload.append(
       selectField('Candidate Count', String(current.defaultCandidateCount), [['1', '1'], ['2', '2'], ['4', '4']], value => patchConfig({ defaultCandidateCount: Number(value) as 1 | 2 | 4 })),
-      numberInput('Concurrent Image Jobs', current.queueConcurrencyLimit, 1, 4, value => patchConfig({ queueConcurrencyLimit: value })),
+      numberInput('Concurrent Relay Preprocessing Jobs', current.queueConcurrencyLimit, 1, 4, value => patchConfig({ queueConcurrencyLimit: value })),
     )
     box.appendChild(panelSection('Workload', workload))
     const sidecar = document.createElement('div')
@@ -9776,7 +9778,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
   }
 
   function isRelaySlotProcessing(record: SlotRecord): boolean {
-    return candidateBatches.some(batch => batch.chatId === record.chatId && batch.status === 'processing' && batch.candidates.some(candidate => candidate.stableSlotKey === record.key && ['preflight', 'parsing', 'generating'].includes(candidate.status)))
+    return candidateBatches.some(batch => batch.chatId === record.chatId && batch.status === 'processing' && batch.candidates.some(candidate => candidate.stableSlotKey === record.key && ['preflight', 'parsing', 'provider-waiting', 'generating'].includes(candidate.status)))
   }
 
   function isSlotActionBusy(record: SlotRecord): boolean {

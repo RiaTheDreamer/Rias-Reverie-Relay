@@ -255,6 +255,19 @@ ${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key} = ${ve
 
 Every [Spark] must contain one non-empty [Text] and one non-empty [Media]. Every [Media] must contain exactly one complete current <reverie-illustration request="generate"> ... <visual_prompt> ... </visual_prompt> ... </reverie-illustration> with a non-empty <visual_prompt>. Close every Spark with [/Spark] and close the root with [/Plot_Sparks]. Plot Sparks d through g and required closing tags may never be silently dropped. Resolved historical images and Relay runtime markup do not count. If any check fails, fix the [Plot_Sparks] block before stopping.`
 
+const WORLD_DETAIL_COMPLETION_LOCK = `SETTING THE SCENE STRUCTURAL LOCK — BEFORE ENDING [WORLD]
+
+Verify this order before ending the Surface:
+[world_media]...[/world_media]
+[world_detail]...[/world_detail]
+[world_context]
+[why_it_matters]...[/why_it_matters]
+[future_use]...[/future_use]
+[/world_context]
+[/WORLD]
+
+[why_it_matters] must close with [/why_it_matters], and [future_use] must close with [/future_use]. Never use [/future_use] to close [why_it_matters]. If any World tag is mismatched or missing, repair the [WORLD] block before ending.`
+
 function countMatches(value: string, pattern: RegExp): number {
   return [...value.matchAll(pattern)].length
 }
@@ -309,7 +322,9 @@ export function buildNarrativeUtilityPrompt(
       const authoredContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, overrides[item.loomName])
       const loomContent = item.loomName === 'Chaos Hooks'
         ? `${authoredContent}\n\n${PLOT_SPARK_COMPLETION_LOCK}`
-        : authoredContent
+        : item.loomName === 'World Texture'
+          ? `${authoredContent}\n\n${WORLD_DETAIL_COMPLETION_LOCK}`
+          : authoredContent
       return { ...item, loomContent }
     })
   return {
