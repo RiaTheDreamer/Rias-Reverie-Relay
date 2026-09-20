@@ -8453,8 +8453,8 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.3";
-var BUILD_ID = "20260919-0.2.8.3";
+var EXTENSION_VERSION = "0.2.8.4";
+var BUILD_ID = "20260920-0.2.8.4";
 
 // src/providerPromptSafety.ts
 class ProviderPromptSafetyError extends Error {
@@ -8522,7 +8522,15 @@ function assertProviderRequestSafe(prompt, negativePrompt = "", parameters = {})
 }
 
 // src/imageStreaming.ts
-function imageProviderSupportsStreaming(_providerId, provider, generateStreamAvailable) {
+function isSwarmUiProvider(providerId) {
+  return ["swarmui", "swarm-ui"].includes(String(providerId || "").trim().toLocaleLowerCase());
+}
+function relayStreamingAllowedForProvider(providerId) {
+  return !isSwarmUiProvider(providerId);
+}
+function imageProviderSupportsStreaming(providerId, provider, generateStreamAvailable) {
+  if (!relayStreamingAllowedForProvider(providerId))
+    return false;
   if (!generateStreamAvailable)
     return false;
   if (!provider)
@@ -156491,6 +156499,8 @@ var cancelledJobs = new Set;
 var activeImageStreams = new Map;
 var imageGenerationLanes = new Map;
 var providerImageResultClaims = new Map;
+var providerAttemptDiagnostics = new Map;
+var staleChatScopes = new Map;
 function claimProviderImageResult(imageId, generationId, userId) {
   const normalizedId = cleanString(imageId);
   const normalizedGenerationId = cleanString(generationId);
@@ -156562,6 +156572,37 @@ function abortError(message = "Generation cancelled by user.") {
 var IMAGE_GENERATION_TIMEOUT_MS = 5 * 60000;
 var IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS = 6 * 60000;
 var IMAGE_GENERATION_DRAIN_TIMEOUT_MS = 2 * 60000;
+function isChatNotFoundError(error) {
+  const seen = new Set;
+  let current = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const message = current instanceof Error ? current.message : String(current);
+    if (/\bchat(?:\s+with\s+id\s+[^\s]+)?\s+(?:was\s+)?not\s+found\b/i.test(message))
+      return true;
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return false;
+}
+
+class ImageGenerationDestinationUnavailableError extends Error {
+  constructor(chatId) {
+    super(chatId ? `Generation destination chat ${chatId} is no longer available. The provider result was discarded without retrying.` : "Generation destination is no longer available. The provider result was discarded without retrying.");
+    this.name = "ImageGenerationDestinationUnavailableError";
+  }
+}
+function providerAttemptFor(context) {
+  return providerAttemptDiagnostics.get(context.generationId);
+}
+function rememberProviderAttempt(diagnostic) {
+  rememberBoundedMap(providerAttemptDiagnostics, diagnostic.generationId, diagnostic, 1024);
+  return diagnostic;
+}
+function inspectProviderAttemptDiagnostics(generationId) {
+  if (generationId)
+    return providerAttemptDiagnostics.get(generationId) || null;
+  return [...providerAttemptDiagnostics.values()].slice(-100).map((diagnostic) => ({ ...diagnostic }));
+}
 
 class ImageGenerationTimeoutError extends Error {
   constructor(timeoutMs) {
@@ -156615,16 +156656,17 @@ function clearImageGenerationLaneWaiter(waiter) {
   if (waiter.abortHandler)
     waiter.controller.signal.removeEventListener("abort", waiter.abortHandler);
 }
-function grantImageGenerationLane(key2, lane, context) {
+function grantImageGenerationLane(key2, lane, context, providerId) {
   const leaseId = `${context.generationId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
   lane.active = true;
   lane.draining = false;
   lane.activeLeaseId = leaseId;
   lane.activeContext = context;
+  lane.activeProviderId = providerId;
   lane.activeSince = Date.now();
   lane.drainStartedAt = undefined;
   lane.drainReason = undefined;
-  return { key: key2, leaseId, context, release: () => releaseImageGenerationLane(key2, leaseId) };
+  return { key: key2, leaseId, context, providerId, release: () => releaseImageGenerationLane(key2, leaseId) };
 }
 function releaseImageGenerationLane(key2, leaseId) {
   const lane = imageGenerationLanes.get(key2);
@@ -156634,6 +156676,7 @@ function releaseImageGenerationLane(key2, leaseId) {
     clearTimeout(lane.drainWatchdog);
   lane.drainWatchdog = undefined;
   lane.draining = false;
+  lane.activeProviderId = undefined;
   while (lane.waiters.length) {
     const waiter = lane.waiters.shift();
     clearImageGenerationLaneWaiter(waiter);
@@ -156646,7 +156689,7 @@ function releaseImageGenerationLane(key2, leaseId) {
       streaming: false,
       statusText: "Image worker available. Starting generation\u2026"
     });
-    waiter.resolve(grantImageGenerationLane(key2, lane, waiter.context));
+    waiter.resolve(grantImageGenerationLane(key2, lane, waiter.context, waiter.providerId));
     return;
   }
   lane.active = false;
@@ -156659,37 +156702,49 @@ function beginImageGenerationLaneDrain(lease, providerOperation, reason) {
   lane.draining = true;
   lane.drainStartedAt = Date.now();
   lane.drainReason = reason instanceof Error ? reason.message : String(reason || "Local cancellation while provider work remained active.");
+  const diagnostic = providerAttemptFor(lease.context);
+  if (diagnostic)
+    diagnostic.providerDraining = true;
   spindle.log.warn(`[ReverieRelay:image_provider_draining] ${lease.context.generationId}: ${lane.drainReason}`);
   let released = false;
   const release = (event) => {
     if (released)
       return;
     released = true;
+    if (diagnostic) {
+      diagnostic.providerDraining = false;
+      diagnostic.completedAt = Date.now();
+    }
     if (event === "watchdog")
-      spindle.log.error(`[ReverieRelay:image_provider_drain_watchdog] ${lease.context.generationId}: provider work did not settle within ${IMAGE_GENERATION_DRAIN_TIMEOUT_MS}ms; releasing the lane with possible orphaned host work.`);
+      spindle.log.error(`[ReverieRelay:image_provider_drain_watchdog] ${lease.context.generationId}: provider work did not settle within ${lease.context.drainTimeoutMs || IMAGE_GENERATION_DRAIN_TIMEOUT_MS}ms; releasing the non-Swarm lane with possible orphaned host work.`);
     else
       spindle.log.info(`[ReverieRelay:image_provider_drained] ${lease.context.generationId}: underlying provider work settled; late result discarded.`);
     lease.release();
   };
-  lane.drainWatchdog = setTimeout(() => release("watchdog"), IMAGE_GENERATION_DRAIN_TIMEOUT_MS);
-  lane.drainWatchdog.unref?.();
+  if (!isSwarmUiProvider(lease.providerId)) {
+    const drainTimeoutMs = Number.isFinite(lease.context.drainTimeoutMs) ? Math.max(1, Math.floor(lease.context.drainTimeoutMs)) : IMAGE_GENERATION_DRAIN_TIMEOUT_MS;
+    lane.drainWatchdog = setTimeout(() => release("watchdog"), drainTimeoutMs);
+    lane.drainWatchdog.unref?.();
+  } else {
+    spindle.log.error(`[ReverieRelay:image_provider_quarantined] ${lease.context.generationId}: SwarmUI generation is still active after Relay stopped waiting. New Swarm generations are paused until the host operation settles; restart or reset ImageGen before retrying if it remains stuck.`);
+  }
   providerOperation.then(() => release("settled"), () => release("settled"));
 }
-async function acquireImageGenerationLane(userId, context, controller) {
+async function acquireImageGenerationLane(userId, context, controller, providerId) {
   const key2 = imageGenerationLaneKey(userId);
   const lane = imageGenerationLanes.get(key2) || { active: false, draining: false, waiters: [] };
   imageGenerationLanes.set(key2, lane);
   await context.onProviderWaiting?.();
   if (!lane.active) {
-    return grantImageGenerationLane(key2, lane, context);
+    return grantImageGenerationLane(key2, lane, context, providerId);
   }
   sendImageStreamEvent(userId, context, {
     event: "status",
     streaming: false,
-    statusText: "Queued behind the current image. Relay will start this one next."
+    statusText: lane.draining && isSwarmUiProvider(lane.activeProviderId || "") ? "SwarmUI is still finishing an earlier host request. New generation is paused to avoid colliding with that session." : "Queued behind the current image. Relay will start this one next."
   });
   return await new Promise((resolve, reject) => {
-    const waiter = { controller, context, userId, resolve, reject, queuedAt: Date.now() };
+    const waiter = { controller, context, userId, providerId, resolve, reject, queuedAt: Date.now() };
     const removeWaiter = () => {
       const currentLane = imageGenerationLanes.get(key2);
       if (currentLane)
@@ -156707,7 +156762,7 @@ async function acquireImageGenerationLane(userId, context, controller) {
       sendImageStreamEvent(userId, context, {
         event: "status",
         streaming: false,
-        statusText: "Still waiting for the image worker\u2026"
+        statusText: lane.draining && isSwarmUiProvider(lane.activeProviderId || "") ? "SwarmUI still owns the previous host request. Relay will not submit another image." : "Still waiting for the image worker\u2026"
       });
     }, 20000);
     waiter.heartbeat.unref?.();
@@ -156733,9 +156788,11 @@ function inspectImageGenerationLaneDiagnostics(userId) {
     activeGenerationId: lane.activeContext?.generationId || null,
     activeChatId: lane.activeContext?.chatId || null,
     activeRequestId: lane.activeContext?.requestId || null,
+    activeProvider: lane.activeProviderId || null,
     activeSince: lane.activeSince || 0,
     drainStartedAt: lane.drainStartedAt || 0,
     drainReason: lane.drainReason || "",
+    providerAttempt: lane.activeContext ? providerAttemptFor(lane.activeContext) || null : null,
     waiterCount: lane.waiters.length,
     waiters: lane.waiters.map((waiter) => ({
       chatId: waiter.context.chatId || null,
@@ -156799,6 +156856,203 @@ var pendingPromptInjectionRecords = new Map;
 var lastPromptInjectionFingerprint = new BoundedLruCache({ maxEntries: 128, ttlMs: 30 * 60000 });
 var surfaceMacroSyncFingerprints = new BoundedLruCache({ maxEntries: 128 });
 var scheduledStateBroadcasts = new Map;
+function staleChatScopeKey(chatId, userId) {
+  return `${userId || "__default-user__"}:${chatId}`;
+}
+function destinationAvailable(context, userId) {
+  return !context.chatId || !staleChatScopes.has(staleChatScopeKey(context.chatId, userId));
+}
+function cleanupStaleChatWork(chatId, userId, reason = "Chat not found") {
+  const summary = {
+    chatId,
+    scheduledScans: 0,
+    deferredWork: 0,
+    nativeSettingsWaiters: 0,
+    dispatchQueueItems: 0,
+    providerWaiters: 0,
+    placementBatches: 0,
+    activePreSpendCancelled: 0
+  };
+  if (!chatId)
+    return summary;
+  staleChatScopes.set(staleChatScopeKey(chatId, userId), { unavailableAt: Date.now(), reason });
+  for (const [key2, scheduled] of [...scheduledAssistantScans.entries()]) {
+    if (scheduled.chatId !== chatId)
+      continue;
+    if (scheduled.timer)
+      clearTimeout(scheduled.timer);
+    scheduledAssistantScans.delete(key2);
+    summary.scheduledScans += 1;
+  }
+  for (const [key2, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
+    if (scheduled.chatId !== chatId)
+      continue;
+    if (scheduled.timer)
+      clearTimeout(scheduled.timer);
+    scheduledProseOpportunityScans.delete(key2);
+    summary.scheduledScans += 1;
+  }
+  for (const [key2, deferred] of [...deferredScans.entries()]) {
+    if (deferred[0] !== chatId)
+      continue;
+    deferredScans.delete(key2);
+    summary.deferredWork += 1;
+  }
+  for (const registry of [deferredReparseRequests, deferredRegenerateRequests]) {
+    for (const [key2, request2] of [...registry.entries()]) {
+      if (!key2.startsWith(`${chatId}:`))
+        continue;
+      if (request2.timer)
+        clearTimeout(request2.timer);
+      registry.delete(key2);
+      summary.deferredWork += 1;
+    }
+  }
+  const broker = nativeSettingsBrokers.get(relayQueueScope(userId));
+  summary.nativeSettingsWaiters = broker ? removeNativeSettingsWaiters(broker.waiters, chatId) : 0;
+  const queue = relayDispatchQueues.get(relayQueueScope(userId));
+  if (queue) {
+    const retained = [];
+    for (const entry of queue.pending) {
+      if (entry.job.chatId !== chatId) {
+        retained.push(entry);
+        continue;
+      }
+      enqueuedRelayJobs.delete(entry.queueKey);
+      entry.resolve();
+      summary.dispatchQueueItems += 1;
+    }
+    queue.pending = retained;
+  }
+  const cancellationScope = relayCancellationScope(chatId, userId);
+  queueCancellationEpochs.set(cancellationScope, (queueCancellationEpochs.get(cancellationScope) || 0) + 1);
+  for (const lane of imageGenerationLanes.values()) {
+    const retained = [];
+    for (const waiter of lane.waiters) {
+      if (waiter.context.chatId !== chatId) {
+        retained.push(waiter);
+        continue;
+      }
+      clearImageGenerationLaneWaiter(waiter);
+      waiter.reject(new ImageGenerationDestinationUnavailableError(chatId));
+      summary.providerWaiters += 1;
+    }
+    lane.waiters = retained;
+    if (lane.activeContext?.chatId === chatId) {
+      const diagnostic = providerAttemptFor(lane.activeContext);
+      if (diagnostic)
+        diagnostic.destinationAvailable = false;
+    }
+  }
+  const activeSpendExists = [...providerAttemptDiagnostics.values()].some((diagnostic) => diagnostic.chatId === chatId && diagnostic.providerDispatchCount > 0 && !diagnostic.completedAt);
+  if (!activeSpendExists) {
+    for (const attempt of activeRelayAttempts.values()) {
+      if (attempt.chatId !== chatId || attempt.controller.signal.aborted)
+        continue;
+      attempt.abortedAt = Date.now();
+      attempt.reason = reason;
+      attempt.controller.abort(reason);
+      summary.activePreSpendCancelled += 1;
+    }
+  }
+  for (const [key2, batch] of [...pendingPlacementBatches.entries()]) {
+    if (batch.chatId !== chatId)
+      continue;
+    if (batch.visualFallbackTimer)
+      clearTimeout(batch.visualFallbackTimer);
+    pendingPlacementBatches.delete(key2);
+    summary.placementBatches += 1;
+  }
+  for (const [key2, timer] of [...scheduledStateBroadcasts.entries()]) {
+    if (!key2.endsWith(`:${chatId}`))
+      continue;
+    clearTimeout(timer);
+    scheduledStateBroadcasts.delete(key2);
+  }
+  for (const key2 of [...latestMessageSnapshots.keys()])
+    if (key2.startsWith(`${chatId}:`))
+      latestMessageSnapshots.delete(key2);
+  for (const key2 of [...pendingGenerationContent.keys()])
+    if (key2.startsWith(`${chatId}:`))
+      pendingGenerationContent.delete(key2);
+  spindle.log.warn(`[ReverieRelay:stale_chat_cleanup] ${JSON.stringify({ ...summary, reason })}`);
+  return summary;
+}
+function inspectChatRuntimeWork(chatId, userId) {
+  const broker = nativeSettingsBrokers.get(relayQueueScope(userId));
+  const queue = relayDispatchQueues.get(relayQueueScope(userId));
+  return {
+    stale: staleChatScopes.has(staleChatScopeKey(chatId, userId)),
+    scheduledScans: [...scheduledAssistantScans.values(), ...scheduledProseOpportunityScans.values()].filter((item) => item.chatId === chatId).length,
+    deferredWork: [...deferredScans.values()].filter((item) => item[0] === chatId).length + [...deferredReparseRequests.keys(), ...deferredRegenerateRequests.keys()].filter((key2) => key2.startsWith(`${chatId}:`)).length,
+    nativeSettingsWaiters: broker?.waiters.get(chatId)?.size || 0,
+    dispatchQueueItems: queue?.pending.filter((entry) => entry.job.chatId === chatId).length || 0,
+    providerWaiters: [...imageGenerationLanes.values()].reduce((count, lane) => count + lane.waiters.filter((waiter) => waiter.context.chatId === chatId).length, 0),
+    placementBatches: [...pendingPlacementBatches.values()].filter((batch) => batch.chatId === chatId).length
+  };
+}
+function stageStaleChatCleanupRegressionFixture(chatId, userId) {
+  const timer = setTimeout(() => {
+    return;
+  }, 60000);
+  timer.unref?.();
+  scheduledAssistantScans.set(`${chatId}:fixture-message:0`, {
+    chatId,
+    messageId: "fixture-message",
+    swipeId: 0,
+    userId,
+    sourceContent: "",
+    sources: new Set(["regression-fixture"]),
+    attempt: 0,
+    timer
+  });
+  deferredScans.set(`${chatId}:fixture-deferred`, [chatId, "fixture-message", 0, userId, undefined, ""]);
+  const retryTimer = setTimeout(() => {
+    return;
+  }, 60000);
+  retryTimer.unref?.();
+  deferredReparseRequests.set(`${chatId}:fixture-retry`, { key: `${chatId}:fixture-retry`, userId, attempts: 0, timer: retryTimer });
+  addNativeSettingsWaiters(nativeSettingsBroker(userId).waiters, chatId, [`${chatId}:fixture-waiter`]);
+  const scope = relayQueueScope(userId);
+  const queue = relayDispatchQueues.get(scope) || { pending: [], active: 0, concurrency: 1 };
+  queue.pending.push({
+    queueKey: `${scope}:${chatId}:fixture-queue`,
+    userId,
+    epoch: currentQueueCancellationEpoch(chatId, userId),
+    resolve: () => {
+      return;
+    },
+    options: { replaceExisting: false, reparse: true, triggerType: "initial" },
+    job: {
+      chatId,
+      messageId: "fixture-message",
+      swipeId: 0,
+      requestId: "fixture-request",
+      target: "custom.artifact-media",
+      count: 1,
+      slots: ["fixture-slot"],
+      alt: "",
+      originalSceneBrief: "",
+      originalNegativePrompt: "",
+      originalRequestXml: ""
+    }
+  });
+  relayDispatchQueues.set(scope, queue);
+  pendingPlacementBatches.set(`${scope}:${chatId}:fixture-message:0`, {
+    chatId,
+    messageId: "fixture-message",
+    swipeId: 0,
+    sourceFingerprint: "fixture",
+    entries: []
+  });
+}
+function handleChatBoundAsyncError(source, chatId, userId, error) {
+  if (!chatId || !isChatNotFoundError(error))
+    return false;
+  cleanupStaleChatWork(chatId, userId, error instanceof Error ? error.message : String(error));
+  spindle.log.warn(`[ReverieRelay:${source}] destination unavailable; chat-scoped work was quarantined without provider retry.`);
+  return true;
+}
 function userConfigCacheKey(userId) {
   return userId || "__default__";
 }
@@ -158029,6 +158283,7 @@ spindle.onFrontendMessage((raw, userId) => {
   }).catch((error) => {
     const type = payload && typeof payload === "object" && "type" in payload ? payload.type : "unknown";
     const message = error instanceof Error ? error.message : String(error);
+    const chatId = payload && typeof payload === "object" && "chatId" in payload ? cleanString(payload.chatId) : "";
     const submission = slotSubmissionDetails(payload);
     if (payload?.type === "continuity_action" && payload.action === "save_character_sheet" && payload.characterId) {
       sendAppearanceMemoryActionStatus({
@@ -158043,6 +158298,8 @@ spindle.onFrontendMessage((raw, userId) => {
       const accepted = acceptedSlotSubmissions.delete(submission.submissionId);
       spindle.sendToFrontend({ type: "slot_action_feedback", ...submission, status: accepted ? "failed" : "rejected", message }, userId);
     }
+    if (handleChatBoundAsyncError(String(type), chatId, userId, error))
+      return;
     if (error instanceof StaleOpportunityError) {
       spindle.log.warn(`[Reverie Relay:${type}] ${message}`);
       spindle.sendToFrontend({ type: "relay_notice", level: "warning", message }, userId);
@@ -158904,6 +159161,8 @@ function scheduleAssistantScan(input) {
   scheduled.timer = setTimeout(() => {
     scheduledAssistantScans.delete(key2);
     flushAssistantScan(scheduled).catch((error) => {
+      if (handleChatBoundAsyncError("assistant_scan", scheduled.chatId, scheduled.userId, error))
+        return;
       spindle.log.error(`[Reverie Relay:assistant_scan] ${error instanceof Error ? error.message : String(error)}`);
     });
   }, input.delayMs ?? 75);
@@ -158936,6 +159195,8 @@ function scheduleProseOpportunityScan(input) {
   scheduled.timer = setTimeout(() => {
     scheduledProseOpportunityScans.delete(key2);
     flushProseOpportunityScan(scheduled).catch((error) => {
+      if (handleChatBoundAsyncError("prose_opportunity_scan", scheduled.chatId, scheduled.userId, error))
+        return;
       spindle.log.error(`[Reverie Relay:prose_opportunity_scan] ${error instanceof Error ? error.message : String(error)}`);
     });
   }, input.delayMs ?? 120);
@@ -160741,7 +161002,11 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
       return;
     deferredScans.delete(lockKey);
     queueMicrotask(() => {
-      scanAndGenerate(...deferred).catch((error) => spindle.log.error(`[Reverie Relay:deferred_scan] ${error instanceof Error ? error.message : String(error)}`));
+      scanAndGenerate(...deferred).catch((error) => {
+        if (handleChatBoundAsyncError("deferred_scan", deferred[0], deferred[3], error))
+          return;
+        spindle.log.error(`[Reverie Relay:deferred_scan] ${error instanceof Error ? error.message : String(error)}`);
+      });
     });
   };
   try {
@@ -161325,6 +161590,11 @@ async function runJob(job, options, userId) {
     await mutateState(job.chatId, userId, (state) => finishBackgroundTask(state, backgroundTaskId, placement === "completed" ? "Complete" : "Ready to place"));
     spindle.sendToFrontend({ type: "status", status: placement === "completed" ? "Generated" : "Ready to Place", requestId: job.requestId }, userId);
   } catch (error) {
+    if (error instanceof ImageGenerationDestinationUnavailableError || isChatNotFoundError(error)) {
+      cleanupStaleChatWork(job.chatId, userId, error instanceof Error ? error.message : String(error));
+      spindle.log.warn(`[ReverieRelay:job_destination_lost] ${job.requestId}: provider result/state was discarded; no placement or provider retry was attempted.`);
+      return;
+    }
     if (error instanceof JobCancelledError || isAbortError(error) || options.signal?.aborted || isJobCancelled(job)) {
       await mutateState(job.chatId, userId, (state) => {
         const now = Date.now();
@@ -167847,40 +168117,8 @@ async function generateImage(chatId, prepared, plan, userId, streamContext, owne
   });
   let persistedDataUrl = cleanString(result.imageDataUrl);
   if (freshness.stale) {
-    spindle.log.warn(`[ReverieRelay:image_freshness_retry] Rejected stale provider result ${imageId}: ${freshness.reasons.join("; ")}. Retrying once without streaming.`);
-    providerStartedAt = Date.now();
-    result = await generateWithOptionalStream(finalRequest, plan, userId, {
-      ...resolvedStreamContext,
-      generationId: `${resolvedStreamContext.generationId}:freshness-retry`
-    }, true);
-    imageId = cleanString(result.imageId);
-    imageUrl = cleanString(result.imageUrl) || (imageId ? imageUrlFromId(imageId) : "");
-    if (!imageId && imageUrl)
-      imageId = imageIdFromResultUrl(imageUrl);
-    runtimeResultClaim = claimProviderImageResult(imageId, `${resolvedStreamContext.generationId}:freshness-retry`, userId);
-    asset = imageId ? await spindle.images.get(imageId, { onlyOwned: true, userId }).catch(() => null) : null;
-    visibleUnownedAsset = false;
-    if (!asset && imageId) {
-      const anyAsset = await spindle.images.get(imageId, { onlyOwned: false, userId }).catch(() => null);
-      if (anyAsset) {
-        asset = anyAsset;
-        visibleUnownedAsset = true;
-      }
-    }
-    existingRelayClaim = runtimeResultClaim || (imageId && freshnessChatId ? await existingRelayImageClaim(freshnessChatId, imageId, userId) : "");
-    freshness = inspectProviderImageFreshness({
-      imageId,
-      providerStartedAt,
-      assetCreatedAt: Number(asset?.created_at) || null,
-      existingRelayClaim
-    });
-    persistedDataUrl = cleanString(result.imageDataUrl);
-    galleryItemId = cleanString(result.galleryItemId) || undefined;
-    galleryLinkStatus = cleanString(result.galleryLinkStatus) === "linked" || result.galleryLinked === true ? "linked" : shouldLinkToGallery ? "failed" : "skipped";
-    galleryLinkError = cleanString(result.galleryLinkError) || undefined;
-  }
-  if (freshness.stale) {
-    throw new Error(`ImageGen returned a stale result twice (${freshness.reasons.join("; ")}). Relay refused to reuse the old image.`);
+    spindle.log.warn(`[ReverieRelay:image_freshness_rejected] Rejected stale provider result ${imageId}: ${freshness.reasons.join("; ")}. Automatic provider retry is disabled.`);
+    throw new Error(`ImageGen returned a stale result (${freshness.reasons.join("; ")}). Relay refused to reuse it and did not start another generation.`);
   }
   if ((!asset || visibleUnownedAsset) && persistedDataUrl) {
     const uploaded = await spindle.images.uploadFromDataUrl(persistedDataUrl, {
@@ -169725,6 +169963,8 @@ function normalizeImageGenerationStreamEvent(rawEvent) {
   };
 }
 async function generateWithOptionalStream(finalRequest, plan, userId, context, forceStandard = false, timeoutMs = IMAGE_GENERATION_TIMEOUT_MS) {
+  if (!destinationAvailable(context, userId))
+    throw new ImageGenerationDestinationUnavailableError(context.chatId);
   const controller = new AbortController;
   const abortFromAttempt = () => controller.abort(context.attemptSignal?.reason || "Cancelled by user.");
   if (context.attemptSignal?.aborted)
@@ -169733,42 +169973,107 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     context.attemptSignal?.addEventListener("abort", abortFromAttempt, { once: true });
   registerImageStream(context, controller, userId);
   let laneLease = null;
+  const diagnostic = rememberProviderAttempt({
+    generationId: context.generationId,
+    chatId: context.chatId || null,
+    requestId: context.requestId || null,
+    provider: cleanString(plan.provider).toLocaleLowerCase(),
+    providerDispatchCount: 0,
+    providerSpendStartedAt: 0,
+    providerTransport: "standard",
+    providerStreamingUsed: false,
+    providerFallbackUsed: false,
+    providerDraining: false,
+    destinationAvailable: true,
+    createdAt: Date.now()
+  });
   try {
-    laneLease = await acquireImageGenerationLane(userId, context, controller);
+    laneLease = await acquireImageGenerationLane(userId, context, controller, plan.provider);
     if (controller.signal.aborted)
       throw abortError();
     const standardInput = { ...finalRequest, userId };
     const streamInput = { ...standardInput, signal: controller.signal };
     const api = spindle.imageGen;
-    let providerStarted = false;
-    const notifyProviderStarted = async () => {
-      if (providerStarted)
+    let providerLifecycleReported = false;
+    let providerLifecycleReporting = null;
+    const reportProviderStarted = async () => {
+      if (providerLifecycleReported)
         return;
-      providerStarted = true;
-      await context.onProviderStarted?.();
+      try {
+        await context.onProviderStarted?.();
+        providerLifecycleReported = true;
+      } catch (error) {
+        spindle.log.warn(`[ReverieRelay:provider_lifecycle_reporting_failure] ${context.generationId}: ${error instanceof Error ? error.message : String(error)}`);
+        if (handleChatBoundAsyncError("provider_lifecycle_reporting", context.chatId, userId, error))
+          diagnostic.destinationAvailable = false;
+      }
+    };
+    const startProviderLifecycleReporting = () => {
+      providerLifecycleReporting ||= reportProviderStarted();
+    };
+    const settleProviderLifecycleReporting = async () => {
+      if (!providerLifecycleReporting)
+        return;
+      let timer;
+      const boundedWait = new Promise((resolve) => {
+        timer = setTimeout(resolve, 250);
+        timer.unref?.();
+      });
+      await Promise.race([providerLifecycleReporting, boundedWait]);
+      if (timer)
+        clearTimeout(timer);
+    };
+    const startProviderSpend = (transport) => {
+      if (diagnostic.providerDispatchCount !== 0) {
+        throw new Error(`Provider dispatch invariant violated for ${context.generationId}; Relay refused generation #${diagnostic.providerDispatchCount + 1}.`);
+      }
+      diagnostic.providerDispatchCount = 1;
+      diagnostic.providerSpendStartedAt = Date.now();
+      diagnostic.providerTransport = transport;
+      diagnostic.providerStreamingUsed = transport === "stream";
+    };
+    const assertDestinationAvailable = () => {
+      diagnostic.destinationAvailable = destinationAvailable(context, userId);
+      if (!diagnostic.destinationAvailable)
+        throw new ImageGenerationDestinationUnavailableError(context.chatId);
     };
     const runStandardGeneration = async () => {
-      await notifyProviderStarted();
-      let providerSettled = false;
-      const providerOperation = Promise.resolve().then(() => api.generate(standardInput));
-      providerOperation.then(() => {
-        providerSettled = true;
-      }, () => {
-        providerSettled = true;
-      });
+      startProviderSpend("standard");
+      let providerSettled2 = false;
+      let providerOperation2;
       try {
-        return await withImageGenerationDeadline(() => providerOperation, controller, timeoutMs);
+        providerOperation2 = Promise.resolve(api.generate(standardInput));
       } catch (error) {
-        if (!providerSettled && laneLease && (controller.signal.aborted || error instanceof ImageGenerationTimeoutError || isAbortError(error))) {
-          beginImageGenerationLaneDrain(laneLease, providerOperation, controller.signal.reason || error);
+        providerOperation2 = Promise.reject(error);
+      }
+      providerOperation2.then(() => {
+        providerSettled2 = true;
+      }, () => {
+        providerSettled2 = true;
+      });
+      startProviderLifecycleReporting();
+      try {
+        const result2 = await withImageGenerationDeadline(() => providerOperation2, controller, timeoutMs);
+        await settleProviderLifecycleReporting();
+        assertDestinationAvailable();
+        return result2;
+      } catch (error) {
+        if (!providerSettled2 && laneLease && (controller.signal.aborted || error instanceof ImageGenerationTimeoutError || isAbortError(error))) {
+          beginImageGenerationLaneDrain(laneLease, providerOperation2, controller.signal.reason || error);
           laneLease = null;
         }
         throw error;
       }
     };
-    const providerInfo = await withImageGenerationDeadline(() => streamProviderInfo(plan.provider, userId), controller, timeoutMs);
-    const canStream = !forceStandard && imageProviderSupportsStreaming(plan.provider, providerInfo, typeof api.generateStream === "function");
+    const streamingPolicyAllowed = !forceStandard && relayStreamingAllowedForProvider(plan.provider);
+    const providerInfo = streamingPolicyAllowed ? await withImageGenerationDeadline(() => streamProviderInfo(plan.provider, userId), controller, timeoutMs) : undefined;
+    const canStream = streamingPolicyAllowed && imageProviderSupportsStreaming(plan.provider, providerInfo, typeof api.generateStream === "function");
+    diagnostic.providerTransport = canStream ? "stream" : "standard";
+    diagnostic.providerStreamingUsed = canStream;
+    const transportReason = isSwarmUiProvider(plan.provider) ? "emergency-safe-provider-policy" : forceStandard ? "forced-standard" : canStream ? "documented-provider-capability" : "no-proven-stream-contract";
+    spindle.log.info(`[ReverieRelay:image_transport] ${JSON.stringify({ provider: diagnostic.provider, transport: diagnostic.providerTransport, streamingAllowed: canStream, reason: transportReason, generationId: context.generationId, requestId: context.requestId || null })}`);
     sendImageStreamEvent(userId, context, { event: "started", streaming: canStream, statusText: canStream ? "Connecting to live preview\u2026" : "Starting generation\u2026" });
+    assertDestinationAvailable();
     if (!canStream || !api.generateStream) {
       if (controller.signal.aborted)
         throw abortError();
@@ -169779,14 +170084,23 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
       if (finalPreview)
         sendImageStreamEvent(userId, context, { event: "preview", previewImageDataUrl: finalPreview, streaming: false, statusText: "Final preview ready." });
       sendImageStreamEvent(userId, context, { event: "done", streaming: false, statusText: "Generation complete." });
+      assertDestinationAvailable();
       return result2;
     }
     let result = null;
-    let streamFailure;
+    startProviderSpend("stream");
+    let providerSettled = false;
+    let providerOperation;
     try {
-      await notifyProviderStarted();
-      await withImageGenerationDeadline(async () => {
-        for await (const rawEvent of api.generateStream(streamInput)) {
+      let stream;
+      try {
+        stream = api.generateStream(streamInput);
+      } catch (error) {
+        providerSettled = true;
+        throw error;
+      }
+      providerOperation = (async () => {
+        for await (const rawEvent of stream) {
           if (controller.signal.aborted)
             throw abortError();
           const normalizedEvent = normalizeImageGenerationStreamEvent(rawEvent);
@@ -169829,38 +170143,44 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
             }
           }
         }
-      }, controller, timeoutMs);
+      })();
+      providerOperation.then(() => {
+        providerSettled = true;
+      }, () => {
+        providerSettled = true;
+      });
+      startProviderLifecycleReporting();
+      await withImageGenerationDeadline(() => providerOperation, controller, timeoutMs);
     } catch (error) {
-      if (isAbortError(error) || controller.signal.aborted)
-        throw error;
-      streamFailure = error;
-    }
-    if (!result) {
-      if (streamFailure)
-        spindle.log.warn(`[ReverieRelay:image_stream_fallback] ${streamFailure instanceof Error ? streamFailure.message : String(streamFailure)}`);
-      sendImageStreamEvent(userId, context, { event: "status", streaming: false, statusText: "Live preview unavailable. Finishing through standard ImageGen\u2026" });
-      if (controller.signal.aborted)
-        throw abortError();
-      result = await runStandardGeneration();
-      if (controller.signal.aborted)
-        throw abortError();
-      const finalPreview = streamImageValue(result);
-      if (finalPreview)
-        sendImageStreamEvent(userId, context, { event: "preview", previewImageDataUrl: finalPreview, streaming: false, statusText: "Final preview ready." });
+      if (!providerSettled && laneLease) {
+        beginImageGenerationLaneDrain(laneLease, providerOperation, controller.signal.reason || error);
+        laneLease = null;
+      }
+      throw error;
     }
     if (!result)
-      throw new Error("ImageGen completed without returning an image result.");
+      throw new Error("Streaming ImageGen completed without a terminal result. Relay will not start a second provider generation after spend.");
+    await settleProviderLifecycleReporting();
+    assertDestinationAvailable();
     sendImageStreamEvent(userId, context, { event: "done", streaming: canStream, statusText: "Generation complete." });
+    assertDestinationAvailable();
     return result;
   } catch (error) {
+    diagnostic.failure = error instanceof Error ? error.message : String(error);
+    if (isChatNotFoundError(error)) {
+      cleanupStaleChatWork(context.chatId || "", userId, diagnostic.failure);
+      diagnostic.destinationAvailable = false;
+    }
     if (error instanceof ImageGenerationLaneWaitTimeoutError) {
       sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Waiting for image worker timed out.", error: error.message });
       throw error;
     }
     const timeoutError = controller.signal.reason instanceof ImageGenerationTimeoutError ? controller.signal.reason : null;
     if (timeoutError) {
-      sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Generation timed out.", error: timeoutError.message });
-      throw timeoutError;
+      const reportedTimeout = isSwarmUiProvider(plan.provider) && diagnostic.providerDraining ? Object.assign(new Error("SwarmUI generation is still active after Relay stopped waiting. New Swarm generations are paused to avoid colliding with the existing session. Restart or reset the ImageGen provider before retrying if it remains stuck."), { name: "ImageGenerationTimeoutError" }) : timeoutError;
+      diagnostic.failure = reportedTimeout.message;
+      sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Generation timed out.", error: reportedTimeout.message });
+      throw reportedTimeout;
     }
     if (isAbortError(error) || controller.signal.aborted) {
       sendImageStreamEvent(userId, context, { event: "cancelled", streaming: false, statusText: "Generation stopped." });
@@ -169873,6 +170193,8 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     context.attemptSignal?.removeEventListener("abort", abortFromAttempt);
     laneLease?.release();
     releaseImageStream(context, controller);
+    if (!diagnostic.providerDraining)
+      diagnostic.completedAt = diagnostic.completedAt || Date.now();
   }
 }
 async function streamProviderInfo(providerId, userId) {
@@ -169889,15 +170211,24 @@ async function streamProviderInfo(providerId, userId) {
   }
 }
 function sendImageStreamEvent(userId, context, patch) {
-  spindle.sendToFrontend({
-    type: "image_generation_stream",
-    chatId: context.chatId,
-    generationId: context.generationId,
-    source: context.source,
-    slotKey: context.slotKey,
-    requestId: context.requestId,
-    ...patch
-  }, userId);
+  try {
+    spindle.sendToFrontend({
+      type: "image_generation_stream",
+      chatId: context.chatId,
+      generationId: context.generationId,
+      source: context.source,
+      slotKey: context.slotKey,
+      requestId: context.requestId,
+      ...patch
+    }, userId);
+  } catch (error) {
+    spindle.log.warn(`[ReverieRelay:image_stream_reporting_failure] ${context.generationId}: ${error instanceof Error ? error.message : String(error)}`);
+    if (handleChatBoundAsyncError("image_stream_reporting", context.chatId, userId, error)) {
+      const diagnostic = providerAttemptFor(context);
+      if (diagnostic)
+        diagnostic.destinationAvailable = false;
+    }
+  }
 }
 function clampNumber(value, min, max, fallback) {
   return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
@@ -170014,6 +170345,7 @@ async function exportQueueDispatchDiagnostic(chatId, userId) {
         concurrency: dispatchQueue?.concurrency || config.queueConcurrencyLimit
       },
       providerLane: inspectImageGenerationLaneDiagnostics(userId),
+      providerAttempts: [...providerAttemptDiagnostics.values()].filter((attempt) => !attempt.chatId || attempt.chatId === chatId).slice(-100).map((attempt) => ({ ...attempt })),
       queue: state.queueSafety,
       stateDispatch: lastStateDispatchMetrics.get(`${userId || "__default__"}:${chatId}`) || null,
       jobs
@@ -171095,6 +171427,8 @@ function scheduleStateBroadcast(userId, chatId, delayMs = 16) {
   const timer = setTimeout(() => {
     scheduledStateBroadcasts.delete(scope);
     sendState(userId, chatId).catch((error) => {
+      if (handleChatBoundAsyncError("deferred_state", chatId, userId, error))
+        return;
       spindle.log.warn(`[Reverie Relay] Deferred state broadcast failed: ${error instanceof Error ? error.message : String(error)}`);
     });
   }, Math.max(0, delayMs));
@@ -173003,6 +173337,7 @@ export {
   withPlacementMutationLock,
   targetHumanPolicy,
   targetFramingInstruction,
+  stageStaleChatCleanupRegressionFixture,
   shouldScanCompletedGeneration,
   setConfig,
   selectCompletedRequestContent,
@@ -173050,9 +173385,12 @@ export {
   isUnresolvedCharacterMacro,
   isExplicitAdultScene,
   isEligibleProseContent,
+  isChatNotFoundError,
   invalidateRenderOutputForMessage,
   inspectProviderImageFreshness,
+  inspectProviderAttemptDiagnostics,
   inspectImageGenerationLaneDiagnostics,
+  inspectChatRuntimeWork,
   initialPlacementBatchCommitGate,
   hasUnsettledVisiblePlacement,
   hasUnrequestedExplicitEscalation,
@@ -173078,6 +173416,7 @@ export {
   composePromptForOpportunity,
   composeInitialPlacementBatchContent,
   completedDiagnosticPath,
+  cleanupStaleChatWork,
   classifyImageRequest,
   claimProviderImageResult,
   canonicalEditedMessage,

@@ -284,17 +284,17 @@ await backend.generateWithOptionalStream({ prompt: 'clone-safe', parameters: {} 
 assert.equal(standardInputs.length, 1)
 assert.equal('signal' in standardInputs[0], false)
 
-// Non-abort stream rejection falls back exactly once with the same clone-safe payload.
+// Once a streaming provider has been invoked, Relay must never spend a second
+// provider request merely because the stream contract failed.
 let streamCalls = 0
 standardInputs = []
 imageApi.getProviders = async () => [{ id: 'provider', capabilities: { websocketPreviewStreaming: { previews: true, status: true } } }]
 imageApi.generateStream = async function* () { streamCalls += 1; throw new Error('preview transport unavailable') }
 imageApi.generate = async (input: any) => { standardInputs.push(input); structuredClone(input); return { imageId: 'fallback', imageUrl: '/fallback' } }
-const fallback = await backend.generateWithOptionalStream({ prompt: 'fallback' }, plan, 'u1', context('fallback'))
-assert.equal(fallback.imageId, 'fallback')
+await assert.rejects(backend.generateWithOptionalStream({ prompt: 'fallback' }, plan, 'u1', context('fallback')), /preview transport unavailable/)
 assert.equal(streamCalls, 1)
-assert.equal(standardInputs.length, 1)
-assert.equal('signal' in standardInputs[0], false)
+assert.equal(standardInputs.length, 0)
+assert.equal((backend.inspectProviderAttemptDiagnostics('fallback') as any).providerFallbackUsed, false)
 
 // A terminal stream result is final and must not double-generate.
 streamCalls = 0
@@ -306,8 +306,7 @@ assert.equal(streamed.imageId, 'stream-final')
 assert.equal(streamCalls, 1)
 assert.equal(standardInputs.length, 0)
 
-// A stale terminal stream completion gets one request/response retry. The
-// forced-standard path must not open a second stream.
+// An explicitly selected standard path must not open a stream.
 streamCalls = 0
 standardInputs = []
 imageApi.generateStream = async function* () { streamCalls += 1; yield { type: 'done', result: { imageId: 'stale-stream', imageUrl: '/stale-stream' } } }
@@ -432,9 +431,10 @@ assert.equal(chatBCalls, 1)
 imageApi.getProviders = async () => [{ id: 'provider', capabilities: { websocketPreviewStreaming: { previews: true, status: true } } }]
 imageApi.generateStream = async function* () { await new Promise(() => {}); yield { type: 'done', result: { imageId: 'impossible' } } }
 await assert.rejects(
-  backend.generateWithOptionalStream({ prompt: 'hung-stream' }, plan, 'u1', context('hung-stream'), false, 20),
+  backend.generateWithOptionalStream({ prompt: 'hung-stream' }, plan, 'u1', { ...context('hung-stream'), drainTimeoutMs: 10 }, false, 20),
   (error: any) => error?.name === 'ImageGenerationTimeoutError',
 )
+await delay(20)
 imageApi.generate = async () => ({ imageId: 'after-stream-timeout', imageUrl: '/after-stream-timeout' })
 const afterStreamTimeout = await backend.generateWithOptionalStream({ prompt: 'retry-stream' }, plan, 'u1', context('retry-stream'), true, 100)
 assert.equal(afterStreamTimeout.imageId, 'after-stream-timeout', 'stream timeout did not release the generation lane')
@@ -468,4 +468,4 @@ assertUtilitiesInjected(assembledText(slowStorageResult), 'slow diagnostic stora
 await new Promise(resolve => setTimeout(resolve, 10))
 assert(blockedStateWriteAttempts >= 1, 'prompt diagnostics were not scheduled after returning the injection')
 
-console.log('Runtime contract smoke passed: final assembled Story Model prompt has Core structural XML 0, Narrative structural XML 0, bracket image-control authoring 0, and canonical XML image controls; continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, opt-in streaming, bounded provider timeout/fallback/abort, snapshot Abort All, and deferred interceptor recovery.')
+console.log('Runtime contract smoke passed: final assembled Story Model prompt has Core structural XML 0, Narrative structural XML 0, bracket image-control authoring 0, and canonical XML image controls; continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, one-spend streaming failure semantics, bounded provider timeout/drain/abort, snapshot Abort All, and deferred interceptor recovery.')
