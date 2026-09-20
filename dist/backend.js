@@ -5170,6 +5170,40 @@ function first(...values) {
 function normalized(value) {
   return clean(value).toLocaleLowerCase().replace(/[\s_-]+/g, "");
 }
+var C5A_SCENE_DEPENDENT_FRAGMENT_PATTERNS = [
+  /^(?:solo|[1-9]\s*(?:boy|girl|man|woman|person|people)s?|[1-9](?:boy|girl)s?)$/i,
+  /\b(?:looking (?:at|toward|into|away|up|down)|direct (?:camera )?gaze|eye contact|gaze direction|facing (?:the )?camera)\b/i,
+  /\b(?:smirk(?:ing)?|smil(?:e|ing)|frown(?:ing)?|temporary expression|charismatic expression|angry expression|sad expression|happy expression)\b/i,
+  /\b(?:swimming|standing|sitting|seated|kneeling|lying|reclining|walking|running|jumping|fighting|dancing|holding|gripping|reaching|gesture|dynamic pose|graceful pose|action pose)\b/i,
+  /\b(?:close[- ]?up|medium shot|wide shot|full body shot|cowboy shot|over[- ]the[- ]shoulder|low angle|high angle|camera angle|composition|framing|portrait)\b/i,
+  /\b(?:background|environment|cave|cavern|palace|kingdom|forest|cityscape|bedroom|beach|coral|plants?)\b/i,
+  /\b(?:lighting|rim light|light rays?|bokeh|depth of field|atmosphere|backlit|volumetric light|cinematic light)\b/i,
+  /\b(?:anime|manga|manhwa|photorealistic|illustration style|art style|oil painting|watercolor)\b/i,
+  /\b(?:masterpiece|best quality|high quality|ultra[- ]detailed|absurdres|highres|8k|4k)\b/i
+];
+function sanitizeC5AIdentityPrompt(prompt) {
+  const kept = [];
+  const removed = [];
+  const seen = new Set;
+  for (const rawFragment of clean(prompt).split(/[,;\n]+/)) {
+    const fragment = rawFragment.trim().replace(/\s+/g, " ");
+    if (!fragment)
+      continue;
+    if (C5A_SCENE_DEPENDENT_FRAGMENT_PATTERNS.some((pattern) => pattern.test(fragment))) {
+      removed.push(fragment);
+      continue;
+    }
+    const key = normalized(fragment);
+    if (!key || seen.has(key))
+      continue;
+    seen.add(key);
+    kept.push(fragment);
+  }
+  return { prompt: kept.join(", "), removed };
+}
+function c5aIdentityBindingId(binding) {
+  return `${binding.kind}:${normalized(binding.presetId) || normalized(binding.subjectId) || normalized(binding.subjectName)}`;
+}
 function bindingFromValue(value, subjectId) {
   const direct = record(value);
   if (Object.keys(direct).length)
@@ -5213,7 +5247,9 @@ function resolveC5ANativeIdentityBinding(nativeSettings, kind, subject) {
   const presetId = first(binding.preset_id, binding.presetId, binding.id, settings[`bound${capitalized}PresetId`], settings[`active${capitalized}PresetId`], settings[`resolved${capitalized}PresetId`]);
   const preset = presetId ? findPreset(settings, kind, presetId) : {};
   const directPrompt = first(binding.prompt, binding.resolvedPrompt, binding.visualPrompt, settings[`bound${capitalized}Prompt`], settings[`resolved${capitalized}Prompt`]);
-  const prompt = first(preset.prompt, directPrompt);
+  const rawPrompt = first(preset.prompt, directPrompt);
+  const identityProjection = sanitizeC5AIdentityPrompt(rawPrompt);
+  const prompt = identityProjection.prompt;
   const directNegativePrompt = first(binding.negativePrompt, binding.negative_prompt, binding.resolvedNegativePrompt, settings[`bound${capitalized}NegativePrompt`], settings[`resolved${capitalized}NegativePrompt`]);
   const negativePrompt = first(preset.negativePrompt, preset.negative_prompt, preset.negative, directNegativePrompt);
   const presetName = first(preset.name, binding.preset_name, binding.presetName, presetId);
@@ -5225,6 +5261,8 @@ function resolveC5ANativeIdentityBinding(nativeSettings, kind, subject) {
       presetId,
       presetName,
       prompt,
+      rawPrompt,
+      removedSceneFragments: identityProjection.removed,
       negativePrompt,
       source: Object.keys(binding).length ? "active-binding" : "snapshot-binding",
       diagnostics
@@ -5238,7 +5276,9 @@ function resolveC5ANativeIdentityBinding(nativeSettings, kind, subject) {
       subjectName,
       presetId: "",
       presetName: "",
-      prompt: directPrompt,
+      prompt,
+      rawPrompt,
+      removedSceneFragments: identityProjection.removed,
       negativePrompt: directNegativePrompt,
       source: "direct-snapshot",
       diagnostics
@@ -5248,7 +5288,7 @@ function resolveC5ANativeIdentityBinding(nativeSettings, kind, subject) {
     diagnostics.push(`Bound ${kind} preset "${presetId}" was not present in the native snapshot.`);
   else
     diagnostics.push(`No active ${kind} preset binding was available in the native snapshot.`);
-  return { kind, subjectId, subjectName, presetId, presetName, prompt: "", negativePrompt, source: "unresolved", diagnostics };
+  return { kind, subjectId, subjectName, presetId, presetName, prompt: "", rawPrompt, removedSceneFragments: identityProjection.removed, negativePrompt, source: "unresolved", diagnostics };
 }
 function c5aCastRequirements(cast) {
   return {
@@ -5256,15 +5296,11 @@ function c5aCastRequirements(cast) {
     persona: cast === "user" || cast === "char+user"
   };
 }
-function promptHasIdentity(prompt, identity) {
-  const normalizedPrompt = normalized(prompt);
-  const normalizedIdentity = normalized(identity);
-  return normalizedIdentity.length > 12 && normalizedPrompt.includes(normalizedIdentity);
-}
-function enforceC5AKnownIdentity(prompt, bindings) {
+function enforceC5AKnownIdentity(prompt, bindings, appliedIdentityBindingIds = []) {
   const known = bindings.filter((binding) => Boolean(binding.prompt));
+  const structurallyApplied = new Set(appliedIdentityBindingIds);
   if (!known.length)
-    return { prompt, corrections: [] };
+    return { prompt, corrections: [], appliedIdentityBindingIds: [...structurallyApplied], identityAnchorChars: 0, duplicateIdentityFragmentsRemoved: 0 };
   let next = prompt;
   const corrections = [];
   const character = known.find((binding) => binding.kind === "character");
@@ -5275,12 +5311,21 @@ function enforceC5AKnownIdentity(prompt, bindings) {
     if (next !== before)
       corrections.push("Removed a Story Model gender/cardinality phrase that conflicted with the active Character + Persona bindings.");
   }
-  const anchors = known.filter((binding) => !promptHasIdentity(next, binding.prompt)).map((binding) => `${binding.kind === "character" ? "Active Character" : "Active Persona"} (${binding.subjectName}): ${binding.prompt}`);
+  const duplicateIdentityFragmentsRemoved = known.filter((binding) => structurallyApplied.has(c5aIdentityBindingId(binding))).reduce((total, binding) => total + binding.prompt.length, 0);
+  const anchors = known.filter((binding) => !structurallyApplied.has(c5aIdentityBindingId(binding))).map((binding) => `${binding.kind === "character" ? "Active Character" : "Active Persona"} (${binding.subjectName}): ${binding.prompt}`);
   if (anchors.length) {
-    next = `${anchors.join(", ")}, ${next}`.replace(/\s*,\s*,+/g, ", ").trim();
+    next = `${next}, ${anchors.join(", ")}`.replace(/\s*,\s*,+/g, ", ").trim();
     corrections.push(`Applied ${anchors.length} authoritative native identity anchor${anchors.length === 1 ? "" : "s"}.`);
   }
-  return { prompt: next, corrections };
+  for (const binding of known)
+    structurallyApplied.add(c5aIdentityBindingId(binding));
+  return {
+    prompt: next,
+    corrections,
+    appliedIdentityBindingIds: [...structurallyApplied],
+    identityAnchorChars: anchors.join(", ").length,
+    duplicateIdentityFragmentsRemoved
+  };
 }
 
 // src/contextBudget.ts
@@ -8453,8 +8498,8 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.5";
-var BUILD_ID = "20260920-0.2.8.5";
+var EXTENSION_VERSION = "0.2.8.6";
+var BUILD_ID = "20260920-0.2.8.6";
 
 // src/providerPromptSafety.ts
 class ProviderPromptSafetyError extends Error {
@@ -156940,11 +156985,67 @@ var deferredReparseRequests = new Map;
 var deferredRegenerateRequests = new Map;
 var abortableOperationSerials = new Map;
 var relayDispatchQueues = new Map;
+var promptPreparationLanes = new Map;
 var enqueuedRelayJobs = new Map;
 var activeRelayAttempts = new Map;
 var queueCancellationEpochs = new Map;
 var nativeSettingsBrokers = new Map;
 var lastStateDispatchMetrics = new Map;
+function relayPipelineDispatchCapacity(preparationLimit) {
+  return Math.max(1, preparationLimit) + 4;
+}
+function releasePromptPreparationWorker(scope) {
+  const lane = promptPreparationLanes.get(scope);
+  if (!lane)
+    return;
+  lane.active = Math.max(0, lane.active - 1);
+  while (lane.waiters.length) {
+    const waiter = lane.waiters.shift();
+    if (waiter.onAbort)
+      waiter.signal?.removeEventListener("abort", waiter.onAbort);
+    if (waiter.signal?.aborted)
+      continue;
+    lane.active += 1;
+    let released = false;
+    waiter.resolve(() => {
+      if (released)
+        return;
+      released = true;
+      releasePromptPreparationWorker(scope);
+    });
+    return;
+  }
+  if (!lane.active)
+    promptPreparationLanes.delete(scope);
+}
+async function acquirePromptPreparationWorker(userId, limit, signal) {
+  throwIfAborted(signal);
+  const scope = relayQueueScope(userId);
+  const lane = promptPreparationLanes.get(scope) || { active: 0, limit: Math.max(1, limit), waiters: [] };
+  lane.limit = Math.max(1, limit);
+  promptPreparationLanes.set(scope, lane);
+  if (lane.active < lane.limit) {
+    lane.active += 1;
+    let released = false;
+    return () => {
+      if (released)
+        return;
+      released = true;
+      releasePromptPreparationWorker(scope);
+    };
+  }
+  return new Promise((resolve, reject) => {
+    const waiter = { resolve, reject, signal };
+    waiter.onAbort = () => {
+      const index = lane.waiters.indexOf(waiter);
+      if (index >= 0)
+        lane.waiters.splice(index, 1);
+      reject(new JobCancelledError);
+    };
+    signal?.addEventListener("abort", waiter.onAbort, { once: true });
+    lane.waiters.push(waiter);
+  });
+}
 var renderSnapshotCache = new BoundedLruCache({ maxEntries: 64, ttlMs: 30 * 60000 });
 var renderOutputCache = new BoundedLruCache({
   maxEntries: 96,
@@ -157221,10 +157322,11 @@ function stageStaleChatCleanupRegressionFixture(chatId, userId) {
     }
   });
   relayDispatchQueues.set(scope, queue);
-  pendingPlacementBatches.set(`${scope}:${chatId}:fixture-message:0`, {
+  pendingPlacementBatches.set(`${scope}:${chatId}:fixture-message:0:fixture-request`, {
     chatId,
     messageId: "fixture-message",
     swipeId: 0,
+    requestId: "fixture-request",
     sourceFingerprint: "fixture",
     entries: []
   });
@@ -160704,8 +160806,8 @@ async function enqueueRelayJob(job, options, userId) {
     return existing;
   const scope = relayQueueScope(userId);
   const config = await getConfig(userId);
-  const queue = relayDispatchQueues.get(scope) || { pending: [], active: 0, concurrency: config.queueConcurrencyLimit };
-  queue.concurrency = Math.max(1, config.queueConcurrencyLimit);
+  const queue = relayDispatchQueues.get(scope) || { pending: [], active: 0, concurrency: relayPipelineDispatchCapacity(config.queueConcurrencyLimit) };
+  queue.concurrency = relayPipelineDispatchCapacity(config.queueConcurrencyLimit);
   relayDispatchQueues.set(scope, queue);
   const epoch = currentQueueCancellationEpoch(job.chatId, userId);
   const promise = new Promise((resolve) => {
@@ -161595,72 +161697,88 @@ async function runJob(job, options, userId) {
       if (!record4)
         throw new JobCancelledError;
       const highResMode = options.highResMode ?? (options.reparse ? config.highResMode : record4.highResMode ?? config.highResMode);
-      failureStage = "provider-validation";
-      const imagePlan = await raceWithAbort(prepareImagePlan(config, job, record4, options.nativeSnapshot, userId, highResMode), options.signal);
-      await mutateJobState(job, userId, (state) => stampImagePlan(state.slots[key2], imagePlan));
-      scheduleStateBroadcast(userId, job.chatId);
-      if (isJobCancelled(job))
-        throw new JobCancelledError;
-      validateImagePlan(imagePlan);
-      failureStage = "parser-failed";
-      if (isJobCancelled(job))
-        throw new JobCancelledError;
-      const prepared = options.reparse ? await raceWithAbort(parseSlotPrompt(job, slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings, highResMode, options.triggerType === "reparse" || options.triggerType === "intent-regeneration"), options.signal) : resolvedPromptFromRecord(record4, config);
-      if (isJobCancelled(job))
-        throw new JobCancelledError;
-      enrichPromptPipelineWithImagePlan(prepared.promptPipeline, imagePlan, prepared.prompt, prepared.negativePrompt);
-      const attemptNumber = await mutateJobState(job, userId, (state) => {
-        const stored = state.slots[key2];
-        stored.resolvedPositivePrompt = prepared.prompt;
-        stored.resolvedNegativePrompt = prepared.negativePrompt;
-        stored.promptMode = prepared.promptMode;
-        stored.promptPresetId = prepared.promptPresetId;
-        stored.parserConnectionId = prepared.parserConnectionId;
-        stored.parserModel = prepared.parserModel;
-        stored.parserParameters = prepared.parserParameters;
-        stored.promptPipeline = prepared.promptPipeline;
-        updateBackgroundTask(state, backgroundTaskId, { stage: "composing-prompt", statusText: "Composing prompt 2/3", current: 2, total: 3 });
-        appendStateLog(state, {
-          severity: "info",
-          stage: "parser-response",
-          eventType: "parser_completed",
-          chatId: job.chatId,
-          messageId: job.messageId,
-          swipeId: job.swipeId,
-          requestId: job.requestId,
-          slot,
-          target: job.target,
-          attemptNumber: stored.attemptNumber,
-          triggerType: options.triggerType,
-          provider: stored.imageProvider,
-          connectionId: stored.imageConnectionId,
-          connectionName: stored.imageConnectionName,
-          model: stored.imageModel,
-          message: "Prompt parsing completed."
+      const releasePreparationWorker = await acquirePromptPreparationWorker(userId, config.queueConcurrencyLimit, options.signal);
+      let imagePlan;
+      let prepared;
+      let attemptNumber;
+      try {
+        failureStage = "provider-validation";
+        imagePlan = await raceWithAbort(prepareImagePlan(config, job, record4, options.nativeSnapshot, userId, highResMode), options.signal);
+        await mutateJobState(job, userId, (state) => stampImagePlan(state.slots[key2], imagePlan));
+        scheduleStateBroadcast(userId, job.chatId);
+        if (isJobCancelled(job))
+          throw new JobCancelledError;
+        validateImagePlan(imagePlan);
+        failureStage = "parser-failed";
+        if (isJobCancelled(job))
+          throw new JobCancelledError;
+        prepared = options.reparse ? await raceWithAbort(parseSlotPrompt(job, slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings, highResMode, options.triggerType === "reparse" || options.triggerType === "intent-regeneration"), options.signal) : resolvedPromptFromRecord(record4, config);
+        if (isJobCancelled(job))
+          throw new JobCancelledError;
+        enrichPromptPipelineWithImagePlan(prepared.promptPipeline, imagePlan, prepared.prompt, prepared.negativePrompt);
+        attemptNumber = await mutateJobState(job, userId, (state) => {
+          const now = Date.now();
+          const stored = state.slots[key2];
+          stored.resolvedPositivePrompt = prepared.prompt;
+          stored.resolvedNegativePrompt = prepared.negativePrompt;
+          stored.promptMode = prepared.promptMode;
+          stored.promptPresetId = prepared.promptPresetId;
+          stored.parserConnectionId = prepared.parserConnectionId;
+          stored.parserModel = prepared.parserModel;
+          stored.parserParameters = prepared.parserParameters;
+          stored.promptPipeline = prepared.promptPipeline;
+          stored.preparationCompletedAt = now;
+          stored.providerWaitStartedAt = now;
+          const current = currentAttempt(stored);
+          if (current) {
+            current.preparationCompletedAt = now;
+            current.providerWaitStartedAt = now;
+          }
+          updateBackgroundTask(state, backgroundTaskId, { stage: "composing-prompt", statusText: "Composing prompt 2/3", current: 2, total: 3 });
+          appendStateLog(state, {
+            severity: "info",
+            stage: "parser-response",
+            eventType: "parser_completed",
+            chatId: job.chatId,
+            messageId: job.messageId,
+            swipeId: job.swipeId,
+            requestId: job.requestId,
+            slot,
+            target: job.target,
+            attemptNumber: stored.attemptNumber,
+            triggerType: options.triggerType,
+            provider: stored.imageProvider,
+            connectionId: stored.imageConnectionId,
+            connectionName: stored.imageConnectionName,
+            model: stored.imageModel,
+            message: "Prompt parsing completed."
+          });
+          markSlotStatus(stored, "provider-waiting");
+          updateBackgroundTask(state, backgroundTaskId, { stage: "provider-waiting", statusText: "Waiting for image worker", current: 2, total: 3 });
+          appendStateLog(state, {
+            severity: "info",
+            stage: "provider-waiting",
+            eventType: "provider_waiting",
+            chatId: job.chatId,
+            messageId: job.messageId,
+            swipeId: job.swipeId,
+            requestId: job.requestId,
+            slot,
+            target: job.target,
+            attemptNumber: stored.attemptNumber,
+            triggerType: options.triggerType,
+            provider: stored.imageProvider,
+            connectionId: stored.imageConnectionId,
+            connectionName: stored.imageConnectionName,
+            model: stored.imageModel,
+            message: "Prompt is ready and waiting for serialized ImageGen provider access."
+          });
+          return stored.attemptNumber;
         });
-        markSlotStatus(stored, "provider-waiting");
-        updateBackgroundTask(state, backgroundTaskId, { stage: "provider-waiting", statusText: "Waiting for image worker", current: 2, total: 3 });
-        appendStateLog(state, {
-          severity: "info",
-          stage: "provider-waiting",
-          eventType: "provider_waiting",
-          chatId: job.chatId,
-          messageId: job.messageId,
-          swipeId: job.swipeId,
-          requestId: job.requestId,
-          slot,
-          target: job.target,
-          attemptNumber: stored.attemptNumber,
-          triggerType: options.triggerType,
-          provider: stored.imageProvider,
-          connectionId: stored.imageConnectionId,
-          connectionName: stored.imageConnectionName,
-          model: stored.imageModel,
-          message: "Prompt is ready and waiting for serialized ImageGen provider access."
-        });
-        return stored.attemptNumber;
-      });
-      scheduleStateBroadcast(userId, job.chatId);
+        scheduleStateBroadcast(userId, job.chatId);
+      } finally {
+        releasePreparationWorker();
+      }
       failureStage = "image-generation-failed";
       if (isJobCancelled(job))
         throw new JobCancelledError;
@@ -161680,6 +161798,10 @@ async function runJob(job, options, userId) {
             if (!stored || stored.status !== "provider-waiting")
               return;
             markSlotStatus(stored, "generating");
+            stored.providerStartedAt = stored.generationStartedAt;
+            const current = currentAttempt(stored);
+            if (current)
+              current.providerStartedAt = stored.providerStartedAt;
             updateBackgroundTask(state, backgroundTaskId, { stage: "generating", statusText: "Generating with ImageGen", current: 2, total: 3 });
             appendStateLog(state, {
               severity: "info",
@@ -161701,11 +161823,45 @@ async function runJob(job, options, userId) {
             });
           });
           await sendState(userId, job.chatId);
+        },
+        onProviderCompleted: async (completedAt) => {
+          if (options.signal?.aborted || isJobCancelled(job))
+            return;
+          await mutateJobState(job, userId, (state) => {
+            const stored = state.slots[key2];
+            if (!stored)
+              return;
+            const now = Date.now();
+            stored.providerCompletedAt = completedAt;
+            stored.status = "placement-pending";
+            stored.updatedAt = now;
+            const current = currentAttempt(stored);
+            if (current) {
+              current.providerCompletedAt = completedAt;
+              current.stage = "placement-pending";
+            }
+            updateBackgroundTask(state, backgroundTaskId, { stage: "placing", statusText: `Generated${stored.providerStartedAt ? ` in ${((completedAt - stored.providerStartedAt) / 1000).toFixed(1)}s` : ""} \xB7 saving and placing\u2026`, current: 3, total: 3 });
+          });
+          await sendState(userId, job.chatId);
         }
       });
       if (isJobCancelled(job))
         throw new JobCancelledError;
-      await mutateJobState(job, userId, (state) => updateBackgroundTask(state, backgroundTaskId, { stage: "placing", statusText: "Saving and placing 3/3", current: 3, total: 3 }));
+      await mutateJobState(job, userId, (state) => {
+        const stored = state.slots[key2];
+        const now = Date.now();
+        if (stored) {
+          stored.providerCompletedAt ||= now;
+          stored.status = "placement-pending";
+          stored.updatedAt = now;
+          const current = currentAttempt(stored);
+          if (current) {
+            current.providerCompletedAt ||= stored.providerCompletedAt;
+            current.stage = "placement-pending";
+          }
+        }
+        updateBackgroundTask(state, backgroundTaskId, { stage: "placing", statusText: `Generated${stored?.providerStartedAt ? ` in ${((now - stored.providerStartedAt) / 1000).toFixed(1)}s` : ""} \xB7 placing\u2026`, current: 3, total: 3 });
+      });
       const requestedAspect = cleanString(job.aspect);
       const returnedAspect = cleanString(generated.aspectRatio);
       if (requestedAspect && returnedAspect && !aspectRatioEquivalent(requestedAspect, returnedAspect)) {
@@ -163706,8 +163862,6 @@ function hasStartedUnsettledVisiblePlacement(batch) {
   return batch.entries.some((entry) => (entry.visualSettlements || []).some((settlement) => settlement.required && settlement.started && !settlement.settled));
 }
 function initialPlacementBatchCommitGate(batch, options) {
-  if (options.hasGenerationSibling)
-    return "generation-pending";
   if (hasUnsettledVisiblePlacement(batch) && options.hasVisibleFrontend && (!options.allowSafetyFallback || options.healthyStartedVisual))
     return "visual-pending";
   return "ready";
@@ -163754,6 +163908,19 @@ async function markInitialPlacementBatchForRepair(batch, reason, currentContent,
 async function commitInitialPlacementBatch(batch, userId) {
   if (!batch.entries.length)
     return;
+  const placementStartedAt = Date.now();
+  await mutateState(batch.chatId, userId, (state) => {
+    for (const { job, results } of batch.entries)
+      for (const result of results) {
+        const record4 = state.slots[slotKey({ ...job, slot: result.slot })];
+        if (!record4 || !placementFailureCanReplaceRecord(record4, result))
+          continue;
+        record4.placementStartedAt = placementStartedAt;
+        const attempt = currentAttempt(record4);
+        if (attempt)
+          attempt.placementStartedAt = placementStartedAt;
+      }
+  });
   const message = await resolveHostMessage(batch.chatId, batch.messageId);
   const currentContent = message ? getAuthoritativeSwipeContent(message, batch.swipeId) : "";
   if (!message) {
@@ -163815,12 +163982,7 @@ async function commitInitialPlacementBatch(batch, userId) {
   }
 }
 function placementBatchKey(job, userId) {
-  return `${relayQueueScope(userId)}:${job.chatId}:${job.messageId}:${job.swipeId}`;
-}
-function hasUnsettledPlacementSibling(batch, userId) {
-  const staged = new Set(batch.entries.map((entry) => entry.job.requestId));
-  const queuePrefix = `${relayQueueScope(userId)}:${batch.chatId}:${batch.messageId}:${batch.swipeId}:`;
-  return [...enqueuedRelayJobs.keys()].some((key2) => key2.startsWith(queuePrefix) && !staged.has(key2.slice(queuePrefix.length)));
+  return `${relayQueueScope(userId)}:${job.chatId}:${job.messageId}:${job.swipeId}:${job.requestId}`;
 }
 var PLACEMENT_VISUAL_SETTLEMENT_SAFETY_MS = 30000;
 var PLACEMENT_VISUAL_SESSION_LEASE_MS = 25000;
@@ -163849,7 +164011,7 @@ async function maybeCommitInitialPlacementBatch(job, userId, allowSafetyFallback
       return false;
     const healthyStartedVisual = allowSafetyFallback && hasStartedUnsettledVisiblePlacement(batch) && hasFreshFrontendForChat(batch.chatId, userId);
     const gate = initialPlacementBatchCommitGate(batch, {
-      hasGenerationSibling: hasUnsettledPlacementSibling(batch, userId),
+      hasGenerationSibling: false,
       hasVisibleFrontend: hasConnectedFrontendForChat(batch.chatId, userId),
       allowSafetyFallback,
       healthyStartedVisual
@@ -163916,7 +164078,7 @@ async function stageGeneratedPlacement(job, results, replaceExisting, requireVis
     if (!batch) {
       const message = await resolveHostMessage(job.chatId, job.messageId);
       const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : "";
-      batch = { chatId: job.chatId, messageId: job.messageId, swipeId: job.swipeId, sourceFingerprint: contentFingerprint(content), entries: [] };
+      batch = { chatId: job.chatId, messageId: job.messageId, swipeId: job.swipeId, requestId: job.requestId, sourceFingerprint: contentFingerprint(content), entries: [] };
       pendingPlacementBatches.set(key2, batch);
     }
     await stageInitialPlacementBatchEntry(batch, job, results, replaceExisting, requireVisualSettlement, userId);
@@ -167628,7 +167790,7 @@ function removeConflictingHumanNegatives(value) {
   });
   return { negative: kept.join(", "), removed };
 }
-function c5aIdentityResolution(job, context, corrections = []) {
+function c5aIdentityResolution(job, context, correction) {
   const requirements = c5aCastRequirements(job.cast);
   return {
     requestedCast: job.cast || "unspecified",
@@ -167640,12 +167802,31 @@ function c5aIdentityResolution(job, context, corrections = []) {
       presetId: binding.presetId,
       presetName: binding.presetName,
       prompt: binding.prompt,
+      rawPromptChars: binding.rawPrompt.length,
+      removedSceneFragments: [...binding.removedSceneFragments],
       source: binding.source,
       diagnostics: [...binding.diagnostics]
     })),
     fallbacks: [...context.identityFallbacks],
-    corrections: [...corrections],
+    appliedIdentityBindingIds: correction?.appliedIdentityBindingIds || context.appliedIdentityBindingIds,
+    corrections: [...correction?.corrections || []],
     appearanceRevision: context.appearanceRevision
+  };
+}
+function c5aPromptLengthMetrics(context, correction, finalPrompt) {
+  const structurallyApplied = new Set(context.appliedIdentityBindingIds);
+  const legacyExtraChars = context.identityBindings.reduce((total, binding) => {
+    if (!binding.rawPrompt)
+      return total;
+    const sanitizedChars = binding.prompt.length;
+    const rawChars = binding.rawPrompt.length;
+    return total + Math.max(0, rawChars - sanitizedChars) + (structurallyApplied.has(c5aIdentityBindingId(binding)) ? rawChars : 0);
+  }, 0);
+  return {
+    finalPromptCharsBeforeIdentityFix: finalPrompt.length + legacyExtraChars,
+    finalPromptChars: finalPrompt.length,
+    identityAnchorChars: context.identityBindings.reduce((total, binding) => total + binding.prompt.length, 0),
+    duplicateIdentityFragmentsRemoved: legacyExtraChars
   };
 }
 function c5aIdentityWarnings(context, corrections = []) {
@@ -167668,18 +167849,19 @@ async function buildAuthoritativeVisualPrompt(job, slot, config, context, native
   const classification = context.classification;
   const humanPolicy = targetHumanPolicy(job, classification);
   const profileBase = resolvePromptProfileDecision(job, config);
-  let identityPrompt = job.originalSceneBrief;
+  const sceneFirst = job.target === "prose.illustration";
+  const profiled = applyPromptProfileToPositivePrompt(job.originalSceneBrief, profileBase);
+  let identityPrompt = profiled.prompt;
   if (humanPolicy.allowHumanPrompt) {
-    identityPrompt = enforceVisualSubjectIdentity(identityPrompt, context.visualSubjects, job.target === "prose.illustration");
+    identityPrompt = enforceVisualSubjectIdentity(identityPrompt, context.visualSubjects, sceneFirst);
     if (!context.visualSubjects.length && context.characterContext)
-      identityPrompt = `${identityPrompt}, ${context.characterContext}`;
+      identityPrompt = sceneFirst ? `${identityPrompt}, ${context.characterContext}` : `${context.characterContext}, ${identityPrompt}`;
     if (!context.visualSubjects.length && context.personaContext)
-      identityPrompt = `${identityPrompt}, ${context.personaContext}`;
+      identityPrompt = sceneFirst ? `${identityPrompt}, ${context.personaContext}` : `${context.personaContext}, ${identityPrompt}`;
     if (context.projectedContinuityFactsForPromptAppend.length)
       identityPrompt = mergeAppearancePromptFacts(identityPrompt, context.projectedContinuityFactsForPromptAppend, authoritativeSceneText(job));
   }
-  const profiled = applyPromptProfileToPositivePrompt(identityPrompt, profileBase);
-  const identityCorrection = enforceC5AKnownIdentity(profiled.prompt, context.identityBindings);
+  const identityCorrection = enforceC5AKnownIdentity(identityPrompt, context.identityBindings, context.appliedIdentityBindingIds);
   const finalized = finalizeParsedPositivePrompt(identityCorrection.prompt, classification, job);
   const specialIntent = applySpecialImageIntent(finalized, job.intent, authoritativeSceneText(job));
   const contextualSexual = applyContextualSexualGuidance(specialIntent.prompt, "", authoritativeSceneText(job));
@@ -167742,7 +167924,8 @@ async function buildAuthoritativeVisualPrompt(job, slot, config, context, native
     attachedReferenceAssetIds: context.attachedReferenceAssetIds,
     continuityConflicts: context.continuityConflicts,
     continuityStrength: context.continuityStrength,
-    identityResolution: c5aIdentityResolution(job, context, identityCorrection.corrections),
+    identityResolution: c5aIdentityResolution(job, context, identityCorrection),
+    ...c5aPromptLengthMetrics(context, identityCorrection, contextualSexual.prompt),
     warnings: [
       ...c5aIdentityWarnings(context, identityCorrection.corrections),
       ...humanConflict.removed.length ? [{ code: "human-negative-conflict-repaired", message: `Removed generic human-suppression negatives from an explicit people scene: ${humanConflict.removed.join(", ")}`, sources: ["defensive prompt conflict check"] }] : []
@@ -167809,10 +167992,10 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
     const authoritativeScene = authoritativeSceneText(job);
     const composedSexualEscalationRejected = hasUnrequestedExplicitEscalation(authoritativeScene, job.composedPositivePrompt);
     const safeComposedPrompt = composedSexualEscalationRejected ? job.originalSceneBrief : job.composedPositivePrompt;
-    const identityPrompt = humanPolicy.allowHumanPrompt ? enforceVisualSubjectIdentity(safeComposedPrompt, context2.visualSubjects, job.target === "prose.illustration") : safeComposedPrompt;
+    const profiled = applyPromptProfileToPositivePrompt(safeComposedPrompt, profile);
+    const identityPrompt = humanPolicy.allowHumanPrompt ? enforceVisualSubjectIdentity(profiled.prompt, context2.visualSubjects, job.target === "prose.illustration") : profiled.prompt;
     const promptWithAppearance = humanPolicy.allowHumanPrompt && context2.projectedContinuityFactsForPromptAppend.length ? mergeAppearancePromptFacts(identityPrompt, context2.projectedContinuityFactsForPromptAppend, authoritativeScene) : identityPrompt;
-    const profiled = applyPromptProfileToPositivePrompt(promptWithAppearance, profile);
-    const identityCorrection = enforceC5AKnownIdentity(profiled.prompt, context2.identityBindings);
+    const identityCorrection = enforceC5AKnownIdentity(promptWithAppearance, context2.identityBindings, context2.appliedIdentityBindingIds);
     const finalizedPositivePrompt = finalizeParsedPositivePrompt(identityCorrection.prompt, classification, job);
     const specialIntent = applySpecialImageIntent(finalizedPositivePrompt, job.intent, authoritativeScene);
     const contextualSexual = applyContextualSexualGuidance(specialIntent.prompt, job.composedNegativePrompt || "", authoritativeScene);
@@ -167883,7 +168066,8 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
       attachedReferenceAssetIds: [...new Set([...job.prosePromptComposition?.referenceAssetIdsUsed || [], ...context2.attachedReferenceAssetIds])],
       continuityConflicts: context2.continuityConflicts,
       continuityStrength: context2.continuityStrength,
-      identityResolution: c5aIdentityResolution(job, context2, identityCorrection.corrections),
+      identityResolution: c5aIdentityResolution(job, context2, identityCorrection),
+      ...c5aPromptLengthMetrics(context2, identityCorrection, positivePrompt),
       warnings: [
         ...c5aIdentityWarnings(context2, identityCorrection.corrections),
         ...job.prosePromptComposition?.warnings?.map((message) => ({ code: "sidecar-composer-warning", message, sources: ["Sidecar prompt composer"] })) || [],
@@ -167965,10 +168149,10 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
             throw new Error(`Parser returned human-contaminated prompt for ${humanPolicy.targetClass} target after repair: ${remaining.join(", ")}`);
         }
       }
-      const identityPrompt = humanPolicy.allowHumanPrompt ? enforceVisualSubjectIdentity(parsed.prompt, context.visualSubjects, job.target === "prose.illustration") : parsed.prompt;
       const profileBase = resolvePromptProfileDecision(job, config);
-      const profiled = applyPromptProfileToPositivePrompt(identityPrompt, profileBase);
-      const identityCorrection = enforceC5AKnownIdentity(profiled.prompt, context.identityBindings);
+      const profiled = applyPromptProfileToPositivePrompt(parsed.prompt, profileBase);
+      const identityPrompt = humanPolicy.allowHumanPrompt ? enforceVisualSubjectIdentity(profiled.prompt, context.visualSubjects, job.target === "prose.illustration") : profiled.prompt;
+      const identityCorrection = enforceC5AKnownIdentity(identityPrompt, context.identityBindings, context.appliedIdentityBindingIds);
       const finalizedPositivePrompt = finalizeParsedPositivePrompt(identityCorrection.prompt, context.classification, job);
       const specialIntent = applySpecialImageIntent(finalizedPositivePrompt, job.intent, authoritativeScene);
       const contextualSexual = applyContextualSexualGuidance(specialIntent.prompt, cleanString(parsed.negativeAdditions), authoritativeScene);
@@ -168033,7 +168217,8 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
         attachedReferenceAssetIds: context.attachedReferenceAssetIds,
         continuityConflicts: context.continuityConflicts,
         continuityStrength: context.continuityStrength,
-        identityResolution: c5aIdentityResolution(job, context, identityCorrection.corrections),
+        identityResolution: c5aIdentityResolution(job, context, identityCorrection),
+        ...c5aPromptLengthMetrics(context, identityCorrection, positivePrompt),
         warnings: []
       };
       const pipeline = {
@@ -168251,6 +168436,9 @@ async function generateImage(chatId, prepared, plan, userId, streamContext, owne
   prepared.promptPipeline.scenePromptBeforePrefix = assembled.scenePromptBeforePrefix;
   prepared.promptPipeline.finalProviderPrompt = effectivePrompt;
   prepared.promptPipeline.finalProviderNegativePrompt = assembled.negativePrompt;
+  const identityFixSavings = Math.max(0, Number(prepared.promptPipeline.finalPromptCharsBeforeIdentityFix || 0) - Number(prepared.promptPipeline.finalPromptChars || 0));
+  prepared.promptPipeline.finalPromptChars = effectivePrompt.length;
+  prepared.promptPipeline.finalPromptCharsBeforeIdentityFix = effectivePrompt.length + identityFixSavings;
   const parameters = buildImageParameters(plan, effectivePrepared);
   assertProviderRequestSafe(effectivePrompt, effectivePrepared.negativePrompt, parameters);
   const resolvedOwnerChatId = cleanString(ownerChatId || chatId);
@@ -168455,6 +168643,12 @@ function createSlotDiagnostic(job, slot, prepared, generated, promptProfile, int
       slotOverrides: generated.slotOverrides,
       finalImageParameters: generated.finalImageParameters,
       finalProviderRequest: generated.finalImageRequest,
+      promptMetrics: {
+        finalPromptCharsBeforeIdentityFix: prepared.promptPipeline.finalPromptCharsBeforeIdentityFix || prepared.prompt.length,
+        finalPromptChars: prepared.promptPipeline.finalPromptChars || prepared.prompt.length,
+        identityAnchorChars: prepared.promptPipeline.identityAnchorChars || 0,
+        duplicateIdentityFragmentsRemoved: prepared.promptPipeline.duplicateIdentityFragmentsRemoved || 0
+      },
       placementStrategy: "exact slot marker or original request replacement",
       fallbackDecisions: prepared.promptPipeline.warnings
     },
@@ -169212,6 +169406,12 @@ async function buildParserContext(job, messages, targetIndex, config, _userId, n
     const key2 = cleanString(subject.id || subject.name).toLocaleLowerCase().replace(/[\s_-]+/g, "");
     return Boolean(key2) && all.findIndex((candidate) => cleanString(candidate.id || candidate.name).toLocaleLowerCase().replace(/[\s_-]+/g, "") === key2) === index;
   }) : matchedSubjects;
+  const appliedIdentityBindingIds = identityBindings.filter((binding) => visualSubjects.some((subject) => {
+    if (subject.kind !== binding.kind)
+      return false;
+    const subjectKeys = [subject.id, subject.name].map(identityKey).filter(Boolean);
+    return subjectKeys.includes(identityKey(binding.subjectId)) || subjectKeys.includes(identityKey(binding.subjectName));
+  })).map(c5aIdentityBindingId);
   await ensureCanonicalSubjectsForGeneration(job.chatId, visualSubjects, _userId);
   const namedSubjectContext = formatVisualSubjectPrompts(visualSubjects);
   const visualSubjectNegativePrompt = visualSubjects.map((subject) => subject.negativePrompt).filter(Boolean).join(", ");
@@ -169330,6 +169530,7 @@ ${noHumanParserPolicyInstruction(humanPolicy)}`);
     continuityConflicts: continuity.conflicts,
     continuityStrength: continuity.strength,
     identityBindings,
+    appliedIdentityBindingIds,
     identityFallbacks,
     appearanceRevision: state.continuityVault.updatedAt || 0
   };
@@ -169511,7 +169712,8 @@ function buildParserFallbackPrompt(job, slot, config, context, nativeSettings, c
     targetFramingInstruction(job.target, classification),
     slotDescription(job, slot)
   ].filter(Boolean).join(", ");
-  let identityPrompt = humanPolicy.allowHumanPrompt ? enforceVisualSubjectIdentity(visibleBase, context.visualSubjects, job.target === "prose.illustration") : visibleBase;
+  const profiled = applyPromptProfileToPositivePrompt(visibleBase, profileBase);
+  let identityPrompt = humanPolicy.allowHumanPrompt ? enforceVisualSubjectIdentity(profiled.prompt, context.visualSubjects, job.target === "prose.illustration") : profiled.prompt;
   if (humanPolicy.allowHumanPrompt && !context.visualSubjects.length && context.characterContext) {
     identityPrompt = `${context.characterContext}, ${identityPrompt}`;
   }
@@ -169521,8 +169723,7 @@ function buildParserFallbackPrompt(job, slot, config, context, nativeSettings, c
   if (humanPolicy.allowHumanPrompt && context.projectedContinuityFactsForPromptAppend.length) {
     identityPrompt = mergeAppearancePromptFacts(identityPrompt, context.projectedContinuityFactsForPromptAppend, authoritativeSceneText(job));
   }
-  const profiled = applyPromptProfileToPositivePrompt(identityPrompt, profileBase);
-  const identityCorrection = enforceC5AKnownIdentity(profiled.prompt, context.identityBindings);
+  const identityCorrection = enforceC5AKnownIdentity(identityPrompt, context.identityBindings, context.appliedIdentityBindingIds);
   const finalizedPositivePrompt = finalizeParsedPositivePrompt(identityCorrection.prompt, classification, job);
   const authoritativeScene = authoritativeSceneText(job);
   const specialIntent = applySpecialImageIntent(finalizedPositivePrompt, job.intent, authoritativeScene);
@@ -169589,7 +169790,8 @@ function buildParserFallbackPrompt(job, slot, config, context, nativeSettings, c
     attachedReferenceAssetIds: context.attachedReferenceAssetIds,
     continuityConflicts: context.continuityConflicts,
     continuityStrength: context.continuityStrength,
-    identityResolution: c5aIdentityResolution(job, context, identityCorrection.corrections),
+    identityResolution: c5aIdentityResolution(job, context, identityCorrection),
+    ...c5aPromptLengthMetrics(context, identityCorrection, positivePrompt),
     warnings: [
       ...normalized2.pipeline.warnings,
       ...c5aIdentityWarnings(context, identityCorrection.corrections),
@@ -170220,6 +170422,13 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
       if (timer)
         clearTimeout(timer);
     };
+    const reportProviderCompleted = () => {
+      Promise.resolve(context.onProviderCompleted?.(Date.now())).catch((error) => {
+        spindle.log.warn(`[ReverieRelay:provider_completion_reporting_failure] ${context.generationId}: ${error instanceof Error ? error.message : String(error)}`);
+        if (handleChatBoundAsyncError("provider_completion_reporting", context.chatId, userId, error))
+          diagnostic.destinationAvailable = false;
+      });
+    };
     const startProviderSpend = (transport) => {
       if (diagnostic.providerDispatchCount !== 0) {
         throw new Error(`Provider dispatch invariant violated for ${context.generationId}; Relay refused generation #${diagnostic.providerDispatchCount + 1}.`);
@@ -170253,6 +170462,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
         const result2 = await withImageGenerationDeadline(() => providerOperation2, controller, timeoutMs);
         await settleProviderLifecycleReporting();
         assertDestinationAvailable();
+        reportProviderCompleted();
         return result2;
       } catch (error) {
         if (!providerSettled2 && laneLease && (controller.signal.aborted || error instanceof ImageGenerationTimeoutError || isAbortError(error))) {
@@ -170359,6 +170569,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
       throw new Error("Streaming ImageGen completed without a terminal result. Relay will not start a second provider generation after spend.");
     await settleProviderLifecycleReporting();
     assertDestinationAvailable();
+    reportProviderCompleted();
     sendImageStreamEvent(userId, context, { event: "done", streaming: canStream, statusText: "Generation complete." });
     assertDestinationAvailable();
     return result;
@@ -170498,6 +170709,7 @@ async function exportQueueDispatchDiagnostic(chatId, userId) {
   const config = await getConfig(userId);
   const broker = nativeSettingsBroker(userId);
   const dispatchQueue = relayDispatchQueues.get(relayQueueScope(userId));
+  const preparationLane = promptPreparationLanes.get(relayQueueScope(userId));
   const snapshot = nativeSnapshotFromConfig(config);
   const freshness = classifyNativeSettings(snapshot?.capturedAt);
   const now = Date.now();
@@ -170517,7 +170729,8 @@ async function exportQueueDispatchDiagnostic(chatId, userId) {
       awaitingNativeSettingsMs: record4.status === "awaiting-native-settings" ? Math.max(0, now - (record4.queuedAt || record4.discoveredAt || record4.createdAt)) : 0,
       settingsSource: lease?.settingsSource || freshness.source,
       settingsAgeMs: Number.isFinite(lease?.settingsAgeMs) ? lease.settingsAgeMs : freshness.ageMs,
-      dispatchReason: lease?.dispatchReason || ""
+      dispatchReason: lease?.dispatchReason || "",
+      timing: generationTimingForRecord(record4, now)
     };
   });
   spindle.sendToFrontend({
@@ -170539,7 +170752,10 @@ async function exportQueueDispatchDiagnostic(chatId, userId) {
       relayDispatchQueue: {
         active: dispatchQueue?.active || 0,
         pending: dispatchQueue?.pending.length || 0,
-        concurrency: dispatchQueue?.concurrency || config.queueConcurrencyLimit
+        concurrency: dispatchQueue?.concurrency || relayPipelineDispatchCapacity(config.queueConcurrencyLimit),
+        preparationConcurrency: preparationLane?.limit || config.queueConcurrencyLimit,
+        activePreparations: preparationLane?.active || 0,
+        preparationWaiters: preparationLane?.waiters.length || 0
       },
       providerLane: inspectImageGenerationLaneDiagnostics(userId),
       imageWorkerRecovery: imageWorkerRecoveryState(userId),
@@ -172027,6 +172243,7 @@ function applyGeneration(state, record4, result, now) {
   record4.triggerType = result.triggerType;
   record4.updatedAt = now;
   record4.completedAt = now;
+  record4.placementCompletedAt = now;
   if (!state.countedCompletedKeys[record4.key]) {
     state.countedCompletedKeys[record4.key] = now;
     state.stats.completedTotal += 1;
@@ -172044,6 +172261,8 @@ function applyGeneration(state, record4, result, now) {
   }
   commitSlotAssetVersion(state, record4, result, snapshot, now);
   finishAttempt(record4, "completed", now);
+  if (record4.diagnostic)
+    record4.diagnostic.relayInferred.timing = generationTimingForRecord(record4, now);
   updateQueueSafetySummary(state, now);
 }
 async function withPlacementMutationLock(job, action) {
@@ -172149,6 +172368,7 @@ function markJobStatus(state, job, status, triggerType) {
       record4.triggerType = triggerType;
       record4.lastAttemptAt = now;
       record4.parsingStartedAt = now;
+      record4.preparationStartedAt = now;
       if (triggerType === "retry")
         record4.lastRetriedAt = now;
       if (triggerType === "reparse")
@@ -172163,6 +172383,7 @@ function markJobStatus(state, job, status, triggerType) {
         triggerType: triggerType || "initial",
         startedAt: now,
         parsingStartedAt: now,
+        preparationStartedAt: now,
         stage: "parser",
         error: null
       });
@@ -172187,6 +172408,36 @@ function markSlotStatus(record4, status) {
 function currentAttempt(record4) {
   return record4.attempts?.[record4.attempts.length - 1];
 }
+function generationTimingForRecord(record4, now = Date.now()) {
+  const queuedAt = record4.queuedAt || 0;
+  const preparationStartedAt = record4.preparationStartedAt || record4.parsingStartedAt || 0;
+  const preparationCompletedAt = record4.preparationCompletedAt || 0;
+  const providerWaitStartedAt = record4.providerWaitStartedAt || preparationCompletedAt;
+  const providerStartedAt = record4.providerStartedAt || record4.generationStartedAt || 0;
+  const providerCompletedAt = record4.providerCompletedAt || 0;
+  const placementStartedAt = record4.placementStartedAt || 0;
+  const placementCompletedAt = record4.placementCompletedAt || record4.completedAt || 0;
+  const end = record4.completedAt || now;
+  const elapsed = (start, finish) => start && finish ? Math.max(0, finish - start) : 0;
+  return {
+    queuedAt,
+    preparationStartedAt,
+    preparationCompletedAt,
+    providerWaitStartedAt,
+    providerStartedAt,
+    providerCompletedAt,
+    placementStartedAt,
+    placementCompletedAt,
+    completedAt: record4.completedAt || 0,
+    dispatchQueueWaitMs: elapsed(queuedAt, preparationStartedAt),
+    preparationMs: elapsed(preparationStartedAt, preparationCompletedAt),
+    providerWaitMs: elapsed(providerWaitStartedAt, providerStartedAt),
+    providerExecutionMs: elapsed(providerStartedAt, providerCompletedAt),
+    placementWaitMs: elapsed(providerCompletedAt, placementStartedAt || (providerCompletedAt ? now : 0)),
+    placementMutationMs: elapsed(placementStartedAt, placementCompletedAt),
+    totalMs: elapsed(queuedAt, end)
+  };
+}
 function finishAttempt(record4, stage, now, error) {
   const attempt = currentAttempt(record4);
   if (!attempt)
@@ -172199,7 +172450,9 @@ function finishAttempt(record4, stage, now, error) {
     attempt.failedAt = now;
   if (stage === "cancelled")
     attempt.cancelledAt = now;
-  attempt.durationMs = Math.max(0, now - attempt.startedAt);
+  const timing = generationTimingForRecord(record4, now);
+  Object.assign(attempt, timing);
+  attempt.durationMs = timing.providerExecutionMs;
 }
 function resolvedPromptFromRecord(record4, config) {
   if (!record4.resolvedPositivePrompt)
@@ -172897,8 +173150,19 @@ function applyPromptProfileToPositivePrompt(prompt, decision) {
       });
     }
   }
-  if (decision.promptAdditions)
-    next = `${next}, ${decision.promptAdditions}`;
+  let promptAdditions = decision.promptAdditions;
+  const authoredCamera = /\b(?:extreme close[- ]?up|close[- ]?up|medium shot|wide shot|long shot|full[- ]body shot|cowboy shot|over[- ]the[- ]shoulder|low angle|high angle|profile shot|profile view|bird'?s[- ]eye|worm'?s[- ]eye)\b/i.test(prompt);
+  if (authoredCamera && promptAdditions) {
+    const retained = promptAdditions.split(",").map((fragment) => fragment.trim()).filter(Boolean).filter((fragment) => {
+      if (!/^medium or wide story framing by default$/i.test(fragment))
+        return true;
+      removed.push({ fragment, reason: "Authored camera framing overrides the generic Cinematic Scene default." });
+      return false;
+    });
+    promptAdditions = retained.join(", ");
+  }
+  if (promptAdditions)
+    next = `${next}, ${promptAdditions}`;
   return {
     prompt: next.split(",").map((part) => part.trim()).filter(Boolean).join(", "),
     decision: { ...decision, removedPositiveFragments: removed }
@@ -173566,10 +173830,12 @@ export {
   replaceCharacterMacro,
   repairSelfieDeviceContamination,
   removeConflictingHumanNegatives,
+  relayPipelineDispatchCapacity,
   relayMediaPersistencePatch,
   registerDirectHostAppearanceSources,
   proseAnalysisText,
   placementIsPresent,
+  placementBatchKey,
   parseSlotPrompt,
   parseSafeSurfaceImageRequests,
   parsePromptJson,
@@ -173602,6 +173868,7 @@ export {
   hasUnrequestedExplicitEscalation,
   hasExplicitNoHumanIntent,
   getConfig,
+  generationTimingForRecord,
   generateWithOptionalStream,
   generateParserText,
   finalizeParsedPositivePrompt,
@@ -173641,6 +173908,7 @@ export {
   applyRelaySettingsPatchToConfig,
   applyPromptProfileToPositivePrompt,
   applyLorasToProviderParameters,
+  acquirePromptPreparationWorker,
   abortImageStreamsForChat,
   abortImageStream,
   SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS,

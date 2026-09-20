@@ -1056,11 +1056,25 @@ export type AttemptHistoryEntry = {
   triggerType: TriggerType
   startedAt: number
   parsingStartedAt?: number
+  preparationStartedAt?: number
+  preparationCompletedAt?: number
+  providerWaitStartedAt?: number
+  providerStartedAt?: number
+  providerCompletedAt?: number
+  placementStartedAt?: number
+  placementCompletedAt?: number
   generationStartedAt?: number
   completedAt?: number
   failedAt?: number
   cancelledAt?: number
   durationMs?: number
+  dispatchQueueWaitMs?: number
+  preparationMs?: number
+  providerWaitMs?: number
+  providerExecutionMs?: number
+  placementWaitMs?: number
+  placementMutationMs?: number
+  totalMs?: number
   stage: 'queued' | 'parser' | 'image-generation' | 'placement-pending' | 'placement-repair-needed' | 'completed' | 'failed' | 'cancelled'
   error?: string | null
 }
@@ -1079,6 +1093,10 @@ export type PromptPipeline = {
   scenePromptBeforePrefix?: string
   finalProviderPrompt?: string
   finalProviderNegativePrompt?: string
+  finalPromptCharsBeforeIdentityFix?: number
+  finalPromptChars?: number
+  identityAnchorChars?: number
+  duplicateIdentityFragmentsRemoved?: number
   contextCaption?: string
   nativeNegativePrompt: string
   requestNegativePrompt: string
@@ -1150,7 +1168,8 @@ export type PromptPipeline = {
   identityResolution?: {
     requestedCast: string
     effectiveRequiredCast: string[]
-    bindings: Array<{ kind: string; subjectId: string; subjectName: string; presetId: string; presetName: string; prompt: string; source: string; diagnostics: string[] }>
+    bindings: Array<{ kind: string; subjectId: string; subjectName: string; presetId: string; presetName: string; prompt: string; rawPromptChars?: number; removedSceneFragments?: string[]; source: string; diagnostics: string[] }>
+    appliedIdentityBindingIds?: string[]
     fallbacks: string[]
     corrections: string[]
     appearanceRevision: number
@@ -1260,6 +1279,13 @@ export type SlotRecord = {
   registeredAt?: number
   queuedAt?: number
   parsingStartedAt?: number
+  preparationStartedAt?: number
+  preparationCompletedAt?: number
+  providerWaitStartedAt?: number
+  providerStartedAt?: number
+  providerCompletedAt?: number
+  placementStartedAt?: number
+  placementCompletedAt?: number
   generationStartedAt?: number
   failedAt?: number
   completedAt?: number

@@ -12,6 +12,8 @@ export type C5ANativeIdentityBinding = {
   presetId: string
   presetName: string
   prompt: string
+  rawPrompt: string
+  removedSceneFragments: string[]
   negativePrompt: string
   source: 'active-binding' | 'snapshot-binding' | 'direct-snapshot' | 'unresolved'
   diagnostics: string[]
@@ -25,6 +27,9 @@ export type C5ACastRequirements = {
 export type C5AIdentityCorrection = {
   prompt: string
   corrections: string[]
+  appliedIdentityBindingIds: string[]
+  identityAnchorChars: number
+  duplicateIdentityFragmentsRemoved: number
 }
 
 type UnknownRecord = Record<string, unknown>
@@ -47,6 +52,43 @@ function first(...values: unknown[]): string {
 
 function normalized(value: unknown): string {
   return clean(value).toLocaleLowerCase().replace(/[\s_-]+/g, '')
+}
+
+const C5A_SCENE_DEPENDENT_FRAGMENT_PATTERNS: RegExp[] = [
+  /^(?:solo|[1-9]\s*(?:boy|girl|man|woman|person|people)s?|[1-9](?:boy|girl)s?)$/i,
+  /\b(?:looking (?:at|toward|into|away|up|down)|direct (?:camera )?gaze|eye contact|gaze direction|facing (?:the )?camera)\b/i,
+  /\b(?:smirk(?:ing)?|smil(?:e|ing)|frown(?:ing)?|temporary expression|charismatic expression|angry expression|sad expression|happy expression)\b/i,
+  /\b(?:swimming|standing|sitting|seated|kneeling|lying|reclining|walking|running|jumping|fighting|dancing|holding|gripping|reaching|gesture|dynamic pose|graceful pose|action pose)\b/i,
+  /\b(?:close[- ]?up|medium shot|wide shot|full body shot|cowboy shot|over[- ]the[- ]shoulder|low angle|high angle|camera angle|composition|framing|portrait)\b/i,
+  /\b(?:background|environment|cave|cavern|palace|kingdom|forest|cityscape|bedroom|beach|coral|plants?)\b/i,
+  /\b(?:lighting|rim light|light rays?|bokeh|depth of field|atmosphere|backlit|volumetric light|cinematic light)\b/i,
+  /\b(?:anime|manga|manhwa|photorealistic|illustration style|art style|oil painting|watercolor)\b/i,
+  /\b(?:masterpiece|best quality|high quality|ultra[- ]detailed|absurdres|highres|8k|4k)\b/i,
+]
+
+/** Project a native Character/Persona preset down to facts that remain true
+ * when the scene, camera, action, expression, and rendering style change. */
+export function sanitizeC5AIdentityPrompt(prompt: string): { prompt: string; removed: string[] } {
+  const kept: string[] = []
+  const removed: string[] = []
+  const seen = new Set<string>()
+  for (const rawFragment of clean(prompt).split(/[,;\n]+/)) {
+    const fragment = rawFragment.trim().replace(/\s+/g, ' ')
+    if (!fragment) continue
+    if (C5A_SCENE_DEPENDENT_FRAGMENT_PATTERNS.some(pattern => pattern.test(fragment))) {
+      removed.push(fragment)
+      continue
+    }
+    const key = normalized(fragment)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    kept.push(fragment)
+  }
+  return { prompt: kept.join(', '), removed }
+}
+
+export function c5aIdentityBindingId(binding: Pick<C5ANativeIdentityBinding, 'kind' | 'presetId' | 'subjectId' | 'subjectName'>): string {
+  return `${binding.kind}:${normalized(binding.presetId) || normalized(binding.subjectId) || normalized(binding.subjectName)}`
 }
 
 function bindingFromValue(value: unknown, subjectId: string): UnknownRecord {
@@ -117,7 +159,9 @@ export function resolveC5ANativeIdentityBinding(
     settings[`bound${capitalized}Prompt`],
     settings[`resolved${capitalized}Prompt`],
   )
-  const prompt = first(preset.prompt, directPrompt)
+  const rawPrompt = first(preset.prompt, directPrompt)
+  const identityProjection = sanitizeC5AIdentityPrompt(rawPrompt)
+  const prompt = identityProjection.prompt
   const directNegativePrompt = first(
     binding.negativePrompt,
     binding.negative_prompt,
@@ -130,7 +174,7 @@ export function resolveC5ANativeIdentityBinding(
 
   if (presetId && prompt) {
     return {
-      kind, subjectId, subjectName, presetId, presetName, prompt, negativePrompt,
+      kind, subjectId, subjectName, presetId, presetName, prompt, rawPrompt, removedSceneFragments: identityProjection.removed, negativePrompt,
       source: Object.keys(binding).length ? 'active-binding' : 'snapshot-binding',
       diagnostics,
     }
@@ -138,13 +182,13 @@ export function resolveC5ANativeIdentityBinding(
   if (directPrompt) {
     diagnostics.push(`${kind} binding exposed a resolved prompt without a preset id.`)
     return {
-      kind, subjectId, subjectName, presetId: '', presetName: '', prompt: directPrompt, negativePrompt: directNegativePrompt,
+      kind, subjectId, subjectName, presetId: '', presetName: '', prompt, rawPrompt, removedSceneFragments: identityProjection.removed, negativePrompt: directNegativePrompt,
       source: 'direct-snapshot', diagnostics,
     }
   }
   if (presetId) diagnostics.push(`Bound ${kind} preset "${presetId}" was not present in the native snapshot.`)
   else diagnostics.push(`No active ${kind} preset binding was available in the native snapshot.`)
-  return { kind, subjectId, subjectName, presetId, presetName, prompt: '', negativePrompt, source: 'unresolved', diagnostics }
+  return { kind, subjectId, subjectName, presetId, presetName, prompt: '', rawPrompt, removedSceneFragments: identityProjection.removed, negativePrompt, source: 'unresolved', diagnostics }
 }
 
 export function c5aCastRequirements(cast: string | undefined): C5ACastRequirements {
@@ -152,12 +196,6 @@ export function c5aCastRequirements(cast: string | undefined): C5ACastRequiremen
     character: cast === 'char' || cast === 'char+user',
     persona: cast === 'user' || cast === 'char+user',
   }
-}
-
-function promptHasIdentity(prompt: string, identity: string): boolean {
-  const normalizedPrompt = normalized(prompt)
-  const normalizedIdentity = normalized(identity)
-  return normalizedIdentity.length > 12 && normalizedPrompt.includes(normalizedIdentity)
 }
 
 /**
@@ -168,9 +206,11 @@ function promptHasIdentity(prompt: string, identity: string): boolean {
 export function enforceC5AKnownIdentity(
   prompt: string,
   bindings: C5ANativeIdentityBinding[],
+  appliedIdentityBindingIds: Iterable<string> = [],
 ): C5AIdentityCorrection {
   const known = bindings.filter(binding => Boolean(binding.prompt))
-  if (!known.length) return { prompt, corrections: [] }
+  const structurallyApplied = new Set(appliedIdentityBindingIds)
+  if (!known.length) return { prompt, corrections: [], appliedIdentityBindingIds: [...structurallyApplied], identityAnchorChars: 0, duplicateIdentityFragmentsRemoved: 0 }
   let next = prompt
   const corrections: string[] = []
   const character = known.find(binding => binding.kind === 'character')
@@ -188,12 +228,22 @@ export function enforceC5AKnownIdentity(
       .trim()
     if (next !== before) corrections.push('Removed a Story Model gender/cardinality phrase that conflicted with the active Character + Persona bindings.')
   }
+  const duplicateIdentityFragmentsRemoved = known
+    .filter(binding => structurallyApplied.has(c5aIdentityBindingId(binding)))
+    .reduce((total, binding) => total + binding.prompt.length, 0)
   const anchors = known
-    .filter(binding => !promptHasIdentity(next, binding.prompt))
+    .filter(binding => !structurallyApplied.has(c5aIdentityBindingId(binding)))
     .map(binding => `${binding.kind === 'character' ? 'Active Character' : 'Active Persona'} (${binding.subjectName}): ${binding.prompt}`)
   if (anchors.length) {
-    next = `${anchors.join(', ')}, ${next}`.replace(/\s*,\s*,+/g, ', ').trim()
+    next = `${next}, ${anchors.join(', ')}`.replace(/\s*,\s*,+/g, ', ').trim()
     corrections.push(`Applied ${anchors.length} authoritative native identity anchor${anchors.length === 1 ? '' : 's'}.`)
   }
-  return { prompt: next, corrections }
+  for (const binding of known) structurallyApplied.add(c5aIdentityBindingId(binding))
+  return {
+    prompt: next,
+    corrections,
+    appliedIdentityBindingIds: [...structurallyApplied],
+    identityAnchorChars: anchors.join(', ').length,
+    duplicateIdentityFragmentsRemoved,
+  }
 }

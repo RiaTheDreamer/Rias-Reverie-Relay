@@ -38,6 +38,44 @@ for (const mode of ['scene-snapshot', 'sequence', 'emotional-beat', 'solo-scene'
   assert(prepared.prompt.indexOf('side-on medium shot') < prepared.prompt.indexOf('black hair'), `${mode}: identity displaced the composed camera`)
   assert(!prepared.prompt.includes('FRAMING') && !prepared.prompt.includes('Do not') && !prepared.prompt.includes('Instagram-model'), `${mode}: instruction text reached provider prompt`)
 }
+
+// Reproduce the live C5A failure: a scene request must lead, while a native
+// Character preset contributes identity only once and cannot smuggle its old
+// pose, gaze, environment, lighting, style, or quality boilerplate ahead of it.
+const descentScene = '2people, volcanic cave interior, male siren prince using iron pry-bar to lift circular carved stone hatch from floor, glowing green-blue water visible in deep shaft below, steam rising, female human with long blonde hair watching intently while holding folded fleece wrap, high contrast lighting, tense atmosphere, cinematic medium shot'
+const contaminatedCharacterPreset = '1boy, handsome Korean man, dark slightly wavy hair, warm dark brown eyes, sharp jawline, broad shoulders, athletic swimmer build, pearl-white merman tail, champagne-gold iridescence, deep crimson fin tips, gold bioluminescent markings, royal jewelry, looking toward viewer, charismatic expression, subtle confident smirk, graceful dynamic pose, swimming underwater, underwater palace background, warm rim light, dramatic light rays, manhwa style, masterpiece, best quality'
+const descentJob: any = {
+  chatId: 'offline', messageId: 'm', swipeId: 0, requestId: 'descent-corridor-03', target: 'prose.illustration',
+  slots: ['image'], count: 1, cast: 'char', promptSource: 'visual_prompt',
+  originalSceneBrief: descentScene, originalNegativePrompt: '', originalRequestXml: '', composedPositivePrompt: descentScene,
+}
+const descentPrepared = await backend.parseSlotPrompt(descentJob, 'image', [], 0, { ...config, proseIllustratorSettings: settings }, 'offline', {
+  boundCharacterPreset: { presetId: 'taejun-native', prompt: contaminatedCharacterPreset },
+  includeCharacters: true,
+})
+const descentPrompt = descentPrepared.prompt
+const identityIndex = descentPrompt.indexOf('male subject Alpha')
+assert(identityIndex > 0, 'identity-only Character subject block was not inserted')
+assert(descentPrompt.indexOf('using iron pry-bar') < identityIndex, 'C5A displaced the authoritative scene action')
+assert(descentPrompt.indexOf('cinematic medium shot') < identityIndex, 'C5A displaced the authored camera framing')
+assert(descentPrompt.indexOf('cinematic narrative still') < identityIndex, 'selected Cinematic Scene profile did not precede identity')
+for (const contamination of ['looking toward viewer', 'charismatic expression', 'subtle confident smirk', 'graceful dynamic pose', 'swimming underwater', 'underwater palace background', 'warm rim light', 'dramatic light rays', 'manhwa style', 'masterpiece', 'best quality']) {
+  assert(!descentPrompt.toLocaleLowerCase().includes(contamination), `native Character scene contamination survived: ${contamination}`)
+}
+for (const identityFact of ['handsome Korean man', 'dark slightly wavy hair', 'warm dark brown eyes', 'pearl-white merman tail', 'champagne-gold iridescence', 'gold bioluminescent markings', 'royal jewelry']) {
+  assert(descentPrompt.includes(identityFact), `persistent Character identity was lost: ${identityFact}`)
+}
+assert.equal((descentPrompt.match(/male subject Alpha/g) || []).length, 1, 'Character identity was injected twice')
+assert.equal(descentPrepared.promptPipeline.promptProfile?.automaticClassification, 'narrative-scene')
+assert.equal(descentPrepared.promptPipeline.promptProfile?.selectedProfileId, 'cinematic-scene')
+assert((descentPrepared.promptPipeline.finalPromptCharsBeforeIdentityFix || 0) > (descentPrepared.promptPipeline.finalPromptChars || 0), 'identity prompt bloat metrics did not record the legacy duplicate')
+assert((descentPrepared.promptPipeline.duplicateIdentityFragmentsRemoved || 0) > 0, 'duplicate identity removal metric was not populated')
+const vowScene = 'extreme close-up underwater, Taejun and a blonde mermaid touching foreheads during a parting vow, eyes fixed on each other'
+const vowPrepared = await backend.parseSlotPrompt({ ...descentJob, requestId: 'parting-vow-06', originalSceneBrief: vowScene, composedPositivePrompt: vowScene }, 'image', [], 0, { ...config, proseIllustratorSettings: settings }, 'offline', {
+  boundCharacterPreset: { presetId: 'taejun-native', prompt: contaminatedCharacterPreset }, includeCharacters: true,
+})
+assert(vowPrepared.prompt.includes('extreme close-up underwater'), 'authored extreme close-up was lost')
+assert(!vowPrepared.prompt.includes('medium or wide story framing by default'), 'generic profile framing overrode authored extreme close-up')
 // Authored direct gaze and understated emotion must remain possible.
 const gaze = 'eye-level photograph, Alpha looking at viewer, deliberately blank expression'
 assert(backend.enforceVisualSubjectIdentity(gaze, [{ name: 'Alpha', kind: 'character', prompt: 'black hair' }], true).startsWith(gaze))
@@ -70,4 +108,4 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button'] as const) {
 }
 mkdirSync('artifacts', { recursive: true })
 writeFileSync('artifacts/scene-compass-browser-fixtures.json', JSON.stringify(fixtures))
-console.log('Scene framing runtime regression passed: four established modes, concrete composer output, provider composition order, direct gaze preserved, and scoped Compass presentation.')
+console.log(`Scene framing runtime regression passed: contaminated native preset reduced ${descentPrepared.promptPipeline.finalPromptCharsBeforeIdentityFix} -> ${descentPrepared.promptPipeline.finalPromptChars} chars, scene/profile lead identity once, four established modes and authored direct gaze remain intact.`)
