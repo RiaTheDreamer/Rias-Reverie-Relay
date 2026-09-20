@@ -4370,8 +4370,8 @@ function summarizeRelayHealth(checks) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.4";
-var BUILD_ID = "20260920-0.2.8.4";
+var EXTENSION_VERSION = "0.2.8.5";
+var BUILD_ID = "20260920-0.2.8.5";
 
 // src/orbIconData.ts
 var ORB_IMAGE_DESIGNS = [
@@ -136298,6 +136298,7 @@ function setup(ctx) {
   let customSurfaces = frontendSurfaceFallback();
   let proseIllustrator = { settings: {}, opportunities: {}, plans: {}, records: {}, processedMessageKeys: {}, autoCounters: {}, frequencyDecisions: {}, activeOpportunityIdByChat: {}, activePlanIdByChat: {} };
   let backgroundQueue = { items: {}, abortRequestedAt: 0, updatedAt: 0 };
+  let imageWorkerRecovery = { active: false, draining: false, resetAvailable: false, laneResetCount: 0, waiterCount: 0 };
   let galleryLinks = [];
   let lastDryRun = null;
   let lastFullCompleteDryRun = null;
@@ -137241,6 +137242,7 @@ function setup(ctx) {
           applyRelaySettingsDraft(pending.patch);
         invalidateDisplayIfContractChanged(effectiveConfig, customSurfaces);
         backgroundQueue = message.backgroundQueue || { items: {}, abortRequestedAt: 0, updatedAt: 0 };
+        imageWorkerRecovery = message.imageWorkerRecovery || { active: false, draining: false, resetAvailable: false, laneResetCount: 0, waiterCount: 0 };
         galleryLinks = message.galleryLinks || [];
         lastDryRun = message.lastDryRun || null;
         lastGenerationBlockers = message.lastGenerationBlockers || [];
@@ -137433,6 +137435,11 @@ ${message.prompt}`;
     }
     if (message.type === "queue_dispatch_diagnostic") {
       downloadJson(`reverie-relay-queue-diagnostic-${Date.now()}.json`, message.diagnostic);
+      return;
+    }
+    if (message.type === "image_worker_recovery_state") {
+      imageWorkerRecovery = message.imageWorkerRecovery;
+      renderPanel();
       return;
     }
     if (message.type === "completed_diagnostic") {
@@ -143198,6 +143205,29 @@ Slot state, messages, and image assets will remain.`, scope: `${logs.length} log
       result.textContent = selfTest.checks.map((check) => `${check.class.toUpperCase()} · ${check.result.toUpperCase()} · ${check.name}: ${check.detail}`).join(`
 `);
       diagnostics.appendChild(result);
+    }
+    const resetStuckSwarmAvailable = imageWorkerRecovery.resetAvailable === true && imageWorkerRecovery.draining === true && ["swarmui", "swarm-ui"].includes(String(imageWorkerRecovery.activeProvider || "").trim().toLocaleLowerCase());
+    if (resetStuckSwarmAvailable) {
+      const workerRecovery = document.createElement("div");
+      const warning = document.createElement("div");
+      warning.className = "dg-recovery-note";
+      warning.textContent = `SwarmUI still appears to own an earlier generation. Relay has kept the user ImageGen worker quarantined for safety. ${imageWorkerRecovery.waiterCount || 0} queued Relay image job${imageWorkerRecovery.waiterCount === 1 ? "" : "s"} will be stopped by a manual reset.`;
+      const actions = document.createElement("div");
+      actions.className = "dg-actions";
+      actions.append(button("Reset Stuck Image Worker", () => confirmCleanup({
+        title: "Reset Stuck Image Worker?",
+        description: `SwarmUI still appears to own an earlier generation.
+
+Only reset Relay's image worker after you have restarted or reset SwarmUI itself. Pending Relay image jobs will be stopped and must be retried manually.
+
+Relay cannot prove that the previous host generation was cancelled.`,
+        scope: "All queued ImageGen work for this user across chats",
+        actionLabel: "Reset Image Worker",
+        strong: true,
+        onConfirm: () => ctx.sendToBackend({ type: "reset_stuck_image_worker", confirmed: true })
+      }), false, "danger", "User-global recovery for an unresolved SwarmUI provider lane."));
+      workerRecovery.append(warning, actions);
+      diagnostics.appendChild(panelSection("Image Worker Recovery", workerRecovery));
     }
     const pipeline = document.createElement("div");
     pipeline.className = "dg-actions";

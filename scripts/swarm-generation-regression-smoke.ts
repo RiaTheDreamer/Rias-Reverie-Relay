@@ -1,10 +1,12 @@
 // @ts-nocheck -- deterministic transport/lifecycle harness with a narrow Spindle mock.
 import { strict as assert } from 'node:assert'
+import { readFile } from 'node:fs/promises'
 
 const frontendEvents: any[] = []
 const logs: Array<{ level: string; message: string }> = []
 const storage = new Map<string, any>()
 const imageApi: any = {}
+const chatLookups = new Map<string, any>()
 let frontendThrowPredicate: ((payload: any) => boolean) | undefined
 
 ;(globalThis as any).spindle = {
@@ -19,7 +21,7 @@ let frontendThrowPredicate: ((payload: any) => boolean) | undefined
     async setJson(path: string, value: any) { storage.set(path, structuredClone(value)) },
     async mkdir() {},
   },
-  chat: { async getMessages() { return [] } }, chats: { async get() { return null } },
+  chat: { async getMessages() { return [] } }, chats: { async get(chatId: string) { return chatLookups.has(chatId) ? chatLookups.get(chatId) : { id: chatId } } },
   characters: { async get() { return null } }, personas: { async getActive() { return null } },
   world_books: { async getActivated() { return [] }, entries: { async get() { return null } } },
   imageGen: imageApi,
@@ -52,6 +54,7 @@ assert.deepEqual(backend.inspectProviderAttemptDiagnostics('swarm-standard'), {
   generationId: 'swarm-standard', chatId: 'chat-swarm-standard', requestId: 'swarm-standard', provider: 'swarmui',
   providerDispatchCount: 1, providerSpendStartedAt: (backend.inspectProviderAttemptDiagnostics('swarm-standard') as any).providerSpendStartedAt,
   providerTransport: 'standard', providerStreamingUsed: false, providerFallbackUsed: false, providerDraining: false,
+  providerAbandonedByUser: false, laneResetCount: 0, lastLaneResetAt: undefined,
   destinationAvailable: true, createdAt: (backend.inspectProviderAttemptDiagnostics('swarm-standard') as any).createdAt,
   completedAt: (backend.inspectProviderAttemptDiagnostics('swarm-standard') as any).completedAt,
 })
@@ -118,6 +121,90 @@ resolveB({ imageId: 'result-b', imageUrl: '/result-b' })
 assert.equal((await generationB).imageId, 'result-b')
 assert.equal(frontendEvents.some(event => event?.generationId === 'swarm-timeout-a' && event?.event === 'done'), false)
 
+// 5-8 follow-up. Manual recovery is unavailable for a healthy/active/queued
+// lane, becomes available only after the Swarm drain threshold, rejects every
+// waiter, and invalidates the abandoned lease before a manual retry starts.
+assert.equal((backend.imageWorkerRecoveryState('healthy-worker-user') as any).resetAvailable, false)
+let resolveResetA!: (value: any) => void
+let resolveManualB!: (value: any) => void
+let queuedBCalls = 0
+let queuedCCalls = 0
+let manualBCalls = 0
+imageApi.generate = (input: any) => {
+  if (input.prompt === 'reset swarm A') return new Promise(resolve => { resolveResetA = resolve })
+  if (input.prompt === 'queued B') { queuedBCalls += 1; return Promise.resolve({ imageId: 'should-not-run-b' }) }
+  if (input.prompt === 'queued C') { queuedCCalls += 1; return Promise.resolve({ imageId: 'should-not-run-c' }) }
+  if (input.prompt === 'manual B') return new Promise(resolve => { manualBCalls += 1; resolveManualB = resolve })
+  throw new Error(`Unexpected reset test prompt: ${input.prompt}`)
+}
+const resetA = backend.generateWithOptionalStream({ prompt: 'reset swarm A' }, swarmPlan, 'manual-reset-user', context('reset-a', 'reset-chat-a'), false, 20)
+while (!resolveResetA) await Promise.resolve()
+assert.equal((backend.imageWorkerRecoveryState('manual-reset-user') as any).resetAvailable, false, 'reset appeared during normal generation')
+await assert.rejects(resetA, (error: any) => error?.name === 'ImageGenerationTimeoutError')
+const queuedB = backend.generateWithOptionalStream({ prompt: 'queued B' }, swarmPlan, 'manual-reset-user', context('queued-b', 'reset-chat-b', { laneWaitTimeoutMs: 500 }), false, 500)
+const queuedC = backend.generateWithOptionalStream({ prompt: 'queued C' }, swarmPlan, 'manual-reset-user', context('queued-c', 'reset-chat-c', { laneWaitTimeoutMs: 500 }), false, 500)
+await delay(5)
+assert.equal((backend.imageWorkerRecoveryState('manual-reset-user') as any).resetAvailable, false, 'queued work exposed reset before the stuck threshold')
+const resetLane = backend.inspectImageGenerationLaneDiagnostics('manual-reset-user') as any
+const stuckNow = resetLane.drainStartedAt + backend.SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS + 1
+assert.equal((backend.imageWorkerRecoveryState('manual-reset-user', stuckNow) as any).resetAvailable, true)
+const resetResult = backend.resetStuckImageWorker('manual-reset-user', stuckNow) as any
+await assert.rejects(queuedB, (error: any) => error?.name === 'ImageGenerationWorkerResetError')
+await assert.rejects(queuedC, (error: any) => error?.name === 'ImageGenerationWorkerResetError')
+assert.equal(queuedBCalls, 0)
+assert.equal(queuedCCalls, 0)
+assert.equal(resetResult.rejectedWaiters, 2)
+assert.equal(resetResult.remoteCancellationClaimed, false)
+assert.equal((backend.imageWorkerRecoveryState('manual-reset-user') as any).draining, false)
+const abandoned = backend.inspectProviderAttemptDiagnostics('reset-a') as any
+assert.equal(abandoned.providerAbandonedByUser, true)
+assert.equal(abandoned.providerAbandonReason, 'explicit-worker-reset')
+assert.equal(abandoned.laneResetCount, 1)
+
+const manualB = backend.generateWithOptionalStream({ prompt: 'manual B' }, swarmPlan, 'manual-reset-user', context('manual-b', 'reset-chat-b'), false, 500)
+while (!resolveManualB) await Promise.resolve()
+assert.equal(manualBCalls, 1)
+resolveResetA({ imageId: 'abandoned-a', imageUrl: '/abandoned-a' })
+await delay(0)
+assert.equal((backend.inspectImageGenerationLaneDiagnostics('manual-reset-user') as any).activeGenerationId, 'manual-b', 'late A changed B lane ownership')
+assert.equal((backend.inspectProviderAttemptDiagnostics('manual-b') as any).providerDispatchCount, 1)
+assert.equal(frontendEvents.some(event => event?.generationId === 'reset-a' && event?.event === 'done'), false)
+resolveManualB({ imageId: 'manual-b-result', imageUrl: '/manual-b-result' })
+assert.equal((await manualB).imageId, 'manual-b-result')
+assert.equal(logs.some(entry => /cancelled successfully/i.test(entry.message)), false)
+
+// 9. Provider routing remains capability-based: Swarm standard-only, ordinary
+// request/response providers use generate(), and a non-Swarm provider with the
+// documented preview/status capability retains generateStream().
+let requestResponseCalls = 0
+let supportedStreamCalls = 0
+let forbiddenStandardFallbackCalls = 0
+imageApi.getProviders = async () => [
+  { id: 'openai', capabilities: {} },
+  { id: 'nanogpt', capabilities: {} },
+  { id: 'request-response-provider', capabilities: {} },
+  { id: 'preview-provider', capabilities: { websocketPreviewStreaming: { previews: true, status: true } } },
+]
+imageApi.generate = async () => { requestResponseCalls += 1; return { imageId: 'request-response-result', imageUrl: '/request-response-result' } }
+imageApi.generateStream = async function* (input: any) {
+  if (input.provider === 'never') forbiddenStandardFallbackCalls += 1
+  supportedStreamCalls += 1
+  yield { type: 'done', result: { imageId: 'stream-provider-result', imageUrl: '/stream-provider-result' } }
+}
+assert.equal((await backend.generateWithOptionalStream({ prompt: 'openai request response' }, { provider: 'openai' }, 'routing-user', context('openai-standard'))).imageId, 'request-response-result')
+assert.equal(requestResponseCalls, 1)
+assert.equal((backend.inspectProviderAttemptDiagnostics('openai-standard') as any).providerTransport, 'standard')
+assert.equal((await backend.generateWithOptionalStream({ prompt: 'nanogpt request response' }, { provider: 'nanogpt' }, 'routing-user', context('nanogpt-standard'))).imageId, 'request-response-result')
+assert.equal((backend.inspectProviderAttemptDiagnostics('nanogpt-standard') as any).providerTransport, 'standard')
+assert.equal((await backend.generateWithOptionalStream({ prompt: 'other request response' }, { provider: 'request-response-provider' }, 'routing-user', context('other-standard'))).imageId, 'request-response-result')
+assert.equal((backend.inspectProviderAttemptDiagnostics('other-standard') as any).providerTransport, 'standard')
+assert.equal(requestResponseCalls, 3)
+assert.equal((await backend.generateWithOptionalStream({ prompt: 'supported provider stream' }, { provider: 'preview-provider' }, 'routing-user', context('supported-stream'))).imageId, 'stream-provider-result')
+assert.equal(supportedStreamCalls, 1)
+assert.equal(requestResponseCalls, 3, 'stream-capable provider fell back to a second standard provider spend')
+assert.equal(forbiddenStandardFallbackCalls, 0)
+assert.equal((backend.inspectProviderAttemptDiagnostics('supported-stream') as any).providerTransport, 'stream')
+
 // 8. Authoritative stale-chat cleanup removes the real scheduled/deferred,
 // Native Settings, dispatch, retry, placement, and provider-waiter registries
 // for only that chat.
@@ -132,6 +219,50 @@ for (const key of ['scheduledScans', 'deferredWork', 'nativeSettingsWaiters', 'd
 assert.deepEqual(healthyAfter, healthyBefore, 'stale-chat cleanup touched another chat')
 assert(cleanup.scheduledScans >= 1 && cleanup.deferredWork >= 2 && cleanup.nativeSettingsWaiters >= 1 && cleanup.dispatchQueueItems >= 1 && cleanup.placementBatches >= 1)
 backend.cleanupStaleChatWork('healthy-chat', 'cleanup-user', 'fixture cleanup')
+
+// 1-4 follow-up. A later authoritative host lookup can clear quarantine for a
+// new explicit operation without resurrecting any of the old cancelled work;
+// an actually deleted chat still stops before provider spend, and Chat B is
+// untouched throughout Chat A recovery.
+backend.stageStaleChatCleanupRegressionFixture('recover-chat-a', 'revalidation-user')
+backend.stageStaleChatCleanupRegressionFixture('recover-chat-b', 'revalidation-user')
+const recoveryBWorkBefore = backend.inspectChatRuntimeWork('recover-chat-b', 'revalidation-user')
+backend.cleanupStaleChatWork('recover-chat-a', 'revalidation-user', 'Chat not found during navigation')
+const cancelledAWork = backend.inspectChatRuntimeWork('recover-chat-a', 'revalidation-user')
+for (const key of ['scheduledScans', 'deferredWork', 'nativeSettingsWaiters', 'dispatchQueueItems', 'providerWaiters', 'placementBatches']) assert.equal(cancelledAWork[key], 0)
+chatLookups.set('recover-chat-a', { id: 'recover-chat-a' })
+let recoveredDispatches = 0
+imageApi.getProviders = async () => []
+imageApi.generate = async () => { recoveredDispatches += 1; return { imageId: 'recovered-chat-result', imageUrl: '/recovered-chat-result' } }
+assert.equal((await backend.generateWithOptionalStream({ prompt: 'new explicit operation' }, swarmPlan, 'revalidation-user', context('revalidated-generation', 'recover-chat-a'))).imageId, 'recovered-chat-result')
+assert.equal(recoveredDispatches, 1)
+assert.equal((backend.inspectProviderAttemptDiagnostics('revalidated-generation') as any).providerDispatchCount, 1)
+assert.equal((backend.inspectChatDestinationDiagnostic('recover-chat-a', 'revalidation-user') as any).quarantined, false)
+assert.equal((backend.inspectChatDestinationDiagnostic('recover-chat-a', 'revalidation-user') as any).validationResult, 'exists')
+const recoveredAWork = backend.inspectChatRuntimeWork('recover-chat-a', 'revalidation-user')
+for (const key of ['scheduledScans', 'deferredWork', 'nativeSettingsWaiters', 'dispatchQueueItems', 'providerWaiters', 'placementBatches']) assert.equal(recoveredAWork[key], 0, `${key} was resurrected by chat recovery`)
+assert.deepEqual(backend.inspectChatRuntimeWork('recover-chat-b', 'revalidation-user'), recoveryBWorkBefore, 'Chat A recovery touched Chat B')
+
+backend.cleanupStaleChatWork('deleted-chat-followup', 'revalidation-user', 'Chat not found')
+chatLookups.set('deleted-chat-followup', null)
+const beforeDeletedAttempt = recoveredDispatches
+await assert.rejects(
+  backend.generateWithOptionalStream({ prompt: 'must not spend' }, swarmPlan, 'revalidation-user', context('deleted-chat-attempt', 'deleted-chat-followup')),
+  /destination chat deleted-chat-followup is no longer available/i,
+)
+assert.equal(recoveredDispatches, beforeDeletedAttempt)
+assert.equal((backend.inspectProviderAttemptDiagnostics('deleted-chat-attempt') as any).providerDispatchCount, 0)
+assert.equal((backend.inspectChatDestinationDiagnostic('deleted-chat-followup', 'revalidation-user') as any).quarantined, true)
+assert.equal((backend.inspectChatDestinationDiagnostic('deleted-chat-followup', 'revalidation-user') as any).validationResult, 'missing')
+chatLookups.delete('deleted-chat-followup')
+backend.cleanupStaleChatWork('recover-chat-b', 'revalidation-user', 'fixture cleanup')
+
+for (let index = 0; index < 300; index += 1) backend.markChatDestinationAvailable(`bounded-chat-${index}`, 'bounded-user')
+assert(backend.inspectChatDestinationCacheSize() <= 256, 'chat destination diagnostics grew beyond the bounded cache limit')
+const frontendSource = await readFile(new URL('../src/frontend.ts', import.meta.url), 'utf8')
+assert(frontendSource.includes("imageWorkerRecovery.resetAvailable === true") && frontendSource.includes("imageWorkerRecovery.draining === true"), 'reset action is not gated by stuck lane state')
+assert(frontendSource.includes("['swarmui', 'swarm-ui'].includes"), 'reset action is not restricted to SwarmUI')
+assert(frontendSource.includes('Reset Stuck Image Worker') && frontendSource.includes('previous host generation was cancelled'), 'manual reset confirmation/cancellation warning is missing')
 
 let resolveOwner!: (value: any) => void
 let healthyWaiterCalls = 0
@@ -151,4 +282,4 @@ await owner
 assert.equal((await healthyWaiter).imageId, 'healthy-waiter')
 assert.equal(healthyWaiterCalls, 1)
 
-console.log('Swarm generation regression smoke passed: standard-only transport, one-spend invariant, non-fatal lifecycle reporting, destination-loss discard, indefinite Swarm drain ownership, late-result suppression, and chat-isolated stale-work cleanup are enforced.')
+console.log('Swarm generation regression smoke passed: authoritative chat recovery, bounded quarantine semantics, explicit stuck-worker reset, lease-isolated late results, provider routing compatibility, one-spend safety, and chat-isolated cleanup are enforced.')

@@ -14,7 +14,7 @@ export function isSwarmUiProvider(providerId: string): boolean {
 }
 
 /**
- * Emergency transport policy for 0.2.8.4. The extension-facing Spindle API
+ * Emergency-safe transport policy retained in 0.2.8.5. The extension-facing Spindle API
  * documents request/response generation for SwarmUI, but not a stable public
  * streaming result contract. Keep Swarm on the authoritative standard RPC
  * until the host exposes and documents a compatible streaming contract.

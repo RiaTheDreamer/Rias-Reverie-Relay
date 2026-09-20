@@ -8453,8 +8453,8 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.4";
-var BUILD_ID = "20260920-0.2.8.4";
+var EXTENSION_VERSION = "0.2.8.5";
+var BUILD_ID = "20260920-0.2.8.5";
 
 // src/providerPromptSafety.ts
 class ProviderPromptSafetyError extends Error {
@@ -156500,7 +156500,8 @@ var activeImageStreams = new Map;
 var imageGenerationLanes = new Map;
 var providerImageResultClaims = new Map;
 var providerAttemptDiagnostics = new Map;
-var staleChatScopes = new Map;
+var chatDestinationDiagnostics = new BoundedLruCache({ maxEntries: 256 });
+var providerLaneResetDiagnostics = new BoundedLruCache({ maxEntries: 64 });
 function claimProviderImageResult(imageId, generationId, userId) {
   const normalizedId = cleanString(imageId);
   const normalizedGenerationId = cleanString(generationId);
@@ -156572,6 +156573,7 @@ function abortError(message = "Generation cancelled by user.") {
 var IMAGE_GENERATION_TIMEOUT_MS = 5 * 60000;
 var IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS = 6 * 60000;
 var IMAGE_GENERATION_DRAIN_TIMEOUT_MS = 2 * 60000;
+var SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS = 2 * 60000;
 function isChatNotFoundError(error) {
   const seen = new Set;
   let current = error;
@@ -156617,6 +156619,13 @@ class ImageGenerationLaneWaitTimeoutError extends Error {
     const seconds = Math.max(1, Math.round(timeoutMs / 1000));
     super(`Timed out after ${seconds} second${seconds === 1 ? "" : "s"} waiting for the image worker. Retry the slot when provider capacity is available.`);
     this.name = "ImageGenerationLaneWaitTimeoutError";
+  }
+}
+
+class ImageGenerationWorkerResetError extends Error {
+  constructor() {
+    super("Image worker was manually reset. Retry this image when SwarmUI is ready.");
+    this.name = "ImageGenerationWorkerResetError";
   }
 }
 async function withImageGenerationDeadline(operation, controller, timeoutMs = IMAGE_GENERATION_TIMEOUT_MS) {
@@ -156666,6 +156675,10 @@ function grantImageGenerationLane(key2, lane, context, providerId) {
   lane.activeSince = Date.now();
   lane.drainStartedAt = undefined;
   lane.drainReason = undefined;
+  if (lane.stuckVisibilityTimer)
+    clearTimeout(lane.stuckVisibilityTimer);
+  lane.stuckVisibilityTimer = undefined;
+  emitImageWorkerRecoveryState(lane.userId);
   return { key: key2, leaseId, context, providerId, release: () => releaseImageGenerationLane(key2, leaseId) };
 }
 function releaseImageGenerationLane(key2, leaseId) {
@@ -156674,7 +156687,10 @@ function releaseImageGenerationLane(key2, leaseId) {
     return;
   if (lane.drainWatchdog)
     clearTimeout(lane.drainWatchdog);
+  if (lane.stuckVisibilityTimer)
+    clearTimeout(lane.stuckVisibilityTimer);
   lane.drainWatchdog = undefined;
+  lane.stuckVisibilityTimer = undefined;
   lane.draining = false;
   lane.activeProviderId = undefined;
   while (lane.waiters.length) {
@@ -156694,6 +156710,7 @@ function releaseImageGenerationLane(key2, leaseId) {
   }
   lane.active = false;
   imageGenerationLanes.delete(key2);
+  emitImageWorkerRecoveryState(lane.userId);
 }
 function beginImageGenerationLaneDrain(lease, providerOperation, reason) {
   const lane = imageGenerationLanes.get(lease.key);
@@ -156727,12 +156744,16 @@ function beginImageGenerationLaneDrain(lease, providerOperation, reason) {
     lane.drainWatchdog.unref?.();
   } else {
     spindle.log.error(`[ReverieRelay:image_provider_quarantined] ${lease.context.generationId}: SwarmUI generation is still active after Relay stopped waiting. New Swarm generations are paused until the host operation settles; restart or reset ImageGen before retrying if it remains stuck.`);
+    lane.stuckVisibilityTimer = setTimeout(() => emitImageWorkerRecoveryState(lane.userId), SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS);
+    lane.stuckVisibilityTimer.unref?.();
   }
+  emitImageWorkerRecoveryState(lane.userId);
   providerOperation.then(() => release("settled"), () => release("settled"));
 }
 async function acquireImageGenerationLane(userId, context, controller, providerId) {
   const key2 = imageGenerationLaneKey(userId);
-  const lane = imageGenerationLanes.get(key2) || { active: false, draining: false, waiters: [] };
+  const lane = imageGenerationLanes.get(key2) || { userId, active: false, draining: false, waiters: [] };
+  lane.userId = userId;
   imageGenerationLanes.set(key2, lane);
   await context.onProviderWaiting?.();
   if (!lane.active) {
@@ -156775,12 +156796,14 @@ async function acquireImageGenerationLane(userId, context, controller, providerI
     lane.waiters.push(waiter);
   });
 }
-function inspectImageGenerationLaneDiagnostics(userId) {
+function inspectImageGenerationLaneDiagnostics(userId, now = Date.now()) {
   const key2 = imageGenerationLaneKey(userId);
   const lane = imageGenerationLanes.get(key2);
   if (!lane)
     return null;
-  const now = Date.now();
+  const reset = providerLaneResetDiagnostics.get(key2) || { laneResetCount: 0 };
+  const drainAgeMs = lane.drainStartedAt ? Math.max(0, now - lane.drainStartedAt) : 0;
+  const resetAvailable = lane.draining && isSwarmUiProvider(lane.activeProviderId || "") && drainAgeMs >= SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS;
   return {
     laneKey: key2,
     active: lane.active,
@@ -156791,7 +156814,14 @@ function inspectImageGenerationLaneDiagnostics(userId) {
     activeProvider: lane.activeProviderId || null,
     activeSince: lane.activeSince || 0,
     drainStartedAt: lane.drainStartedAt || 0,
+    drainAgeMs,
     drainReason: lane.drainReason || "",
+    resetAvailable,
+    stuckThresholdMs: SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS,
+    laneResetCount: reset.laneResetCount,
+    lastLaneResetAt: reset.lastLaneResetAt || 0,
+    lastAbandonedGenerationId: reset.lastAbandonedGenerationId || null,
+    lastAbandonReason: reset.lastAbandonReason || "",
     providerAttempt: lane.activeContext ? providerAttemptFor(lane.activeContext) || null : null,
     waiterCount: lane.waiters.length,
     waiters: lane.waiters.map((waiter) => ({
@@ -156805,6 +156835,82 @@ function inspectImageGenerationLaneDiagnostics(userId) {
       source: waiter.context.source
     }))
   };
+}
+function imageWorkerRecoveryState(userId, now = Date.now()) {
+  const lane = inspectImageGenerationLaneDiagnostics(userId, now);
+  const reset = providerLaneResetDiagnostics.get(imageGenerationLaneKey(userId)) || { laneResetCount: 0 };
+  return lane || {
+    active: false,
+    draining: false,
+    activeProvider: null,
+    resetAvailable: false,
+    stuckThresholdMs: SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS,
+    laneResetCount: reset.laneResetCount,
+    lastLaneResetAt: reset.lastLaneResetAt || 0,
+    lastAbandonedGenerationId: reset.lastAbandonedGenerationId || null,
+    lastAbandonReason: reset.lastAbandonReason || "",
+    waiterCount: 0
+  };
+}
+function emitImageWorkerRecoveryState(userId) {
+  try {
+    spindle.sendToFrontend({ type: "image_worker_recovery_state", imageWorkerRecovery: imageWorkerRecoveryState(userId) }, userId);
+  } catch (error) {
+    spindle.log.warn(`[ReverieRelay:image_worker_recovery_reporting] ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+function resetStuckImageWorker(userId, now = Date.now()) {
+  const key2 = imageGenerationLaneKey(userId);
+  const lane = imageGenerationLanes.get(key2);
+  if (!lane?.draining)
+    throw new Error("The ImageGen provider lane is not quarantined.");
+  if (!isSwarmUiProvider(lane.activeProviderId || ""))
+    throw new Error("Only a quarantined SwarmUI provider lane can be manually reset.");
+  const drainAgeMs = lane.drainStartedAt ? Math.max(0, now - lane.drainStartedAt) : 0;
+  if (drainAgeMs < SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS)
+    throw new Error("SwarmUI has not remained unresolved long enough to expose manual worker reset.");
+  const abandonedGenerationId = lane.activeContext?.generationId || "";
+  const diagnostic = lane.activeContext ? providerAttemptFor(lane.activeContext) : undefined;
+  const previousReset = providerLaneResetDiagnostics.get(key2) || { laneResetCount: 0 };
+  const resetDiagnostic = {
+    laneResetCount: previousReset.laneResetCount + 1,
+    lastLaneResetAt: now,
+    lastAbandonedGenerationId: abandonedGenerationId || undefined,
+    lastAbandonReason: "explicit-worker-reset"
+  };
+  spindle.log.warn(`[ReverieRelay:image_worker_manual_reset] ${JSON.stringify({ generationId: abandonedGenerationId || null, provider: lane.activeProviderId, drainStartedAt: lane.drainStartedAt || 0, drainAgeMs, drainReason: lane.drainReason || "", rejectedWaiters: lane.waiters.length, laneResetCount: resetDiagnostic.laneResetCount, remoteCancellationClaimed: false })}`);
+  providerLaneResetDiagnostics.set(key2, resetDiagnostic);
+  if (diagnostic) {
+    diagnostic.providerAbandonedByUser = true;
+    diagnostic.providerAbandonedAt = now;
+    diagnostic.providerAbandonReason = "explicit-worker-reset";
+    diagnostic.providerDraining = false;
+    diagnostic.laneResetCount = resetDiagnostic.laneResetCount;
+    diagnostic.lastLaneResetAt = now;
+    diagnostic.completedAt = diagnostic.completedAt || now;
+  }
+  if (lane.drainWatchdog)
+    clearTimeout(lane.drainWatchdog);
+  if (lane.stuckVisibilityTimer)
+    clearTimeout(lane.stuckVisibilityTimer);
+  const waiters = lane.waiters.splice(0);
+  for (const waiter of waiters) {
+    clearImageGenerationLaneWaiter(waiter);
+    waiter.reject(new ImageGenerationWorkerResetError);
+  }
+  lane.active = false;
+  lane.draining = false;
+  lane.activeLeaseId = undefined;
+  lane.activeContext = undefined;
+  lane.activeProviderId = undefined;
+  lane.activeSince = undefined;
+  lane.drainStartedAt = undefined;
+  lane.drainReason = undefined;
+  lane.drainWatchdog = undefined;
+  lane.stuckVisibilityTimer = undefined;
+  imageGenerationLanes.delete(key2);
+  emitImageWorkerRecoveryState(userId);
+  return { ...resetDiagnostic, abandonedGenerationId: abandonedGenerationId || null, rejectedWaiters: waiters.length, remoteCancellationClaimed: false };
 }
 function isAbortError(error) {
   if (!(error instanceof Error))
@@ -156860,7 +156966,84 @@ function staleChatScopeKey(chatId, userId) {
   return `${userId || "__default-user__"}:${chatId}`;
 }
 function destinationAvailable(context, userId) {
-  return !context.chatId || !staleChatScopes.has(staleChatScopeKey(context.chatId, userId));
+  return !context.chatId || chatDestinationDiagnostics.get(staleChatScopeKey(context.chatId, userId))?.quarantined !== true;
+}
+function markChatDestinationUnavailable(chatId, userId, reason = "Chat not found", validationResult = "quarantined") {
+  if (!chatId)
+    return null;
+  const key2 = staleChatScopeKey(chatId, userId);
+  const previous = chatDestinationDiagnostics.get(key2);
+  const diagnostic = {
+    chatId,
+    userId: userId || "__default-user__",
+    quarantined: true,
+    quarantinedAt: previous?.quarantinedAt || Date.now(),
+    reason,
+    lastValidatedAt: validationResult === "missing" ? Date.now() : previous?.lastValidatedAt,
+    validationResult,
+    validationError: validationResult === "validation-error" ? reason : undefined
+  };
+  chatDestinationDiagnostics.set(key2, diagnostic);
+  return diagnostic;
+}
+function markChatDestinationAvailable(chatId, userId, validatedAt = Date.now()) {
+  if (!chatId)
+    return null;
+  const key2 = staleChatScopeKey(chatId, userId);
+  const previous = chatDestinationDiagnostics.get(key2);
+  const diagnostic = {
+    chatId,
+    userId: userId || "__default-user__",
+    quarantined: false,
+    quarantinedAt: previous?.quarantinedAt,
+    reason: previous?.reason,
+    lastValidatedAt: validatedAt,
+    validationResult: "exists"
+  };
+  chatDestinationDiagnostics.set(key2, diagnostic);
+  return diagnostic;
+}
+function inspectChatDestinationDiagnostic(chatId, userId) {
+  const diagnostic = chatDestinationDiagnostics.get(staleChatScopeKey(chatId, userId));
+  return diagnostic ? { ...diagnostic } : null;
+}
+function inspectChatDestinationCacheSize() {
+  return chatDestinationDiagnostics.size;
+}
+async function revalidateChatDestination(chatId, userId) {
+  if (!chatId)
+    return true;
+  try {
+    const chat = await spindle.chats.get(chatId, userId);
+    if (chat) {
+      markChatDestinationAvailable(chatId, userId);
+      return true;
+    }
+    cleanupStaleChatWork(chatId, userId, "Authoritative chat lookup returned no chat.");
+    markChatDestinationUnavailable(chatId, userId, "Authoritative chat lookup returned no chat.", "missing");
+    return false;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    if (isChatNotFoundError(error)) {
+      cleanupStaleChatWork(chatId, userId, reason);
+      markChatDestinationUnavailable(chatId, userId, reason, "missing");
+      return false;
+    }
+    const key2 = staleChatScopeKey(chatId, userId);
+    const previous = chatDestinationDiagnostics.get(key2);
+    chatDestinationDiagnostics.set(key2, {
+      chatId,
+      userId: userId || "__default-user__",
+      quarantined: previous?.quarantined === true,
+      quarantinedAt: previous?.quarantinedAt,
+      reason: previous?.reason,
+      lastValidatedAt: Date.now(),
+      validationResult: "validation-error",
+      validationError: reason
+    });
+    spindle.log.warn(`[ReverieRelay:chat_destination_validation] ${chatId}: ${reason}`);
+    return false;
+  }
 }
 function cleanupStaleChatWork(chatId, userId, reason = "Chat not found") {
   const summary = {
@@ -156875,7 +157058,7 @@ function cleanupStaleChatWork(chatId, userId, reason = "Chat not found") {
   };
   if (!chatId)
     return summary;
-  staleChatScopes.set(staleChatScopeKey(chatId, userId), { unavailableAt: Date.now(), reason });
+  markChatDestinationUnavailable(chatId, userId, reason);
   for (const [key2, scheduled] of [...scheduledAssistantScans.entries()]) {
     if (scheduled.chatId !== chatId)
       continue;
@@ -156982,7 +157165,7 @@ function inspectChatRuntimeWork(chatId, userId) {
   const broker = nativeSettingsBrokers.get(relayQueueScope(userId));
   const queue = relayDispatchQueues.get(relayQueueScope(userId));
   return {
-    stale: staleChatScopes.has(staleChatScopeKey(chatId, userId)),
+    stale: chatDestinationDiagnostics.get(staleChatScopeKey(chatId, userId))?.quarantined === true,
     scheduledScans: [...scheduledAssistantScans.values(), ...scheduledProseOpportunityScans.values()].filter((item) => item.chatId === chatId).length,
     deferredWork: [...deferredScans.values()].filter((item) => item[0] === chatId).length + [...deferredReparseRequests.keys(), ...deferredRegenerateRequests.keys()].filter((key2) => key2.startsWith(`${chatId}:`)).length,
     nativeSettingsWaiters: broker?.waiters.get(chatId)?.size || 0,
@@ -159774,6 +159957,13 @@ async function handleFrontendMessage(payload, userId) {
     case "queue_action":
       await handleQueueAction(payload, snapshotFromPayload(payload), userId);
       return;
+    case "reset_stuck_image_worker": {
+      if (!payload.confirmed)
+        throw new Error("Explicit confirmation is required to reset the stuck image worker.");
+      const result = resetStuckImageWorker(userId);
+      spindle.sendToFrontend({ type: "relay_notice", level: "warning", message: "Relay released its quarantined worker state after explicit user confirmation. The previous host operation may have been abandoned. Retry images manually only after SwarmUI is ready.", details: result }, userId);
+      return;
+    }
     case "export_queue_diagnostic":
       await exportQueueDispatchDiagnostic(payload.chatId, userId);
       return;
@@ -169963,8 +170153,6 @@ function normalizeImageGenerationStreamEvent(rawEvent) {
   };
 }
 async function generateWithOptionalStream(finalRequest, plan, userId, context, forceStandard = false, timeoutMs = IMAGE_GENERATION_TIMEOUT_MS) {
-  if (!destinationAvailable(context, userId))
-    throw new ImageGenerationDestinationUnavailableError(context.chatId);
   const controller = new AbortController;
   const abortFromAttempt = () => controller.abort(context.attemptSignal?.reason || "Cancelled by user.");
   if (context.attemptSignal?.aborted)
@@ -169984,13 +170172,22 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     providerStreamingUsed: false,
     providerFallbackUsed: false,
     providerDraining: false,
-    destinationAvailable: true,
+    providerAbandonedByUser: false,
+    laneResetCount: providerLaneResetDiagnostics.get(imageGenerationLaneKey(userId))?.laneResetCount || 0,
+    lastLaneResetAt: providerLaneResetDiagnostics.get(imageGenerationLaneKey(userId))?.lastLaneResetAt,
+    destinationAvailable: destinationAvailable(context, userId),
     createdAt: Date.now()
   });
   try {
+    diagnostic.destinationAvailable = await revalidateChatDestination(context.chatId, userId);
+    if (!diagnostic.destinationAvailable)
+      throw new ImageGenerationDestinationUnavailableError(context.chatId);
     laneLease = await acquireImageGenerationLane(userId, context, controller, plan.provider);
     if (controller.signal.aborted)
       throw abortError();
+    diagnostic.destinationAvailable = await revalidateChatDestination(context.chatId, userId);
+    if (!diagnostic.destinationAvailable)
+      throw new ImageGenerationDestinationUnavailableError(context.chatId);
     const standardInput = { ...finalRequest, userId };
     const streamInput = { ...standardInput, signal: controller.signal };
     const api = spindle.imageGen;
@@ -170033,7 +170230,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
       diagnostic.providerStreamingUsed = transport === "stream";
     };
     const assertDestinationAvailable = () => {
-      diagnostic.destinationAvailable = destinationAvailable(context, userId);
+      diagnostic.destinationAvailable = diagnostic.destinationAvailable && destinationAvailable(context, userId);
       if (!diagnostic.destinationAvailable)
         throw new ImageGenerationDestinationUnavailableError(context.chatId);
     };
@@ -170345,6 +170542,8 @@ async function exportQueueDispatchDiagnostic(chatId, userId) {
         concurrency: dispatchQueue?.concurrency || config.queueConcurrencyLimit
       },
       providerLane: inspectImageGenerationLaneDiagnostics(userId),
+      imageWorkerRecovery: imageWorkerRecoveryState(userId),
+      chatDestination: inspectChatDestinationDiagnostic(chatId, userId),
       providerAttempts: [...providerAttemptDiagnostics.values()].filter((attempt) => !attempt.chatId || attempt.chatId === chatId).slice(-100).map((attempt) => ({ ...attempt })),
       queue: state.queueSafety,
       stateDispatch: lastStateDispatchMetrics.get(`${userId || "__default__"}:${chatId}`) || null,
@@ -171477,7 +171676,8 @@ async function sendState(userId, chatId) {
     lastGenerationBlockers: state.lastGenerationBlockers,
     schemaVersion: state.schemaVersion,
     revision: state.revision,
-    build: backendBuildInfo()
+    build: backendBuildInfo(),
+    imageWorkerRecovery: imageWorkerRecoveryState(userId)
   };
   const serializationStartedAt = Date.now();
   const statePayloadBytes = serializedBytes(message);
@@ -173348,6 +173548,7 @@ export {
   safeStorageSegment,
   runWithConcurrency,
   runAppearanceSidecar,
+  revalidateChatDestination,
   resolveVisualPromptMacros,
   resolveSubjectNegativeMacros,
   resolveSidecarPromptMessages,
@@ -173358,6 +173559,7 @@ export {
   resolveIllustratorStoryPrompt,
   resolveAutomaticSurfaceInjectionEnabled,
   resolveAppearanceSidecarRouting,
+  resetStuckImageWorker,
   requiresWorkflow,
   requestsVisibleDeviceHardware,
   requestHasVisibleFace,
@@ -173382,6 +173584,7 @@ export {
   markInitialPlacementVisualUnavailable,
   markInitialPlacementVisualStarted,
   markInitialPlacementVisualSettled,
+  markChatDestinationAvailable,
   isUnresolvedCharacterMacro,
   isExplicitAdultScene,
   isEligibleProseContent,
@@ -173391,7 +173594,10 @@ export {
   inspectProviderAttemptDiagnostics,
   inspectImageGenerationLaneDiagnostics,
   inspectChatRuntimeWork,
+  inspectChatDestinationDiagnostic,
+  inspectChatDestinationCacheSize,
   initialPlacementBatchCommitGate,
+  imageWorkerRecoveryState,
   hasUnsettledVisiblePlacement,
   hasUnrequestedExplicitEscalation,
   hasExplicitNoHumanIntent,
@@ -173437,7 +173643,9 @@ export {
   applyLorasToProviderParameters,
   abortImageStreamsForChat,
   abortImageStream,
+  SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS,
   REGENERATION_INTENTS,
+  ImageGenerationWorkerResetError,
   ImageGenerationLaneWaitTimeoutError,
   IMAGE_GENERATION_TIMEOUT_MS,
   IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS,

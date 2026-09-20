@@ -667,6 +667,7 @@ type BackendStateMessage = {
   schemaVersion: number
   revision: number
   build: BackendBuildInfo
+  imageWorkerRecovery: Record<string, unknown>
   performance?: { statePayloadBytes: number; serializationMs: number; recordsSent: number; completedLifetime: number; hotCompleted: number }
 }
 
@@ -729,6 +730,7 @@ type FrontendMessage =
   | { type: 'relay_retry_candidate'; chatId: string; batchId: string; candidateKey: string; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
   | { type: 'relay_discard_candidate'; chatId: string; batchId: string; candidateKey: string }
   | { type: 'queue_action'; chatId: string; action: 'pause_after_current' | 'resume' | 'cancel_selected' | 'skip_selected' | 'generate_selected_only' | 'abort_all' | 'generate_pending' | 'discard_pending'; selectedKeys?: string[]; concurrencyLimit?: number; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
+  | { type: 'reset_stuck_image_worker'; confirmed: boolean }
   | { type: 'export_queue_diagnostic'; chatId: string }
   | { type: 'completed_history_page'; chatId: string; cursor?: number; limit?: number }
   | { type: 'completed_diagnostic'; chatId: string; archiveId: string; requestId?: string }
@@ -865,6 +867,11 @@ export type ProviderAttemptDiagnostic = {
   providerStreamingUsed: boolean
   providerFallbackUsed: boolean
   providerDraining: boolean
+  providerAbandonedByUser: boolean
+  providerAbandonedAt?: number
+  providerAbandonReason?: string
+  laneResetCount: number
+  lastLaneResetAt?: number
   destinationAvailable: boolean
   createdAt: number
   completedAt?: number
@@ -1011,6 +1018,7 @@ type ImageGenerationLaneWaiter = {
 }
 
 type ImageGenerationLane = {
+  userId?: string
   active: boolean
   draining: boolean
   activeLeaseId?: string
@@ -1019,6 +1027,7 @@ type ImageGenerationLane = {
   activeSince?: number
   drainStartedAt?: number
   drainWatchdog?: ReturnType<typeof setTimeout>
+  stuckVisibilityTimer?: ReturnType<typeof setTimeout>
   drainReason?: string
   waiters: ImageGenerationLaneWaiter[]
 }
@@ -1038,7 +1047,24 @@ type ImageGenerationLaneLease = {
 const imageGenerationLanes = new Map<string, ImageGenerationLane>()
 const providerImageResultClaims = new Map<string, { generationId: string; claimedAt: number }>()
 const providerAttemptDiagnostics = new Map<string, ProviderAttemptDiagnostic>()
-const staleChatScopes = new Map<string, { unavailableAt: number; reason: string }>()
+type ChatDestinationDiagnostic = {
+  chatId: string
+  userId: string
+  quarantined: boolean
+  quarantinedAt?: number
+  reason?: string
+  lastValidatedAt?: number
+  validationResult: 'quarantined' | 'exists' | 'missing' | 'validation-error'
+  validationError?: string
+}
+const chatDestinationDiagnostics = new BoundedLruCache<ChatDestinationDiagnostic>({ maxEntries: 256 })
+type ProviderLaneResetDiagnostic = {
+  laneResetCount: number
+  lastLaneResetAt?: number
+  lastAbandonedGenerationId?: string
+  lastAbandonReason?: string
+}
+const providerLaneResetDiagnostics = new BoundedLruCache<ProviderLaneResetDiagnostic>({ maxEntries: 64 })
 
 export function claimProviderImageResult(imageId: string, generationId: string, userId?: string): string {
   const normalizedId = cleanString(imageId)
@@ -1122,6 +1148,7 @@ function abortError(message = 'Generation cancelled by user.'): Error {
 export const IMAGE_GENERATION_TIMEOUT_MS = 5 * 60_000
 export const IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS = 6 * 60_000
 export const IMAGE_GENERATION_DRAIN_TIMEOUT_MS = 2 * 60_000
+export const SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS = 2 * 60_000
 
 export function isChatNotFoundError(error: unknown): boolean {
   const seen = new Set<unknown>()
@@ -1174,6 +1201,13 @@ export class ImageGenerationLaneWaitTimeoutError extends Error {
   }
 }
 
+export class ImageGenerationWorkerResetError extends Error {
+  constructor() {
+    super('Image worker was manually reset. Retry this image when SwarmUI is ready.')
+    this.name = 'ImageGenerationWorkerResetError'
+  }
+}
+
 async function withImageGenerationDeadline<T>(
   operation: () => Promise<T>,
   controller: AbortController,
@@ -1218,6 +1252,9 @@ function grantImageGenerationLane(key: string, lane: ImageGenerationLane, contex
   lane.activeSince = Date.now()
   lane.drainStartedAt = undefined
   lane.drainReason = undefined
+  if (lane.stuckVisibilityTimer) clearTimeout(lane.stuckVisibilityTimer)
+  lane.stuckVisibilityTimer = undefined
+  emitImageWorkerRecoveryState(lane.userId)
   return { key, leaseId, context, providerId, release: () => releaseImageGenerationLane(key, leaseId) }
 }
 
@@ -1225,7 +1262,9 @@ function releaseImageGenerationLane(key: string, leaseId: string): void {
   const lane = imageGenerationLanes.get(key)
   if (!lane || lane.activeLeaseId !== leaseId) return
   if (lane.drainWatchdog) clearTimeout(lane.drainWatchdog)
+  if (lane.stuckVisibilityTimer) clearTimeout(lane.stuckVisibilityTimer)
   lane.drainWatchdog = undefined
+  lane.stuckVisibilityTimer = undefined
   lane.draining = false
   lane.activeProviderId = undefined
   while (lane.waiters.length) {
@@ -1245,6 +1284,7 @@ function releaseImageGenerationLane(key: string, leaseId: string): void {
   }
   lane.active = false
   imageGenerationLanes.delete(key)
+  emitImageWorkerRecoveryState(lane.userId)
 }
 
 function beginImageGenerationLaneDrain(lease: ImageGenerationLaneLease, providerOperation: Promise<unknown>, reason: unknown): void {
@@ -1276,7 +1316,10 @@ function beginImageGenerationLaneDrain(lease: ImageGenerationLaneLease, provider
     ;(lane.drainWatchdog as any).unref?.()
   } else {
     spindle.log.error(`[ReverieRelay:image_provider_quarantined] ${lease.context.generationId}: SwarmUI generation is still active after Relay stopped waiting. New Swarm generations are paused until the host operation settles; restart or reset ImageGen before retrying if it remains stuck.`)
+    lane.stuckVisibilityTimer = setTimeout(() => emitImageWorkerRecoveryState(lane.userId), SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS)
+    ;(lane.stuckVisibilityTimer as any).unref?.()
   }
+  emitImageWorkerRecoveryState(lane.userId)
   void providerOperation.then(() => release('settled'), () => release('settled'))
 }
 
@@ -1287,7 +1330,8 @@ async function acquireImageGenerationLane(
   providerId: string,
 ): Promise<ImageGenerationLaneLease> {
   const key = imageGenerationLaneKey(userId)
-  const lane = imageGenerationLanes.get(key) || { active: false, draining: false, waiters: [] }
+  const lane = imageGenerationLanes.get(key) || { userId, active: false, draining: false, waiters: [] }
+  lane.userId = userId
   imageGenerationLanes.set(key, lane)
   await context.onProviderWaiting?.()
   if (!lane.active) {
@@ -1337,11 +1381,15 @@ async function acquireImageGenerationLane(
   })
 }
 
-export function inspectImageGenerationLaneDiagnostics(userId?: string): Record<string, unknown> | null {
+export function inspectImageGenerationLaneDiagnostics(userId?: string, now = Date.now()): Record<string, unknown> | null {
   const key = imageGenerationLaneKey(userId)
   const lane = imageGenerationLanes.get(key)
   if (!lane) return null
-  const now = Date.now()
+  const reset = providerLaneResetDiagnostics.get(key) || { laneResetCount: 0 }
+  const drainAgeMs = lane.drainStartedAt ? Math.max(0, now - lane.drainStartedAt) : 0
+  const resetAvailable = lane.draining
+    && isSwarmUiProvider(lane.activeProviderId || '')
+    && drainAgeMs >= SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS
   return {
     laneKey: key,
     active: lane.active,
@@ -1352,7 +1400,14 @@ export function inspectImageGenerationLaneDiagnostics(userId?: string): Record<s
     activeProvider: lane.activeProviderId || null,
     activeSince: lane.activeSince || 0,
     drainStartedAt: lane.drainStartedAt || 0,
+    drainAgeMs,
     drainReason: lane.drainReason || '',
+    resetAvailable,
+    stuckThresholdMs: SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS,
+    laneResetCount: reset.laneResetCount,
+    lastLaneResetAt: reset.lastLaneResetAt || 0,
+    lastAbandonedGenerationId: reset.lastAbandonedGenerationId || null,
+    lastAbandonReason: reset.lastAbandonReason || '',
     providerAttempt: lane.activeContext ? providerAttemptFor(lane.activeContext) || null : null,
     waiterCount: lane.waiters.length,
     waiters: lane.waiters.map(waiter => ({
@@ -1366,6 +1421,81 @@ export function inspectImageGenerationLaneDiagnostics(userId?: string): Record<s
       source: waiter.context.source,
     })),
   }
+}
+
+export function imageWorkerRecoveryState(userId?: string, now = Date.now()): Record<string, unknown> {
+  const lane = inspectImageGenerationLaneDiagnostics(userId, now)
+  const reset = providerLaneResetDiagnostics.get(imageGenerationLaneKey(userId)) || { laneResetCount: 0 }
+  return lane || {
+    active: false,
+    draining: false,
+    activeProvider: null,
+    resetAvailable: false,
+    stuckThresholdMs: SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS,
+    laneResetCount: reset.laneResetCount,
+    lastLaneResetAt: reset.lastLaneResetAt || 0,
+    lastAbandonedGenerationId: reset.lastAbandonedGenerationId || null,
+    lastAbandonReason: reset.lastAbandonReason || '',
+    waiterCount: 0,
+  }
+}
+
+function emitImageWorkerRecoveryState(userId?: string): void {
+  try {
+    spindle.sendToFrontend({ type: 'image_worker_recovery_state', imageWorkerRecovery: imageWorkerRecoveryState(userId) }, userId)
+  } catch (error) {
+    spindle.log.warn(`[ReverieRelay:image_worker_recovery_reporting] ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+export function resetStuckImageWorker(userId?: string, now = Date.now()): Record<string, unknown> {
+  const key = imageGenerationLaneKey(userId)
+  const lane = imageGenerationLanes.get(key)
+  if (!lane?.draining) throw new Error('The ImageGen provider lane is not quarantined.')
+  if (!isSwarmUiProvider(lane.activeProviderId || '')) throw new Error('Only a quarantined SwarmUI provider lane can be manually reset.')
+  const drainAgeMs = lane.drainStartedAt ? Math.max(0, now - lane.drainStartedAt) : 0
+  if (drainAgeMs < SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS) throw new Error('SwarmUI has not remained unresolved long enough to expose manual worker reset.')
+
+  const abandonedGenerationId = lane.activeContext?.generationId || ''
+  const diagnostic = lane.activeContext ? providerAttemptFor(lane.activeContext) : undefined
+  const previousReset = providerLaneResetDiagnostics.get(key) || { laneResetCount: 0 }
+  const resetDiagnostic: ProviderLaneResetDiagnostic = {
+    laneResetCount: previousReset.laneResetCount + 1,
+    lastLaneResetAt: now,
+    lastAbandonedGenerationId: abandonedGenerationId || undefined,
+    lastAbandonReason: 'explicit-worker-reset',
+  }
+  spindle.log.warn(`[ReverieRelay:image_worker_manual_reset] ${JSON.stringify({ generationId: abandonedGenerationId || null, provider: lane.activeProviderId, drainStartedAt: lane.drainStartedAt || 0, drainAgeMs, drainReason: lane.drainReason || '', rejectedWaiters: lane.waiters.length, laneResetCount: resetDiagnostic.laneResetCount, remoteCancellationClaimed: false })}`)
+  providerLaneResetDiagnostics.set(key, resetDiagnostic)
+  if (diagnostic) {
+    diagnostic.providerAbandonedByUser = true
+    diagnostic.providerAbandonedAt = now
+    diagnostic.providerAbandonReason = 'explicit-worker-reset'
+    diagnostic.providerDraining = false
+    diagnostic.laneResetCount = resetDiagnostic.laneResetCount
+    diagnostic.lastLaneResetAt = now
+    diagnostic.completedAt = diagnostic.completedAt || now
+  }
+  if (lane.drainWatchdog) clearTimeout(lane.drainWatchdog)
+  if (lane.stuckVisibilityTimer) clearTimeout(lane.stuckVisibilityTimer)
+  const waiters = lane.waiters.splice(0)
+  for (const waiter of waiters) {
+    clearImageGenerationLaneWaiter(waiter)
+    waiter.reject(new ImageGenerationWorkerResetError())
+  }
+  lane.active = false
+  lane.draining = false
+  lane.activeLeaseId = undefined
+  lane.activeContext = undefined
+  lane.activeProviderId = undefined
+  lane.activeSince = undefined
+  lane.drainStartedAt = undefined
+  lane.drainReason = undefined
+  lane.drainWatchdog = undefined
+  lane.stuckVisibilityTimer = undefined
+  imageGenerationLanes.delete(key)
+  emitImageWorkerRecoveryState(userId)
+  return { ...resetDiagnostic, abandonedGenerationId: abandonedGenerationId || null, rejectedWaiters: waiters.length, remoteCancellationClaimed: false }
 }
 
 function isAbortError(error: unknown): boolean {
@@ -1531,7 +1661,90 @@ function staleChatScopeKey(chatId: string, userId?: string): string {
 }
 
 function destinationAvailable(context: ImageGenerationStreamContext, userId?: string): boolean {
-  return !context.chatId || !staleChatScopes.has(staleChatScopeKey(context.chatId, userId))
+  return !context.chatId || chatDestinationDiagnostics.get(staleChatScopeKey(context.chatId, userId))?.quarantined !== true
+}
+
+function markChatDestinationUnavailable(chatId: string, userId?: string, reason = 'Chat not found', validationResult: ChatDestinationDiagnostic['validationResult'] = 'quarantined'): ChatDestinationDiagnostic | null {
+  if (!chatId) return null
+  const key = staleChatScopeKey(chatId, userId)
+  const previous = chatDestinationDiagnostics.get(key)
+  const diagnostic: ChatDestinationDiagnostic = {
+    chatId,
+    userId: userId || '__default-user__',
+    quarantined: true,
+    quarantinedAt: previous?.quarantinedAt || Date.now(),
+    reason,
+    lastValidatedAt: validationResult === 'missing' ? Date.now() : previous?.lastValidatedAt,
+    validationResult,
+    validationError: validationResult === 'validation-error' ? reason : undefined,
+  }
+  chatDestinationDiagnostics.set(key, diagnostic)
+  return diagnostic
+}
+
+export function markChatDestinationAvailable(chatId: string, userId?: string, validatedAt = Date.now()): ChatDestinationDiagnostic | null {
+  if (!chatId) return null
+  const key = staleChatScopeKey(chatId, userId)
+  const previous = chatDestinationDiagnostics.get(key)
+  const diagnostic: ChatDestinationDiagnostic = {
+    chatId,
+    userId: userId || '__default-user__',
+    quarantined: false,
+    quarantinedAt: previous?.quarantinedAt,
+    reason: previous?.reason,
+    lastValidatedAt: validatedAt,
+    validationResult: 'exists',
+  }
+  chatDestinationDiagnostics.set(key, diagnostic)
+  return diagnostic
+}
+
+export function inspectChatDestinationDiagnostic(chatId: string, userId?: string): ChatDestinationDiagnostic | null {
+  const diagnostic = chatDestinationDiagnostics.get(staleChatScopeKey(chatId, userId))
+  return diagnostic ? { ...diagnostic } : null
+}
+
+export function inspectChatDestinationCacheSize(): number {
+  return chatDestinationDiagnostics.size
+}
+
+/** Every new provider-bound attempt proves its exact destination against the
+ * host. This means bounded-cache expiry or eviction can never be mistaken for
+ * positive chat existence. Revalidation only permits the new operation; it
+ * does not recreate any work removed by stale-chat cleanup. */
+export async function revalidateChatDestination(chatId: string | undefined, userId?: string): Promise<boolean> {
+  if (!chatId) return true
+  try {
+    const chat = await spindle.chats.get(chatId, userId)
+    if (chat) {
+      markChatDestinationAvailable(chatId, userId)
+      return true
+    }
+    cleanupStaleChatWork(chatId, userId, 'Authoritative chat lookup returned no chat.')
+    markChatDestinationUnavailable(chatId, userId, 'Authoritative chat lookup returned no chat.', 'missing')
+    return false
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    if (isChatNotFoundError(error)) {
+      cleanupStaleChatWork(chatId, userId, reason)
+      markChatDestinationUnavailable(chatId, userId, reason, 'missing')
+      return false
+    }
+    const key = staleChatScopeKey(chatId, userId)
+    const previous = chatDestinationDiagnostics.get(key)
+    chatDestinationDiagnostics.set(key, {
+      chatId,
+      userId: userId || '__default-user__',
+      quarantined: previous?.quarantined === true,
+      quarantinedAt: previous?.quarantinedAt,
+      reason: previous?.reason,
+      lastValidatedAt: Date.now(),
+      validationResult: 'validation-error',
+      validationError: reason,
+    })
+    spindle.log.warn(`[ReverieRelay:chat_destination_validation] ${chatId}: ${reason}`)
+    return false
+  }
 }
 
 export type StaleChatCleanupSummary = {
@@ -1554,7 +1767,7 @@ export function cleanupStaleChatWork(chatId: string, userId?: string, reason = '
     dispatchQueueItems: 0, providerWaiters: 0, placementBatches: 0, activePreSpendCancelled: 0,
   }
   if (!chatId) return summary
-  staleChatScopes.set(staleChatScopeKey(chatId, userId), { unavailableAt: Date.now(), reason })
+  markChatDestinationUnavailable(chatId, userId, reason)
 
   for (const [key, scheduled] of [...scheduledAssistantScans.entries()]) {
     if (scheduled.chatId !== chatId) continue
@@ -1648,7 +1861,7 @@ export function inspectChatRuntimeWork(chatId: string, userId?: string): Record<
   const broker = nativeSettingsBrokers.get(relayQueueScope(userId))
   const queue = relayDispatchQueues.get(relayQueueScope(userId))
   return {
-    stale: staleChatScopes.has(staleChatScopeKey(chatId, userId)),
+    stale: chatDestinationDiagnostics.get(staleChatScopeKey(chatId, userId))?.quarantined === true,
     scheduledScans: [...scheduledAssistantScans.values(), ...scheduledProseOpportunityScans.values()].filter(item => item.chatId === chatId).length,
     deferredWork: [...deferredScans.values()].filter(item => item[0] === chatId).length
       + [...deferredReparseRequests.keys(), ...deferredRegenerateRequests.keys()].filter(key => key.startsWith(`${chatId}:`)).length,
@@ -4589,6 +4802,12 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
     case 'queue_action':
       await handleQueueAction(payload, snapshotFromPayload(payload), userId)
       return
+    case 'reset_stuck_image_worker': {
+      if (!payload.confirmed) throw new Error('Explicit confirmation is required to reset the stuck image worker.')
+      const result = resetStuckImageWorker(userId)
+      spindle.sendToFrontend({ type: 'relay_notice', level: 'warning', message: 'Relay released its quarantined worker state after explicit user confirmation. The previous host operation may have been abandoned. Retry images manually only after SwarmUI is ready.', details: result }, userId)
+      return
+    }
     case 'export_queue_diagnostic':
       await exportQueueDispatchDiagnostic(payload.chatId, userId)
       return
@@ -14301,7 +14520,6 @@ export async function generateWithOptionalStream(
   forceStandard = false,
   timeoutMs = IMAGE_GENERATION_TIMEOUT_MS,
 ): Promise<any> {
-  if (!destinationAvailable(context, userId)) throw new ImageGenerationDestinationUnavailableError(context.chatId)
   const controller = new AbortController()
   const abortFromAttempt = () => controller.abort(context.attemptSignal?.reason || 'Cancelled by user.')
   if (context.attemptSignal?.aborted) abortFromAttempt()
@@ -14319,12 +14537,21 @@ export async function generateWithOptionalStream(
     providerStreamingUsed: false,
     providerFallbackUsed: false,
     providerDraining: false,
-    destinationAvailable: true,
+    providerAbandonedByUser: false,
+    laneResetCount: providerLaneResetDiagnostics.get(imageGenerationLaneKey(userId))?.laneResetCount || 0,
+    lastLaneResetAt: providerLaneResetDiagnostics.get(imageGenerationLaneKey(userId))?.lastLaneResetAt,
+    destinationAvailable: destinationAvailable(context, userId),
     createdAt: Date.now(),
   })
   try {
+    diagnostic.destinationAvailable = await revalidateChatDestination(context.chatId, userId)
+    if (!diagnostic.destinationAvailable) throw new ImageGenerationDestinationUnavailableError(context.chatId)
     laneLease = await acquireImageGenerationLane(userId, context, controller, plan.provider)
     if (controller.signal.aborted) throw abortError()
+    // A lane wait may last minutes. Prove the destination again immediately
+    // before this attempt is permitted to spend provider capacity.
+    diagnostic.destinationAvailable = await revalidateChatDestination(context.chatId, userId)
+    if (!diagnostic.destinationAvailable) throw new ImageGenerationDestinationUnavailableError(context.chatId)
 
     const standardInput = { ...finalRequest, userId }
     const streamInput = { ...standardInput, signal: controller.signal }
@@ -14369,7 +14596,9 @@ export async function generateWithOptionalStream(
     }
 
     const assertDestinationAvailable = (): void => {
-      diagnostic.destinationAvailable = destinationAvailable(context, userId)
+      // Once this spending attempt has observed destination loss, cache
+      // eviction cannot turn that negative evidence back into availability.
+      diagnostic.destinationAvailable = diagnostic.destinationAvailable && destinationAvailable(context, userId)
       if (!diagnostic.destinationAvailable) throw new ImageGenerationDestinationUnavailableError(context.chatId)
     }
 
@@ -14692,6 +14921,8 @@ async function exportQueueDispatchDiagnostic(chatId: string, userId?: string): P
         concurrency: dispatchQueue?.concurrency || config.queueConcurrencyLimit,
       },
       providerLane: inspectImageGenerationLaneDiagnostics(userId),
+      imageWorkerRecovery: imageWorkerRecoveryState(userId),
+      chatDestination: inspectChatDestinationDiagnostic(chatId, userId),
       providerAttempts: [...providerAttemptDiagnostics.values()]
         .filter(attempt => !attempt.chatId || attempt.chatId === chatId)
         .slice(-100)
@@ -15870,6 +16101,7 @@ async function sendState(userId?: string, chatId?: string): Promise<void> {
     schemaVersion: state.schemaVersion,
     revision: state.revision,
     build: backendBuildInfo(),
+    imageWorkerRecovery: imageWorkerRecoveryState(userId),
   }
   const serializationStartedAt = Date.now()
   const statePayloadBytes = serializedBytes(message)

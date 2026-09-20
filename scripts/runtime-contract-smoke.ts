@@ -53,7 +53,7 @@ let blockedStateWriteAttempts = 0
     async mkdir() {},
   },
   chat: { async getMessages() { return [] } },
-  chats: { async get() { return null } },
+  chats: { async get(chatId: string) { return { id: chatId } } },
   characters: { async get() { return null } },
   personas: { async getActive() { return null } },
   world_books: { async getActivated() { return [] }, entries: { async get() { return null } } },

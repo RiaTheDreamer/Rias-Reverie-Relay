@@ -245,8 +245,25 @@ type NarrativeUtilityInjectionRecord = {
   warnings: string[]
 }
 
+type ImageWorkerRecoveryState = {
+  active?: boolean
+  draining?: boolean
+  activeProvider?: string | null
+  activeGenerationId?: string | null
+  drainStartedAt?: number
+  drainAgeMs?: number
+  drainReason?: string
+  resetAvailable?: boolean
+  stuckThresholdMs?: number
+  laneResetCount?: number
+  lastLaneResetAt?: number
+  lastAbandonedGenerationId?: string | null
+  lastAbandonReason?: string
+  waiterCount?: number
+}
+
 type BackendMessage =
-  | { type: 'state'; chatId: string | null; records: SlotRecord[]; stats: RelayChatStats; recentCompleted: Array<Record<string, unknown>>; queueSafety: { rawPendingRecords: number; uniquePendingJobs: number; duplicateRecordsCollapsed: number; oldestPendingAgeMs: number; pausedBacklog: boolean; updatedAt: number }; config: RouterConfig; parserConnections: ParserConnection[]; imageConnections: ImageConnection[]; imageProviders?: ImageProviderInfo[]; logs: RouterLogEntry[]; candidateBatches: RelayCandidateBatch[]; queueDirector: QueueDirectorState; assetLibrary: AssetLibraryState; versionTrees: VersionTree[]; continuityVault: ContinuityVaultState; customSurfaces: CustomSurfaceStudioState; proseIllustrator: ProseIllustratorState; backgroundQueue: BackgroundQueueState; galleryLinks: GalleryLinkRequest[]; lastDryRun: DryRunReport | null; lastGenerationBlockers: GenerationBlocker[]; schemaVersion: number; revision: number; build: BackendBuildInfo; performance?: { statePayloadBytes: number; serializationMs: number; recordsSent: number; completedLifetime: number; hotCompleted: number } }
+  | { type: 'state'; chatId: string | null; records: SlotRecord[]; stats: RelayChatStats; recentCompleted: Array<Record<string, unknown>>; queueSafety: { rawPendingRecords: number; uniquePendingJobs: number; duplicateRecordsCollapsed: number; oldestPendingAgeMs: number; pausedBacklog: boolean; updatedAt: number }; config: RouterConfig; parserConnections: ParserConnection[]; imageConnections: ImageConnection[]; imageProviders?: ImageProviderInfo[]; logs: RouterLogEntry[]; candidateBatches: RelayCandidateBatch[]; queueDirector: QueueDirectorState; assetLibrary: AssetLibraryState; versionTrees: VersionTree[]; continuityVault: ContinuityVaultState; customSurfaces: CustomSurfaceStudioState; proseIllustrator: ProseIllustratorState; backgroundQueue: BackgroundQueueState; galleryLinks: GalleryLinkRequest[]; lastDryRun: DryRunReport | null; lastGenerationBlockers: GenerationBlocker[]; schemaVersion: number; revision: number; build: BackendBuildInfo; imageWorkerRecovery?: ImageWorkerRecoveryState; performance?: { statePayloadBytes: number; serializationMs: number; recordsSent: number; completedLifetime: number; hotCompleted: number } }
   | { type: 'status'; status: string; requestId?: string }
   | { type: 'error'; source: string; message: string; key?: string; attemptNumber?: number }
   | ({ type: 'slot_action_feedback' } & SlotActionFeedback)
@@ -255,6 +272,7 @@ type BackendMessage =
   | { type: 'native_snapshot_requested'; chatId: string; messageId: string | null; swipeId: number | null; sourceContent?: string; coalescedWaiterCount?: number }
   | { type: 'queue_abort_ack'; abortedQueued: number; abortedActive: number; remoteCancelRequested: number; alreadyStopped: number }
   | { type: 'queue_dispatch_diagnostic'; diagnostic: Record<string, unknown> }
+  | { type: 'image_worker_recovery_state'; imageWorkerRecovery: ImageWorkerRecoveryState }
   | { type: 'completed_history_page'; chatId: string; cursor: number; limit: number; rows: Array<Record<string, unknown>>; nextCursor: number | null; total: number; completedLifetime: number }
   | { type: 'completed_diagnostic'; chatId: string; archiveId: string; requestId?: string; diagnostic: unknown; record?: SlotRecord; message: string }
   | { type: 'reparse_preview'; key: string; prompt: string; negativePrompt: string; pipeline: PromptPipeline }
@@ -404,6 +422,7 @@ export function setup(ctx: SpindleFrontendContext) {
   let customSurfaces: CustomSurfaceStudioState = frontendSurfaceFallback()
   let proseIllustrator: ProseIllustratorState = { settings: {}, opportunities: {}, plans: {}, records: {}, processedMessageKeys: {}, autoCounters: {}, frequencyDecisions: {}, activeOpportunityIdByChat: {}, activePlanIdByChat: {} }
   let backgroundQueue: BackgroundQueueState = { items: {}, abortRequestedAt: 0, updatedAt: 0 }
+  let imageWorkerRecovery: ImageWorkerRecoveryState = { active: false, draining: false, resetAvailable: false, laneResetCount: 0, waiterCount: 0 }
   let galleryLinks: GalleryLinkRequest[] = []
   let lastDryRun: DryRunReport | null = null
   let lastFullCompleteDryRun: Extract<BackendMessage, { type: 'full_complete_dry_run_result' }>['report'] | null = null
@@ -1378,6 +1397,7 @@ export function setup(ctx: SpindleFrontendContext) {
         for (const pending of settingsPatchQueue) applyRelaySettingsDraft(pending.patch)
         invalidateDisplayIfContractChanged(effectiveConfig, customSurfaces)
         backgroundQueue = message.backgroundQueue || { items: {}, abortRequestedAt: 0, updatedAt: 0 }
+        imageWorkerRecovery = message.imageWorkerRecovery || { active: false, draining: false, resetAvailable: false, laneResetCount: 0, waiterCount: 0 }
         galleryLinks = message.galleryLinks || []
         lastDryRun = message.lastDryRun || null
         lastGenerationBlockers = message.lastGenerationBlockers || []
@@ -1558,6 +1578,11 @@ export function setup(ctx: SpindleFrontendContext) {
     }
     if (message.type === 'queue_dispatch_diagnostic') {
       downloadJson(`reverie-relay-queue-diagnostic-${Date.now()}.json`, message.diagnostic)
+      return
+    }
+    if (message.type === 'image_worker_recovery_state') {
+      imageWorkerRecovery = message.imageWorkerRecovery
+      renderPanel()
       return
     }
     if (message.type === 'completed_diagnostic') {
@@ -7212,6 +7237,25 @@ ${bracketFixture}`)
       const result = document.createElement('div'); result.className = 'dg-slot-meta'
       result.textContent = selfTest.checks.map(check => `${check.class.toUpperCase()} · ${check.result.toUpperCase()} · ${check.name}: ${check.detail}`).join('\n')
       diagnostics.appendChild(result)
+    }
+    const resetStuckSwarmAvailable = imageWorkerRecovery.resetAvailable === true
+      && imageWorkerRecovery.draining === true
+      && ['swarmui', 'swarm-ui'].includes(String(imageWorkerRecovery.activeProvider || '').trim().toLocaleLowerCase())
+    if (resetStuckSwarmAvailable) {
+      const workerRecovery = document.createElement('div')
+      const warning = document.createElement('div'); warning.className = 'dg-recovery-note'
+      warning.textContent = `SwarmUI still appears to own an earlier generation. Relay has kept the user ImageGen worker quarantined for safety. ${imageWorkerRecovery.waiterCount || 0} queued Relay image job${imageWorkerRecovery.waiterCount === 1 ? '' : 's'} will be stopped by a manual reset.`
+      const actions = document.createElement('div'); actions.className = 'dg-actions'
+      actions.append(button('Reset Stuck Image Worker', () => confirmCleanup({
+        title: 'Reset Stuck Image Worker?',
+        description: 'SwarmUI still appears to own an earlier generation.\n\nOnly reset Relay\'s image worker after you have restarted or reset SwarmUI itself. Pending Relay image jobs will be stopped and must be retried manually.\n\nRelay cannot prove that the previous host generation was cancelled.',
+        scope: 'All queued ImageGen work for this user across chats',
+        actionLabel: 'Reset Image Worker',
+        strong: true,
+        onConfirm: () => ctx.sendToBackend({ type: 'reset_stuck_image_worker', confirmed: true }),
+      }), false, 'danger', 'User-global recovery for an unresolved SwarmUI provider lane.'))
+      workerRecovery.append(warning, actions)
+      diagnostics.appendChild(panelSection('Image Worker Recovery', workerRecovery))
     }
     const pipeline = document.createElement('div'); pipeline.className = 'dg-actions'
     pipeline.append(
