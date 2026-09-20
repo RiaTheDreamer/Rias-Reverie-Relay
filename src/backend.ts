@@ -6520,10 +6520,12 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
         stored.parserModel = prepared.parserModel
         stored.parserParameters = prepared.parserParameters
         stored.promptPipeline = prepared.promptPipeline
+        stored.parsingCompletedAt = now
         stored.preparationCompletedAt = now
         stored.providerWaitStartedAt = now
         const current = currentAttempt(stored)
         if (current) {
+          current.parsingCompletedAt = now
           current.preparationCompletedAt = now
           current.providerWaitStartedAt = now
         }
@@ -6567,8 +6569,12 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
             if (!stored || stored.status !== 'provider-waiting') return
             markSlotStatus(stored, 'generating')
             stored.providerStartedAt = stored.generationStartedAt
+            stored.providerRequestSentAt = stored.providerStartedAt
             const current = currentAttempt(stored)
-            if (current) current.providerStartedAt = stored.providerStartedAt
+            if (current) {
+              current.providerStartedAt = stored.providerStartedAt
+              current.providerRequestSentAt = stored.providerRequestSentAt
+            }
             updateBackgroundTask(state, backgroundTaskId, { stage: 'generating', statusText: 'Generating with ImageGen', current: 2, total: 3 })
             appendStateLog(state, {
               severity: 'info', stage: 'image-generation-start', eventType: 'image_generation_started', chatId: job.chatId, messageId: job.messageId,
@@ -6586,11 +6592,13 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
             if (!stored) return
             const now = Date.now()
             stored.providerCompletedAt = completedAt
+            stored.providerResultReceivedAt = completedAt
             stored.status = 'placement-pending'
             stored.updatedAt = now
             const current = currentAttempt(stored)
             if (current) {
               current.providerCompletedAt = completedAt
+              current.providerResultReceivedAt = completedAt
               current.stage = 'placement-pending'
             }
             updateBackgroundTask(state, backgroundTaskId, { stage: 'placing', statusText: `Generated${stored.providerStartedAt ? ` in ${((completedAt - stored.providerStartedAt) / 1000).toFixed(1)}s` : ''} · saving and placing…`, current: 3, total: 3 })
@@ -6604,11 +6612,17 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
         const now = Date.now()
         if (stored) {
           stored.providerCompletedAt ||= now
+          stored.providerResultReceivedAt ||= stored.providerCompletedAt
+          stored.imagePersistedAt = generated.imagePersistedAt
+          stored.galleryLinkedAt = generated.galleryLinkedAt
           stored.status = 'placement-pending'
           stored.updatedAt = now
           const current = currentAttempt(stored)
           if (current) {
             current.providerCompletedAt ||= stored.providerCompletedAt
+            current.providerResultReceivedAt ||= stored.providerResultReceivedAt
+            current.imagePersistedAt = generated.imagePersistedAt
+            current.galleryLinkedAt = generated.galleryLinkedAt
             current.stage = 'placement-pending'
           }
         }
@@ -6666,7 +6680,8 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
         galleryLinkStatus: generated.galleryLinkStatus,
         galleryItemId: generated.galleryItemId,
         galleryLinkError: generated.galleryLinkError,
-        galleryLinkedAt: generated.galleryLinkStatus === 'linked' ? Date.now() : undefined,
+        galleryLinkedAt: generated.galleryLinkedAt,
+        imagePersistedAt: generated.imagePersistedAt,
         promptProfile: prepared.promptPipeline.promptProfile,
         regenerationIntent: job.regenerationIntent,
         diagnostic: createSlotDiagnostic(job, slot, prepared, generated, prepared.promptPipeline.promptProfile, job.regenerationIntent),
@@ -8344,12 +8359,12 @@ export function hasUnsettledVisiblePlacement(batch: InitialPlacementBatch): bool
   return batch.entries.some(entry => (entry.visualSettlements || []).some(settlement => settlement.required && !settlement.settled))
 }
 
-function hasStartedUnsettledVisiblePlacement(batch: InitialPlacementBatch): boolean {
-  return batch.entries.some(entry => (entry.visualSettlements || []).some(settlement => settlement.required && settlement.started && !settlement.settled))
-}
-
 export function initialPlacementBatchCommitGate(batch: InitialPlacementBatch, options: { hasGenerationSibling: boolean; hasVisibleFrontend: boolean; allowSafetyFallback?: boolean; healthyStartedVisual?: boolean }): 'generation-pending' | 'visual-pending' | 'ready' {
-  if (hasUnsettledVisiblePlacement(batch) && options.hasVisibleFrontend && (!options.allowSafetyFallback || options.healthyStartedVisual)) return 'visual-pending'
+  // Reveal lifecycle is presentation telemetry, not a persistence prerequisite.
+  // Waiting for animationend here left a generated, gallery-linked asset in
+  // placement-pending limbo on real mobile sessions.
+  void batch
+  void options
   return 'ready'
 }
 
@@ -8397,14 +8412,44 @@ async function commitInitialPlacementBatch(batch: InitialPlacementBatch, userId?
     }
   })
   const message = await resolveHostMessage(batch.chatId, batch.messageId)
+  const messageRereadAt = Date.now()
+  await mutateState(batch.chatId, userId, state => {
+    for (const { job, results } of batch.entries) for (const result of results) {
+      const record = state.slots[slotKey({ ...job, slot: result.slot })]
+      if (!record || !placementFailureCanReplaceRecord(record, result)) continue
+      record.messageRereadAt = messageRereadAt
+      const attempt = currentAttempt(record)
+      if (attempt) attempt.messageRereadAt = messageRereadAt
+    }
+  })
   const currentContent = message ? getAuthoritativeSwipeContent(message, batch.swipeId) : ''
   if (!message) {
     await markInitialPlacementBatchForRepair(batch, 'The original message is no longer available.', currentContent, userId)
     return
   }
+  const markerReplacementStartedAt = Date.now()
+  await mutateState(batch.chatId, userId, state => {
+    for (const { job, results } of batch.entries) for (const result of results) {
+      const record = state.slots[slotKey({ ...job, slot: result.slot })]
+      if (!record || !placementFailureCanReplaceRecord(record, result)) continue
+      record.markerReplacementStartedAt = markerReplacementStartedAt
+      const attempt = currentAttempt(record)
+      if (attempt) attempt.markerReplacementStartedAt = markerReplacementStartedAt
+    }
+  })
   const composed = composeInitialPlacementBatchContent(currentContent, batch.entries)
   try {
     if (composed.content !== currentContent) await patchSwipeContent(batch.chatId, message, batch.swipeId, composed.content)
+    const markerReplacementCommittedAt = Date.now()
+    await mutateState(batch.chatId, userId, state => {
+      for (const { job, results } of batch.entries) for (const result of results) {
+        const record = state.slots[slotKey({ ...job, slot: result.slot })]
+        if (!record || !placementFailureCanReplaceRecord(record, result)) continue
+        record.markerReplacementCommittedAt = markerReplacementCommittedAt
+        const attempt = currentAttempt(record)
+        if (attempt) attempt.markerReplacementCommittedAt = markerReplacementCommittedAt
+      }
+    })
     const verifiedMessage = await resolveHostMessage(batch.chatId, batch.messageId)
     const verifiedContent = verifiedMessage ? getAuthoritativeSwipeContent(verifiedMessage, batch.swipeId) : ''
     const verifiedEntries = batch.entries.filter(({ job, results }) => placementIsPresent(verifiedContent, job, results))
@@ -8427,7 +8472,7 @@ async function commitInitialPlacementBatch(batch: InitialPlacementBatch, userId?
         severity: 'info', stage: 'placement-completed', eventType: 'message_batch_placement_completed', chatId: batch.chatId,
         messageId: batch.messageId, swipeId: batch.swipeId,
         message: `Persisted ${verifiedEntries.reduce((total, entry) => total + entry.results.length, 0)} generated image slot(s) in one message-scoped update.`,
-        details: { requestIds: verifiedEntries.map(entry => entry.job.requestId), sourceFingerprint: batch.sourceFingerprint, sourceChanged: contentFingerprint(currentContent) !== batch.sourceFingerprint, visualFallbackReason: batch.visualFallbackReason },
+        details: { requestIds: verifiedEntries.map(entry => entry.job.requestId), sourceFingerprint: batch.sourceFingerprint, sourceChanged: contentFingerprint(currentContent) !== batch.sourceFingerprint, placementStartedAt, messageRereadAt, markerReplacementStartedAt, markerReplacementCommittedAt },
       })
     })
     if (failedEntries.length) await markInitialPlacementBatchForRepair(batch, composed.error || 'The single message update returned without every intended exact placement.', verifiedContent, userId, failedEntries)
@@ -8441,25 +8486,9 @@ export function placementBatchKey(job: Pick<RouterJob, 'chatId' | 'messageId' | 
   return `${relayQueueScope(userId)}:${job.chatId}:${job.messageId}:${job.swipeId}:${job.requestId}`
 }
 
-const PLACEMENT_VISUAL_SETTLEMENT_SAFETY_MS = 30_000
-const PLACEMENT_VISUAL_SESSION_LEASE_MS = 25_000
-
-function hasFreshFrontendForChat(chatId: string, userId?: string): boolean {
-  const now = Date.now()
-  return [...nativeSettingsBroker(userId).frontendSessions.values()].some(session => session.connected && session.chatId === chatId && now - session.lastSeenAt <= PLACEMENT_VISUAL_SESSION_LEASE_MS)
-}
-
 function clearInitialPlacementVisualFallback(batch: InitialPlacementBatch): void {
   if (batch.visualFallbackTimer) clearTimeout(batch.visualFallbackTimer)
   batch.visualFallbackTimer = undefined
-}
-
-function scheduleInitialPlacementVisualFallback(batch: InitialPlacementBatch, userId?: string): void {
-  if (batch.visualFallbackTimer) return
-  batch.visualFallbackTimer = setTimeout(() => {
-    batch.visualFallbackTimer = undefined
-    void maybeCommitInitialPlacementBatch(batch, userId, true).catch(error => spindle.log.error(`[Reverie Relay:placement_visual_fallback] ${error instanceof Error ? error.message : String(error)}`))
-  }, PLACEMENT_VISUAL_SETTLEMENT_SAFETY_MS)
 }
 
 async function maybeCommitInitialPlacementBatch(job: Pick<RouterJob, 'chatId' | 'messageId' | 'swipeId' | 'requestId'>, userId?: string, allowSafetyFallback = false): Promise<boolean> {
@@ -8467,22 +8496,24 @@ async function maybeCommitInitialPlacementBatch(job: Pick<RouterJob, 'chatId' | 
     const key = placementBatchKey(job, userId)
     const batch = pendingPlacementBatches.get(key)
     if (!batch) return false
-    const healthyStartedVisual = allowSafetyFallback && hasStartedUnsettledVisiblePlacement(batch) && hasFreshFrontendForChat(batch.chatId, userId)
+    const placementLockAcquiredAt = Date.now()
+    await mutateState(batch.chatId, userId, state => {
+      for (const { job: entryJob, results } of batch.entries) for (const result of results) {
+        const record = state.slots[slotKey({ ...entryJob, slot: result.slot })]
+        if (!record || !placementFailureCanReplaceRecord(record, result)) continue
+        record.placementLockAcquiredAt = placementLockAcquiredAt
+        const attempt = currentAttempt(record)
+        if (attempt) attempt.placementLockAcquiredAt = placementLockAcquiredAt
+      }
+    })
     const gate = initialPlacementBatchCommitGate(batch, {
       hasGenerationSibling: false,
       hasVisibleFrontend: hasConnectedFrontendForChat(batch.chatId, userId),
       allowSafetyFallback,
-      healthyStartedVisual,
+      healthyStartedVisual: false,
     })
     if (gate === 'generation-pending') return false
-    if (gate === 'visual-pending') {
-      scheduleInitialPlacementVisualFallback(batch, userId)
-      return false
-    }
-    if (hasUnsettledVisiblePlacement(batch)) {
-      batch.visualFallbackReason = allowSafetyFallback ? 'bounded-safety-recovery' : 'frontend-no-longer-visible'
-      spindle.log.warn(`[Reverie Relay:placement_visual_fallback] Persisting ${batch.chatId}/${batch.messageId}/${batch.swipeId} through ${batch.visualFallbackReason}; visual settlement was not used as a synthetic Reveal timer.`)
-    }
+    if (gate === 'visual-pending') return false
     clearInitialPlacementVisualFallback(batch)
     pendingPlacementBatches.delete(key)
     await commitInitialPlacementBatch(batch, userId)
@@ -8490,10 +8521,29 @@ async function maybeCommitInitialPlacementBatch(job: Pick<RouterJob, 'chatId' | 
   })
 }
 
+async function recordPlacementVisualTelemetry(payload: PlacementVisualSettledMessage, field: 'started' | 'completed', userId?: string): Promise<void> {
+  const timestamp = Date.now()
+  await mutateState(payload.chatId, userId, state => {
+    const record = state.slots[payload.key]
+    const expectedImageUrl = record?.pendingPlacement?.imageUrl || record?.imageUrl
+    const expectedImageId = record?.pendingPlacement?.imageId || record?.imageId
+    if (!record || record.requestId !== payload.requestId || record.slot !== payload.slot || expectedImageUrl !== payload.imageUrl || (payload.imageId && expectedImageId !== payload.imageId)) return
+    if (field === 'started') record.visualSettlementStartedAt ||= timestamp
+    else record.visualSettlementCompletedAt ||= timestamp
+    const attempt = currentAttempt(record)
+    if (attempt) {
+      if (field === 'started') attempt.visualSettlementStartedAt ||= timestamp
+      else attempt.visualSettlementCompletedAt ||= timestamp
+    }
+    if (record.diagnostic) record.diagnostic.relayInferred.timing = generationTimingForRecord(record, timestamp)
+  }).catch(() => undefined)
+}
+
 async function handlePlacementVisualSettled(payload: PlacementVisualSettledMessage, userId?: string): Promise<void> {
   const session = nativeSettingsBroker(userId).frontendSessions.get(payload.sessionId)
   if (!session?.connected || session.chatId !== payload.chatId) return
   session.lastSeenAt = Date.now()
+  await recordPlacementVisualTelemetry(payload, 'completed', userId)
   const batch = pendingPlacementBatches.get(placementBatchKey(payload, userId))
   if (!batch) return
   const outcome = markInitialPlacementVisualSettled(batch, payload)
@@ -8505,6 +8555,7 @@ async function handlePlacementVisualStarted(payload: PlacementVisualSettledMessa
   const session = nativeSettingsBroker(userId).frontendSessions.get(payload.sessionId)
   if (!session?.connected || session.chatId !== payload.chatId) return
   session.lastSeenAt = Date.now()
+  await recordPlacementVisualTelemetry(payload, 'started', userId)
   const batch = pendingPlacementBatches.get(placementBatchKey(payload, userId))
   if (!batch) return
   markInitialPlacementVisualStarted(batch, payload)
@@ -12020,6 +12071,49 @@ function c5aIdentityWarnings(context: ParserContextResult, corrections: string[]
   return warnings
 }
 
+/**
+ * One identity shaper is shared by the normal, composed, authoritative, and
+ * parser-fallback routes.  The scene/profile always lead; native bindings are
+ * applied once as identity-only facts; current appearance follows identity.
+ */
+function shapeSceneLedIdentityPrompt(
+  prompt: string,
+  job: RouterJob,
+  context: ParserContextResult,
+  allowHumanPrompt: boolean,
+): { prompt: string; identityCorrection: C5AIdentityCorrection } {
+  if (!allowHumanPrompt) {
+    return {
+      prompt,
+      identityCorrection: enforceC5AKnownIdentity(prompt, [], context.appliedIdentityBindingIds),
+    }
+  }
+
+  const sceneFirst = job.target === 'prose.illustration'
+  let identityPrompt = enforceVisualSubjectIdentity(prompt, context.visualSubjects, sceneFirst)
+  const appliedBindingIds = new Set(context.appliedIdentityBindingIds)
+
+  // If a native binding resolved, enforceC5AKnownIdentity owns its one and only
+  // insertion.  These context fallbacks are only for unresolved native bindings.
+  // The old fallback path inserted context first and then appended the same native
+  // binding again, which recreated the duplicated Character-card soup.
+  if (!context.visualSubjects.length) {
+    for (const kind of ['character', 'persona'] as const) {
+      const binding = context.identityBindings.find(candidate => candidate.kind === kind)
+      const fallback = kind === 'character' ? context.characterContext : context.personaContext
+      if (!fallback || binding?.prompt) continue
+      identityPrompt = sceneFirst ? `${identityPrompt}, ${fallback}` : `${fallback}, ${identityPrompt}`
+      if (binding) appliedBindingIds.add(c5aIdentityBindingId(binding))
+    }
+  }
+
+  const identityCorrection = enforceC5AKnownIdentity(identityPrompt, context.identityBindings, appliedBindingIds)
+  const withContinuity = context.projectedContinuityFactsForPromptAppend.length
+    ? mergeAppearancePromptFacts(identityCorrection.prompt, context.projectedContinuityFactsForPromptAppend, authoritativeSceneText(job))
+    : identityCorrection.prompt
+  return { prompt: withContinuity, identityCorrection }
+}
+
 async function buildAuthoritativeVisualPrompt(
   job: RouterJob,
   slot: string,
@@ -12031,17 +12125,10 @@ async function buildAuthoritativeVisualPrompt(
   const classification = context.classification
   const humanPolicy = targetHumanPolicy(job, classification)
   const profileBase = resolvePromptProfileDecision(job, config)
-  const sceneFirst = job.target === 'prose.illustration'
   const profiled = applyPromptProfileToPositivePrompt(job.originalSceneBrief, profileBase)
-  let identityPrompt = profiled.prompt
-  if (humanPolicy.allowHumanPrompt) {
-    identityPrompt = enforceVisualSubjectIdentity(identityPrompt, context.visualSubjects, sceneFirst)
-    if (!context.visualSubjects.length && context.characterContext) identityPrompt = sceneFirst ? `${identityPrompt}, ${context.characterContext}` : `${context.characterContext}, ${identityPrompt}`
-    if (!context.visualSubjects.length && context.personaContext) identityPrompt = sceneFirst ? `${identityPrompt}, ${context.personaContext}` : `${context.personaContext}, ${identityPrompt}`
-    if (context.projectedContinuityFactsForPromptAppend.length) identityPrompt = mergeAppearancePromptFacts(identityPrompt, context.projectedContinuityFactsForPromptAppend, authoritativeSceneText(job))
-  }
-  const identityCorrection = enforceC5AKnownIdentity(identityPrompt, context.identityBindings, context.appliedIdentityBindingIds)
-  const finalized = finalizeParsedPositivePrompt(identityCorrection.prompt, classification, job)
+  const shaped = shapeSceneLedIdentityPrompt(profiled.prompt, job, context, humanPolicy.allowHumanPrompt)
+  const identityCorrection = shaped.identityCorrection
+  const finalized = finalizeParsedPositivePrompt(shaped.prompt, classification, job)
   const specialIntent = applySpecialImageIntent(finalized, job.intent, authoritativeSceneText(job))
   const contextualSexual = applyContextualSexualGuidance(specialIntent.prompt, '', authoritativeSceneText(job))
   const nativeNegative = firstString(nativeSettings?.customNegativePrompt, nativeSettings?.negativePrompt, config.nativeNegativePrompt)
@@ -12172,14 +12259,9 @@ export async function parseSlotPrompt(
     const composedSexualEscalationRejected = hasUnrequestedExplicitEscalation(authoritativeScene, job.composedPositivePrompt)
     const safeComposedPrompt = composedSexualEscalationRejected ? job.originalSceneBrief : job.composedPositivePrompt
     const profiled = applyPromptProfileToPositivePrompt(safeComposedPrompt, profile)
-    const identityPrompt = humanPolicy.allowHumanPrompt
-      ? enforceVisualSubjectIdentity(profiled.prompt, context.visualSubjects, job.target === 'prose.illustration')
-      : profiled.prompt
-    const promptWithAppearance = humanPolicy.allowHumanPrompt && context.projectedContinuityFactsForPromptAppend.length
-      ? mergeAppearancePromptFacts(identityPrompt, context.projectedContinuityFactsForPromptAppend, authoritativeScene)
-      : identityPrompt
-    const identityCorrection = enforceC5AKnownIdentity(promptWithAppearance, context.identityBindings, context.appliedIdentityBindingIds)
-    const finalizedPositivePrompt = finalizeParsedPositivePrompt(identityCorrection.prompt, classification, job)
+    const shaped = shapeSceneLedIdentityPrompt(profiled.prompt, job, context, humanPolicy.allowHumanPrompt)
+    const identityCorrection = shaped.identityCorrection
+    const finalizedPositivePrompt = finalizeParsedPositivePrompt(shaped.prompt, classification, job)
     const specialIntent = applySpecialImageIntent(finalizedPositivePrompt, job.intent, authoritativeScene)
     const contextualSexual = applyContextualSexualGuidance(specialIntent.prompt, job.composedNegativePrompt || '', authoritativeScene)
     const positivePrompt = contextualSexual.prompt
@@ -12338,9 +12420,9 @@ export async function parseSlotPrompt(
       }
       const profileBase = resolvePromptProfileDecision(job, config)
       const profiled = applyPromptProfileToPositivePrompt(parsed.prompt, profileBase)
-      const identityPrompt = humanPolicy.allowHumanPrompt ? enforceVisualSubjectIdentity(profiled.prompt, context.visualSubjects, job.target === 'prose.illustration') : profiled.prompt
-      const identityCorrection = enforceC5AKnownIdentity(identityPrompt, context.identityBindings, context.appliedIdentityBindingIds)
-      const finalizedPositivePrompt = finalizeParsedPositivePrompt(identityCorrection.prompt, context.classification, job)
+      const shaped = shapeSceneLedIdentityPrompt(profiled.prompt, job, context, humanPolicy.allowHumanPrompt)
+      const identityCorrection = shaped.identityCorrection
+      const finalizedPositivePrompt = finalizeParsedPositivePrompt(shaped.prompt, context.classification, job)
       const specialIntent = applySpecialImageIntent(finalizedPositivePrompt, job.intent, authoritativeScene)
       const contextualSexual = applyContextualSexualGuidance(specialIntent.prompt, cleanString(parsed.negativeAdditions), authoritativeScene)
       const positivePrompt = contextualSexual.prompt
@@ -12610,13 +12692,14 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
   galleryLinkStatus: GalleryLinkStatus
   galleryItemId?: string
   galleryLinkError?: string
+  imagePersistedAt: number
+  galleryLinkedAt?: number
 }> {
   const source = streamContext?.source || 'relay-slot'
-  const recipeMergedPrompt = mergePromptFragmentsUnique(plan.recipePositivePrompt || '', prepared.prompt)
-  if (!isMeaningfulAutomaticPrompt(recipeMergedPrompt, plan.effectiveBaseTags)) {
+  const assembled = assemblePreparedProviderPrompts(plan, prepared)
+  if (!isMeaningfulAutomaticPrompt(assembled.prompt, plan.effectiveBaseTags)) {
     throw new Error('Relay blocked an automatic generation because the resolved scene prompt contained only style, quality, or generic subject tags.')
   }
-  const assembled = assembleProviderPrompts(plan, prepared.prompt, prepared.negativePrompt)
   const effectivePrompt = assembled.prompt
   const effectivePrepared = { ...prepared, prompt: effectivePrompt, negativePrompt: assembled.negativePrompt }
   prepared.promptPipeline.userPositivePromptPrefix = plan.userPositivePromptPrefix
@@ -12625,6 +12708,13 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
   prepared.promptPipeline.scenePromptBeforePrefix = assembled.scenePromptBeforePrefix
   prepared.promptPipeline.finalProviderPrompt = effectivePrompt
   prepared.promptPipeline.finalProviderNegativePrompt = assembled.negativePrompt
+  prepared.promptPipeline.fallbackProviderGuardApplied = /^router_parser_fallback(?::|$)/i.test(prepared.promptMode)
+  prepared.promptPipeline.fallbackProviderFragmentsRemoved = assembled.removedFallbackFragments
+  if (assembled.removedFallbackFragments.length) prepared.promptPipeline.warnings.push({
+    code: 'fallback-provider-identity-contamination-removed',
+    message: `Removed ${assembled.removedFallbackFragments.length} raw native identity/preset fragment(s) that re-entered through provider additions.`,
+    sources: ['provider-bound fallback guard'],
+  })
   const identityFixSavings = Math.max(0, Number(prepared.promptPipeline.finalPromptCharsBeforeIdentityFix || 0) - Number(prepared.promptPipeline.finalPromptChars || 0))
   prepared.promptPipeline.finalPromptChars = effectivePrompt.length
   prepared.promptPipeline.finalPromptCharsBeforeIdentityFix = effectivePrompt.length + identityFixSavings
@@ -12657,7 +12747,7 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
     source: 'relay-slot' as const,
   } : undefined)
   if (!resolvedStreamContext) throw new Error('Image generation requires either a real chat context or an explicit stream context.')
-  spindle.log.info(`[ReverieRelay:generation_origin] ${JSON.stringify({ origin: source, chatId: resolvedOwnerChatId || chatId || null, requestId: resolvedStreamContext.requestId || null, generationId: resolvedStreamContext.generationId, connectionId: plan.connectionId, model: plan.model, semanticPromptPresent: isMeaningfulAutomaticPrompt(recipeMergedPrompt, plan.effectiveBaseTags), recipeId: plan.recipeId || null })}`)
+  spindle.log.info(`[ReverieRelay:generation_origin] ${JSON.stringify({ origin: source, chatId: resolvedOwnerChatId || chatId || null, requestId: resolvedStreamContext.requestId || null, generationId: resolvedStreamContext.generationId, connectionId: plan.connectionId, model: plan.model, semanticPromptPresent: isMeaningfulAutomaticPrompt(assembled.prompt, plan.effectiveBaseTags), recipeId: plan.recipeId || null, fallbackProviderGuardApplied: prepared.promptPipeline.fallbackProviderGuardApplied, fallbackProviderFragmentsRemoved: assembled.removedFallbackFragments.length })}`)
   let providerStartedAt = Date.now()
   let result = await generateWithOptionalStream(finalRequest, plan, userId, resolvedStreamContext)
 
@@ -12667,6 +12757,7 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
     : shouldLinkToGallery
       ? 'failed'
       : 'skipped'
+  let galleryLinkedAt = galleryLinkStatus === 'linked' ? Date.now() : undefined
   let galleryLinkError = cleanString(result.galleryLinkError) || undefined
   let imageId = cleanString(result.imageId)
   let imageUrl = cleanString(result.imageUrl) || (imageId ? imageUrlFromId(imageId) : '')
@@ -12711,7 +12802,10 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
     imageId = cleanString(uploaded.id)
     imageUrl = cleanString(uploaded.url) || (imageId ? imageUrlFromId(imageId) : imageUrl)
     galleryItemId = cleanString((uploaded as any).galleryItemId) || galleryItemId
-    if ((uploaded as any).galleryLinked === true || cleanString((uploaded as any).galleryLinkStatus) === 'linked') galleryLinkStatus = 'linked'
+    if ((uploaded as any).galleryLinked === true || cleanString((uploaded as any).galleryLinkStatus) === 'linked') {
+      galleryLinkStatus = 'linked'
+      galleryLinkedAt ||= Date.now()
+    }
     galleryLinkError = cleanString((uploaded as any).galleryLinkError) || galleryLinkError
     asset = uploaded
     visibleUnownedAsset = false
@@ -12735,7 +12829,10 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
           imageId = cleanString(uploaded.id)
           imageUrl = cleanString(uploaded.url) || (imageId ? imageUrlFromId(imageId) : imageUrl)
           galleryItemId = cleanString((uploaded as any).galleryItemId) || galleryItemId
-          if ((uploaded as any).galleryLinked === true || cleanString((uploaded as any).galleryLinkStatus) === 'linked') galleryLinkStatus = 'linked'
+          if ((uploaded as any).galleryLinked === true || cleanString((uploaded as any).galleryLinkStatus) === 'linked') {
+            galleryLinkStatus = 'linked'
+            galleryLinkedAt ||= Date.now()
+          }
           galleryLinkError = cleanString((uploaded as any).galleryLinkError) || galleryLinkError
           asset = uploaded
         }
@@ -12752,6 +12849,7 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
     throw new Error('ImageGen completed but could not be persisted to the ImageTable.')
   }
   if (!imageUrl) imageUrl = cleanString(asset.url) || imageUrlFromId(imageId)
+  const imagePersistedAt = Date.now()
   spindle.log.info(`[ReverieRelay:image_persistence] Confirmed ImageTable asset ${imageId} for ${streamContext?.source || 'generation'}.`)
   if (shouldLinkToGallery) {
     if (galleryLinkStatus === 'linked' && galleryItemId) {
@@ -12765,7 +12863,6 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
   const imageWidth = asset?.width ?? null
   const imageHeight = asset?.height ?? null
   await recordLastGeneratedImage(resolvedOwnerChatId || chatId, imageUrl, userId)
-
   return {
     imageId,
     imageUrl,
@@ -12797,6 +12894,8 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
     galleryLinkStatus,
     galleryItemId,
     galleryLinkError,
+    imagePersistedAt,
+    galleryLinkedAt,
   }
 }
 
@@ -13248,6 +13347,61 @@ export function assembleProviderPrompts(
   }
 }
 
+function fallbackProviderBlockedFragments(pipeline: PromptPipeline): Set<string> {
+  const blocked = new Set<string>()
+  for (const binding of pipeline.identityResolution?.bindings || []) {
+    for (const value of [binding.prompt, ...(binding.removedSceneFragments || [])]) {
+      for (const fragment of cleanString(value).split(/[,\n]+/)) {
+        const key = normalizedPromptFragment(fragment)
+        if (key) blocked.add(key)
+      }
+    }
+  }
+  return blocked
+}
+
+function sanitizeFallbackProviderAddition(value: string, blocked: Set<string>): { prompt: string; removed: string[] } {
+  const kept: string[] = []
+  const removed: string[] = []
+  for (const fragment of cleanString(value).split(/[,\n]+/)) {
+    const clean = fragment.trim().replace(/^[,;\s]+|[,;\s]+$/g, '')
+    if (!clean) continue
+    const key = normalizedPromptFragment(clean)
+    const labeledIdentityDump = /^active\s+(?:character|persona)\s*\([^)]*\)\s*:/i.test(clean)
+    if (labeledIdentityDump || blocked.has(key)) removed.push(clean)
+    else kept.push(clean)
+  }
+  return { prompt: mergePromptFragmentsUnique(kept.join(', ')), removed }
+}
+
+/** Provider-bound assembly for PreparedPrompt. Parser fallback is deliberately
+ * scene-led and strips any raw native identity dump that re-enters through a
+ * generation recipe or user prefix after C5A shaping has already completed. */
+export function assemblePreparedProviderPrompts(
+  plan: Pick<ImagePlan, 'recipePositivePrompt' | 'recipeNegativePrompt' | 'effectiveBaseTags' | 'userPositivePromptPrefix' | 'userNegativePromptPrefix'>,
+  prepared: PreparedPrompt,
+): { prompt: string; negativePrompt: string; scenePromptBeforePrefix: string; removedFallbackFragments: string[] } {
+  if (!/^router_parser_fallback(?::|$)/i.test(prepared.promptMode)) {
+    return { ...assembleProviderPrompts(plan, prepared.prompt, prepared.negativePrompt), removedFallbackFragments: [] }
+  }
+
+  const blocked = fallbackProviderBlockedFragments(prepared.promptPipeline)
+  const recipe = sanitizeFallbackProviderAddition(plan.recipePositivePrompt || '', blocked)
+  const prefix = sanitizeFallbackProviderAddition(plan.userPositivePromptPrefix, blocked)
+  const removedFallbackFragments = [...recipe.removed, ...prefix.removed]
+  const scenePromptBeforePrefix = mergePromptFragmentsUnique(prepared.prompt, recipe.prompt, prefix.prompt)
+  const prompt = mergePromptFragmentsUnique(scenePromptBeforePrefix, plan.effectiveBaseTags)
+  if (/^\s*active\s+(?:character|persona)\s*\(/i.test(prompt)) {
+    throw new Error('Fallback provider prompt guard rejected a preset-led identity dump.')
+  }
+  return {
+    prompt,
+    negativePrompt: mergePromptFragmentsUnique(plan.userNegativePromptPrefix, plan.recipeNegativePrompt || '', prepared.negativePrompt),
+    scenePromptBeforePrefix,
+    removedFallbackFragments,
+  }
+}
+
 export function filterBaseTagsForTarget(
   baseTags: string,
   job: Pick<RouterJob, 'originalSceneBrief' | 'caption' | 'alt' | 'target' | 'intent'>,
@@ -13382,13 +13536,26 @@ function enrichPromptPipelineWithImagePlan(pipeline: PromptPipeline, plan: Image
   pipeline.highResRetainedBaseTags = [...plan.highResRetainedBaseTags]
   pipeline.highResPreservedFramingCues = [...plan.highResPreservedFramingCues]
   pipeline.loraOmittedFields = [...plan.loraOmittedFields]
-  const assembled = assembleProviderPrompts(plan, prompt, negative)
+  const assembled = assemblePreparedProviderPrompts(plan, {
+    prompt,
+    negativePrompt: negative,
+    promptMode: pipeline.parserFallbackUsed ? 'router_parser_fallback' : 'prepared',
+    promptPresetId: null,
+    parserUsed: Boolean(pipeline.parserRequested),
+    parserOutput: pipeline.rawParserResponse || '',
+    parserConnectionId: null,
+    parserModel: '',
+    parserParameters: {},
+    promptPipeline: pipeline,
+  })
   pipeline.userPositivePromptPrefix = plan.userPositivePromptPrefix
   pipeline.userNegativePromptPrefix = plan.userNegativePromptPrefix
   pipeline.prefixesApplied = Boolean(plan.userPositivePromptPrefix || plan.userNegativePromptPrefix)
   pipeline.scenePromptBeforePrefix = assembled.scenePromptBeforePrefix
   pipeline.finalProviderPrompt = assembled.prompt
   pipeline.finalProviderNegativePrompt = assembled.negativePrompt
+  pipeline.fallbackProviderGuardApplied = pipeline.parserFallbackUsed === true
+  pipeline.fallbackProviderFragmentsRemoved = assembled.removedFallbackFragments
   const extra = [
     ...nativeImagePlanWarnings(plan),
     ...promptWarnings(assembled.prompt, assembled.negativePrompt, pipeline),
@@ -13987,20 +14154,9 @@ function buildParserFallbackPrompt(
     slotDescription(job, slot),
   ].filter(Boolean).join(', ')
   const profiled = applyPromptProfileToPositivePrompt(visibleBase, profileBase)
-  let identityPrompt = humanPolicy.allowHumanPrompt
-    ? enforceVisualSubjectIdentity(profiled.prompt, context.visualSubjects, job.target === 'prose.illustration')
-    : profiled.prompt
-  if (humanPolicy.allowHumanPrompt && !context.visualSubjects.length && context.characterContext) {
-    identityPrompt = `${context.characterContext}, ${identityPrompt}`
-  }
-  if (humanPolicy.allowHumanPrompt && !context.visualSubjects.length && context.personaContext) {
-    identityPrompt = `${context.personaContext}, ${identityPrompt}`
-  }
-  if (humanPolicy.allowHumanPrompt && context.projectedContinuityFactsForPromptAppend.length) {
-    identityPrompt = mergeAppearancePromptFacts(identityPrompt, context.projectedContinuityFactsForPromptAppend, authoritativeSceneText(job))
-  }
-  const identityCorrection = enforceC5AKnownIdentity(identityPrompt, context.identityBindings, context.appliedIdentityBindingIds)
-  const finalizedPositivePrompt = finalizeParsedPositivePrompt(identityCorrection.prompt, classification, job)
+  const shaped = shapeSceneLedIdentityPrompt(profiled.prompt, job, context, humanPolicy.allowHumanPrompt)
+  const identityCorrection = shaped.identityCorrection
+  const finalizedPositivePrompt = finalizeParsedPositivePrompt(shaped.prompt, classification, job)
   const authoritativeScene = authoritativeSceneText(job)
   const specialIntent = applySpecialImageIntent(finalizedPositivePrompt, job.intent, authoritativeScene)
   const contextualSexual = applyContextualSexualGuidance(specialIntent.prompt, '', authoritativeScene)
@@ -16661,6 +16817,11 @@ function applyGeneration(state: StateFile, record: SlotRecord, result: SlotGener
   record.includedContinuityFacts = result.includedContinuityFacts
   record.excludedContinuityFacts = result.excludedContinuityFacts
   record.continuityStrength = result.continuityStrength
+  record.galleryLinkStatus = result.galleryLinkStatus
+  record.galleryItemId = result.galleryItemId
+  record.galleryLinkError = result.galleryLinkError
+  record.galleryLinkedAt = result.galleryLinkedAt || record.galleryLinkedAt
+  record.imagePersistedAt = result.imagePersistedAt || record.imagePersistedAt
   record.attemptNumber = result.attemptNumber
   record.triggerType = result.triggerType
   record.updatedAt = now
@@ -16824,24 +16985,46 @@ function currentAttempt(record: SlotRecord): AttemptHistoryEntry | undefined {
   return record.attempts?.[record.attempts.length - 1]
 }
 
-export function generationTimingForRecord(record: Pick<SlotRecord, 'queuedAt' | 'preparationStartedAt' | 'parsingStartedAt' | 'preparationCompletedAt' | 'providerWaitStartedAt' | 'providerStartedAt' | 'generationStartedAt' | 'providerCompletedAt' | 'placementStartedAt' | 'placementCompletedAt' | 'completedAt'>, now = Date.now()): Record<string, number> {
+export function generationTimingForRecord(record: Pick<SlotRecord, 'queuedAt' | 'preparationStartedAt' | 'parsingStartedAt' | 'parsingCompletedAt' | 'preparationCompletedAt' | 'providerWaitStartedAt' | 'providerStartedAt' | 'generationStartedAt' | 'providerCompletedAt' | 'providerRequestSentAt' | 'providerResultReceivedAt' | 'imagePersistedAt' | 'galleryLinkedAt' | 'placementLockAcquiredAt' | 'messageRereadAt' | 'markerReplacementStartedAt' | 'markerReplacementCommittedAt' | 'visualSettlementStartedAt' | 'visualSettlementCompletedAt' | 'placementStartedAt' | 'placementCompletedAt' | 'completedAt'>, now = Date.now()): Record<string, number> {
   const queuedAt = record.queuedAt || 0
-  const preparationStartedAt = record.preparationStartedAt || record.parsingStartedAt || 0
+  const parsingStartedAt = record.parsingStartedAt || record.preparationStartedAt || 0
+  const preparationStartedAt = record.preparationStartedAt || parsingStartedAt
   const preparationCompletedAt = record.preparationCompletedAt || 0
   const providerWaitStartedAt = record.providerWaitStartedAt || preparationCompletedAt
-  const providerStartedAt = record.providerStartedAt || record.generationStartedAt || 0
-  const providerCompletedAt = record.providerCompletedAt || 0
+  const parsingCompletedAt = record.parsingCompletedAt || preparationCompletedAt
+  const providerStartedAt = record.providerRequestSentAt || record.providerStartedAt || record.generationStartedAt || 0
+  const providerCompletedAt = record.providerResultReceivedAt || record.providerCompletedAt || 0
+  const imagePersistedAt = record.imagePersistedAt || 0
+  const galleryLinkedAt = record.galleryLinkedAt || 0
+  const placementLockAcquiredAt = record.placementLockAcquiredAt || 0
+  const messageRereadAt = record.messageRereadAt || 0
+  const markerReplacementStartedAt = record.markerReplacementStartedAt || 0
+  const markerReplacementCommittedAt = record.markerReplacementCommittedAt || 0
+  const visualSettlementStartedAt = record.visualSettlementStartedAt || 0
+  const visualSettlementCompletedAt = record.visualSettlementCompletedAt || 0
   const placementStartedAt = record.placementStartedAt || 0
   const placementCompletedAt = record.placementCompletedAt || record.completedAt || 0
   const end = record.completedAt || now
   const elapsed = (start: number, finish: number) => start && finish ? Math.max(0, finish - start) : 0
   return {
     queuedAt,
+    parsingStartedAt,
     preparationStartedAt,
+    parsingCompletedAt,
     preparationCompletedAt,
     providerWaitStartedAt,
     providerStartedAt,
     providerCompletedAt,
+    providerRequestSentAt: providerStartedAt,
+    providerResultReceivedAt: providerCompletedAt,
+    imagePersistedAt,
+    galleryLinkedAt,
+    placementLockAcquiredAt,
+    messageRereadAt,
+    markerReplacementStartedAt,
+    markerReplacementCommittedAt,
+    visualSettlementStartedAt,
+    visualSettlementCompletedAt,
     placementStartedAt,
     placementCompletedAt,
     completedAt: record.completedAt || 0,
@@ -16851,6 +17034,11 @@ export function generationTimingForRecord(record: Pick<SlotRecord, 'queuedAt' | 
     providerExecutionMs: elapsed(providerStartedAt, providerCompletedAt),
     placementWaitMs: elapsed(providerCompletedAt, placementStartedAt || (providerCompletedAt ? now : 0)),
     placementMutationMs: elapsed(placementStartedAt, placementCompletedAt),
+    persistenceMs: elapsed(providerCompletedAt, imagePersistedAt),
+    galleryLinkMs: elapsed(imagePersistedAt, galleryLinkedAt),
+    placementLockWaitMs: elapsed(galleryLinkedAt || imagePersistedAt || providerCompletedAt, placementLockAcquiredAt),
+    markerReplacementMs: elapsed(markerReplacementStartedAt, markerReplacementCommittedAt),
+    visualSettlementMs: elapsed(visualSettlementStartedAt, visualSettlementCompletedAt),
     totalMs: elapsed(queuedAt, end),
   }
 }

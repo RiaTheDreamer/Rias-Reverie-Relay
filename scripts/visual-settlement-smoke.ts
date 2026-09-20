@@ -90,14 +90,14 @@ const ack = (id: string, suffix = '1') => ({ chatId: 'chat', messageId: 'message
 const gate = (fixture: any, hasGenerationSibling = false, hasVisibleFrontend = true, allowSafetyFallback = false, healthyStartedVisual = false) => backend.initialPlacementBatchCommitGate(fixture, { hasGenerationSibling, hasVisibleFrontend, allowSafetyFallback, healthyStartedVisual })
 
 const one = batch(entry('a'))
-assert(gate(one) === 'visual-pending', 'Test A: one visible image persisted before visual ACK')
-assert(backend.markInitialPlacementVisualSettled(one, ack('a')) === 'settled' && gate(one) === 'ready', 'Test A: one matching ACK did not release canonical persistence')
+assert(gate(one) === 'ready', 'Test A: visual presentation incorrectly blocked canonical persistence')
+assert(backend.markInitialPlacementVisualSettled(one, ack('a')) === 'settled' && gate(one) === 'ready', 'Test A: one matching ACK changed the non-blocking persistence gate')
 
 const siblings = batch(entry('a'), entry('b'))
 assert(backend.markInitialPlacementVisualSettled(siblings, ack('a')) === 'settled', 'Test B: A ACK was not recorded')
-assert(gate(siblings, true) === 'visual-pending', 'Test B: unrelated sibling generation incorrectly blocked this request-scoped placement')
-assert(gate(siblings, false) === 'visual-pending', 'Test B: batch persisted after B generated but before B ACK')
-assert(backend.markInitialPlacementVisualSettled(siblings, ack('b')) === 'settled' && gate(siblings) === 'ready', 'Test B: B ACK did not release the one A+B persistence transaction')
+assert(gate(siblings, true) === 'ready', 'Test B: unrelated sibling generation blocked this request-scoped placement')
+assert(gate(siblings, false) === 'ready', 'Test B: visual settlement remained a persistence barrier')
+assert(backend.markInitialPlacementVisualSettled(siblings, ack('b')) === 'settled' && gate(siblings) === 'ready', 'Test B: B ACK changed the non-blocking gate')
 
 const failedSibling = batch(entry('a'), entry('c'))
 assert(backend.markInitialPlacementVisualSettled(failedSibling, ack('a')) === 'settled', 'Test C: A ACK failed')
@@ -107,8 +107,8 @@ assert(gate(failedSibling) === 'ready' && failedSibling.entries.every((item: any
 const regenerated = batch(entry('a', '2'))
 assert(backend.markInitialPlacementVisualSettled(regenerated, ack('a', '1')) === 'stale', 'Test D: late A1 ACK matched regenerated A2')
 assert(backend.markInitialPlacementVisualSettled(regenerated, { ...ack('a', '2'), imageId: 'a-old-id' }) === 'stale', 'Test D: wrong image identity matched a reused image URL')
-assert(gate(regenerated) === 'visual-pending', 'Test D: stale A1 ACK released A2')
-assert(backend.markInitialPlacementVisualSettled(regenerated, ack('a', '2')) === 'settled' && gate(regenerated) === 'ready', 'Test D: A2 did not require and accept its own ACK')
+assert(gate(regenerated) === 'ready', 'Test D: regenerated visual incorrectly blocked persistence')
+assert(backend.markInitialPlacementVisualSettled(regenerated, ack('a', '2')) === 'settled' && gate(regenerated) === 'ready', 'Test D: A2 did not accept its own telemetry ACK')
 
 const duplicate = batch(entry('a'))
 assert(backend.markInitialPlacementVisualSettled(duplicate, ack('a')) === 'settled', 'Test E: first ACK did not settle')
@@ -119,9 +119,9 @@ assert(gate(disconnected, false, false) === 'ready', 'Test G: disconnected/non-v
 assert(gate(disconnected, false, true, true) === 'ready', 'Test G: bounded safety recovery could not release a vanished visual client')
 const healthyStarted = batch(entry('a'))
 assert(backend.markInitialPlacementVisualStarted(healthyStarted, ack('a')) === 'started', 'Test G: mounted visual lifecycle did not register as started')
-assert(gate(healthyStarted, false, true, true, true) === 'visual-pending', 'Test G: safety timer bypassed a healthy started Reveal instead of waiting for its ACK')
+assert(gate(healthyStarted, false, true, true, true) === 'ready', 'Test G: a healthy Reveal still blocked marker persistence')
 
 const activePatch = backend.relayMediaPersistencePatch({ id: 'message', content: 'old', swipe_id: 0, swipes: ['old'] } as any, 0, 'composed A+B+C')
 assert(activePatch.content === 'composed A+B+C' && activePatch.skipChunkRebuild === true && !('swipes' in activePatch), 'active-swipe persistence regressed from content-only + skipChunkRebuild')
 
-console.log('visual settlement smoke passed: load/decode -> Reveal -> animationend -> ACK, reduced motion, stale DOM callbacks, exact-version ACKs, sibling/failure isolation, duplicate idempotency, regeneration safety, and disconnected fallback verified.')
+console.log('visual settlement smoke passed: marker persistence is immediate; load/decode -> Reveal -> animationend remains exact-version, non-blocking telemetry with reduced-motion and stale callback safety.')

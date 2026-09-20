@@ -140,4 +140,34 @@ assert.deepEqual(Object.fromEntries(['dispatchQueueWaitMs', 'preparationMs', 'pr
   placementWaitMs: 100, placementMutationMs: 150, totalMs: 12_250,
 })
 
-console.log(`Progressive placement/performance smoke passed: A placed before B/C, sibling failure preserved, latest-content writes serialized, preparations max ${maxPreparations}, Swarm max provider concurrency ${maxSwarmConcurrentProviderCalls}, provider 8000ms vs total ${timing.totalMs}ms.`)
+// Gallery linkage and Reveal telemetry are no longer completion gates. This
+// exercises the exact boundary sequence used by the completed export while the
+// visual animation is deliberately still running after canonical placement.
+const postGallery = backend.generationTimingForRecord({
+  queuedAt: 1_000,
+  parsingStartedAt: 2_000,
+  parsingCompletedAt: 4_000,
+  preparationStartedAt: 2_000,
+  preparationCompletedAt: 4_000,
+  providerWaitStartedAt: 4_000,
+  providerRequestSentAt: 5_000,
+  providerResultReceivedAt: 13_000,
+  imagePersistedAt: 13_020,
+  galleryLinkedAt: 13_030,
+  placementLockAcquiredAt: 13_035,
+  messageRereadAt: 13_036,
+  markerReplacementStartedAt: 13_037,
+  markerReplacementCommittedAt: 13_045,
+  placementStartedAt: 13_035,
+  placementCompletedAt: 13_050,
+  completedAt: 13_050,
+  visualSettlementStartedAt: 13_040,
+  visualSettlementCompletedAt: 43_000,
+}, 43_000)
+assert.equal(postGallery.completedAt - postGallery.galleryLinkedAt, 20, 'gallery-linked image remained in settlement limbo')
+assert.equal(postGallery.placementLockWaitMs, 5)
+assert.equal(postGallery.markerReplacementMs, 8)
+assert.equal(postGallery.totalMs, 12_050, 'post-completion Reveal time leaked into slot total')
+assert(postGallery.visualSettlementCompletedAt > postGallery.completedAt, 'fixture did not prove non-blocking visual settlement')
+
+console.log(`Progressive placement/performance smoke passed: A placed before B/C, sibling failure preserved, real markers use latest-content serialized writes, gallery-to-complete ${postGallery.completedAt - postGallery.galleryLinkedAt}ms while Reveal settles later, preparations max ${maxPreparations}, Swarm max provider concurrency ${maxSwarmConcurrentProviderCalls}.`)

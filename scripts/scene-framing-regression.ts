@@ -8,6 +8,8 @@ import { DEFAULT_PROMPT_REGISTRY } from '../src/protocols'
 const storage = new Map<string, unknown>()
 const requests: any[] = []
 let resolvedPrompt = ''
+let parserResponseOverride: string | null = null
+mkdirSync('artifacts', { recursive: true })
 ;(globalThis as any).spindle = {
   on() {}, onFrontendMessage() {}, registerInterceptor() {}, registerMacro() {}, registerMessageContentProcessor() {}, sendToFrontend() {},
   permissions: { has: () => true }, log: { info() {}, warn() {}, error() {} },
@@ -15,7 +17,7 @@ let resolvedPrompt = ''
   chats: { async get() { return { character_id: 'alpha' } } }, characters: { async get() { return { id: 'alpha', name: 'Alpha', description: 'black hair' } } },
   personas: { async getActive() { return null } }, chat: { async getMessages() { return [] } },
   connections: { async get() { return { id: 'mock', model: 'mock', provider: 'offline' } } },
-  generate: { async raw(request: any) { requests.push(request); return { content: JSON.stringify({ sceneBrief: resolvedPrompt, positivePrompt: resolvedPrompt, prompt: resolvedPrompt, negativePrompt: '', namedSubjects: ['Alpha'], expectedPeopleCount: 1, peoplePolicy: 'required' }) } } },
+  generate: { async raw(request: any) { requests.push(request); return { content: parserResponseOverride ?? JSON.stringify({ sceneBrief: resolvedPrompt, positivePrompt: resolvedPrompt, prompt: resolvedPrompt, negativePrompt: '', namedSubjects: ['Alpha'], expectedPeopleCount: 1, peoplePolicy: 'required' }) } } },
   imageGen: new Proxy({}, { get() { throw new Error('Live image call forbidden') } }),
 }
 const backend = await import('../src/backend')
@@ -76,6 +78,98 @@ const vowPrepared = await backend.parseSlotPrompt({ ...descentJob, requestId: 'p
 })
 assert(vowPrepared.prompt.includes('extreme close-up underwater'), 'authored extreme close-up was lost')
 assert(!vowPrepared.prompt.includes('medium or wide story framing by default'), 'generic profile framing overrode authored extreme close-up')
+
+// Live 0.2.8.6 regression: all parser rejection shapes must converge on the
+// same scene-led C5A fallback and the provider-bound seam must not re-prepend a
+// full native preset through custom prefixes or generation recipes.
+const concealmentScene = 'Arin crouches inside a narrow volcanic concealment niche, one hand braced against black stone, watching the corridor through a crack, tense medium shot'
+const fallbackJob: any = {
+  ...descentJob,
+  requestId: 'concealment-niche-05',
+  originalSceneBrief: concealmentScene,
+  composedPositivePrompt: undefined,
+  prosePromptComposition: { namedSubjects: ['Arin'] },
+  cast: 'char+user',
+}
+const fallbackConfig = { ...config, parserConnectionId: 'mock', parserRetries: 0, nativePromptMode: 'parsed_custom', proseIllustratorSettings: settings }
+const fallbackNative = {
+  boundCharacterPreset: { presetId: 'taejun-native', prompt: contaminatedCharacterPreset },
+  boundPersonaPreset: { presetId: 'ria-native', prompt: '1girl, adult woman, long blonde hair, blue eyes, slim build, looking at viewer, smiling, palace background, portrait, masterpiece' },
+  includeCharacters: true,
+  includePersona: true,
+}
+const fallbackCases = [
+  { name: 'empty', response: '', reason: /empty response/i },
+  { name: 'unusable-json', response: '{}', reason: /usable image prompt/i },
+  { name: 'protected-semantics', response: JSON.stringify({ prompt: 'empty volcanic corridor, wide shot', negativeAdditions: '' }), reason: /protected Model-Placed semantics/i },
+]
+const fallbackPrepared: any[] = []
+for (const fixture of fallbackCases) {
+  parserResponseOverride = fixture.response
+  const prepared = await backend.parseSlotPrompt({ ...fallbackJob, requestId: `concealment-${fixture.name}` }, 'image', [], 0, fallbackConfig, 'offline', fallbackNative)
+  fallbackPrepared.push(prepared)
+  assert.match(prepared.promptMode, /^router_parser_fallback:parsed_custom$/, `${fixture.name}: wrong fallback mode`)
+  assert(fixture.reason.test(prepared.promptPipeline.parserFallbackReason || ''), `${fixture.name}: fallback reason was not preserved`)
+  assert(prepared.prompt.startsWith(concealmentScene), `${fixture.name}: fallback stopped being scene-led`)
+  const profileIndex = prepared.prompt.indexOf('cinematic narrative still')
+  const characterIndex = Math.max(prepared.prompt.indexOf('male subject Alpha'), prepared.prompt.indexOf('Active Character (Alpha)'))
+  const personaIndex = Math.max(prepared.prompt.indexOf('subject active persona'), prepared.prompt.indexOf('Active Persona'))
+  assert(profileIndex > concealmentScene.length && characterIndex > profileIndex, `${fixture.name}: Cinematic Scene / Character ordering regressed`)
+  assert(personaIndex > characterIndex, `${fixture.name}: Persona binding did not follow Character identity`)
+  assert.equal((prepared.prompt.match(/(?:male subject Alpha|Active Character \(Alpha\))/g) || []).length, 1, `${fixture.name}: Character identity was injected twice`)
+  assert.equal((prepared.prompt.match(/(?:subject active persona|Active Persona)/g) || []).length, 1, `${fixture.name}: Persona identity was injected twice`)
+  for (const contamination of ['looking toward viewer', 'charismatic expression', 'swimming underwater', 'underwater palace background', 'warm rim light', 'dramatic light rays', 'manhwa style']) {
+    assert(!prepared.prompt.toLocaleLowerCase().includes(contamination), `${fixture.name}: raw Character contamination survived fallback shaping: ${contamination}`)
+  }
+  assert(prepared.prompt.length < 1800, `${fixture.name}: fallback prompt remained implausibly long (${prepared.prompt.length})`)
+}
+parserResponseOverride = null
+
+const authoritativePrepared = await backend.parseSlotPrompt(
+  { ...fallbackJob, requestId: 'concealment-authoritative' },
+  'image',
+  [],
+  0,
+  { ...config, parserConnectionId: '', nativePromptMode: 'parsed_custom', proseIllustratorSettings: settings },
+  'offline',
+  fallbackNative,
+)
+assert.equal(authoritativePrepared.promptMode, 'story_model_visual_prompt', 'Parser-unavailable visual_prompt did not use authoritative recovery')
+assert(authoritativePrepared.prompt.startsWith(concealmentScene), 'authoritative recovery stopped being scene-led')
+const authoritativeProfileIndex = authoritativePrepared.prompt.indexOf('cinematic narrative still')
+const authoritativeCharacterIndex = Math.max(authoritativePrepared.prompt.indexOf('male subject Alpha'), authoritativePrepared.prompt.indexOf('Active Character (Alpha)'))
+const authoritativePersonaIndex = Math.max(authoritativePrepared.prompt.indexOf('subject active persona'), authoritativePrepared.prompt.indexOf('Active Persona'))
+assert(authoritativeProfileIndex > concealmentScene.length && authoritativeCharacterIndex > authoritativeProfileIndex && authoritativePersonaIndex > authoritativeCharacterIndex, 'authoritative recovery lost scene -> profile -> Character -> Persona ordering')
+assert.equal((authoritativePrepared.prompt.match(/(?:male subject Alpha|Active Character \(Alpha\))/g) || []).length, 1, 'authoritative recovery duplicated Character identity')
+assert.equal((authoritativePrepared.prompt.match(/(?:subject active persona|Active Persona)/g) || []).length, 1, 'authoritative recovery duplicated Persona identity')
+for (const contamination of ['looking toward viewer', 'charismatic expression', 'swimming underwater', 'underwater palace background', 'warm rim light', 'dramatic light rays', 'manhwa style']) {
+  assert(!authoritativePrepared.prompt.toLocaleLowerCase().includes(contamination), `authoritative recovery retained raw preset contamination: ${contamination}`)
+}
+
+const representativeFallback = fallbackPrepared[0]
+const guardedProvider = backend.assemblePreparedProviderPrompts({
+  recipePositivePrompt: `Active Character (Seo Taejun): ${contaminatedCharacterPreset}`,
+  recipeNegativePrompt: '',
+  effectiveBaseTags: 'score_9, source_anime',
+  userPositivePromptPrefix: `Active Character (Seo Taejun): ${contaminatedCharacterPreset}`,
+  userNegativePromptPrefix: '',
+}, representativeFallback)
+const legacyFallbackProviderPrompt = [`Active Character (Seo Taejun): ${contaminatedCharacterPreset}`, `Active Character (Seo Taejun): ${contaminatedCharacterPreset}`, representativeFallback.prompt, 'score_9, source_anime'].join(', ')
+assert(guardedProvider.prompt.startsWith(concealmentScene), 'provider assembly re-prepended an Active Character dump')
+assert(guardedProvider.removedFallbackFragments.length > 10, 'provider-bound fallback guard did not report removed preset fragments')
+assert(!/Active Character \(Seo Taejun\)/i.test(guardedProvider.prompt), 'raw native Character wrapper survived provider-bound fallback guard')
+assert(guardedProvider.prompt.endsWith('score_9, source_anime'), 'LoRA/base tags no longer follow scene/identity/continuity')
+const providerPromptReduction = legacyFallbackProviderPrompt.length - guardedProvider.prompt.length
+assert(providerPromptReduction >= contaminatedCharacterPreset.length, `fallback provider guard removed only ${providerPromptReduction} chars; expected at least the ${contaminatedCharacterPreset.length}-char raw preset payload`)
+assert(guardedProvider.prompt.length < 1800, `fallback provider prompt remained implausibly long (${guardedProvider.prompt.length})`)
+writeFileSync('artifacts/live-fallback-regression-fixture.json', JSON.stringify({
+  promptMode: representativeFallback.promptMode,
+  before: legacyFallbackProviderPrompt,
+  after: guardedProvider.prompt,
+  beforeChars: legacyFallbackProviderPrompt.length,
+  afterChars: guardedProvider.prompt.length,
+  removedProviderFragments: guardedProvider.removedFallbackFragments,
+}, null, 2))
 // Authored direct gaze and understated emotion must remain possible.
 const gaze = 'eye-level photograph, Alpha looking at viewer, deliberately blank expression'
 assert(backend.enforceVisualSubjectIdentity(gaze, [{ name: 'Alpha', kind: 'character', prompt: 'black hair' }], true).startsWith(gaze))
@@ -106,6 +200,5 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button'] as const) {
   assert(fixtures[variant].includes('rr-scene-compass') && fixtures[variant].includes('data-rrn-native-request="compass"'))
   assert(!fixtures[variant].includes('[SCENE|'), 'Compass with lifecycle card failed to render')
 }
-mkdirSync('artifacts', { recursive: true })
 writeFileSync('artifacts/scene-compass-browser-fixtures.json', JSON.stringify(fixtures))
-console.log(`Scene framing runtime regression passed: contaminated native preset reduced ${descentPrepared.promptPipeline.finalPromptCharsBeforeIdentityFix} -> ${descentPrepared.promptPipeline.finalPromptChars} chars, scene/profile lead identity once, four established modes and authored direct gaze remain intact.`)
+console.log(`Scene framing runtime regression passed: primary C5A ${descentPrepared.promptPipeline.finalPromptCharsBeforeIdentityFix} -> ${descentPrepared.promptPipeline.finalPromptChars} chars; parser empty/unusable/protected-semantics fallbacks converge on scene-led identity; provider fallback ${legacyFallbackProviderPrompt.length} -> ${guardedProvider.prompt.length} chars.`)

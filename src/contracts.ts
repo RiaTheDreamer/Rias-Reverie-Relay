@@ -1056,11 +1056,22 @@ export type AttemptHistoryEntry = {
   triggerType: TriggerType
   startedAt: number
   parsingStartedAt?: number
+  parsingCompletedAt?: number
   preparationStartedAt?: number
   preparationCompletedAt?: number
   providerWaitStartedAt?: number
   providerStartedAt?: number
   providerCompletedAt?: number
+  providerRequestSentAt?: number
+  providerResultReceivedAt?: number
+  imagePersistedAt?: number
+  galleryLinkedAt?: number
+  placementLockAcquiredAt?: number
+  messageRereadAt?: number
+  markerReplacementStartedAt?: number
+  markerReplacementCommittedAt?: number
+  visualSettlementStartedAt?: number
+  visualSettlementCompletedAt?: number
   placementStartedAt?: number
   placementCompletedAt?: number
   generationStartedAt?: number
@@ -1075,6 +1086,11 @@ export type AttemptHistoryEntry = {
   placementWaitMs?: number
   placementMutationMs?: number
   totalMs?: number
+  persistenceMs?: number
+  galleryLinkMs?: number
+  placementLockWaitMs?: number
+  markerReplacementMs?: number
+  visualSettlementMs?: number
   stage: 'queued' | 'parser' | 'image-generation' | 'placement-pending' | 'placement-repair-needed' | 'completed' | 'failed' | 'cancelled'
   error?: string | null
 }
@@ -1097,6 +1113,8 @@ export type PromptPipeline = {
   finalPromptChars?: number
   identityAnchorChars?: number
   duplicateIdentityFragmentsRemoved?: number
+  fallbackProviderGuardApplied?: boolean
+  fallbackProviderFragmentsRemoved?: string[]
   contextCaption?: string
   nativeNegativePrompt: string
   requestNegativePrompt: string
@@ -1251,6 +1269,9 @@ export type GenerationSnapshot = {
   galleryItemId?: string
   galleryLinkError?: string
   galleryLinkedAt?: number
+  providerRequestSentAt?: number
+  providerResultReceivedAt?: number
+  imagePersistedAt?: number
 }
 
 export type SlotRecord = {
@@ -1279,11 +1300,21 @@ export type SlotRecord = {
   registeredAt?: number
   queuedAt?: number
   parsingStartedAt?: number
+  parsingCompletedAt?: number
   preparationStartedAt?: number
   preparationCompletedAt?: number
   providerWaitStartedAt?: number
   providerStartedAt?: number
   providerCompletedAt?: number
+  providerRequestSentAt?: number
+  providerResultReceivedAt?: number
+  imagePersistedAt?: number
+  placementLockAcquiredAt?: number
+  messageRereadAt?: number
+  markerReplacementStartedAt?: number
+  markerReplacementCommittedAt?: number
+  visualSettlementStartedAt?: number
+  visualSettlementCompletedAt?: number
   placementStartedAt?: number
   placementCompletedAt?: number
   generationStartedAt?: number

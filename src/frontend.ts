@@ -8957,7 +8957,10 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
       'includedContinuityFacts', 'excludedContinuityFacts', 'continuityStrength',
       'nativeActiveLoraPreset', 'effectiveAppliedLoraPreset', 'lorasSentToProvider', 'loraBaseTags', 'baseTagsAddedToPrompt', 'omittedBaseTags', 'highResMode', 'highResRetainedBaseTags', 'highResPreservedFramingCues', 'loraOmittedFields',
       'recoverySource', 'recoveryCompleteness', 'missingRecoveryFields', 'recoveredFromInactiveSwipe', 'activeSwipeAtRecovery', 'reconstructedAt', 'reconstructionSource',
-      'discoveredAt', 'registeredAt', 'queuedAt', 'parsingStartedAt', 'generationStartedAt', 'failedAt', 'completedAt', 'attempts',
+      'discoveredAt', 'registeredAt', 'queuedAt', 'parsingStartedAt', 'parsingCompletedAt', 'preparationStartedAt', 'preparationCompletedAt',
+      'providerWaitStartedAt', 'providerRequestSentAt', 'providerResultReceivedAt', 'providerStartedAt', 'providerCompletedAt', 'generationStartedAt',
+      'imagePersistedAt', 'galleryLinkedAt', 'placementLockAcquiredAt', 'messageRereadAt', 'markerReplacementStartedAt', 'markerReplacementCommittedAt',
+      'visualSettlementStartedAt', 'visualSettlementCompletedAt', 'placementStartedAt', 'placementCompletedAt', 'failedAt', 'completedAt', 'attempts',
     ]
     for (const field of fields) {
       const label = document.createElement('div')
