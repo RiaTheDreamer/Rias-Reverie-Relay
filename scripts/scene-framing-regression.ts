@@ -61,10 +61,10 @@ assert(identityIndex > 0, 'identity-only Character subject block was not inserte
 assert(descentPrompt.indexOf('using iron pry-bar') < identityIndex, 'C5A displaced the authoritative scene action')
 assert(descentPrompt.indexOf('cinematic medium shot') < identityIndex, 'C5A displaced the authored camera framing')
 assert(descentPrompt.indexOf('cinematic narrative still') < identityIndex, 'selected Cinematic Scene profile did not precede identity')
-for (const contamination of ['looking toward viewer', 'charismatic expression', 'subtle confident smirk', 'graceful dynamic pose', 'swimming underwater', 'underwater palace background', 'warm rim light', 'dramatic light rays', 'manhwa style', 'masterpiece', 'best quality']) {
+for (const contamination of ['pearl-white merman tail', 'champagne-gold iridescence', 'deep crimson fin tips', 'gold bioluminescent markings', 'royal jewelry', 'looking toward viewer', 'charismatic expression', 'subtle confident smirk', 'graceful dynamic pose', 'swimming underwater', 'underwater palace background', 'warm rim light', 'dramatic light rays', 'manhwa style', 'masterpiece', 'best quality']) {
   assert(!descentPrompt.toLocaleLowerCase().includes(contamination), `native Character scene contamination survived: ${contamination}`)
 }
-for (const identityFact of ['handsome Korean man', 'dark slightly wavy hair', 'warm dark brown eyes', 'pearl-white merman tail', 'champagne-gold iridescence', 'gold bioluminescent markings', 'royal jewelry']) {
+for (const identityFact of ['handsome Korean man', 'dark slightly wavy hair', 'warm dark brown eyes', 'sharp jawline', 'broad shoulders', 'athletic swimmer build']) {
   assert(descentPrompt.includes(identityFact), `persistent Character identity was lost: ${identityFact}`)
 }
 assert.equal((descentPrompt.match(/male subject Alpha/g) || []).length, 1, 'Character identity was injected twice')
@@ -72,11 +72,12 @@ assert.equal(descentPrepared.promptPipeline.promptProfile?.automaticClassificati
 assert.equal(descentPrepared.promptPipeline.promptProfile?.selectedProfileId, 'cinematic-scene')
 assert((descentPrepared.promptPipeline.finalPromptCharsBeforeIdentityFix || 0) > (descentPrepared.promptPipeline.finalPromptChars || 0), 'identity prompt bloat metrics did not record the legacy duplicate')
 assert((descentPrepared.promptPipeline.duplicateIdentityFragmentsRemoved || 0) > 0, 'duplicate identity removal metric was not populated')
-const vowScene = 'extreme close-up underwater, Taejun and a blonde mermaid touching foreheads during a parting vow, eyes fixed on each other'
+const vowScene = 'extreme close-up underwater, Taejun in current mer-form with a long merman tail and a blonde mermaid touching foreheads during a parting vow, eyes fixed on each other'
 const vowPrepared = await backend.parseSlotPrompt({ ...descentJob, requestId: 'parting-vow-06', originalSceneBrief: vowScene, composedPositivePrompt: vowScene }, 'image', [], 0, { ...config, proseIllustratorSettings: settings }, 'offline', {
   boundCharacterPreset: { presetId: 'taejun-native', prompt: contaminatedCharacterPreset }, includeCharacters: true,
 })
 assert(vowPrepared.prompt.includes('extreme close-up underwater'), 'authored extreme close-up was lost')
+assert(vowPrepared.prompt.includes('long merman tail'), 'authored current mer-form was lost')
 assert(!vowPrepared.prompt.includes('medium or wide story framing by default'), 'generic profile framing overrode authored extreme close-up')
 
 // Live 0.2.8.6 regression: all parser rejection shapes must converge on the

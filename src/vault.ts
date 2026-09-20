@@ -1433,6 +1433,11 @@ export function formatProjectedAppearanceFacts(facts: AppearanceVaultFact[]): st
 
 const FOOTWEAR_RE = /\b(?:boots?|shoes?|heels?|sandals?|sneakers?|slippers?|loafers?|footwear)\b/i
 const BAREFOOT_RE = /\b(?:barefoot|bare feet|shoeless)\b/i
+const HUMAN_LEGGED_FORM_RE = /\b(?:human legs?|bipedal legs?|two legs?|newly formed legs?|human[- ]legged|no tail)\b/i
+const MER_FORM_RE = /\b(?:merman|mermaid|mer[- ]form|fish tail|merman tail|mermaid tail|legs? (?:fully )?fused|no human legs?|tail fins?)\b/i
+const ATTIRE_RE = /\b(?:wearing|clothing|clothes?|outfit|dress|robe|wrap|shirt|top|trousers|pants|skirt|uniform|armor|jacket|coat|boots?|shoes?|sandals?)\b/i
+const WET_STATE_RE = /\b(?:wet|damp|soaked|dripping)\b/i
+const DRY_STATE_RE = /\b(?:dry|dried|not wet)\b/i
 
 function normalizedPromptFragment(value: string): string {
   return value.normalize('NFKC').toLocaleLowerCase().replace(/_/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
@@ -1445,13 +1450,26 @@ function normalizedPromptFragment(value: string): string {
  */
 export function compileAppearancePromptFacts(facts: AppearanceVaultFact[], authoritativeScene = ''): string {
   const scene = authoritativeScene.replace(/_/g, ' ')
+  const normalizedScene = normalizedPromptFragment(scene)
   const sceneSaysBarefoot = BAREFOOT_RE.test(scene)
   const sceneSaysFootwear = FOOTWEAR_RE.test(scene) && !sceneSaysBarefoot
+  const sceneSaysHumanLegged = HUMAN_LEGGED_FORM_RE.test(scene)
+  const sceneSaysMerForm = MER_FORM_RE.test(scene)
+  const sceneSaysAttire = ATTIRE_RE.test(scene)
+  const sceneSaysWet = WET_STATE_RE.test(scene)
+  const sceneSaysDry = DRY_STATE_RE.test(scene)
   const byCharacter = new Map<string, AppearanceVaultFact[]>()
   for (const fact of dedupeResolvedAppearanceFacts(facts)) {
     const readable = fact.value.replace(/_/g, ' ')
+    const normalized = normalizedPromptFragment(readable)
+    if (normalized && normalizedScene.includes(normalized)) continue
     if (sceneSaysFootwear && BAREFOOT_RE.test(readable)) continue
     if (sceneSaysBarefoot && FOOTWEAR_RE.test(readable)) continue
+    if (sceneSaysHumanLegged && MER_FORM_RE.test(readable)) continue
+    if (sceneSaysMerForm && HUMAN_LEGGED_FORM_RE.test(readable)) continue
+    if (sceneSaysAttire && fact.layer === 'wardrobe' && ATTIRE_RE.test(readable)) continue
+    if (sceneSaysDry && WET_STATE_RE.test(readable)) continue
+    if (sceneSaysWet && DRY_STATE_RE.test(readable)) continue
     const rows = byCharacter.get(fact.canonicalCharacterId) || []
     rows.push(fact)
     byCharacter.set(fact.canonicalCharacterId, rows)

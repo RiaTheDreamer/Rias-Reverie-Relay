@@ -70,6 +70,16 @@ const C5A_SCENE_DEPENDENT_FRAGMENT_PATTERNS: RegExp[] = [
   /\b(?:luxurious royal appearance|fantasy royal aesthetic|regal masculine styling|presentation styling)\b/i,
   /\b(?:anime|manga|manhwa|photorealistic|illustration style|art style|oil painting|watercolor)\b/i,
   /\b(?:masterpiece|best quality|high quality|ultra[- ]detailed|absurdres|highres|8k|4k)\b/i,
+  // Native generation presets also contain mutable form, dress, accessories,
+  // and temporary state. None of those are durable identity anchors; the
+  // authored/current scene owns them.
+  /\b(?:merman|mermaid|merfolk|siren form|human form|humanoid form|transformed form)\b/i,
+  /\b(?:tail|tailfin|tail fins?|fins?|scales?|gills?|webbed (?:hands?|feet)|legs? (?:fully )?fused|no (?:human )?legs?|no knees?|no feet|human legs?|bipedal legs?)\b/i,
+  /\b(?:wearing|clothing|clothes?|outfit|wardrobe|dress|robe|wrap|shirt|top|trousers|pants|skirt|uniform|armor|jacket|coat|sea[- ]silk|fabric|embroidery)\b/i,
+  /\b(?:jewelry|jewellery|ear cuffs?|earrings?|necklace|bracelets?|arm cuffs?|chains?|hair ornaments?|crown(?:-like)? ornament|pearls?|rub(?:y|ies)|accessories?)\b/i,
+  /\b(?:topless|shirtless|nude|naked|bare[- ]chested|open[- ]chest|wet|damp|soaked|injured|bruised|bleeding|wounded)\b/i,
+  /\b(?:bioluminescen\w*|luminous scales?|iridescen\w*|metallic sheen|royal markings?|scale texture)\b/i,
+  /\b(?:crown prince|siren prince|sea prince|princess|king|queen|royal title)\b/i,
 ]
 
 /** Project a native Character/Persona preset down to facts that remain true

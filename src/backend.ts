@@ -146,7 +146,7 @@ import {
 } from './completedState'
 import { BoundedLruCache } from './boundedCache'
 import { abortableSlotKeys, C5B_CACHE_LIMITS, cancelMapKeysFromSnapshot, healthCheck, rememberBoundedMap, summarizeRelayHealth, type RelayHealthCheck } from './c5bReliability'
-import { c5aCastRequirements, c5aIdentityBindingId, enforceC5AKnownIdentity, resolveC5ANativeIdentityBinding, type C5AIdentityCorrection, type C5ANativeIdentityBinding } from './c5aIdentity'
+import { c5aCastRequirements, c5aIdentityBindingId, enforceC5AKnownIdentity, resolveC5ANativeIdentityBinding, sanitizeC5AIdentityPrompt, type C5AIdentityCorrection, type C5ANativeIdentityBinding } from './c5aIdentity'
 import { buildAppearanceSidecarPayload, ingestAppearanceSidecarObservations, normalizeAppearanceFieldRefreshOutput, normalizeAppearanceSidecarOutput, preserveCompleteSidecarContext, type AppearanceFieldRefreshResult, type AppearanceMemoryRefreshField } from './appearanceSidecar'
 import {
   RELAY_PLANNED_V2,
@@ -12244,16 +12244,92 @@ async function buildAuthoritativeVisualPrompt(
   }
 }
 
-const MODEL_PLACED_PROTECTED_CUES: Array<{ label: string; pattern: RegExp; rejectIfAdded?: boolean }> = [
-  { label: 'close-up', pattern: /\bclose[ -]?up\b/i }, { label: 'wide shot', pattern: /\bwide shot\b/i }, { label: 'low angle', pattern: /\blow angle\b/i }, { label: 'high angle', pattern: /\bhigh angle\b/i },
-  { label: 'back turned', pattern: /\bback (?:is )?turned\b/i }, { label: 'profile view', pattern: /\bprofile (?:view|angle)?\b/i }, { label: 'eye contact', pattern: /\beye contact\b/i }, { label: 'closed eyes', pattern: /\bclosed eyes\b/i },
-  { label: 'kneeling', pattern: /\bkneel(?:ing|s|ed)?\b/i }, { label: 'sitting', pattern: /\b(?:sitting|seated|rests? on|resting on)\b/i }, { label: 'standing', pattern: /\b(?:standing|stands?|upright on (?:his|her|their) feet)\b/i }, { label: 'lying', pattern: /\b(?:lying|reclining|reclines?)\b/i },
-  { label: 'holding', pattern: /\b(?:hold(?:ing|s|held)?|cradl(?:ing|es|ed)|grasp(?:ing|s|ed)|grip(?:ping|s|ped))\b/i, rejectIfAdded: true },
-  { label: 'touching', pattern: /\b(?:touch(?:ing|es|ed)?|brush(?:ing|es|ed)?(?:\s+(?:against|with))?|physical contact|hands? (?:meet|meeting))\b/i, rejectIfAdded: true },
-  { label: 'kissing', pattern: /\b(?:kiss(?:ing|es|ed)?)\b/i, rejectIfAdded: true }, { label: 'barefoot', pattern: /\b(?:barefoot|bare feet|shoeless)\b/i },
-  { label: 'shoes', pattern: /\b(?:shoes?|boots?|heels?|sandals?|sneakers?|slippers?|loafers?)\b/i }, { label: 'nudity', pattern: /\b(?:nude|naked|topless|shirtless)\b/i, rejectIfAdded: true },
-  { label: 'explicit anatomy', pattern: /\b(?:penis|vagina|vulva|breasts?|nipples?|genitals?)\b/i, rejectIfAdded: true }, { label: 'underwear', pattern: /\b(?:underwear|lingerie|bra|panties)\b/i, rejectIfAdded: true },
+type ModelPlacedSemanticCue = {
+  label: string
+  family: 'shot' | 'orientation' | 'posture' | 'action' | 'contact' | 'state'
+  patterns: RegExp[]
+  rejectIfAdded?: boolean
+  ownerSensitive?: boolean
+}
+
+const MODEL_PLACED_PROTECTED_CUES: ModelPlacedSemanticCue[] = [
+  { label: 'close-up', family: 'shot', patterns: [/\bclose[ -]?up\b/i] },
+  { label: 'medium close-up', family: 'shot', patterns: [/\bmedium(?:\s+cinematic)?\s+close[ -]?up\b/i] },
+  { label: 'medium shot', family: 'shot', patterns: [/\bmedium(?:\s+cinematic)?\s+shot\b/i] },
+  { label: 'wide shot', family: 'shot', patterns: [/\bwide(?:\s+[\p{L}-]+){0,2}\s+shot\b/iu, /\bwide\s+(?:composition|view|frame)\b/i] },
+  { label: 'over-the-shoulder', family: 'shot', patterns: [/\bover[ -]the[ -]shoulder\b/i, /\bOTS\b/] },
+  { label: 'detail shot', family: 'shot', patterns: [/\b(?:detail|insert|macro)\s+shot\b/i, /\bclose[ -]?up\b.{0,40}\b(?:hand|object|wrist|detail)\b/i] },
+  { label: 'low angle', family: 'orientation', patterns: [/\blow angle\b/i, /\bfrom (?:a )?slightly low angle\b/i] },
+  { label: 'high angle', family: 'orientation', patterns: [/\bhigh angle\b/i] },
+  { label: 'back turned', family: 'orientation', patterns: [/\bback (?:is )?turned\b/i, /\bfacing away\b/i] },
+  { label: 'profile view', family: 'orientation', patterns: [/\bprofile (?:view|angle)?\b/i, /\bin profile\b/i] },
+  { label: 'opposite blocking', family: 'orientation', patterns: [/\bopposite (?:him|her|them|the (?:man|woman|subject))\b/i, /\bacross (?:from|the (?:room|table))\b/i] },
+  { label: 'closed eyes', family: 'state', patterns: [/\b(?:closed eyes|eyes (?:are )?closed)\b/i] },
+  { label: 'kneeling', family: 'posture', patterns: [/\bkneel(?:ing|s|ed)?\b/i], ownerSensitive: true },
+  { label: 'sitting', family: 'posture', patterns: [/\b(?:sit(?:ting|s)?|sat|seated|rests? on|resting on)\b/i, /\bleans? forward on one hand\b/i], ownerSensitive: true },
+  { label: 'standing', family: 'posture', patterns: [/\b(?:standing|stands?|stood|upright on (?:his|her|their) feet)\b/i], ownerSensitive: true },
+  { label: 'lying', family: 'posture', patterns: [/\b(?:lying|lies|lay|reclining|reclines?)\b/i], ownerSensitive: true },
+  { label: 'holding', family: 'action', patterns: [/\b(?:hold(?:ing|s|held)?|clutch(?:ing|es|ed)?|cradl(?:ing|es|ed)|grasp(?:ing|s|ed)|grip(?:ping|s|ped))\b/i], rejectIfAdded: true, ownerSensitive: true },
+  { label: 'touching', family: 'contact', patterns: [/\b(?:touch(?:ing|es|ed)?|brush(?:ing|es|ed)?(?:\s+(?:against|with))?|physical contact|hands? (?:meet|meeting)|fingers? (?:meet|meeting|touch(?:ing|es|ed)?))\b/i], rejectIfAdded: true, ownerSensitive: true },
+  { label: 'kissing', family: 'contact', patterns: [/\b(?:kiss(?:ing|es|ed)?)\b/i], rejectIfAdded: true, ownerSensitive: true },
+  { label: 'barefoot', family: 'state', patterns: [/\b(?:barefoot|bare feet|shoeless)\b/i] },
+  { label: 'shoes', family: 'state', patterns: [/\b(?:shoes?|boots?|heels?|sandals?|sneakers?|slippers?|loafers?)\b/i] },
+  { label: 'nudity', family: 'state', patterns: [/\b(?:nude|naked|topless|shirtless|bare[- ]chested)\b/i], rejectIfAdded: true },
+  { label: 'explicit anatomy', family: 'state', patterns: [/\b(?:penis|vagina|vulva|breasts?|nipples?|genitals?)\b/i], rejectIfAdded: true },
+  { label: 'underwear', family: 'state', patterns: [/\b(?:underwear|lingerie|bra|panties)\b/i], rejectIfAdded: true },
 ]
+
+function hasSemanticCue(value: string, cue: ModelPlacedSemanticCue): boolean {
+  return cue.patterns.some(pattern => pattern.test(value))
+}
+
+function semanticRoleNearCue(value: string, cue: ModelPlacedSemanticCue): Set<'male' | 'female'> {
+  const owners = new Set<'male' | 'female'>()
+  const rolePatterns: Array<{ role: 'male' | 'female'; pattern: RegExp }> = [
+    { role: 'male', pattern: /\b(?:male subject|man|boy|gentleman|he|his|him)\b/gi },
+    { role: 'female', pattern: /\b(?:female subject|woman|girl|lady|she|her|hers)\b/gi },
+  ]
+  for (const pattern of cue.patterns) {
+    const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`
+    const matcher = new RegExp(pattern.source, flags)
+    for (let match = matcher.exec(value); match; match = matcher.exec(value)) {
+      const start = Math.max(0, Math.max(value.lastIndexOf('.', match.index), value.lastIndexOf(';', match.index), value.lastIndexOf(':', match.index)) + 1)
+      const prefix = value.slice(start, match.index)
+      let closest: { role: 'male' | 'female'; index: number } | null = null
+      for (const rolePattern of rolePatterns) {
+        rolePattern.pattern.lastIndex = 0
+        for (let roleMatch = rolePattern.pattern.exec(prefix); roleMatch; roleMatch = rolePattern.pattern.exec(prefix)) {
+          if (!closest || roleMatch.index >= closest.index) closest = { role: rolePattern.role, index: roleMatch.index }
+        }
+      }
+      if (closest) owners.add(closest.role)
+      if (matcher.lastIndex === match.index) matcher.lastIndex += 1
+    }
+  }
+  return owners
+}
+
+function semanticLocationTokens(value: string): Set<string> {
+  const found = new Set<string>()
+  for (const token of ['greenhouse', 'conservatory', 'terrace', 'cave', 'cavern', 'forest', 'beach', 'street', 'city', 'bedroom', 'kitchen', 'station', 'palace', 'underwater', 'doorway', 'gate']) {
+    if (new RegExp(`\\b${token}\\b`, 'i').test(value)) found.add(token)
+  }
+  return found
+}
+
+function semanticBodyForms(value: string): Set<'human-legged' | 'mer-form'> {
+  const forms = new Set<'human-legged' | 'mer-form'>()
+  if (/\b(?:human legs?|bipedal legs?|two legs?|newly formed legs?|human[- ]legged|no tail)\b/i.test(value)) forms.add('human-legged')
+  if (/\b(?:merman|mermaid|mer[- ]form|fish tail|merman tail|mermaid tail|legs? (?:fully )?fused|no human legs?|tail fins?)\b/i.test(value)) forms.add('mer-form')
+  return forms
+}
+
+function semanticGazeTarget(value: string): 'camera' | 'other-subject' | 'scene' | '' {
+  if (/\b(?:direct (?:camera )?gaze|look(?:ing|s|ed)? (?:at|into|toward) (?:the )?camera|eyes? (?:on|toward) (?:the )?camera)\b/i.test(value)) return 'camera'
+  if (/\b(?:look(?:ing|s|ed)? (?:at|toward|up at) (?:him|her|them|the (?:man|woman|subject))|gaze(?:s|d|ing)? at (?:him|her|them)|eyes? (?:locked|fixed) (?:on|across (?:the )?room))\b/i.test(value)) return 'other-subject'
+  if (/\b(?:look(?:ing|s|ed)? (?:toward|at|into|up|down|away)|gaze|eyes? (?:locked|fixed))\b/i.test(value)) return 'scene'
+  return ''
+}
 
 function explicitPeopleCount(value: string): number {
   const numeric = /\b([1-9])\s*(?:people|persons|subjects|characters|men|women|boys|girls)\b/i.exec(value)
@@ -12273,21 +12349,45 @@ export function modelPlacedSemanticViolations(
   protectedSubjects: string[] = [],
   explicitlyNamedSource = authoritative,
   expectedPeopleCount = 0,
+  supportingContext = '',
 ): string[] {
   const violations: string[] = []
+  const authorizedSource = [authoritative, supportingContext].filter(Boolean).join('\n')
   for (const cue of MODEL_PLACED_PROTECTED_CUES) {
-    const authored = cue.pattern.test(authoritative)
-    const parsed = cue.pattern.test(candidate)
+    const authored = hasSemanticCue(authoritative, cue)
+    const parsed = hasSemanticCue(candidate, cue)
     if (authored && !parsed) violations.push(cue.label)
-    if (!authored && parsed && cue.rejectIfAdded) violations.push(`new ${cue.label}`)
-  }
-  for (const subject of protectedSubjects) {
-    const name = cleanString(subject)
-    if (!name || !new RegExp(`\\b${escapeRegExp(name)}\\b`, 'i').test(explicitlyNamedSource)) continue
-    if (!new RegExp(`\\b${escapeRegExp(name)}\\b`, 'i').test(candidate)) violations.push(`named subject ${name}`)
+    const authorizationSource = cue.family === 'state' ? authorizedSource : authoritative
+    if (!authored && parsed && cue.rejectIfAdded && !hasSemanticCue(authorizationSource, cue)) violations.push(`new ${cue.label}`)
+    if (authored && parsed && cue.ownerSensitive) {
+      const authoredOwners = semanticRoleNearCue(authoritative, cue)
+      const parsedOwners = semanticRoleNearCue(candidate, cue)
+      if (authoredOwners.size === 1 && parsedOwners.size === 1 && [...authoredOwners][0] !== [...parsedOwners][0]) violations.push(`${cue.label} owner`)
+    }
   }
   const parsedPeopleCount = explicitPeopleCount(candidate)
   if (expectedPeopleCount > 0 && parsedPeopleCount > 0 && parsedPeopleCount !== expectedPeopleCount) violations.push('cast membership')
+
+  const authoredLocations = semanticLocationTokens(authoritative)
+  const parsedLocations = semanticLocationTokens(candidate)
+  if (authoredLocations.size && ![...authoredLocations].some(location => parsedLocations.has(location))) violations.push('environment/location')
+
+  const authoredForms = semanticBodyForms(authoritative)
+  const parsedForms = semanticBodyForms(candidate)
+  if (authoredForms.size && ![...authoredForms].some(form => parsedForms.has(form))) violations.push('current form')
+  if (authoredForms.has('human-legged') && parsedForms.has('mer-form')) violations.push('current form')
+  if (authoredForms.has('mer-form') && parsedForms.has('human-legged')) violations.push('current form')
+
+  const authoredGaze = semanticGazeTarget(authoritative)
+  const parsedGaze = semanticGazeTarget(candidate)
+  if (authoredGaze && parsedGaze && authoredGaze !== parsedGaze) violations.push('gaze target')
+  if (authoredGaze !== 'camera' && parsedGaze === 'camera') violations.push('gaze target')
+
+  // Names are identity hints, not required lexical tokens. A faithful parser
+  // may use a descriptive alias while count, role-scoped action, blocking,
+  // form, gaze, and environment invariants remain fail-closed.
+  void protectedSubjects
+  void explicitlyNamedSource
   return [...new Set(violations)]
 }
 
@@ -12460,6 +12560,7 @@ export async function parseSlotPrompt(
           protectedSubjects,
           job.originalSceneBrief,
           Math.max(Number(job.prosePromptComposition?.expectedPeopleCount || 0), context.visualSubjects.length),
+          context.context,
         )
         if (missingSemantics.length) {
           return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw, `Parser changed protected Model-Placed semantics: ${missingSemantics.join(', ')}.`)
@@ -14078,8 +14179,6 @@ function parserInstruction(job: RouterJob, slot: string, config: RouterConfig, h
       ? `High-Res / Polished Capture Mode is enabled. Improve rendering quality, anatomy, identity consistency, texture retention, lighting balance, and coherence while preserving the requested camera position, subject distance, and candid, evidence, surveillance, or phone capture language.${framingCues.length ? ` Preserve these capture cues: ${framingCues.join(', ')}.` : ''}`
       : 'Normal target-aware mode is enabled. Preserve the requested capture fidelity, imperfections, camera language, and original finish.',
     job.originalNegativePrompt ? `Request negative prompt:\n${job.originalNegativePrompt}` : '',
-    config.nativePromptMode ? `Mirrored native ImageGen prompt mode: ${config.nativePromptMode}` : '',
-    config.nativePromptPresetId ? `Mirrored native ImageGen prompt preset id: ${config.nativePromptPresetId}` : '',
     'Use sanitized chat context to fill missing visual continuity while keeping the authoritative scene brief primary.',
       'If the authoritative scene brief describes a physical appearance change, preserve character identity anchors but let that explicit change override older Appearance Sidecar state.',
     'Preserve matched subject presets exactly for stated age, hair, eyes, and identity-defining traits, including age-specific wording.',
@@ -17652,13 +17751,14 @@ function hasExplicitSocialPhotoIntent(authoritative: string): boolean {
   return /\b(?:selfie|portrait|headshot|profile photo|character profile|character sheet|social post|social media post|posted (?:image|photo|picture)|instagram post|twitter post|photo taken by someone|picture taken by someone|posed photo|promotional photo)\b/i.test(authoritative)
 }
 
-function proseUsesNarrativeSceneProfile(
+function usesNarrativeSceneProfile(
   job: Pick<RouterJob, 'target' | 'cast' | 'prosePromptComposition'>,
   authoritative: string,
 ): boolean {
-  if (job.target !== 'prose.illustration' || hasExplicitSocialPhotoIntent(authoritative)) return false
+  if ((job.target !== 'prose.illustration' && job.target !== 'custom.artifact-media') || hasExplicitSocialPhotoIntent(authoritative)) return false
   const framingMode = job.prosePromptComposition?.perspectiveMode || 'scene-snapshot'
   if (!['scene-snapshot', 'sequence', 'emotional-beat', 'persona-pov'].includes(framingMode)) return false
+  if (job.target === 'custom.artifact-media' && !/\b(?:wide|medium|long|establishing|over[- ]the[- ]shoulder|detail|scene|environment|foreground|background|beside|opposite|across|standing|walking|sitting|seated|lying|sleeping|speaking|arguing|confronting|holding|reaching|turned)\b/i.test(authoritative)) return false
   if (job.cast === 'char' || job.cast === 'user' || job.cast === 'char+user') return true
   if (Number(job.prosePromptComposition?.expectedPeopleCount || 0) > 0 || (job.prosePromptComposition?.namedSubjects || []).length > 0) return true
   return /\b(?:person|people|woman|man|girl|boy|character|face|couple|duo|arguing|confronting|embrace|kissing|speaking|standing|walking|sitting|lying|sleeping|asleep)\b/i.test(authoritative)
@@ -17686,7 +17786,7 @@ export function classifyImageRequest(job: Pick<RouterJob, 'originalSceneBrief' |
     return 'abstract/non-character'
   }
 
-  if (proseUsesNarrativeSceneProfile(job, authoritative)) return 'narrative-scene'
+  if (usesNarrativeSceneProfile(job, authoritative)) return 'narrative-scene'
 
   if (job.cast === 'char+user') return 'group photo'
   if (job.cast === 'char' || job.cast === 'user') return /\b(?:portrait|headshot|profile)\b/i.test(authoritative) ? 'character portrait' : 'person-focused candid'
@@ -18096,7 +18196,7 @@ const SUBJECT_CARDINALITY_TOKEN = /(?:^|[,;]\s*)\b(?:solo|1boy|1girl|2boys|2girl
 const SUBJECT_SCENE_STATE_TOKEN = /(?:^|[,;]\s*)\b(?:(?:soft|gentle|subtle|faint|broad)\s+)?(?:smil(?:e|ing)|smirk(?:ing)?|expression|crying|tearful|tears?|eyes? closed|eyes? open|looking (?:at|away|up|down)[^,;]*|gaze[^,;]*|relaxed posture|tense posture|standing|sitting|kneeling|lying down|trembling|laughing|angry|sad|happy|afraid|injured|bruised|bleeding|wounded|wet clothes?|torn clothes?|disheveled clothes?)\b\s*/gi
 
 export function sanitizeSubjectIdentityPrompt(prompt: string): string {
-  return sanitizeVisualPreset(prompt)
+  return sanitizeC5AIdentityPrompt(sanitizeVisualPreset(prompt)).prompt
     .replace(SUBJECT_CARDINALITY_TOKEN, ' ')
     .replace(SUBJECT_SCENE_STATE_TOKEN, ' ')
     .replace(/\s*[,;]\s*[,;]+/g, ', ')
@@ -18118,9 +18218,23 @@ export function enforceVisualSubjectIdentity(prompt: string, subjects: VisualSub
     if (/\byoung teen\b/i.test(subject.prompt)) body = body.replace(/\b(?:young|adult) woman\b/gi, 'young teen')
     if (/\bteen(?:age)? girl\b/i.test(subject.prompt)) body = body.replace(/\b(?:young|adult) woman\b/gi, 'teen girl')
   }
+  const normalizedScene = normalizedPromptFragment(body)
   const identity = subjects
-    .map(subject => `${subjectScope(subject)} ${subject.name}: ${sanitizeSubjectIdentityPrompt(subject.prompt)}`.replace(/:\s*$/, ''))
+    .map(subject => {
+      const deduped = sanitizeSubjectIdentityPrompt(subject.prompt)
+        .split(/[,;\n]+/)
+        .map(fragment => fragment.trim())
+        .filter(Boolean)
+        .filter(fragment => {
+          const normalized = normalizedPromptFragment(fragment)
+          return normalized && !normalizedScene.includes(normalized)
+        })
+        .join(', ')
+      return deduped ? `${subjectScope(subject)} ${subject.name}: ${deduped}` : ''
+    })
+    .filter(Boolean)
     .join('; ')
+  if (!identity) return body
   const cardinality = subjects.length > 1 ? `${subjects.length}people, ` : ''
   return (sceneFirst ? `${body}, ${cardinality}${identity}` : `${cardinality}${identity}, ${body}`).replace(/\s+/g, ' ').trim()
 }

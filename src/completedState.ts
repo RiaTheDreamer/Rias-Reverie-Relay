@@ -24,6 +24,9 @@ export type CompactCompletedRecord = {
   target: string
   imageId?: string
   imageUrl?: string
+  imageProvider?: string
+  imageModel?: string
+  highResMode?: boolean
   completedAt: number
   diagnosticArchiveId?: string
 }
@@ -58,6 +61,9 @@ export function compactCompletedRecord(record: SlotRecord): CompactCompletedReco
     target: record.target,
     imageId: record.imageId,
     imageUrl: record.imageUrl,
+    imageProvider: record.imageProvider,
+    imageModel: record.imageModel,
+    highResMode: record.highResMode,
     completedAt: record.completedAt || record.updatedAt,
     diagnosticArchiveId: completedArchiveId(record),
   }
@@ -90,6 +96,9 @@ export function stripCompletedRecord(record: SlotRecord): SlotRecord {
     completedAt: compact.completedAt,
     imageId: compact.imageId,
     imageUrl: compact.imageUrl,
+    imageProvider: compact.imageProvider,
+    imageModel: compact.imageModel,
+    highResMode: compact.highResMode,
     imageWidth: record.imageWidth,
     imageHeight: record.imageHeight,
     aspectRatio: record.aspectRatio,

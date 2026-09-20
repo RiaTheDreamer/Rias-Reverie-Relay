@@ -1147,6 +1147,9 @@ function compactCompletedRecord(record) {
     target: record.target,
     imageId: record.imageId,
     imageUrl: record.imageUrl,
+    imageProvider: record.imageProvider,
+    imageModel: record.imageModel,
+    highResMode: record.highResMode,
     completedAt: record.completedAt || record.updatedAt,
     diagnosticArchiveId: completedArchiveId(record)
   };
@@ -1178,6 +1181,9 @@ function stripCompletedRecord(record) {
     completedAt: compact.completedAt,
     imageId: compact.imageId,
     imageUrl: compact.imageUrl,
+    imageProvider: compact.imageProvider,
+    imageModel: compact.imageModel,
+    highResMode: compact.highResMode,
     imageWidth: record.imageWidth,
     imageHeight: record.imageHeight,
     aspectRatio: record.aspectRatio,
@@ -5185,7 +5191,14 @@ var C5A_SCENE_DEPENDENT_FRAGMENT_PATTERNS = [
   /\b(?:ethereal glow|beautiful detailed eyes|detailed hair|intricate scales|high detail)\b/i,
   /\b(?:luxurious royal appearance|fantasy royal aesthetic|regal masculine styling|presentation styling)\b/i,
   /\b(?:anime|manga|manhwa|photorealistic|illustration style|art style|oil painting|watercolor)\b/i,
-  /\b(?:masterpiece|best quality|high quality|ultra[- ]detailed|absurdres|highres|8k|4k)\b/i
+  /\b(?:masterpiece|best quality|high quality|ultra[- ]detailed|absurdres|highres|8k|4k)\b/i,
+  /\b(?:merman|mermaid|merfolk|siren form|human form|humanoid form|transformed form)\b/i,
+  /\b(?:tail|tailfin|tail fins?|fins?|scales?|gills?|webbed (?:hands?|feet)|legs? (?:fully )?fused|no (?:human )?legs?|no knees?|no feet|human legs?|bipedal legs?)\b/i,
+  /\b(?:wearing|clothing|clothes?|outfit|wardrobe|dress|robe|wrap|shirt|top|trousers|pants|skirt|uniform|armor|jacket|coat|sea[- ]silk|fabric|embroidery)\b/i,
+  /\b(?:jewelry|jewellery|ear cuffs?|earrings?|necklace|bracelets?|arm cuffs?|chains?|hair ornaments?|crown(?:-like)? ornament|pearls?|rub(?:y|ies)|accessories?)\b/i,
+  /\b(?:topless|shirtless|nude|naked|bare[- ]chested|open[- ]chest|wet|damp|soaked|injured|bruised|bleeding|wounded)\b/i,
+  /\b(?:bioluminescen\w*|luminous scales?|iridescen\w*|metallic sheen|royal markings?|scale texture)\b/i,
+  /\b(?:crown prince|siren prince|sea prince|princess|king|queen|royal title)\b/i
 ];
 function sanitizeC5AIdentityPrompt(prompt) {
   const kept = [];
@@ -6641,19 +6654,43 @@ function formatProjectedAppearanceFacts(facts) {
 }
 var FOOTWEAR_RE = /\b(?:boots?|shoes?|heels?|sandals?|sneakers?|slippers?|loafers?|footwear)\b/i;
 var BAREFOOT_RE = /\b(?:barefoot|bare feet|shoeless)\b/i;
+var HUMAN_LEGGED_FORM_RE = /\b(?:human legs?|bipedal legs?|two legs?|newly formed legs?|human[- ]legged|no tail)\b/i;
+var MER_FORM_RE = /\b(?:merman|mermaid|mer[- ]form|fish tail|merman tail|mermaid tail|legs? (?:fully )?fused|no human legs?|tail fins?)\b/i;
+var ATTIRE_RE = /\b(?:wearing|clothing|clothes?|outfit|dress|robe|wrap|shirt|top|trousers|pants|skirt|uniform|armor|jacket|coat|boots?|shoes?|sandals?)\b/i;
+var WET_STATE_RE = /\b(?:wet|damp|soaked|dripping)\b/i;
+var DRY_STATE_RE = /\b(?:dry|dried|not wet)\b/i;
 function normalizedPromptFragment(value) {
   return value.normalize("NFKC").toLocaleLowerCase().replace(/_/g, " ").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 function compileAppearancePromptFacts(facts, authoritativeScene = "") {
   const scene = authoritativeScene.replace(/_/g, " ");
+  const normalizedScene = normalizedPromptFragment(scene);
   const sceneSaysBarefoot = BAREFOOT_RE.test(scene);
   const sceneSaysFootwear = FOOTWEAR_RE.test(scene) && !sceneSaysBarefoot;
+  const sceneSaysHumanLegged = HUMAN_LEGGED_FORM_RE.test(scene);
+  const sceneSaysMerForm = MER_FORM_RE.test(scene);
+  const sceneSaysAttire = ATTIRE_RE.test(scene);
+  const sceneSaysWet = WET_STATE_RE.test(scene);
+  const sceneSaysDry = DRY_STATE_RE.test(scene);
   const byCharacter = new Map;
   for (const fact of dedupeResolvedAppearanceFacts(facts)) {
     const readable = fact.value.replace(/_/g, " ");
+    const normalized2 = normalizedPromptFragment(readable);
+    if (normalized2 && normalizedScene.includes(normalized2))
+      continue;
     if (sceneSaysFootwear && BAREFOOT_RE.test(readable))
       continue;
     if (sceneSaysBarefoot && FOOTWEAR_RE.test(readable))
+      continue;
+    if (sceneSaysHumanLegged && MER_FORM_RE.test(readable))
+      continue;
+    if (sceneSaysMerForm && HUMAN_LEGGED_FORM_RE.test(readable))
+      continue;
+    if (sceneSaysAttire && fact.layer === "wardrobe" && ATTIRE_RE.test(readable))
+      continue;
+    if (sceneSaysDry && WET_STATE_RE.test(readable))
+      continue;
+    if (sceneSaysWet && DRY_STATE_RE.test(readable))
       continue;
     const rows2 = byCharacter.get(fact.canonicalCharacterId) || [];
     rows2.push(fact);
@@ -168047,27 +168084,87 @@ async function buildAuthoritativeVisualPrompt(job, slot, config, context, native
   };
 }
 var MODEL_PLACED_PROTECTED_CUES = [
-  { label: "close-up", pattern: /\bclose[ -]?up\b/i },
-  { label: "wide shot", pattern: /\bwide shot\b/i },
-  { label: "low angle", pattern: /\blow angle\b/i },
-  { label: "high angle", pattern: /\bhigh angle\b/i },
-  { label: "back turned", pattern: /\bback (?:is )?turned\b/i },
-  { label: "profile view", pattern: /\bprofile (?:view|angle)?\b/i },
-  { label: "eye contact", pattern: /\beye contact\b/i },
-  { label: "closed eyes", pattern: /\bclosed eyes\b/i },
-  { label: "kneeling", pattern: /\bkneel(?:ing|s|ed)?\b/i },
-  { label: "sitting", pattern: /\b(?:sitting|seated|rests? on|resting on)\b/i },
-  { label: "standing", pattern: /\b(?:standing|stands?|upright on (?:his|her|their) feet)\b/i },
-  { label: "lying", pattern: /\b(?:lying|reclining|reclines?)\b/i },
-  { label: "holding", pattern: /\b(?:hold(?:ing|s|held)?|cradl(?:ing|es|ed)|grasp(?:ing|s|ed)|grip(?:ping|s|ped))\b/i, rejectIfAdded: true },
-  { label: "touching", pattern: /\b(?:touch(?:ing|es|ed)?|brush(?:ing|es|ed)?(?:\s+(?:against|with))?|physical contact|hands? (?:meet|meeting))\b/i, rejectIfAdded: true },
-  { label: "kissing", pattern: /\b(?:kiss(?:ing|es|ed)?)\b/i, rejectIfAdded: true },
-  { label: "barefoot", pattern: /\b(?:barefoot|bare feet|shoeless)\b/i },
-  { label: "shoes", pattern: /\b(?:shoes?|boots?|heels?|sandals?|sneakers?|slippers?|loafers?)\b/i },
-  { label: "nudity", pattern: /\b(?:nude|naked|topless|shirtless)\b/i, rejectIfAdded: true },
-  { label: "explicit anatomy", pattern: /\b(?:penis|vagina|vulva|breasts?|nipples?|genitals?)\b/i, rejectIfAdded: true },
-  { label: "underwear", pattern: /\b(?:underwear|lingerie|bra|panties)\b/i, rejectIfAdded: true }
+  { label: "close-up", family: "shot", patterns: [/\bclose[ -]?up\b/i] },
+  { label: "medium close-up", family: "shot", patterns: [/\bmedium(?:\s+cinematic)?\s+close[ -]?up\b/i] },
+  { label: "medium shot", family: "shot", patterns: [/\bmedium(?:\s+cinematic)?\s+shot\b/i] },
+  { label: "wide shot", family: "shot", patterns: [/\bwide(?:\s+[\p{L}-]+){0,2}\s+shot\b/iu, /\bwide\s+(?:composition|view|frame)\b/i] },
+  { label: "over-the-shoulder", family: "shot", patterns: [/\bover[ -]the[ -]shoulder\b/i, /\bOTS\b/] },
+  { label: "detail shot", family: "shot", patterns: [/\b(?:detail|insert|macro)\s+shot\b/i, /\bclose[ -]?up\b.{0,40}\b(?:hand|object|wrist|detail)\b/i] },
+  { label: "low angle", family: "orientation", patterns: [/\blow angle\b/i, /\bfrom (?:a )?slightly low angle\b/i] },
+  { label: "high angle", family: "orientation", patterns: [/\bhigh angle\b/i] },
+  { label: "back turned", family: "orientation", patterns: [/\bback (?:is )?turned\b/i, /\bfacing away\b/i] },
+  { label: "profile view", family: "orientation", patterns: [/\bprofile (?:view|angle)?\b/i, /\bin profile\b/i] },
+  { label: "opposite blocking", family: "orientation", patterns: [/\bopposite (?:him|her|them|the (?:man|woman|subject))\b/i, /\bacross (?:from|the (?:room|table))\b/i] },
+  { label: "closed eyes", family: "state", patterns: [/\b(?:closed eyes|eyes (?:are )?closed)\b/i] },
+  { label: "kneeling", family: "posture", patterns: [/\bkneel(?:ing|s|ed)?\b/i], ownerSensitive: true },
+  { label: "sitting", family: "posture", patterns: [/\b(?:sit(?:ting|s)?|sat|seated|rests? on|resting on)\b/i, /\bleans? forward on one hand\b/i], ownerSensitive: true },
+  { label: "standing", family: "posture", patterns: [/\b(?:standing|stands?|stood|upright on (?:his|her|their) feet)\b/i], ownerSensitive: true },
+  { label: "lying", family: "posture", patterns: [/\b(?:lying|lies|lay|reclining|reclines?)\b/i], ownerSensitive: true },
+  { label: "holding", family: "action", patterns: [/\b(?:hold(?:ing|s|held)?|clutch(?:ing|es|ed)?|cradl(?:ing|es|ed)|grasp(?:ing|s|ed)|grip(?:ping|s|ped))\b/i], rejectIfAdded: true, ownerSensitive: true },
+  { label: "touching", family: "contact", patterns: [/\b(?:touch(?:ing|es|ed)?|brush(?:ing|es|ed)?(?:\s+(?:against|with))?|physical contact|hands? (?:meet|meeting)|fingers? (?:meet|meeting|touch(?:ing|es|ed)?))\b/i], rejectIfAdded: true, ownerSensitive: true },
+  { label: "kissing", family: "contact", patterns: [/\b(?:kiss(?:ing|es|ed)?)\b/i], rejectIfAdded: true, ownerSensitive: true },
+  { label: "barefoot", family: "state", patterns: [/\b(?:barefoot|bare feet|shoeless)\b/i] },
+  { label: "shoes", family: "state", patterns: [/\b(?:shoes?|boots?|heels?|sandals?|sneakers?|slippers?|loafers?)\b/i] },
+  { label: "nudity", family: "state", patterns: [/\b(?:nude|naked|topless|shirtless|bare[- ]chested)\b/i], rejectIfAdded: true },
+  { label: "explicit anatomy", family: "state", patterns: [/\b(?:penis|vagina|vulva|breasts?|nipples?|genitals?)\b/i], rejectIfAdded: true },
+  { label: "underwear", family: "state", patterns: [/\b(?:underwear|lingerie|bra|panties)\b/i], rejectIfAdded: true }
 ];
+function hasSemanticCue(value, cue) {
+  return cue.patterns.some((pattern) => pattern.test(value));
+}
+function semanticRoleNearCue(value, cue) {
+  const owners = new Set;
+  const rolePatterns = [
+    { role: "male", pattern: /\b(?:male subject|man|boy|gentleman|he|his|him)\b/gi },
+    { role: "female", pattern: /\b(?:female subject|woman|girl|lady|she|her|hers)\b/gi }
+  ];
+  for (const pattern of cue.patterns) {
+    const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+    const matcher = new RegExp(pattern.source, flags);
+    for (let match = matcher.exec(value);match; match = matcher.exec(value)) {
+      const start = Math.max(0, Math.max(value.lastIndexOf(".", match.index), value.lastIndexOf(";", match.index), value.lastIndexOf(":", match.index)) + 1);
+      const prefix = value.slice(start, match.index);
+      let closest = null;
+      for (const rolePattern of rolePatterns) {
+        rolePattern.pattern.lastIndex = 0;
+        for (let roleMatch = rolePattern.pattern.exec(prefix);roleMatch; roleMatch = rolePattern.pattern.exec(prefix)) {
+          if (!closest || roleMatch.index >= closest.index)
+            closest = { role: rolePattern.role, index: roleMatch.index };
+        }
+      }
+      if (closest)
+        owners.add(closest.role);
+      if (matcher.lastIndex === match.index)
+        matcher.lastIndex += 1;
+    }
+  }
+  return owners;
+}
+function semanticLocationTokens(value) {
+  const found = new Set;
+  for (const token of ["greenhouse", "conservatory", "terrace", "cave", "cavern", "forest", "beach", "street", "city", "bedroom", "kitchen", "station", "palace", "underwater", "doorway", "gate"]) {
+    if (new RegExp(`\\b${token}\\b`, "i").test(value))
+      found.add(token);
+  }
+  return found;
+}
+function semanticBodyForms(value) {
+  const forms = new Set;
+  if (/\b(?:human legs?|bipedal legs?|two legs?|newly formed legs?|human[- ]legged|no tail)\b/i.test(value))
+    forms.add("human-legged");
+  if (/\b(?:merman|mermaid|mer[- ]form|fish tail|merman tail|mermaid tail|legs? (?:fully )?fused|no human legs?|tail fins?)\b/i.test(value))
+    forms.add("mer-form");
+  return forms;
+}
+function semanticGazeTarget(value) {
+  if (/\b(?:direct (?:camera )?gaze|look(?:ing|s|ed)? (?:at|into|toward) (?:the )?camera|eyes? (?:on|toward) (?:the )?camera)\b/i.test(value))
+    return "camera";
+  if (/\b(?:look(?:ing|s|ed)? (?:at|toward|up at) (?:him|her|them|the (?:man|woman|subject))|gaze(?:s|d|ing)? at (?:him|her|them)|eyes? (?:locked|fixed) (?:on|across (?:the )?room))\b/i.test(value))
+    return "other-subject";
+  if (/\b(?:look(?:ing|s|ed)? (?:toward|at|into|up|down|away)|gaze|eyes? (?:locked|fixed))\b/i.test(value))
+    return "scene";
+  return "";
+}
 function explicitPeopleCount(value) {
   const numeric = /\b([1-9])\s*(?:people|persons|subjects|characters|men|women|boys|girls)\b/i.exec(value);
   if (numeric)
@@ -168084,26 +168181,46 @@ function explicitPeopleCount(value) {
     return 2;
   return 0;
 }
-function modelPlacedSemanticViolations(authoritative, candidate, protectedSubjects = [], explicitlyNamedSource = authoritative, expectedPeopleCount = 0) {
+function modelPlacedSemanticViolations(authoritative, candidate, protectedSubjects = [], explicitlyNamedSource = authoritative, expectedPeopleCount = 0, supportingContext = "") {
   const violations = [];
+  const authorizedSource = [authoritative, supportingContext].filter(Boolean).join(`
+`);
   for (const cue of MODEL_PLACED_PROTECTED_CUES) {
-    const authored = cue.pattern.test(authoritative);
-    const parsed = cue.pattern.test(candidate);
+    const authored = hasSemanticCue(authoritative, cue);
+    const parsed = hasSemanticCue(candidate, cue);
     if (authored && !parsed)
       violations.push(cue.label);
-    if (!authored && parsed && cue.rejectIfAdded)
+    const authorizationSource = cue.family === "state" ? authorizedSource : authoritative;
+    if (!authored && parsed && cue.rejectIfAdded && !hasSemanticCue(authorizationSource, cue))
       violations.push(`new ${cue.label}`);
-  }
-  for (const subject of protectedSubjects) {
-    const name = cleanString(subject);
-    if (!name || !new RegExp(`\\b${escapeRegExp3(name)}\\b`, "i").test(explicitlyNamedSource))
-      continue;
-    if (!new RegExp(`\\b${escapeRegExp3(name)}\\b`, "i").test(candidate))
-      violations.push(`named subject ${name}`);
+    if (authored && parsed && cue.ownerSensitive) {
+      const authoredOwners = semanticRoleNearCue(authoritative, cue);
+      const parsedOwners = semanticRoleNearCue(candidate, cue);
+      if (authoredOwners.size === 1 && parsedOwners.size === 1 && [...authoredOwners][0] !== [...parsedOwners][0])
+        violations.push(`${cue.label} owner`);
+    }
   }
   const parsedPeopleCount = explicitPeopleCount(candidate);
   if (expectedPeopleCount > 0 && parsedPeopleCount > 0 && parsedPeopleCount !== expectedPeopleCount)
     violations.push("cast membership");
+  const authoredLocations = semanticLocationTokens(authoritative);
+  const parsedLocations = semanticLocationTokens(candidate);
+  if (authoredLocations.size && ![...authoredLocations].some((location) => parsedLocations.has(location)))
+    violations.push("environment/location");
+  const authoredForms = semanticBodyForms(authoritative);
+  const parsedForms = semanticBodyForms(candidate);
+  if (authoredForms.size && ![...authoredForms].some((form) => parsedForms.has(form)))
+    violations.push("current form");
+  if (authoredForms.has("human-legged") && parsedForms.has("mer-form"))
+    violations.push("current form");
+  if (authoredForms.has("mer-form") && parsedForms.has("human-legged"))
+    violations.push("current form");
+  const authoredGaze = semanticGazeTarget(authoritative);
+  const parsedGaze = semanticGazeTarget(candidate);
+  if (authoredGaze && parsedGaze && authoredGaze !== parsedGaze)
+    violations.push("gaze target");
+  if (authoredGaze !== "camera" && parsedGaze === "camera")
+    violations.push("gaze target");
   return [...new Set(violations)];
 }
 async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId, nativeSettings, highResMode = config.highResMode, forceSemanticRewrite = false) {
@@ -168255,7 +168372,7 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
           ...job.prosePromptComposition?.namedSubjects || [],
           ...context.visualSubjects.map((subject) => subject.name)
         ];
-        const missingSemantics = modelPlacedSemanticViolations(authoritativeScene, parsed.prompt, protectedSubjects, job.originalSceneBrief, Math.max(Number(job.prosePromptComposition?.expectedPeopleCount || 0), context.visualSubjects.length));
+        const missingSemantics = modelPlacedSemanticViolations(authoritativeScene, parsed.prompt, protectedSubjects, job.originalSceneBrief, Math.max(Number(job.prosePromptComposition?.expectedPeopleCount || 0), context.visualSubjects.length), context.context);
         if (missingSemantics.length) {
           return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw, `Parser changed protected Model-Placed semantics: ${missingSemantics.join(", ")}.`);
         }
@@ -169804,8 +169921,6 @@ ${job.regenerationIntent.negativeDelta}` : "",
     highResMode ? `High-Res / Polished Capture Mode is enabled. Improve rendering quality, anatomy, identity consistency, texture retention, lighting balance, and coherence while preserving the requested camera position, subject distance, and candid, evidence, surveillance, or phone capture language.${framingCues.length ? ` Preserve these capture cues: ${framingCues.join(", ")}.` : ""}` : "Normal target-aware mode is enabled. Preserve the requested capture fidelity, imperfections, camera language, and original finish.",
     job.originalNegativePrompt ? `Request negative prompt:
 ${job.originalNegativePrompt}` : "",
-    config.nativePromptMode ? `Mirrored native ImageGen prompt mode: ${config.nativePromptMode}` : "",
-    config.nativePromptPresetId ? `Mirrored native ImageGen prompt preset id: ${config.nativePromptPresetId}` : "",
     "Use sanitized chat context to fill missing visual continuity while keeping the authoritative scene brief primary.",
     "If the authoritative scene brief describes a physical appearance change, preserve character identity anchors but let that explicit change override older Appearance Sidecar state.",
     "Preserve matched subject presets exactly for stated age, hair, eyes, and identity-defining traits, including age-specific wording.",
@@ -173167,11 +173282,13 @@ function hasExplicitNoHumanIntent(job) {
 function hasExplicitSocialPhotoIntent(authoritative) {
   return /\b(?:selfie|portrait|headshot|profile photo|character profile|character sheet|social post|social media post|posted (?:image|photo|picture)|instagram post|twitter post|photo taken by someone|picture taken by someone|posed photo|promotional photo)\b/i.test(authoritative);
 }
-function proseUsesNarrativeSceneProfile(job, authoritative) {
-  if (job.target !== "prose.illustration" || hasExplicitSocialPhotoIntent(authoritative))
+function usesNarrativeSceneProfile(job, authoritative) {
+  if (job.target !== "prose.illustration" && job.target !== "custom.artifact-media" || hasExplicitSocialPhotoIntent(authoritative))
     return false;
   const framingMode = job.prosePromptComposition?.perspectiveMode || "scene-snapshot";
   if (!["scene-snapshot", "sequence", "emotional-beat", "persona-pov"].includes(framingMode))
+    return false;
+  if (job.target === "custom.artifact-media" && !/\b(?:wide|medium|long|establishing|over[- ]the[- ]shoulder|detail|scene|environment|foreground|background|beside|opposite|across|standing|walking|sitting|seated|lying|sleeping|speaking|arguing|confronting|holding|reaching|turned)\b/i.test(authoritative))
     return false;
   if (job.cast === "char" || job.cast === "user" || job.cast === "char+user")
     return true;
@@ -173202,7 +173319,7 @@ function classifyImageRequest(job) {
       return "object photo";
     return "abstract/non-character";
   }
-  if (proseUsesNarrativeSceneProfile(job, authoritative))
+  if (usesNarrativeSceneProfile(job, authoritative))
     return "narrative-scene";
   if (job.cast === "char+user")
     return "group photo";
@@ -173591,7 +173708,7 @@ function formatVisualSubjectPrompts(subjects) {
 var SUBJECT_CARDINALITY_TOKEN = /(?:^|[,;]\s*)\b(?:solo|1boy|1girl|2boys|2girls|multiple boys|multiple girls)\b\s*/gi;
 var SUBJECT_SCENE_STATE_TOKEN = /(?:^|[,;]\s*)\b(?:(?:soft|gentle|subtle|faint|broad)\s+)?(?:smil(?:e|ing)|smirk(?:ing)?|expression|crying|tearful|tears?|eyes? closed|eyes? open|looking (?:at|away|up|down)[^,;]*|gaze[^,;]*|relaxed posture|tense posture|standing|sitting|kneeling|lying down|trembling|laughing|angry|sad|happy|afraid|injured|bruised|bleeding|wounded|wet clothes?|torn clothes?|disheveled clothes?)\b\s*/gi;
 function sanitizeSubjectIdentityPrompt(prompt) {
-  return sanitizeVisualPreset(prompt).replace(SUBJECT_CARDINALITY_TOKEN, " ").replace(SUBJECT_SCENE_STATE_TOKEN, " ").replace(/\s*[,;]\s*[,;]+/g, ", ").replace(/^\s*[,;]\s*|\s*[,;]\s*$/g, "").replace(/\s+/g, " ").trim();
+  return sanitizeC5AIdentityPrompt(sanitizeVisualPreset(prompt)).prompt.replace(SUBJECT_CARDINALITY_TOKEN, " ").replace(SUBJECT_SCENE_STATE_TOKEN, " ").replace(/\s*[,;]\s*[,;]+/g, ", ").replace(/^\s*[,;]\s*|\s*[,;]\s*$/g, "").replace(/\s+/g, " ").trim();
 }
 function subjectScope(subject) {
   if (/\b(?:1boy|boy|male|man)\b/i.test(subject.prompt))
@@ -173610,7 +173727,16 @@ function enforceVisualSubjectIdentity(prompt, subjects, sceneFirst = false) {
     if (/\bteen(?:age)? girl\b/i.test(subject.prompt))
       body = body.replace(/\b(?:young|adult) woman\b/gi, "teen girl");
   }
-  const identity = subjects.map((subject) => `${subjectScope(subject)} ${subject.name}: ${sanitizeSubjectIdentityPrompt(subject.prompt)}`.replace(/:\s*$/, "")).join("; ");
+  const normalizedScene = normalizedPromptFragment2(body);
+  const identity = subjects.map((subject) => {
+    const deduped = sanitizeSubjectIdentityPrompt(subject.prompt).split(/[,;\n]+/).map((fragment) => fragment.trim()).filter(Boolean).filter((fragment) => {
+      const normalized2 = normalizedPromptFragment2(fragment);
+      return normalized2 && !normalizedScene.includes(normalized2);
+    }).join(", ");
+    return deduped ? `${subjectScope(subject)} ${subject.name}: ${deduped}` : "";
+  }).filter(Boolean).join("; ");
+  if (!identity)
+    return body;
   const cardinality = subjects.length > 1 ? `${subjects.length}people, ` : "";
   return (sceneFirst ? `${body}, ${cardinality}${identity}` : `${cardinality}${identity}, ${body}`).replace(/\s+/g, " ").trim();
 }

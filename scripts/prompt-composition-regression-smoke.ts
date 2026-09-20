@@ -1,5 +1,6 @@
 // @ts-nocheck -- focused ownership/projection regressions from the 0.2.8.6 live diagnostics.
 import { strict as assert } from 'node:assert'
+import { readFileSync } from 'node:fs'
 
 const storage = new Map<string, any>()
 ;(globalThis as any).spindle = {
@@ -19,6 +20,7 @@ const storage = new Map<string, any>()
 const backend = await import('../src/backend')
 const { sanitizeC5AIdentityPrompt } = await import('../src/c5aIdentity')
 const { mergeAppearancePromptFacts } = await import('../src/vault')
+const { compactCompletedRecord, stripCompletedRecord } = await import('../src/completedState')
 
 // Native generation prompt profiles are observable diagnostics, never Relay
 // parser instructions. Switching MAIN/Kitty/Prolix must not change router text.
@@ -47,9 +49,19 @@ assert.deepEqual(backend.followedNativeParserConfig({
 }), {
   parserConnectionId: 'runtime-parser', parserModel: 'runtime-model', parserParameters: { temperature: 0.2 },
 })
+const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
+assert(!backendSource.includes('Mirrored native ImageGen prompt mode:'), 'native generation mode must not enter Relay parser behavior payload')
+assert(!backendSource.includes('Mirrored native ImageGen prompt preset id:'), 'native generation preset id must remain diagnostic-only')
 
-// Semantic equivalents and a parser-added readable subject name are legal.
-// New contact or a changed explicit cast count remain fail-closed.
+// Semantic equivalents and descriptive aliases are legal. These are the two
+// exact post-9f7e337 live rewrites which were falsely rejected.
+const alarmSource = '2people, wide shot volcanic greenhouse terrace, male subject standing tall beside dark brass acoustic pipe, female subject seated on wooden bench, clutching slate-blue robe tightly, looking up in alert apprehension'
+const alarmRewrite = 'A wide cinematic shot inside a volcanic greenhouse terrace. A tall man stands left beside the acoustic pipe. To the right, a young woman sits on a wooden bench, clutching a slate-blue wrap tightly, looking up with alert apprehension.'
+assert.deepEqual(backend.modelPlacedSemanticViolations(alarmSource, alarmRewrite, ['Taejun', 'Arin'], alarmSource, 2), [])
+const laughSource = '2people, medium close-up, volcanic conservatory terrace, female subject laughing, slender hands holding robe collar, male subject seated opposite leaning forward on one hand'
+const laughRewrite = 'A cinematic medium close-up in a volcanic conservatory terrace. A young woman laughs, her slender hands clutching the robe collar. Opposite her, a topless young man leans forward on one hand.'
+assert.deepEqual(backend.modelPlacedSemanticViolations(laughSource, laughRewrite, ['Taejun', 'Arin'], laughSource, 2, 'continuity for Taejun: topless'), [])
+
 assert.deepEqual(backend.modelPlacedSemanticViolations(
   'A two-person underwater scene: a man and woman sit on rock while their hands meet.',
   'Wide underwater composition of two people seated on rock, Arin named for clarity, their fingers brushing.',
@@ -65,23 +77,56 @@ assert.deepEqual(backend.modelPlacedSemanticViolations(
   1,
 ), [])
 assert(backend.modelPlacedSemanticViolations('Two people stand apart.', 'Two people touch hands.', [], undefined, 2).includes('new touching'))
+assert(backend.modelPlacedSemanticViolations('Two people stand apart.', 'Two people touch hands.', [], undefined, 2, 'Earlier they kissed and held hands.').includes('new touching'))
 assert(backend.modelPlacedSemanticViolations('Two people stand together.', 'Three people stand together.', [], undefined, 2).includes('cast membership'))
 assert(backend.modelPlacedSemanticViolations('Wide shot of Arin standing by a window.', 'Close-up of Arin standing by a window.', ['Arin']).includes('wide shot'))
+assert(backend.modelPlacedSemanticViolations('Two people: a woman holds the lantern while a man watches.', 'Two people: a woman watches while a man grips the lantern.', [], undefined, 2).includes('holding owner'))
+assert(backend.modelPlacedSemanticViolations('Two people on a greenhouse terrace, she looks at him.', 'Two people on a greenhouse terrace, she looks into the camera.', [], undefined, 2).includes('gaze target'))
+assert(backend.modelPlacedSemanticViolations('Wide shot of two people on a greenhouse terrace.', 'Wide shot of two people on a beach.', [], undefined, 2).includes('environment/location'))
+assert(backend.modelPlacedSemanticViolations('Two people on a dry terrace; the man has human legs.', 'Two people on a dry terrace; the man has a merman tail and no human legs.', [], undefined, 2).includes('current form'))
 
-// Identity projection retains durable morphology/wardrobe and strips pose,
-// environment, rendering, atmosphere, and quality material seen in Taejun's
-// contaminated live identity projection.
+// Identity projection keeps durable face/body anchors, but mutable form,
+// wardrobe, accessories, exposure, action, environment, and style are scene-owned.
 const projected = sanitizeC5AIdentityPrompt([
-  'Taejun', 'dark_hair', 'amber_eyes', 'long merman tail', 'crown', 'golden armlets', 'topless_male',
+  'Taejun', 'dark_hair', 'amber_eyes', 'sharp jawline', 'athletic build', 'long merman tail', 'crown ornament', 'golden arm cuffs', 'topless', 'ivory robe',
   'powerful tail curve', 'flowing hair', 'bubbles', 'glowing particles', 'warm volcanic rock',
   'highly detailed water', 'beautiful detailed eyes', 'intricate scales', 'ethereal glow', 'high detail',
 ].join(', '))
-for (const durable of ['Taejun', 'dark_hair', 'amber_eyes', 'long merman tail', 'crown', 'golden armlets', 'topless_male']) {
+for (const durable of ['Taejun', 'dark_hair', 'amber_eyes', 'sharp jawline', 'athletic build']) {
   assert(projected.prompt.includes(durable), `durable identity fragment was removed: ${durable}`)
 }
-for (const contaminant of ['powerful tail curve', 'flowing hair', 'bubbles', 'glowing particles', 'warm volcanic rock', 'highly detailed water', 'beautiful detailed eyes', 'intricate scales', 'ethereal glow', 'high detail']) {
+for (const contaminant of ['long merman tail', 'crown ornament', 'golden arm cuffs', 'topless', 'ivory robe', 'powerful tail curve', 'flowing hair', 'bubbles', 'glowing particles', 'warm volcanic rock', 'highly detailed water', 'beautiful detailed eyes', 'intricate scales', 'ethereal glow', 'high detail']) {
   assert(!projected.prompt.includes(contaminant), `scene/style fragment survived identity projection: ${contaminant}`)
   assert(projected.removed.includes(contaminant))
+}
+
+// Parser-success and authoritative-fallback shaping share scene-first ordering,
+// count/blocking/form invariants, and the same minimal identity projection.
+const transformingSubjects = [
+  { id: 'taejun', name: 'Taejun', kind: 'character', prompt: 'handsome Korean man, dark wavy hair, warm brown eyes, merman, long merman tail, no human legs, ivory sea-silk robe, gold arm cuffs' },
+  { id: 'arin', name: 'Arin', kind: 'persona', prompt: 'young woman, long blonde hair, pale skin, slate-blue robe, human legs' },
+]
+const dryScene = '2people, wide shot greenhouse terrace, male subject standing with human legs in dark trousers beside a brass pipe, female subject seated on a bench holding her robe'
+const dryRewrite = 'Wide cinematic shot on a greenhouse terrace: a dark-haired man stands on human legs in dark trousers beside a brass pipe; a blonde woman sits on a bench clutching her robe.'
+for (const route of [dryScene, dryRewrite]) {
+  const shaped = backend.enforceVisualSubjectIdentity(route, transformingSubjects, true)
+  assert(shaped.indexOf('greenhouse terrace') < shaped.indexOf('subject Taejun:'), 'scene must lead identity anchors')
+  assert(!/merman tail|no human legs|sea-silk robe|gold arm cuffs/i.test(shaped), `stale mutable form/attire survived: ${shaped}`)
+  assert.match(shaped, /dark wavy hair|warm brown eyes/)
+  assert.deepEqual(backend.modelPlacedSemanticViolations(dryScene, shaped, ['Taejun', 'Arin'], dryScene, 2), [])
+}
+const merScene = '2people, wide underwater scene, male subject swimming with a long merman tail and no human legs, female subject beside him'
+const merShaped = backend.enforceVisualSubjectIdentity(merScene, transformingSubjects, true)
+assert.match(merShaped, /long merman tail/)
+assert.match(merShaped, /no human legs/)
+
+// Equivalent prose/custom scene requests select the same narrative profile;
+// target framing adds no portrait bias.
+for (const target of ['prose.illustration', 'custom.artifact-media']) {
+  const job = { target, originalSceneBrief: dryScene, caption: '', alt: '', cast: 'char+user' }
+  const classification = backend.classifyImageRequest(job)
+  assert.equal(backend.autoPromptProfileId(job, classification), 'cinematic-scene')
+  assert(!/portrait|beauty|glamour/i.test(backend.targetFramingInstruction(target, classification)))
 }
 
 const fact = (id: string, name: string, layer: string, category: string, value: string) => ({
@@ -118,4 +163,33 @@ for (const routeBase of [
   assert.equal((prompt.match(/continuity for Arin:/g) || []).length, 1)
 }
 
-console.log('Prompt composition regression smoke passed: Native profile isolation, semantic-equivalent parser acceptance, durable identity projection, and owner-scoped multi-subject continuity are enforced.')
+// Authored form/attire overrides stale Sidecar state; duplicate facts are not
+// re-appended. Explicit current mer-form remains legal in the inverse scene.
+const mutableFacts = [
+  fact('taejun', 'Taejun', 'current-appearance', 'body-form', 'long_merman_tail'),
+  fact('taejun', 'Taejun', 'current-appearance', 'body-form', 'no_human_legs'),
+  fact('taejun', 'Taejun', 'wardrobe', 'clothing', 'ivory_robe'),
+  fact('taejun', 'Taejun', 'visual-identity', 'hair-color', 'dark_hair'),
+]
+const dryContinuity = mergeAppearancePromptFacts(`${dryScene}, dark hair`, mutableFacts, dryScene)
+assert(!/long_merman_tail|no_human_legs|ivory_robe/.test(dryContinuity))
+assert.equal((dryContinuity.match(/dark_hair/g) || []).length, 0)
+const merContinuity = mergeAppearancePromptFacts(merScene, mutableFacts, merScene)
+assert(!merContinuity.includes('continuity for Taejun: long_merman_tail'), 'scene-explicit tail must not be duplicated')
+
+// Completed-state compaction must retain the provider/model/mode fields used by
+// the status-card renderer.
+const completed = {
+  key: 'chat:message:0:req:slot', chatId: 'chat', messageId: 'message', swipeId: 0, requestId: 'req', slot: 'slot', target: 'prose.illustration', targetApp: 'prose', status: 'completed',
+  originalSceneBrief: dryScene, originalNegativePrompt: '', originalRequestXml: '<image_request/>', alt: 'Scene', count: 1, createdAt: 1, updatedAt: 2, completedAt: 2,
+  imageId: 'image', imageUrl: '/image.png', imageProvider: 'swarmui', imageModel: 'Anima/model.safetensors', highResMode: false, history: [],
+}
+assert.deepEqual(Object.fromEntries(Object.entries(compactCompletedRecord(completed)).filter(([key]) => ['imageProvider', 'imageModel', 'highResMode'].includes(key))), {
+  imageProvider: 'swarmui', imageModel: 'Anima/model.safetensors', highResMode: false,
+})
+const stripped = stripCompletedRecord(completed)
+assert.equal(stripped.imageProvider, 'swarmui')
+assert.equal(stripped.imageModel, 'Anima/model.safetensors')
+assert.equal(stripped.highResMode, false)
+
+console.log('Prompt composition regression smoke passed: semantic invariants, profile isolation, scene-led mutable-form handling, target parity, owner-scoped continuity, and completed metadata are enforced.')
