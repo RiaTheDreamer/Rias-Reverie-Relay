@@ -162,7 +162,7 @@ import { hybridSurfaceOwner, REVIEWED_REGEX_SURFACE_IDS, shippedSurfaceDefinitio
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { hasR45UtilityContract, r45UtilityContract } from './r45UtilityContracts'
 import { assertProviderRequestSafe } from './providerPromptSafety'
-import { imageProviderSupportsStreaming, isSwarmUiProvider, relayStreamingAllowedForProvider } from './imageStreaming'
+import { imageProviderSupportsStreaming, isSwarmUiProvider, providerRequiresAbortableStream, relayStreamingAllowedForProvider } from './imageStreaming'
 import { normalizeSurfaceDocument } from './surfaceXml'
 import { bracketSurfacePromptModule } from './bracketSurfaceAuthoring'
 import { r45SurfaceAuthorityPack, r45SurfaceAuthorityScripts } from './r45SurfaceAuthority'
@@ -769,6 +769,9 @@ type ParserContextResult = {
   context: string
   rawTemplate: string
   resolvedTemplate: string
+  activeNativeGenerationPromptTemplate: string
+  relayParserInstructions: string
+  nativeParserTemplateInherited: boolean
   characterContext: string
   personaContext: string
   unresolvedMacros: string[]
@@ -877,6 +880,24 @@ export type ProviderAttemptDiagnostic = {
   lastLaneResetAt?: number
   destinationAvailable: boolean
   createdAt: number
+  providerLaneAcquireRequestedAt: number
+  providerLaneAcquiredAt: number
+  providerInvocationStartedAt: number
+  swarmHttpRequestStartedAt: number
+  swarmRequestAcceptedAt: number
+  swarmRequestId?: string
+  firstProviderProgressAt: number
+  lastProviderProgressAt: number
+  providerTransportCompletedAt: number
+  providerPayloadReceivedAt: number
+  providerInvocationResolvedAt: number
+  providerInvocationRejectedAt: number
+  abortRequestedAt: number
+  abortPropagatedAt: number
+  providerLaneReleasedAt: number
+  terminalState?: 'success' | 'error' | 'timeout' | 'cancelled' | 'preflight-error'
+  terminalResolutionCount: number
+  cleanupCount: number
   completedAt?: number
   failure?: string
 }
@@ -1257,6 +1278,8 @@ function grantImageGenerationLane(key: string, lane: ImageGenerationLane, contex
   lane.drainReason = undefined
   if (lane.stuckVisibilityTimer) clearTimeout(lane.stuckVisibilityTimer)
   lane.stuckVisibilityTimer = undefined
+  const diagnostic = providerAttemptFor(context)
+  if (diagnostic) diagnostic.providerLaneAcquiredAt ||= Date.now()
   emitImageWorkerRecoveryState(lane.userId)
   return { key, leaseId, context, providerId, release: () => releaseImageGenerationLane(key, leaseId) }
 }
@@ -1264,6 +1287,10 @@ function grantImageGenerationLane(key: string, lane: ImageGenerationLane, contex
 function releaseImageGenerationLane(key: string, leaseId: string): void {
   const lane = imageGenerationLanes.get(key)
   if (!lane || lane.activeLeaseId !== leaseId) return
+  const diagnostic = lane.activeContext ? providerAttemptFor(lane.activeContext) : undefined
+  if (diagnostic) {
+    diagnostic.providerLaneReleasedAt ||= Date.now()
+  }
   if (lane.drainWatchdog) clearTimeout(lane.drainWatchdog)
   if (lane.stuckVisibilityTimer) clearTimeout(lane.stuckVisibilityTimer)
   lane.drainWatchdog = undefined
@@ -12149,9 +12176,13 @@ async function buildAuthoritativeVisualPrompt(
     contextCaption: job.caption,
     rawNativeParserTemplate: context.rawTemplate,
     resolvedNativeParserInstructions: context.resolvedTemplate,
+    activeNativeGenerationPromptTemplate: context.activeNativeGenerationPromptTemplate,
+    activeNativePromptPresetId: cleanString(nativeSettings?.activePromptPresetId) || config.nativePromptPresetId || undefined,
+    nativeParserTemplateInherited: context.nativeParserTemplateInherited,
+    parserInstructionSource: 'relay-registry',
     characterContext: context.characterContext,
     personaContext: context.personaContext,
-    routerParserInstructions: contextualizeSexualParserInstructions(config.customParserInstructions),
+    routerParserInstructions: context.relayParserInstructions,
     parserRequest: [],
     rawParserResponse: '',
     parsedPositivePrompt: contextualSexual.prompt,
@@ -12213,25 +12244,51 @@ async function buildAuthoritativeVisualPrompt(
   }
 }
 
-const MODEL_PLACED_PROTECTED_CUES: Array<[string, RegExp]> = [
-  ['close-up', /\bclose[ -]?up\b/i], ['wide shot', /\bwide shot\b/i], ['low angle', /\blow angle\b/i], ['high angle', /\bhigh angle\b/i],
-  ['back turned', /\bback (?:is )?turned\b/i], ['profile view', /\bprofile (?:view|angle)?\b/i], ['eye contact', /\beye contact\b/i], ['closed eyes', /\bclosed eyes\b/i],
-  ['kneeling', /\bkneel(?:ing|s|ed)?\b/i], ['sitting', /\b(?:sitting|seated)\b/i], ['standing', /\bstanding\b/i], ['lying', /\b(?:lying|reclining)\b/i],
-  ['holding', /\bholding\b/i], ['touching', /\btouching\b/i], ['kissing', /\bkissing\b/i], ['barefoot', /\b(?:barefoot|bare feet|shoeless)\b/i],
-  ['shoes', /\b(?:shoes?|boots?|heels?|sandals?|sneakers?|slippers?|loafers?)\b/i], ['nudity', /\b(?:nude|naked|topless|shirtless)\b/i],
-  ['explicit anatomy', /\b(?:penis|vagina|vulva|breasts?|nipples?|genitals?)\b/i], ['underwear', /\b(?:underwear|lingerie|bra|panties)\b/i],
+const MODEL_PLACED_PROTECTED_CUES: Array<{ label: string; pattern: RegExp; rejectIfAdded?: boolean }> = [
+  { label: 'close-up', pattern: /\bclose[ -]?up\b/i }, { label: 'wide shot', pattern: /\bwide shot\b/i }, { label: 'low angle', pattern: /\blow angle\b/i }, { label: 'high angle', pattern: /\bhigh angle\b/i },
+  { label: 'back turned', pattern: /\bback (?:is )?turned\b/i }, { label: 'profile view', pattern: /\bprofile (?:view|angle)?\b/i }, { label: 'eye contact', pattern: /\beye contact\b/i }, { label: 'closed eyes', pattern: /\bclosed eyes\b/i },
+  { label: 'kneeling', pattern: /\bkneel(?:ing|s|ed)?\b/i }, { label: 'sitting', pattern: /\b(?:sitting|seated|rests? on|resting on)\b/i }, { label: 'standing', pattern: /\b(?:standing|stands?|upright on (?:his|her|their) feet)\b/i }, { label: 'lying', pattern: /\b(?:lying|reclining|reclines?)\b/i },
+  { label: 'holding', pattern: /\b(?:hold(?:ing|s|held)?|cradl(?:ing|es|ed)|grasp(?:ing|s|ed)|grip(?:ping|s|ped))\b/i, rejectIfAdded: true },
+  { label: 'touching', pattern: /\b(?:touch(?:ing|es|ed)?|brush(?:ing|es|ed)?(?:\s+(?:against|with))?|physical contact|hands? (?:meet|meeting))\b/i, rejectIfAdded: true },
+  { label: 'kissing', pattern: /\b(?:kiss(?:ing|es|ed)?)\b/i, rejectIfAdded: true }, { label: 'barefoot', pattern: /\b(?:barefoot|bare feet|shoeless)\b/i },
+  { label: 'shoes', pattern: /\b(?:shoes?|boots?|heels?|sandals?|sneakers?|slippers?|loafers?)\b/i }, { label: 'nudity', pattern: /\b(?:nude|naked|topless|shirtless)\b/i, rejectIfAdded: true },
+  { label: 'explicit anatomy', pattern: /\b(?:penis|vagina|vulva|breasts?|nipples?|genitals?)\b/i, rejectIfAdded: true }, { label: 'underwear', pattern: /\b(?:underwear|lingerie|bra|panties)\b/i, rejectIfAdded: true },
 ]
 
-function missingModelPlacedSemantics(authoritative: string, candidate: string, protectedSubjects: string[] = []): string[] {
-  const missing = MODEL_PLACED_PROTECTED_CUES
-    .filter(([, pattern]) => pattern.test(authoritative) && !pattern.test(candidate))
-    .map(([label]) => label)
+function explicitPeopleCount(value: string): number {
+  const numeric = /\b([1-9])\s*(?:people|persons|subjects|characters|men|women|boys|girls)\b/i.exec(value)
+  if (numeric) return Number(numeric[1])
+  const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 }
+  const word = /\b(one|two|three|four|five)\s+(?:people|persons|subjects|characters|men|women|boys|girls)\b/i.exec(value)
+  if (word) return words[word[1].toLocaleLowerCase()] || 0
+  if (/\bthird (?:person|subject|character|woman|man)\b/i.test(value)) return 3
+  if (/\b(?:solo|single (?:person|subject|character))\b/i.test(value)) return 1
+  if (/\b(?:pair|duo|two-person|two-subject)\b/i.test(value)) return 2
+  return 0
+}
+
+export function modelPlacedSemanticViolations(
+  authoritative: string,
+  candidate: string,
+  protectedSubjects: string[] = [],
+  explicitlyNamedSource = authoritative,
+  expectedPeopleCount = 0,
+): string[] {
+  const violations: string[] = []
+  for (const cue of MODEL_PLACED_PROTECTED_CUES) {
+    const authored = cue.pattern.test(authoritative)
+    const parsed = cue.pattern.test(candidate)
+    if (authored && !parsed) violations.push(cue.label)
+    if (!authored && parsed && cue.rejectIfAdded) violations.push(`new ${cue.label}`)
+  }
   for (const subject of protectedSubjects) {
     const name = cleanString(subject)
-    if (!name || !new RegExp(`\\b${escapeRegExp(name)}\\b`, 'i').test(authoritative)) continue
-    if (!new RegExp(`\\b${escapeRegExp(name)}\\b`, 'i').test(candidate)) missing.push(`named subject ${name}`)
+    if (!name || !new RegExp(`\\b${escapeRegExp(name)}\\b`, 'i').test(explicitlyNamedSource)) continue
+    if (!new RegExp(`\\b${escapeRegExp(name)}\\b`, 'i').test(candidate)) violations.push(`named subject ${name}`)
   }
-  return [...new Set(missing)]
+  const parsedPeopleCount = explicitPeopleCount(candidate)
+  if (expectedPeopleCount > 0 && parsedPeopleCount > 0 && parsedPeopleCount !== expectedPeopleCount) violations.push('cast membership')
+  return [...new Set(violations)]
 }
 
 export async function parseSlotPrompt(
@@ -12289,7 +12346,11 @@ export async function parseSlotPrompt(
     const pipeline: PromptPipeline = {
       ...negative.pipeline,
       contextCaption: job.caption,
-      routerParserInstructions: contextualizeSexualParserInstructions(config.customParserInstructions),
+      activeNativeGenerationPromptTemplate: context.activeNativeGenerationPromptTemplate,
+      activeNativePromptPresetId: cleanString(nativeSettings?.activePromptPresetId) || config.nativePromptPresetId || undefined,
+      nativeParserTemplateInherited: context.nativeParserTemplateInherited,
+      parserInstructionSource: 'relay-registry',
+      routerParserInstructions: context.relayParserInstructions,
       parserRequest: [],
       rawParserResponse: JSON.stringify(job.prosePromptComposition || {}),
       parsedPositivePrompt: positivePrompt,
@@ -12393,7 +12454,13 @@ export async function parseSlotPrompt(
           ...(job.prosePromptComposition?.namedSubjects || []),
           ...context.visualSubjects.map(subject => subject.name),
         ]
-        const missingSemantics = missingModelPlacedSemantics(authoritativeScene, parsed.prompt, protectedSubjects)
+        const missingSemantics = modelPlacedSemanticViolations(
+          authoritativeScene,
+          parsed.prompt,
+          protectedSubjects,
+          job.originalSceneBrief,
+          Math.max(Number(job.prosePromptComposition?.expectedPeopleCount || 0), context.visualSubjects.length),
+        )
         if (missingSemantics.length) {
           return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw, `Parser changed protected Model-Placed semantics: ${missingSemantics.join(', ')}.`)
         }
@@ -12446,9 +12513,13 @@ export async function parseSlotPrompt(
         contextCaption: job.caption,
         rawNativeParserTemplate: context.rawTemplate,
         resolvedNativeParserInstructions: context.resolvedTemplate,
+        activeNativeGenerationPromptTemplate: context.activeNativeGenerationPromptTemplate,
+        activeNativePromptPresetId: cleanString(nativeSettings?.activePromptPresetId) || config.nativePromptPresetId || undefined,
+        nativeParserTemplateInherited: context.nativeParserTemplateInherited,
+        parserInstructionSource: 'relay-registry',
         characterContext: context.characterContext,
         personaContext: context.personaContext,
-        routerParserInstructions: contextualizeSexualParserInstructions(config.customParserInstructions),
+        routerParserInstructions: context.relayParserInstructions,
         parserRequest,
         rawParserResponse: parserOutput,
         parsedPositivePrompt: positivePrompt,
@@ -12747,9 +12818,17 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
     source: 'relay-slot' as const,
   } : undefined)
   if (!resolvedStreamContext) throw new Error('Image generation requires either a real chat context or an explicit stream context.')
+  const providerRequest = {
+    ...finalRequest,
+    relay_origin: source,
+    relay_generation_id: resolvedStreamContext.generationId,
+    relay_request_id: resolvedStreamContext.requestId || undefined,
+    relay_recipe_id: plan.recipeId || undefined,
+    clientJobId: resolvedStreamContext.generationId,
+  }
   spindle.log.info(`[ReverieRelay:generation_origin] ${JSON.stringify({ origin: source, chatId: resolvedOwnerChatId || chatId || null, requestId: resolvedStreamContext.requestId || null, generationId: resolvedStreamContext.generationId, connectionId: plan.connectionId, model: plan.model, semanticPromptPresent: isMeaningfulAutomaticPrompt(assembled.prompt, plan.effectiveBaseTags), recipeId: plan.recipeId || null, fallbackProviderGuardApplied: prepared.promptPipeline.fallbackProviderGuardApplied, fallbackProviderFragmentsRemoved: assembled.removedFallbackFragments.length })}`)
   let providerStartedAt = Date.now()
-  let result = await generateWithOptionalStream(finalRequest, plan, userId, resolvedStreamContext)
+  let result = await generateWithOptionalStream(providerRequest, plan, userId, resolvedStreamContext)
 
   let galleryItemId = cleanString(result.galleryItemId) || undefined
   let galleryLinkStatus: GalleryLinkStatus = cleanString(result.galleryLinkStatus) === 'linked' || result.galleryLinked === true
@@ -12879,7 +12958,7 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
     connectionDefaultParameters: plan.connectionDefaultParameters,
     slotOverrides: plan.slotOverrides,
     finalImageParameters: parameters,
-    finalImageRequest: { ...finalRequest, relay_origin: source, relay_generation_id: resolvedStreamContext.generationId, relay_recipe_id: plan.recipeId || undefined },
+    finalImageRequest: providerRequest,
     finalImageSettingsSource: plan.settingsSource,
     nativeActiveLoraPreset: plan.nativeActiveLoraPreset,
     effectiveAppliedLoraPreset: plan.effectiveAppliedLoraPreset,
@@ -12922,6 +13001,8 @@ function createSlotDiagnostic(
   intent: RegenerationIntent | undefined,
 ): SlotDiagnostic {
   const unavailable: string[] = []
+  const providerGenerationId = cleanString(generated.finalImageRequest.relay_generation_id)
+  const providerAttempt = providerGenerationId ? inspectProviderAttemptDiagnostics(providerGenerationId) : null
   if (!generated.imageProvider) unavailable.push('provider result did not include provider name')
   if (!generated.imageModel) unavailable.push('provider result did not include model name')
   if (!prepared.parserOutput) unavailable.push('raw parser output unavailable')
@@ -12960,6 +13041,7 @@ function createSlotDiagnostic(
       slotOverrides: generated.slotOverrides,
       finalImageParameters: generated.finalImageParameters,
       finalProviderRequest: generated.finalImageRequest,
+      providerAttempt,
       promptMetrics: {
         finalPromptCharsBeforeIdentityFix: prepared.promptPipeline.finalPromptCharsBeforeIdentityFix || prepared.prompt.length,
         finalPromptChars: prepared.promptPipeline.finalPromptChars || prepared.prompt.length,
@@ -13738,6 +13820,19 @@ async function resolveImageConnection(config: RouterConfig, userId?: string): Pr
   return connections.find(connection => connection.is_default) || connections[0] || null
 }
 
+export function isolateRelayParserInstructions(
+  activeNativeGenerationPromptTemplate: string,
+  relayParserInstructions: string,
+): Pick<ParserContextResult, 'rawTemplate' | 'resolvedTemplate' | 'activeNativeGenerationPromptTemplate' | 'relayParserInstructions' | 'nativeParserTemplateInherited'> {
+  return {
+    rawTemplate: '',
+    resolvedTemplate: '',
+    activeNativeGenerationPromptTemplate: cleanString(activeNativeGenerationPromptTemplate),
+    relayParserInstructions: contextualizeSexualParserInstructions(relayParserInstructions),
+    nativeParserTemplateInherited: false,
+  }
+}
+
 async function buildParserContext(
   job: RouterJob,
   messages: ChatMessage[],
@@ -13905,28 +14000,25 @@ async function buildParserContext(
     blocks.push(`Deliberate continuity break:\n${state.continuityVault.deliberateBreaks[slotKey({ ...job, slot: job.slots[0] || 'image' })]}`)
   }
 
-  const rawTemplate = contextualizeSexualParserInstructions(firstString(nativeSettings?.customPrompt, config.nativeCustomPrompt))
-  const hasCharacterMacro = /\{\{character_prompt\}\}/i.test(rawTemplate)
-  const hasPersonaMacro = /\{\{persona_prompt\}\}/i.test(rawTemplate)
-  if (effectiveIncludePersona && !hasPersonaMacro) blocks.push(`Persona appearance only:\n${persona}`)
-  if (effectiveIncludeCharacters && !hasCharacterMacro) blocks.push(`${visualSubjects.length ? 'Matched depicted subjects' : 'Character appearance only'}:\n${character}`)
-  const macroResolution = resolveVisualPromptMacros(rawTemplate, {
-    characterValue: effectiveIncludeCharacters ? character : '',
-    personaValue: effectiveIncludePersona ? persona : '',
-    characterExpected: characterApplicable && config.includeCharacterInfo,
-    personaExpected: personaApplicable && config.includePersonaInfo,
-  })
-  const { resolvedTemplate, unresolvedMacros } = macroResolution
-  const compactNativeInstructions = compact(resolvedTemplate, 5000)
+  // Follow Native Parser owns only connection/model/parameters. The active
+  // Native ImageGen generation profile is retained for diagnostics but is not
+  // expanded or sent as Relay parser instructions.
+  const activeNativeGenerationPromptTemplate = firstString(nativeSettings?.customPrompt, config.nativeCustomPrompt)
+  const unresolvedMacros: string[] = []
+  if (effectiveIncludePersona) blocks.push(`Persona appearance only:\n${persona}`)
+  if (effectiveIncludeCharacters) blocks.push(`${visualSubjects.length ? 'Matched depicted subjects' : 'Character appearance only'}:\n${character}`)
+  const parserSettings = proseSettingsForChat(state, job.chatId)
+  const parserInstructionOwnership = isolateRelayParserInstructions(activeNativeGenerationPromptTemplate, [
+    registryPrompt(parserSettings, 'sidecar.parser.system'),
+    registryPrompt(parserSettings, 'sidecar.parser.request'),
+    contextualizeSexualParserInstructions(config.customParserInstructions),
+  ].filter(Boolean).join('\n\n'))
   const compactRouterInstructions = compact(contextualizeSexualParserInstructions(config.customParserInstructions), 5000)
-  if (compactNativeInstructions) blocks.push(`Native ImageGen parser instructions:\n${compactNativeInstructions}`)
-  if (compactRouterInstructions && normalizePromptInstructionText(compactRouterInstructions) !== normalizePromptInstructionText(compactNativeInstructions)) {
-    blocks.push(`Relay parser override:\n${compactRouterInstructions}`)
-  }
+  if (compactRouterInstructions) blocks.push(`Relay parser override:\n${compactRouterInstructions}`)
   if (!humanPolicy.allowHumanPrompt) blocks.push(`Visible subject policy:\n${noHumanParserPolicyInstruction(humanPolicy)}`)
 
   return {
-    context: blocks.join('\n\n---\n\n'), rawTemplate, resolvedTemplate,
+    context: blocks.join('\n\n---\n\n'), ...parserInstructionOwnership,
     contextMetrics: { tier: 'routine', expansionReason: '', historyMessages: recent ? (recent.match(/^(?:user|assistant):/gm) || []).length : 0, characterChars: characterCard.length, personaChars: personaCard.length, appearanceMemoryChars: formatProjectedAppearanceFacts(continuity.projectedIncluded).length, ...(lorebookContextMetrics.get(job.chatId) || {}) },
     characterContext: effectiveIncludeCharacters ? character : '', personaContext: effectiveIncludePersona ? persona : '', unresolvedMacros,
     classification, nativeIncludeCharacters, nativeIncludePersona, effectiveIncludeCharacters, effectiveIncludePersona,
@@ -14182,9 +14274,13 @@ function buildParserFallbackPrompt(
     contextCaption: job.caption,
     rawNativeParserTemplate: context.rawTemplate,
     resolvedNativeParserInstructions: context.resolvedTemplate,
+    activeNativeGenerationPromptTemplate: context.activeNativeGenerationPromptTemplate,
+    activeNativePromptPresetId: cleanString(nativeSettings?.activePromptPresetId) || config.nativePromptPresetId || undefined,
+    nativeParserTemplateInherited: context.nativeParserTemplateInherited,
+    parserInstructionSource: 'relay-registry',
     characterContext: context.characterContext,
     personaContext: context.personaContext,
-    routerParserInstructions: contextualizeSexualParserInstructions(config.customParserInstructions),
+    routerParserInstructions: context.relayParserInstructions,
     parserRequest: [],
     rawParserResponse: parserOutput,
     parsedPositivePrompt: positivePrompt,
@@ -14255,6 +14351,16 @@ function buildParserFallbackPrompt(
   }
 }
 
+export function followedNativeParserConfig(imageGeneration: NativeImageSettings): Pick<RouterConfig, 'parserConnectionId' | 'parserModel' | 'parserParameters'> {
+  // Runtime Native parser selection wins. Per-generation prompt profiles and
+  // their stored parser metadata are registry data, not Relay parser policy.
+  return {
+    parserConnectionId: cleanNullableString(imageGeneration.promptParserConnectionId),
+    parserModel: cleanString(imageGeneration.promptParserModel),
+    parserParameters: cleanParameters(imageGeneration.promptParserParameters),
+  }
+}
+
 async function syncNativeSettings(imageGeneration: NativeImageSettings, userId?: string, capturedAt = Date.now()): Promise<RouterConfig> {
   const current = await getConfig(userId)
   if (!configStorageHydratedScopes.has(userConfigCacheKey(userId))) {
@@ -14276,9 +14382,7 @@ async function syncNativeSettings(imageGeneration: NativeImageSettings, userId?:
   }
 
   if (current.followNativeParser) {
-    patch.parserConnectionId = cleanNullableString(imageGeneration.promptParserConnectionId)
-    patch.parserModel = cleanString(imageGeneration.promptParserModel)
-    patch.parserParameters = cleanParameters(imageGeneration.promptParserParameters)
+    Object.assign(patch, followedNativeParserConfig(imageGeneration))
   }
 
   if (current.generationSettingsSource === 'native') {
@@ -14811,6 +14915,7 @@ function streamGenerationResult(event: Record<string, unknown>): any {
 
 export function normalizeImageGenerationStreamEvent(rawEvent: unknown): {
   type: string
+  providerRequestId: string
   previewImageDataUrl: string
   statusText: string
   step?: number
@@ -14820,14 +14925,17 @@ export function normalizeImageGenerationStreamEvent(rawEvent: unknown): {
 } | null {
   if (!rawEvent || typeof rawEvent !== 'object') return null
   const event = rawEvent as Record<string, unknown>
+  const result = streamGenerationResult(event)
   return {
     type: streamEventType(event),
+    providerRequestId: cleanString(event.jobId ?? event.job_id ?? event.requestId ?? event.request_id ?? event.generationId ?? event.generation_id)
+      || cleanString(result?.jobId ?? result?.job_id ?? result?.requestId ?? result?.request_id),
     previewImageDataUrl: streamImageValue(event),
     statusText: cleanString(event.status) || cleanString(event.message) || cleanString(event.text),
     step: numberOrUndefined(event.step ?? event.currentStep ?? event.current ?? event.progressStep),
     totalSteps: numberOrUndefined(event.totalSteps ?? event.steps ?? event.maxSteps ?? event.total),
     nodeId: cleanString(event.nodeId ?? event.node ?? event.executingNode),
-    result: streamGenerationResult(event),
+    result,
   }
 }
 
@@ -14840,11 +14948,6 @@ export async function generateWithOptionalStream(
   timeoutMs = IMAGE_GENERATION_TIMEOUT_MS,
 ): Promise<any> {
   const controller = new AbortController()
-  const abortFromAttempt = () => controller.abort(context.attemptSignal?.reason || 'Cancelled by user.')
-  if (context.attemptSignal?.aborted) abortFromAttempt()
-  else context.attemptSignal?.addEventListener('abort', abortFromAttempt, { once: true })
-  registerImageStream(context, controller, userId)
-  let laneLease: ImageGenerationLaneLease | null = null
   const diagnostic = rememberProviderAttempt({
     generationId: context.generationId,
     chatId: context.chatId || null,
@@ -14861,10 +14964,43 @@ export async function generateWithOptionalStream(
     lastLaneResetAt: providerLaneResetDiagnostics.get(imageGenerationLaneKey(userId))?.lastLaneResetAt,
     destinationAvailable: destinationAvailable(context, userId),
     createdAt: Date.now(),
+    providerLaneAcquireRequestedAt: 0,
+    providerLaneAcquiredAt: 0,
+    providerInvocationStartedAt: 0,
+    swarmHttpRequestStartedAt: 0,
+    swarmRequestAcceptedAt: 0,
+    firstProviderProgressAt: 0,
+    lastProviderProgressAt: 0,
+    providerTransportCompletedAt: 0,
+    providerPayloadReceivedAt: 0,
+    providerInvocationResolvedAt: 0,
+    providerInvocationRejectedAt: 0,
+    abortRequestedAt: 0,
+    abortPropagatedAt: 0,
+    providerLaneReleasedAt: 0,
+    terminalResolutionCount: 0,
+    cleanupCount: 0,
   })
+  const recordAbort = () => {
+    const now = Date.now()
+    diagnostic.abortRequestedAt ||= now
+    if (diagnostic.providerTransport === 'stream') diagnostic.abortPropagatedAt ||= now
+  }
+  const abortFromAttempt = () => controller.abort(context.attemptSignal?.reason || 'Cancelled by user.')
+  controller.signal.addEventListener('abort', recordAbort)
+  if (context.attemptSignal?.aborted) abortFromAttempt()
+  else context.attemptSignal?.addEventListener('abort', abortFromAttempt, { once: true })
+  registerImageStream(context, controller, userId)
+  let laneLease: ImageGenerationLaneLease | null = null
+  const resolveTerminal = (state: NonNullable<ProviderAttemptDiagnostic['terminalState']>): void => {
+    if (diagnostic.terminalState) return
+    diagnostic.terminalState = state
+    diagnostic.terminalResolutionCount += 1
+  }
   try {
     diagnostic.destinationAvailable = await revalidateChatDestination(context.chatId, userId)
     if (!diagnostic.destinationAvailable) throw new ImageGenerationDestinationUnavailableError(context.chatId)
+    diagnostic.providerLaneAcquireRequestedAt = Date.now()
     laneLease = await acquireImageGenerationLane(userId, context, controller, plan.provider)
     if (controller.signal.aborted) throw abortError()
     // A lane wait may last minutes. Prove the destination again immediately
@@ -14915,9 +15051,12 @@ export async function generateWithOptionalStream(
         throw new Error(`Provider dispatch invariant violated for ${context.generationId}; Relay refused generation #${diagnostic.providerDispatchCount + 1}.`)
       }
       diagnostic.providerDispatchCount = 1
-      diagnostic.providerSpendStartedAt = Date.now()
+      const startedAt = Date.now()
+      diagnostic.providerSpendStartedAt = startedAt
+      diagnostic.providerInvocationStartedAt = startedAt
       diagnostic.providerTransport = transport
       diagnostic.providerStreamingUsed = transport === 'stream'
+      if (isSwarmUiProvider(plan.provider)) diagnostic.swarmHttpRequestStartedAt = startedAt
     }
 
     const assertDestinationAvailable = (): void => {
@@ -14940,11 +15079,16 @@ export async function generateWithOptionalStream(
       startProviderLifecycleReporting()
       try {
         const result = await withImageGenerationDeadline(() => providerOperation, controller, timeoutMs)
+        const completedAt = Date.now()
+        diagnostic.providerTransportCompletedAt ||= completedAt
+        diagnostic.providerPayloadReceivedAt ||= completedAt
+        diagnostic.providerInvocationResolvedAt ||= completedAt
         await settleProviderLifecycleReporting()
         assertDestinationAvailable()
         reportProviderCompleted()
         return result
       } catch (error) {
+        diagnostic.providerInvocationRejectedAt ||= Date.now()
         if (!providerSettled && laneLease && (controller.signal.aborted || error instanceof ImageGenerationTimeoutError || isAbortError(error))) {
           beginImageGenerationLaneDrain(laneLease, providerOperation, controller.signal.reason || error)
           laneLease = null
@@ -14959,9 +15103,10 @@ export async function generateWithOptionalStream(
     const canStream = streamingPolicyAllowed && imageProviderSupportsStreaming(plan.provider, providerInfo, typeof api.generateStream === 'function')
     diagnostic.providerTransport = canStream ? 'stream' : 'standard'
     diagnostic.providerStreamingUsed = canStream
-    const transportReason = isSwarmUiProvider(plan.provider)
-      ? 'emergency-safe-provider-policy'
-      : forceStandard
+    if (providerRequiresAbortableStream(plan.provider) && !canStream) {
+      throw new Error('SwarmUI requires the abortable ImageGen stream transport, but this host did not advertise the documented preview/status stream capability. Relay refused an uninterruptible provider spend.')
+    }
+    const transportReason = forceStandard
         ? 'forced-standard'
         : canStream
           ? 'documented-provider-capability'
@@ -14978,6 +15123,7 @@ export async function generateWithOptionalStream(
       if (finalPreview) sendImageStreamEvent(userId, context, { event: 'preview', previewImageDataUrl: finalPreview, streaming: false, statusText: 'Final preview ready.' })
       sendImageStreamEvent(userId, context, { event: 'done', streaming: false, statusText: 'Generation complete.' })
       assertDestinationAvailable()
+      resolveTerminal('success')
       return result
     }
 
@@ -15001,6 +15147,11 @@ export async function generateWithOptionalStream(
           if (controller.signal.aborted) throw abortError()
           const normalizedEvent = normalizeImageGenerationStreamEvent(rawEvent)
           if (!normalizedEvent) continue
+          const progressAt = Date.now()
+          diagnostic.firstProviderProgressAt ||= progressAt
+          diagnostic.lastProviderProgressAt = progressAt
+          if (isSwarmUiProvider(plan.provider)) diagnostic.swarmRequestAcceptedAt ||= progressAt
+          if (normalizedEvent.providerRequestId) diagnostic.swarmRequestId ||= normalizedEvent.providerRequestId
           const { type, previewImageDataUrl, step, totalSteps, nodeId } = normalizedEvent
 
           if (previewImageDataUrl && !['done', 'complete', 'completed', 'finished', 'result'].includes(type)) {
@@ -15026,6 +15177,7 @@ export async function generateWithOptionalStream(
 
           if (['done', 'complete', 'completed', 'finished', 'result'].includes(type) && normalizedEvent.result) {
             result = normalizedEvent.result
+            diagnostic.providerPayloadReceivedAt ||= Date.now()
             const finalPreview = previewImageDataUrl || streamImageValue(result)
             if (finalPreview) {
               sendImageStreamEvent(userId, context, {
@@ -15044,7 +15196,9 @@ export async function generateWithOptionalStream(
       void providerOperation.then(() => { providerSettled = true }, () => { providerSettled = true })
       startProviderLifecycleReporting()
       await withImageGenerationDeadline(() => providerOperation, controller, timeoutMs)
+      diagnostic.providerTransportCompletedAt ||= Date.now()
     } catch (error) {
+      diagnostic.providerInvocationRejectedAt ||= Date.now()
       if (!providerSettled && laneLease) {
         beginImageGenerationLaneDrain(laneLease, providerOperation!, controller.signal.reason || error)
         laneLease = null
@@ -15054,9 +15208,11 @@ export async function generateWithOptionalStream(
     if (!result) throw new Error('Streaming ImageGen completed without a terminal result. Relay will not start a second provider generation after spend.')
     await settleProviderLifecycleReporting()
     assertDestinationAvailable()
+    diagnostic.providerInvocationResolvedAt ||= Date.now()
     reportProviderCompleted()
     sendImageStreamEvent(userId, context, { event: 'done', streaming: canStream, statusText: 'Generation complete.' })
     assertDestinationAvailable()
+    resolveTerminal('success')
     return result
   } catch (error) {
     diagnostic.failure = error instanceof Error ? error.message : String(error)
@@ -15065,30 +15221,43 @@ export async function generateWithOptionalStream(
       diagnostic.destinationAvailable = false
     }
     if (error instanceof ImageGenerationLaneWaitTimeoutError) {
+      resolveTerminal('preflight-error')
       sendImageStreamEvent(userId, context, { event: 'error', streaming: false, statusText: 'Waiting for image worker timed out.', error: error.message })
       throw error
     }
     const timeoutError = controller.signal.reason instanceof ImageGenerationTimeoutError ? controller.signal.reason : null
     if (timeoutError) {
-      const reportedTimeout = isSwarmUiProvider(plan.provider) && diagnostic.providerDraining
+      resolveTerminal('timeout')
+      const reportedTimeout = isSwarmUiProvider(plan.provider) && diagnostic.providerDraining && !diagnostic.abortPropagatedAt
         ? Object.assign(new Error('SwarmUI generation is still active after Relay stopped waiting. New Swarm generations are paused to avoid colliding with the existing session. Restart or reset the ImageGen provider before retrying if it remains stuck.'), { name: 'ImageGenerationTimeoutError' })
         : timeoutError
       diagnostic.failure = reportedTimeout.message
       sendImageStreamEvent(userId, context, { event: 'error', streaming: false, statusText: 'Generation timed out.', error: reportedTimeout.message })
       throw reportedTimeout
     }
+    if (diagnostic.providerDispatchCount === 0) {
+      const message = error instanceof Error ? error.message : String(error)
+      resolveTerminal('preflight-error')
+      sendImageStreamEvent(userId, context, { event: 'error', streaming: false, statusText: 'Generation could not start.', error: message })
+      throw error
+    }
     if (isAbortError(error) || controller.signal.aborted) {
+      resolveTerminal('cancelled')
       sendImageStreamEvent(userId, context, { event: 'cancelled', streaming: false, statusText: 'Generation stopped.' })
       throw abortError(error instanceof Error ? error.message : 'Generation cancelled by user.')
     }
     const message = error instanceof Error ? error.message : String(error)
+    resolveTerminal(diagnostic.providerDispatchCount ? 'error' : 'preflight-error')
     sendImageStreamEvent(userId, context, { event: 'error', streaming: false, statusText: 'Generation failed.', error: message })
     throw error
   } finally {
     context.attemptSignal?.removeEventListener('abort', abortFromAttempt)
     laneLease?.release()
     releaseImageStream(context, controller)
+    controller.signal.removeEventListener('abort', recordAbort)
+    diagnostic.cleanupCount += 1
     if (!diagnostic.providerDraining) diagnostic.completedAt = diagnostic.completedAt || Date.now()
+    if (!diagnostic.terminalState) resolveTerminal(diagnostic.providerDispatchCount ? 'error' : 'preflight-error')
   }
 }
 

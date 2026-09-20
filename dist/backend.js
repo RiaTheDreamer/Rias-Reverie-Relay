@@ -5175,9 +5175,15 @@ var C5A_SCENE_DEPENDENT_FRAGMENT_PATTERNS = [
   /\b(?:looking (?:at|toward|into|away|up|down)|direct (?:camera )?gaze|eye contact|gaze direction|facing (?:the )?camera)\b/i,
   /\b(?:smirk(?:ing)?|smil(?:e|ing)|frown(?:ing)?|temporary expression|charismatic expression|angry expression|sad expression|happy expression)\b/i,
   /\b(?:swimming|standing|sitting|seated|kneeling|lying|reclining|walking|running|jumping|fighting|dancing|holding|gripping|reaching|gesture|dynamic pose|graceful pose|action pose)\b/i,
+  /\b(?:powerful|graceful|dynamic)\s+(?:tail|body|silhouette)\s+(?:curve|arc|motion)\b/i,
+  /\b(?:flowing|floating|billowing|windblown)\s+(?:hair|fabric|clothes?|garments?|ribbons?|accessories)\b/i,
   /\b(?:close[- ]?up|medium shot|wide shot|full body shot|cowboy shot|over[- ]the[- ]shoulder|low angle|high angle|camera angle|composition|framing|portrait)\b/i,
   /\b(?:background|environment|cave|cavern|palace|kingdom|forest|cityscape|bedroom|beach|coral|plants?)\b/i,
+  /^(?:underwater|indoors?|outdoors?)$/i,
+  /\b(?:bubbles?|glowing particles?|floating particles?|warm volcanic rock|highly detailed water|water surface|ocean backdrop)\b/i,
   /\b(?:lighting|rim light|light rays?|bokeh|depth of field|atmosphere|backlit|volumetric light|cinematic light)\b/i,
+  /\b(?:ethereal glow|beautiful detailed eyes|detailed hair|intricate scales|high detail)\b/i,
+  /\b(?:luxurious royal appearance|fantasy royal aesthetic|regal masculine styling|presentation styling)\b/i,
   /\b(?:anime|manga|manhwa|photorealistic|illustration style|art style|oil painting|watercolor)\b/i,
   /\b(?:masterpiece|best quality|high quality|ultra[- ]detailed|absurdres|highres|8k|4k)\b/i
 ];
@@ -6683,7 +6689,7 @@ function mergeAppearancePromptFacts(basePrompt, facts, authoritativeScene = "") 
     });
     if (!descriptors.length)
       return "";
-    return base.includes(normalizedPromptFragment(subject)) ? descriptors.join(", ") : `${subject}, ${descriptors.join(", ")}`;
+    return `continuity for ${subject}: ${descriptors.join(", ")}`;
   }).filter(Boolean);
   return additions.length ? `${basePrompt.replace(/[\s,;]+$/g, "")}, ${additions.join("; ")}` : basePrompt;
 }
@@ -8570,8 +8576,11 @@ function assertProviderRequestSafe(prompt, negativePrompt = "", parameters = {})
 function isSwarmUiProvider(providerId) {
   return ["swarmui", "swarm-ui"].includes(String(providerId || "").trim().toLocaleLowerCase());
 }
-function relayStreamingAllowedForProvider(providerId) {
-  return !isSwarmUiProvider(providerId);
+function relayStreamingAllowedForProvider(_providerId) {
+  return true;
+}
+function providerRequiresAbortableStream(providerId) {
+  return isSwarmUiProvider(providerId);
 }
 function imageProviderSupportsStreaming(providerId, provider, generateStreamAvailable) {
   if (!relayStreamingAllowedForProvider(providerId))
@@ -156723,6 +156732,9 @@ function grantImageGenerationLane(key2, lane, context, providerId) {
   if (lane.stuckVisibilityTimer)
     clearTimeout(lane.stuckVisibilityTimer);
   lane.stuckVisibilityTimer = undefined;
+  const diagnostic = providerAttemptFor(context);
+  if (diagnostic)
+    diagnostic.providerLaneAcquiredAt ||= Date.now();
   emitImageWorkerRecoveryState(lane.userId);
   return { key: key2, leaseId, context, providerId, release: () => releaseImageGenerationLane(key2, leaseId) };
 }
@@ -156730,6 +156742,10 @@ function releaseImageGenerationLane(key2, leaseId) {
   const lane = imageGenerationLanes.get(key2);
   if (!lane || lane.activeLeaseId !== leaseId)
     return;
+  const diagnostic = lane.activeContext ? providerAttemptFor(lane.activeContext) : undefined;
+  if (diagnostic) {
+    diagnostic.providerLaneReleasedAt ||= Date.now();
+  }
   if (lane.drainWatchdog)
     clearTimeout(lane.drainWatchdog);
   if (lane.stuckVisibilityTimer)
@@ -167963,9 +167979,13 @@ async function buildAuthoritativeVisualPrompt(job, slot, config, context, native
     contextCaption: job.caption,
     rawNativeParserTemplate: context.rawTemplate,
     resolvedNativeParserInstructions: context.resolvedTemplate,
+    activeNativeGenerationPromptTemplate: context.activeNativeGenerationPromptTemplate,
+    activeNativePromptPresetId: cleanString(nativeSettings?.activePromptPresetId) || config.nativePromptPresetId || undefined,
+    nativeParserTemplateInherited: context.nativeParserTemplateInherited,
+    parserInstructionSource: "relay-registry",
     characterContext: context.characterContext,
     personaContext: context.personaContext,
-    routerParserInstructions: contextualizeSexualParserInstructions(config.customParserInstructions),
+    routerParserInstructions: context.relayParserInstructions,
     parserRequest: [],
     rawParserResponse: "",
     parsedPositivePrompt: contextualSexual.prompt,
@@ -168027,37 +168047,64 @@ async function buildAuthoritativeVisualPrompt(job, slot, config, context, native
   };
 }
 var MODEL_PLACED_PROTECTED_CUES = [
-  ["close-up", /\bclose[ -]?up\b/i],
-  ["wide shot", /\bwide shot\b/i],
-  ["low angle", /\blow angle\b/i],
-  ["high angle", /\bhigh angle\b/i],
-  ["back turned", /\bback (?:is )?turned\b/i],
-  ["profile view", /\bprofile (?:view|angle)?\b/i],
-  ["eye contact", /\beye contact\b/i],
-  ["closed eyes", /\bclosed eyes\b/i],
-  ["kneeling", /\bkneel(?:ing|s|ed)?\b/i],
-  ["sitting", /\b(?:sitting|seated)\b/i],
-  ["standing", /\bstanding\b/i],
-  ["lying", /\b(?:lying|reclining)\b/i],
-  ["holding", /\bholding\b/i],
-  ["touching", /\btouching\b/i],
-  ["kissing", /\bkissing\b/i],
-  ["barefoot", /\b(?:barefoot|bare feet|shoeless)\b/i],
-  ["shoes", /\b(?:shoes?|boots?|heels?|sandals?|sneakers?|slippers?|loafers?)\b/i],
-  ["nudity", /\b(?:nude|naked|topless|shirtless)\b/i],
-  ["explicit anatomy", /\b(?:penis|vagina|vulva|breasts?|nipples?|genitals?)\b/i],
-  ["underwear", /\b(?:underwear|lingerie|bra|panties)\b/i]
+  { label: "close-up", pattern: /\bclose[ -]?up\b/i },
+  { label: "wide shot", pattern: /\bwide shot\b/i },
+  { label: "low angle", pattern: /\blow angle\b/i },
+  { label: "high angle", pattern: /\bhigh angle\b/i },
+  { label: "back turned", pattern: /\bback (?:is )?turned\b/i },
+  { label: "profile view", pattern: /\bprofile (?:view|angle)?\b/i },
+  { label: "eye contact", pattern: /\beye contact\b/i },
+  { label: "closed eyes", pattern: /\bclosed eyes\b/i },
+  { label: "kneeling", pattern: /\bkneel(?:ing|s|ed)?\b/i },
+  { label: "sitting", pattern: /\b(?:sitting|seated|rests? on|resting on)\b/i },
+  { label: "standing", pattern: /\b(?:standing|stands?|upright on (?:his|her|their) feet)\b/i },
+  { label: "lying", pattern: /\b(?:lying|reclining|reclines?)\b/i },
+  { label: "holding", pattern: /\b(?:hold(?:ing|s|held)?|cradl(?:ing|es|ed)|grasp(?:ing|s|ed)|grip(?:ping|s|ped))\b/i, rejectIfAdded: true },
+  { label: "touching", pattern: /\b(?:touch(?:ing|es|ed)?|brush(?:ing|es|ed)?(?:\s+(?:against|with))?|physical contact|hands? (?:meet|meeting))\b/i, rejectIfAdded: true },
+  { label: "kissing", pattern: /\b(?:kiss(?:ing|es|ed)?)\b/i, rejectIfAdded: true },
+  { label: "barefoot", pattern: /\b(?:barefoot|bare feet|shoeless)\b/i },
+  { label: "shoes", pattern: /\b(?:shoes?|boots?|heels?|sandals?|sneakers?|slippers?|loafers?)\b/i },
+  { label: "nudity", pattern: /\b(?:nude|naked|topless|shirtless)\b/i, rejectIfAdded: true },
+  { label: "explicit anatomy", pattern: /\b(?:penis|vagina|vulva|breasts?|nipples?|genitals?)\b/i, rejectIfAdded: true },
+  { label: "underwear", pattern: /\b(?:underwear|lingerie|bra|panties)\b/i, rejectIfAdded: true }
 ];
-function missingModelPlacedSemantics(authoritative, candidate, protectedSubjects = []) {
-  const missing = MODEL_PLACED_PROTECTED_CUES.filter(([, pattern]) => pattern.test(authoritative) && !pattern.test(candidate)).map(([label]) => label);
+function explicitPeopleCount(value) {
+  const numeric = /\b([1-9])\s*(?:people|persons|subjects|characters|men|women|boys|girls)\b/i.exec(value);
+  if (numeric)
+    return Number(numeric[1]);
+  const words2 = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+  const word = /\b(one|two|three|four|five)\s+(?:people|persons|subjects|characters|men|women|boys|girls)\b/i.exec(value);
+  if (word)
+    return words2[word[1].toLocaleLowerCase()] || 0;
+  if (/\bthird (?:person|subject|character|woman|man)\b/i.test(value))
+    return 3;
+  if (/\b(?:solo|single (?:person|subject|character))\b/i.test(value))
+    return 1;
+  if (/\b(?:pair|duo|two-person|two-subject)\b/i.test(value))
+    return 2;
+  return 0;
+}
+function modelPlacedSemanticViolations(authoritative, candidate, protectedSubjects = [], explicitlyNamedSource = authoritative, expectedPeopleCount = 0) {
+  const violations = [];
+  for (const cue of MODEL_PLACED_PROTECTED_CUES) {
+    const authored = cue.pattern.test(authoritative);
+    const parsed = cue.pattern.test(candidate);
+    if (authored && !parsed)
+      violations.push(cue.label);
+    if (!authored && parsed && cue.rejectIfAdded)
+      violations.push(`new ${cue.label}`);
+  }
   for (const subject of protectedSubjects) {
     const name = cleanString(subject);
-    if (!name || !new RegExp(`\\b${escapeRegExp3(name)}\\b`, "i").test(authoritative))
+    if (!name || !new RegExp(`\\b${escapeRegExp3(name)}\\b`, "i").test(explicitlyNamedSource))
       continue;
     if (!new RegExp(`\\b${escapeRegExp3(name)}\\b`, "i").test(candidate))
-      missing.push(`named subject ${name}`);
+      violations.push(`named subject ${name}`);
   }
-  return [...new Set(missing)];
+  const parsedPeopleCount = explicitPeopleCount(candidate);
+  if (expectedPeopleCount > 0 && parsedPeopleCount > 0 && parsedPeopleCount !== expectedPeopleCount)
+    violations.push("cast membership");
+  return [...new Set(violations)];
 }
 async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId, nativeSettings, highResMode = config.highResMode, forceSemanticRewrite = false) {
   if (job.promptSource === "visual_prompt" && job.originalSceneBrief.trim() && !forceSemanticRewrite) {
@@ -168106,7 +168153,11 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
     const pipeline = {
       ...negative.pipeline,
       contextCaption: job.caption,
-      routerParserInstructions: contextualizeSexualParserInstructions(config.customParserInstructions),
+      activeNativeGenerationPromptTemplate: context2.activeNativeGenerationPromptTemplate,
+      activeNativePromptPresetId: cleanString(nativeSettings?.activePromptPresetId) || config.nativePromptPresetId || undefined,
+      nativeParserTemplateInherited: context2.nativeParserTemplateInherited,
+      parserInstructionSource: "relay-registry",
+      routerParserInstructions: context2.relayParserInstructions,
       parserRequest: [],
       rawParserResponse: JSON.stringify(job.prosePromptComposition || {}),
       parsedPositivePrompt: positivePrompt,
@@ -168204,7 +168255,7 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
           ...job.prosePromptComposition?.namedSubjects || [],
           ...context.visualSubjects.map((subject) => subject.name)
         ];
-        const missingSemantics = missingModelPlacedSemantics(authoritativeScene, parsed.prompt, protectedSubjects);
+        const missingSemantics = modelPlacedSemanticViolations(authoritativeScene, parsed.prompt, protectedSubjects, job.originalSceneBrief, Math.max(Number(job.prosePromptComposition?.expectedPeopleCount || 0), context.visualSubjects.length));
         if (missingSemantics.length) {
           return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw, `Parser changed protected Model-Placed semantics: ${missingSemantics.join(", ")}.`);
         }
@@ -168258,9 +168309,13 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
         contextCaption: job.caption,
         rawNativeParserTemplate: context.rawTemplate,
         resolvedNativeParserInstructions: context.resolvedTemplate,
+        activeNativeGenerationPromptTemplate: context.activeNativeGenerationPromptTemplate,
+        activeNativePromptPresetId: cleanString(nativeSettings?.activePromptPresetId) || config.nativePromptPresetId || undefined,
+        nativeParserTemplateInherited: context.nativeParserTemplateInherited,
+        parserInstructionSource: "relay-registry",
         characterContext: context.characterContext,
         personaContext: context.personaContext,
-        routerParserInstructions: contextualizeSexualParserInstructions(config.customParserInstructions),
+        routerParserInstructions: context.relayParserInstructions,
         parserRequest,
         rawParserResponse: parserOutput,
         parsedPositivePrompt: positivePrompt,
@@ -168553,9 +168608,17 @@ async function generateImage(chatId, prepared, plan, userId, streamContext, owne
   } : undefined);
   if (!resolvedStreamContext)
     throw new Error("Image generation requires either a real chat context or an explicit stream context.");
+  const providerRequest = {
+    ...finalRequest,
+    relay_origin: source,
+    relay_generation_id: resolvedStreamContext.generationId,
+    relay_request_id: resolvedStreamContext.requestId || undefined,
+    relay_recipe_id: plan.recipeId || undefined,
+    clientJobId: resolvedStreamContext.generationId
+  };
   spindle.log.info(`[ReverieRelay:generation_origin] ${JSON.stringify({ origin: source, chatId: resolvedOwnerChatId || chatId || null, requestId: resolvedStreamContext.requestId || null, generationId: resolvedStreamContext.generationId, connectionId: plan.connectionId, model: plan.model, semanticPromptPresent: isMeaningfulAutomaticPrompt(assembled.prompt, plan.effectiveBaseTags), recipeId: plan.recipeId || null, fallbackProviderGuardApplied: prepared.promptPipeline.fallbackProviderGuardApplied, fallbackProviderFragmentsRemoved: assembled.removedFallbackFragments.length })}`);
   let providerStartedAt = Date.now();
-  let result = await generateWithOptionalStream(finalRequest, plan, userId, resolvedStreamContext);
+  let result = await generateWithOptionalStream(providerRequest, plan, userId, resolvedStreamContext);
   let galleryItemId = cleanString(result.galleryItemId) || undefined;
   let galleryLinkStatus = cleanString(result.galleryLinkStatus) === "linked" || result.galleryLinked === true ? "linked" : shouldLinkToGallery ? "failed" : "skipped";
   let galleryLinkedAt = galleryLinkStatus === "linked" ? Date.now() : undefined;
@@ -168677,7 +168740,7 @@ async function generateImage(chatId, prepared, plan, userId, streamContext, owne
     connectionDefaultParameters: plan.connectionDefaultParameters,
     slotOverrides: plan.slotOverrides,
     finalImageParameters: parameters,
-    finalImageRequest: { ...finalRequest, relay_origin: source, relay_generation_id: resolvedStreamContext.generationId, relay_recipe_id: plan.recipeId || undefined },
+    finalImageRequest: providerRequest,
     finalImageSettingsSource: plan.settingsSource,
     nativeActiveLoraPreset: plan.nativeActiveLoraPreset,
     effectiveAppliedLoraPreset: plan.effectiveAppliedLoraPreset,
@@ -168698,6 +168761,8 @@ async function generateImage(chatId, prepared, plan, userId, streamContext, owne
 }
 function createSlotDiagnostic(job, slot, prepared, generated, promptProfile, intent) {
   const unavailable = [];
+  const providerGenerationId = cleanString(generated.finalImageRequest.relay_generation_id);
+  const providerAttempt = providerGenerationId ? inspectProviderAttemptDiagnostics(providerGenerationId) : null;
   if (!generated.imageProvider)
     unavailable.push("provider result did not include provider name");
   if (!generated.imageModel)
@@ -168739,6 +168804,7 @@ function createSlotDiagnostic(job, slot, prepared, generated, promptProfile, int
       slotOverrides: generated.slotOverrides,
       finalImageParameters: generated.finalImageParameters,
       finalProviderRequest: generated.finalImageRequest,
+      providerAttempt,
       promptMetrics: {
         finalPromptCharsBeforeIdentityFix: prepared.promptPipeline.finalPromptCharsBeforeIdentityFix || prepared.prompt.length,
         finalPromptChars: prepared.promptPipeline.finalPromptChars || prepared.prompt.length,
@@ -169463,6 +169529,15 @@ async function resolveParserConnection(config, userId) {
     model: connection.model
   };
 }
+function isolateRelayParserInstructions(activeNativeGenerationPromptTemplate, relayParserInstructions) {
+  return {
+    rawTemplate: "",
+    resolvedTemplate: "",
+    activeNativeGenerationPromptTemplate: cleanString(activeNativeGenerationPromptTemplate),
+    relayParserInstructions: contextualizeSexualParserInstructions(relayParserInstructions),
+    nativeParserTemplateInherited: false
+  };
+}
 async function buildParserContext(job, messages, targetIndex, config, _userId, nativeSettings) {
   const blocks = [];
   const classification = classifyImageRequest(job);
@@ -169624,31 +169699,26 @@ ${continuity.attachedReferenceAssetIds.join(", ")}`);
     blocks.push(`Deliberate continuity break:
 ${state.continuityVault.deliberateBreaks[slotKey({ ...job, slot: job.slots[0] || "image" })]}`);
   }
-  const rawTemplate = contextualizeSexualParserInstructions(firstString(nativeSettings?.customPrompt, config.nativeCustomPrompt));
-  const hasCharacterMacro = /\{\{character_prompt\}\}/i.test(rawTemplate);
-  const hasPersonaMacro = /\{\{persona_prompt\}\}/i.test(rawTemplate);
-  if (effectiveIncludePersona && !hasPersonaMacro)
+  const activeNativeGenerationPromptTemplate = firstString(nativeSettings?.customPrompt, config.nativeCustomPrompt);
+  const unresolvedMacros = [];
+  if (effectiveIncludePersona)
     blocks.push(`Persona appearance only:
 ${persona}`);
-  if (effectiveIncludeCharacters && !hasCharacterMacro)
+  if (effectiveIncludeCharacters)
     blocks.push(`${visualSubjects.length ? "Matched depicted subjects" : "Character appearance only"}:
 ${character}`);
-  const macroResolution = resolveVisualPromptMacros(rawTemplate, {
-    characterValue: effectiveIncludeCharacters ? character : "",
-    personaValue: effectiveIncludePersona ? persona : "",
-    characterExpected: characterApplicable && config.includeCharacterInfo,
-    personaExpected: personaApplicable && config.includePersonaInfo
-  });
-  const { resolvedTemplate, unresolvedMacros } = macroResolution;
-  const compactNativeInstructions = compact(resolvedTemplate, 5000);
+  const parserSettings = proseSettingsForChat(state, job.chatId);
+  const parserInstructionOwnership = isolateRelayParserInstructions(activeNativeGenerationPromptTemplate, [
+    registryPrompt(parserSettings, "sidecar.parser.system"),
+    registryPrompt(parserSettings, "sidecar.parser.request"),
+    contextualizeSexualParserInstructions(config.customParserInstructions)
+  ].filter(Boolean).join(`
+
+`));
   const compactRouterInstructions = compact(contextualizeSexualParserInstructions(config.customParserInstructions), 5000);
-  if (compactNativeInstructions)
-    blocks.push(`Native ImageGen parser instructions:
-${compactNativeInstructions}`);
-  if (compactRouterInstructions && normalizePromptInstructionText(compactRouterInstructions) !== normalizePromptInstructionText(compactNativeInstructions)) {
+  if (compactRouterInstructions)
     blocks.push(`Relay parser override:
 ${compactRouterInstructions}`);
-  }
   if (!humanPolicy.allowHumanPrompt)
     blocks.push(`Visible subject policy:
 ${noHumanParserPolicyInstruction(humanPolicy)}`);
@@ -169658,8 +169728,7 @@ ${noHumanParserPolicyInstruction(humanPolicy)}`);
 ---
 
 `),
-    rawTemplate,
-    resolvedTemplate,
+    ...parserInstructionOwnership,
     contextMetrics: { tier: "routine", expansionReason: "", historyMessages: recent ? (recent.match(/^(?:user|assistant):/gm) || []).length : 0, characterChars: characterCard.length, personaChars: personaCard.length, appearanceMemoryChars: formatProjectedAppearanceFacts(continuity.projectedIncluded).length, ...lorebookContextMetrics.get(job.chatId) || {} },
     characterContext: effectiveIncludeCharacters ? character : "",
     personaContext: effectiveIncludePersona ? persona : "",
@@ -169895,9 +169964,13 @@ function buildParserFallbackPrompt(job, slot, config, context, nativeSettings, c
     contextCaption: job.caption,
     rawNativeParserTemplate: context.rawTemplate,
     resolvedNativeParserInstructions: context.resolvedTemplate,
+    activeNativeGenerationPromptTemplate: context.activeNativeGenerationPromptTemplate,
+    activeNativePromptPresetId: cleanString(nativeSettings?.activePromptPresetId) || config.nativePromptPresetId || undefined,
+    nativeParserTemplateInherited: context.nativeParserTemplateInherited,
+    parserInstructionSource: "relay-registry",
     characterContext: context.characterContext,
     personaContext: context.personaContext,
-    routerParserInstructions: contextualizeSexualParserInstructions(config.customParserInstructions),
+    routerParserInstructions: context.relayParserInstructions,
     parserRequest: [],
     rawParserResponse: parserOutput,
     parsedPositivePrompt: positivePrompt,
@@ -169967,6 +170040,13 @@ function buildParserFallbackPrompt(job, slot, config, context, nativeSettings, c
     promptPipeline: pipeline
   };
 }
+function followedNativeParserConfig(imageGeneration) {
+  return {
+    parserConnectionId: cleanNullableString(imageGeneration.promptParserConnectionId),
+    parserModel: cleanString(imageGeneration.promptParserModel),
+    parserParameters: cleanParameters(imageGeneration.promptParserParameters)
+  };
+}
 async function syncNativeSettings(imageGeneration, userId, capturedAt = Date.now()) {
   const current = await getConfig(userId);
   if (!configStorageHydratedScopes.has(userConfigCacheKey(userId))) {
@@ -169987,9 +170067,7 @@ async function syncNativeSettings(imageGeneration, userId, capturedAt = Date.now
     nativePromptPresets: clonePromptPresets(imageGeneration.promptPresets)
   };
   if (current.followNativeParser) {
-    patch.parserConnectionId = cleanNullableString(imageGeneration.promptParserConnectionId);
-    patch.parserModel = cleanString(imageGeneration.promptParserModel);
-    patch.parserParameters = cleanParameters(imageGeneration.promptParserParameters);
+    Object.assign(patch, followedNativeParserConfig(imageGeneration));
   }
   if (current.generationSettingsSource === "native") {
     patch.imageConnectionId = cleanNullableString(imageGeneration.activeImageGenConnectionId);
@@ -170493,25 +170571,20 @@ function normalizeImageGenerationStreamEvent(rawEvent) {
   if (!rawEvent || typeof rawEvent !== "object")
     return null;
   const event = rawEvent;
+  const result = streamGenerationResult(event);
   return {
     type: streamEventType(event),
+    providerRequestId: cleanString(event.jobId ?? event.job_id ?? event.requestId ?? event.request_id ?? event.generationId ?? event.generation_id) || cleanString(result?.jobId ?? result?.job_id ?? result?.requestId ?? result?.request_id),
     previewImageDataUrl: streamImageValue(event),
     statusText: cleanString(event.status) || cleanString(event.message) || cleanString(event.text),
     step: numberOrUndefined(event.step ?? event.currentStep ?? event.current ?? event.progressStep),
     totalSteps: numberOrUndefined(event.totalSteps ?? event.steps ?? event.maxSteps ?? event.total),
     nodeId: cleanString(event.nodeId ?? event.node ?? event.executingNode),
-    result: streamGenerationResult(event)
+    result
   };
 }
 async function generateWithOptionalStream(finalRequest, plan, userId, context, forceStandard = false, timeoutMs = IMAGE_GENERATION_TIMEOUT_MS) {
   const controller = new AbortController;
-  const abortFromAttempt = () => controller.abort(context.attemptSignal?.reason || "Cancelled by user.");
-  if (context.attemptSignal?.aborted)
-    abortFromAttempt();
-  else
-    context.attemptSignal?.addEventListener("abort", abortFromAttempt, { once: true });
-  registerImageStream(context, controller, userId);
-  let laneLease = null;
   const diagnostic = rememberProviderAttempt({
     generationId: context.generationId,
     chatId: context.chatId || null,
@@ -170527,12 +170600,49 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     laneResetCount: providerLaneResetDiagnostics.get(imageGenerationLaneKey(userId))?.laneResetCount || 0,
     lastLaneResetAt: providerLaneResetDiagnostics.get(imageGenerationLaneKey(userId))?.lastLaneResetAt,
     destinationAvailable: destinationAvailable(context, userId),
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    providerLaneAcquireRequestedAt: 0,
+    providerLaneAcquiredAt: 0,
+    providerInvocationStartedAt: 0,
+    swarmHttpRequestStartedAt: 0,
+    swarmRequestAcceptedAt: 0,
+    firstProviderProgressAt: 0,
+    lastProviderProgressAt: 0,
+    providerTransportCompletedAt: 0,
+    providerPayloadReceivedAt: 0,
+    providerInvocationResolvedAt: 0,
+    providerInvocationRejectedAt: 0,
+    abortRequestedAt: 0,
+    abortPropagatedAt: 0,
+    providerLaneReleasedAt: 0,
+    terminalResolutionCount: 0,
+    cleanupCount: 0
   });
+  const recordAbort = () => {
+    const now = Date.now();
+    diagnostic.abortRequestedAt ||= now;
+    if (diagnostic.providerTransport === "stream")
+      diagnostic.abortPropagatedAt ||= now;
+  };
+  const abortFromAttempt = () => controller.abort(context.attemptSignal?.reason || "Cancelled by user.");
+  controller.signal.addEventListener("abort", recordAbort);
+  if (context.attemptSignal?.aborted)
+    abortFromAttempt();
+  else
+    context.attemptSignal?.addEventListener("abort", abortFromAttempt, { once: true });
+  registerImageStream(context, controller, userId);
+  let laneLease = null;
+  const resolveTerminal = (state) => {
+    if (diagnostic.terminalState)
+      return;
+    diagnostic.terminalState = state;
+    diagnostic.terminalResolutionCount += 1;
+  };
   try {
     diagnostic.destinationAvailable = await revalidateChatDestination(context.chatId, userId);
     if (!diagnostic.destinationAvailable)
       throw new ImageGenerationDestinationUnavailableError(context.chatId);
+    diagnostic.providerLaneAcquireRequestedAt = Date.now();
     laneLease = await acquireImageGenerationLane(userId, context, controller, plan.provider);
     if (controller.signal.aborted)
       throw abortError();
@@ -170583,9 +170693,13 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
         throw new Error(`Provider dispatch invariant violated for ${context.generationId}; Relay refused generation #${diagnostic.providerDispatchCount + 1}.`);
       }
       diagnostic.providerDispatchCount = 1;
-      diagnostic.providerSpendStartedAt = Date.now();
+      const startedAt = Date.now();
+      diagnostic.providerSpendStartedAt = startedAt;
+      diagnostic.providerInvocationStartedAt = startedAt;
       diagnostic.providerTransport = transport;
       diagnostic.providerStreamingUsed = transport === "stream";
+      if (isSwarmUiProvider(plan.provider))
+        diagnostic.swarmHttpRequestStartedAt = startedAt;
     };
     const assertDestinationAvailable = () => {
       diagnostic.destinationAvailable = diagnostic.destinationAvailable && destinationAvailable(context, userId);
@@ -170609,11 +170723,16 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
       startProviderLifecycleReporting();
       try {
         const result2 = await withImageGenerationDeadline(() => providerOperation2, controller, timeoutMs);
+        const completedAt = Date.now();
+        diagnostic.providerTransportCompletedAt ||= completedAt;
+        diagnostic.providerPayloadReceivedAt ||= completedAt;
+        diagnostic.providerInvocationResolvedAt ||= completedAt;
         await settleProviderLifecycleReporting();
         assertDestinationAvailable();
         reportProviderCompleted();
         return result2;
       } catch (error) {
+        diagnostic.providerInvocationRejectedAt ||= Date.now();
         if (!providerSettled2 && laneLease && (controller.signal.aborted || error instanceof ImageGenerationTimeoutError || isAbortError(error))) {
           beginImageGenerationLaneDrain(laneLease, providerOperation2, controller.signal.reason || error);
           laneLease = null;
@@ -170626,7 +170745,10 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     const canStream = streamingPolicyAllowed && imageProviderSupportsStreaming(plan.provider, providerInfo, typeof api.generateStream === "function");
     diagnostic.providerTransport = canStream ? "stream" : "standard";
     diagnostic.providerStreamingUsed = canStream;
-    const transportReason = isSwarmUiProvider(plan.provider) ? "emergency-safe-provider-policy" : forceStandard ? "forced-standard" : canStream ? "documented-provider-capability" : "no-proven-stream-contract";
+    if (providerRequiresAbortableStream(plan.provider) && !canStream) {
+      throw new Error("SwarmUI requires the abortable ImageGen stream transport, but this host did not advertise the documented preview/status stream capability. Relay refused an uninterruptible provider spend.");
+    }
+    const transportReason = forceStandard ? "forced-standard" : canStream ? "documented-provider-capability" : "no-proven-stream-contract";
     spindle.log.info(`[ReverieRelay:image_transport] ${JSON.stringify({ provider: diagnostic.provider, transport: diagnostic.providerTransport, streamingAllowed: canStream, reason: transportReason, generationId: context.generationId, requestId: context.requestId || null })}`);
     sendImageStreamEvent(userId, context, { event: "started", streaming: canStream, statusText: canStream ? "Connecting to live preview\u2026" : "Starting generation\u2026" });
     assertDestinationAvailable();
@@ -170641,6 +170763,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
         sendImageStreamEvent(userId, context, { event: "preview", previewImageDataUrl: finalPreview, streaming: false, statusText: "Final preview ready." });
       sendImageStreamEvent(userId, context, { event: "done", streaming: false, statusText: "Generation complete." });
       assertDestinationAvailable();
+      resolveTerminal("success");
       return result2;
     }
     let result = null;
@@ -170662,6 +170785,13 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
           const normalizedEvent = normalizeImageGenerationStreamEvent(rawEvent);
           if (!normalizedEvent)
             continue;
+          const progressAt = Date.now();
+          diagnostic.firstProviderProgressAt ||= progressAt;
+          diagnostic.lastProviderProgressAt = progressAt;
+          if (isSwarmUiProvider(plan.provider))
+            diagnostic.swarmRequestAcceptedAt ||= progressAt;
+          if (normalizedEvent.providerRequestId)
+            diagnostic.swarmRequestId ||= normalizedEvent.providerRequestId;
           const { type, previewImageDataUrl, step, totalSteps, nodeId } = normalizedEvent;
           if (previewImageDataUrl && !["done", "complete", "completed", "finished", "result"].includes(type)) {
             sendImageStreamEvent(userId, context, {
@@ -170685,6 +170815,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
           }
           if (["done", "complete", "completed", "finished", "result"].includes(type) && normalizedEvent.result) {
             result = normalizedEvent.result;
+            diagnostic.providerPayloadReceivedAt ||= Date.now();
             const finalPreview = previewImageDataUrl || streamImageValue(result);
             if (finalPreview) {
               sendImageStreamEvent(userId, context, {
@@ -170707,7 +170838,9 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
       });
       startProviderLifecycleReporting();
       await withImageGenerationDeadline(() => providerOperation, controller, timeoutMs);
+      diagnostic.providerTransportCompletedAt ||= Date.now();
     } catch (error) {
+      diagnostic.providerInvocationRejectedAt ||= Date.now();
       if (!providerSettled && laneLease) {
         beginImageGenerationLaneDrain(laneLease, providerOperation, controller.signal.reason || error);
         laneLease = null;
@@ -170718,9 +170851,11 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
       throw new Error("Streaming ImageGen completed without a terminal result. Relay will not start a second provider generation after spend.");
     await settleProviderLifecycleReporting();
     assertDestinationAvailable();
+    diagnostic.providerInvocationResolvedAt ||= Date.now();
     reportProviderCompleted();
     sendImageStreamEvent(userId, context, { event: "done", streaming: canStream, statusText: "Generation complete." });
     assertDestinationAvailable();
+    resolveTerminal("success");
     return result;
   } catch (error) {
     diagnostic.failure = error instanceof Error ? error.message : String(error);
@@ -170729,29 +170864,43 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
       diagnostic.destinationAvailable = false;
     }
     if (error instanceof ImageGenerationLaneWaitTimeoutError) {
+      resolveTerminal("preflight-error");
       sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Waiting for image worker timed out.", error: error.message });
       throw error;
     }
     const timeoutError = controller.signal.reason instanceof ImageGenerationTimeoutError ? controller.signal.reason : null;
     if (timeoutError) {
-      const reportedTimeout = isSwarmUiProvider(plan.provider) && diagnostic.providerDraining ? Object.assign(new Error("SwarmUI generation is still active after Relay stopped waiting. New Swarm generations are paused to avoid colliding with the existing session. Restart or reset the ImageGen provider before retrying if it remains stuck."), { name: "ImageGenerationTimeoutError" }) : timeoutError;
+      resolveTerminal("timeout");
+      const reportedTimeout = isSwarmUiProvider(plan.provider) && diagnostic.providerDraining && !diagnostic.abortPropagatedAt ? Object.assign(new Error("SwarmUI generation is still active after Relay stopped waiting. New Swarm generations are paused to avoid colliding with the existing session. Restart or reset the ImageGen provider before retrying if it remains stuck."), { name: "ImageGenerationTimeoutError" }) : timeoutError;
       diagnostic.failure = reportedTimeout.message;
       sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Generation timed out.", error: reportedTimeout.message });
       throw reportedTimeout;
     }
+    if (diagnostic.providerDispatchCount === 0) {
+      const message2 = error instanceof Error ? error.message : String(error);
+      resolveTerminal("preflight-error");
+      sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Generation could not start.", error: message2 });
+      throw error;
+    }
     if (isAbortError(error) || controller.signal.aborted) {
+      resolveTerminal("cancelled");
       sendImageStreamEvent(userId, context, { event: "cancelled", streaming: false, statusText: "Generation stopped." });
       throw abortError(error instanceof Error ? error.message : "Generation cancelled by user.");
     }
     const message = error instanceof Error ? error.message : String(error);
+    resolveTerminal(diagnostic.providerDispatchCount ? "error" : "preflight-error");
     sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Generation failed.", error: message });
     throw error;
   } finally {
     context.attemptSignal?.removeEventListener("abort", abortFromAttempt);
     laneLease?.release();
     releaseImageStream(context, controller);
+    controller.signal.removeEventListener("abort", recordAbort);
+    diagnostic.cleanupCount += 1;
     if (!diagnostic.providerDraining)
       diagnostic.completedAt = diagnostic.completedAt || Date.now();
+    if (!diagnostic.terminalState)
+      resolveTerminal(diagnostic.providerDispatchCount ? "error" : "preflight-error");
   }
 }
 async function streamProviderInfo(providerId, userId) {
@@ -174027,11 +174176,13 @@ export {
   normalizeRelayLoraStacks,
   normalizeProseIllustratorSettings,
   normalizeImageGenerationStreamEvent,
+  modelPlacedSemanticViolations,
   migrateRelayStateSnapshot,
   markInitialPlacementVisualUnavailable,
   markInitialPlacementVisualStarted,
   markInitialPlacementVisualSettled,
   markChatDestinationAvailable,
+  isolateRelayParserInstructions,
   isUnresolvedCharacterMacro,
   isExplicitAdultScene,
   isEligibleProseContent,
@@ -174052,6 +174203,7 @@ export {
   generationTimingForRecord,
   generateWithOptionalStream,
   generateParserText,
+  followedNativeParserConfig,
   finalizeParsedPositivePrompt,
   filterBaseTagsForTarget,
   extractText,

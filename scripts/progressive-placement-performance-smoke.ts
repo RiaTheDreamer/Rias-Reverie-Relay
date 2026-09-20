@@ -83,9 +83,8 @@ let activePreparations = 0
 let maxPreparations = 0
 let activeProviders = 0
 let maxSwarmConcurrentProviderCalls = 0
-imageApi.getProviders = async () => [{ id: 'swarmui', name: 'SwarmUI', capabilities: {} }]
-imageApi.generateStream = async function* () { throw new Error('Swarm streaming must remain disabled') }
-imageApi.generate = async (input: any) => {
+imageApi.getProviders = async () => [{ id: 'swarmui', name: 'SwarmUI', capabilities: { websocketPreviewStreaming: { previews: true, status: true } } }]
+imageApi.generateStream = async function* (input: any) {
   activeProviders += 1
   maxSwarmConcurrentProviderCalls = Math.max(maxSwarmConcurrentProviderCalls, activeProviders)
   events.push(`${input.prompt}:provider-start`)
@@ -93,7 +92,7 @@ imageApi.generate = async (input: any) => {
   providerGates.set(input.prompt, gate)
   await gate.promise
   activeProviders -= 1
-  return { imageId: input.prompt, imageUrl: `/${input.prompt}.png` }
+  yield { type: 'done', result: { imageId: input.prompt, imageUrl: `/${input.prompt}.png` } }
 }
 const pipelines = prepIds.map(async id => {
   const release = await backend.acquirePromptPreparationWorker('pipeline-user', 2)

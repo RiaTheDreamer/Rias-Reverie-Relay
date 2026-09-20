@@ -1125,6 +1125,10 @@ export type PromptPipeline = {
   removedNegativeDuplicates: Array<{ term: string; sources: string[] }>
   rawNativeParserTemplate?: string
   resolvedNativeParserInstructions?: string
+  activeNativeGenerationPromptTemplate?: string
+  activeNativePromptPresetId?: string
+  nativeParserTemplateInherited?: boolean
+  parserInstructionSource?: 'relay-registry' | 'relay-custom' | 'native-explicit-opt-in'
   characterContext?: string
   personaContext?: string
   routerParserInstructions?: string

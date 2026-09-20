@@ -13,14 +13,19 @@ export function isSwarmUiProvider(providerId: string): boolean {
   return ['swarmui', 'swarm-ui'].includes(String(providerId || '').trim().toLocaleLowerCase())
 }
 
-/**
- * Emergency-safe transport policy retained in 0.2.8.5. The extension-facing Spindle API
- * documents request/response generation for SwarmUI, but not a stable public
- * streaming result contract. Keep Swarm on the authoritative standard RPC
- * until the host exposes and documents a compatible streaming contract.
- */
-export function relayStreamingAllowedForProvider(providerId: string): boolean {
-  return !isSwarmUiProvider(providerId)
+/** The Spindle stream contract is the only ImageGen transport that accepts an
+ * AbortSignal. Provider capability discovery still decides whether the host can
+ * actually use it; this policy must not force SwarmUI back onto the
+ * uninterruptible request/response RPC when the host advertises streaming. */
+export function relayStreamingAllowedForProvider(_providerId: string): boolean {
+  return true
+}
+
+/** SwarmUI owns one mutable provider session. Relay therefore requires the
+ * abortable stream contract instead of spending through an RPC that cannot be
+ * cancelled and can hold the serialized lane forever. */
+export function providerRequiresAbortableStream(providerId: string): boolean {
+  return isSwarmUiProvider(providerId)
 }
 
 /** The host may expose generateStream globally even when the selected provider

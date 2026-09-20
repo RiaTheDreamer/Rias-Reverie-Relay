@@ -1484,7 +1484,10 @@ export function mergeAppearancePromptFacts(basePrompt: string, facts: Appearance
       return normalized && !base.includes(normalized)
     })
     if (!descriptors.length) return ''
-    return base.includes(normalizedPromptFragment(subject)) ? descriptors.join(', ') : `${subject}, ${descriptors.join(', ')}`
+    // Never drop the owner label merely because that subject's name appears
+    // somewhere in a multi-subject prompt. Bare descriptors appended after the
+    // final subject block are interpreted as belonging to that last subject.
+    return `continuity for ${subject}: ${descriptors.join(', ')}`
   }).filter(Boolean)
   return additions.length ? `${basePrompt.replace(/[\s,;]+$/g, '')}, ${additions.join('; ')}` : basePrompt
 }
