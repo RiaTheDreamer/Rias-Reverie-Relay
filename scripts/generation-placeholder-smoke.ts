@@ -39,8 +39,8 @@ for (const effect of ['spinner', 'glitter', 'none', 'dream-orb'] as const) {
   assert(markup.includes(`data-rr-placeholder-effect="${effect}"`), `${effect}: active reservation must use selected effect`)
   assert(markup.includes('--reverie-media-aspect:4 / 3'), `${effect}: canonical reservation aspect footprint changed`)
   assert(markup.includes(`data-rrn-native-request="${requestId}"`) && markup.includes(`data-rrn-record-key="${baseRecord.key}"`), `${effect}: appearance changed slot/request identity`)
-  assert(!markup.includes('<strong class="rrl-title">') && !markup.includes('<span class="rrl-status">') && !markup.includes('<button'), `${effect}: active placeholder rendered status text or actions`)
-  assert(!/>\s*(?:Generating|Dreaming up your image|Preparing|Queued|Inserting|Live preview)\s*</i.test(markup), `${effect}: active placeholder rendered forbidden copy`)
+  assert(markup.includes('<div class="rrl-main">') && markup.includes('<strong class="rrl-title">Generating image</strong>') && markup.includes('<span class="rrl-status">Generating</span>'), `${effect}: active placeholder lost its shared Status Card chrome`)
+  assert(!markup.includes('<button'), `${effect}: active placeholder must not expose recovery actions`)
   const spinner = (markup.match(/class="rr-spinner"/g) || []).length
   const glitter = (markup.match(/class="rr-regex-particles"/g) || []).length
   const orb = (markup.match(/class="rr-orb"/g) || []).length
@@ -199,4 +199,4 @@ assert(backendSource.includes("'image_request_error', 'scene_image'") && nativeS
 assert(frontendSource.includes('openLightbox(current)') && frontendSource.includes('renderActionButtons(record'), 'established image actions must remain available through their existing proper UI')
 assert(!/requestAnimationFrame|setInterval|setTimeout|animationstart|animationiteration/i.test(placeholderSyncSource), 'placeholder effects must remain CSS-only without timer or animation restart logic')
 
-console.log('generation placeholder smoke passed: persistent four-mode config, textless canonical shell, exact 24-particle glitter, seamless CSS loop contracts, lifecycle, identity, reduced motion, and in-place appearance updates verified.')
+console.log('generation placeholder smoke passed: persistent four-mode config, active Status Card chrome, exact 24-particle glitter, seamless CSS loop contracts, lifecycle, identity, reduced motion, and in-place appearance updates verified.')

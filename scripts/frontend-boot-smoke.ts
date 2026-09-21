@@ -286,6 +286,15 @@ mountedPlaceholder.dataset.rrPlaceholderEffect = 'spinner'
 mountedPlaceholder.appendChild(new FakeElement('span'))
 mountedMedia.appendChild(mountedPlaceholder)
 mountedCard.appendChild(mountedMedia)
+const mountedMain = new FakeElement()
+mountedMain.className = 'rrl-main'
+const mountedTitle = new FakeElement('strong')
+mountedTitle.className = 'rrl-title'
+const mountedStatus = new FakeElement('span')
+mountedStatus.className = 'rrl-status'
+mountedMain.appendChild(mountedTitle)
+mountedMain.appendChild(mountedStatus)
+mountedCard.appendChild(mountedMain)
 mountedRoot.appendChild(mountedCard)
 messageRoots.set('boot-message', mountedRoot)
 const mountedRecord = {
@@ -300,6 +309,7 @@ backendHandler!({
   config: { ...bootState.config, generationPlaceholderEffect: 'glitter' },
 })
 assert(mountedRoot.contains(mountedCard) && mountedCard.contains(mountedMedia) && mountedMedia.contains(mountedPlaceholder), 'mounted active lifecycle reservation was remounted or removed')
+assert(mountedCard.contains(mountedMain) && mountedStatus.textContent === 'Generating', 'mounted active Status Card chrome was removed or did not hydrate')
 assert(mountedPlaceholder.dataset.rrPlaceholderEffect === 'glitter', 'mounted active placeholder did not hydrate the selected effect')
 const mountedGlitter = mountedPlaceholder.querySelector('.rr-regex-particles')
 assert(mountedGlitter && mountedGlitter.children.length === 24, 'mounted active placeholder did not hydrate the 24-particle glitter layer')
@@ -311,6 +321,7 @@ backendHandler!({
   config: { ...bootState.config, generationPlaceholderEffect: 'glitter' },
 })
 assert(!mountedCard.querySelector('.rrl-generation-placeholder'), 'completed mounted lifecycle retained active placeholder UI')
+assert(!mountedCard.querySelector('.rrl-main'), 'completed mounted lifecycle retained active Status Card chrome')
 
 for (let tick = 0; tick < 8; tick += 1) await Promise.resolve()
 assert(backendPayloads.some((payload: any) => payload?.type === 'list_state' && payload.chatId === 'boot-chat'), 'frontend setup must begin backend state synchronization')

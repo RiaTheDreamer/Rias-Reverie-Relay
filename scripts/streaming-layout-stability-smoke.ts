@@ -78,10 +78,38 @@ const phone = definitions.find(definition => definition.baseSurfaceId === 'smart
 const phoneRendered = rendered(phone.sampleXml)
 assert((phoneRendered.includes('data-reverie-r45-lifecycle-media="smartphone"') || phoneRendered.includes('data-rrn-native-request="phone-message-1"')) && phoneRendered.includes('class="rrl-media-slot"') && phoneRendered.includes('--reverie-media-aspect:4 / 3'), 'Smartphone pending media must reserve its 4:3 message-image slot inside the Surface')
 
+const surfaceRequest = (id: string, aspect = '16:9') => `<image_request id="${id}" target="custom.artifact-media" slot="${id}" aspect="${aspect}"><scene_brief>Stable first-render fixture for ${id}.</scene_brief></image_request>`
+const plotVectors = ['detonation', 'heartknife', 'wrongness', 'crash-in', 'matchstrike', 'reputation-fire', 'wildcard-collision']
+const combinedFirstRender = `Ordinary prose before every Surface.
+<reverie-illustration request="generate" slot="combined-prose" aspect="4:3" cast="none"><visual_prompt>Stable prose illustration.</visual_prompt></reverie-illustration>
+[PARALLEL|Campus|shifting]
+${['one', 'two', 'three'].map((key, index) => `[parallel_entry][text]Parallel thread ${index + 1}.[/text][parallel_media]${surfaceRequest(`combined-parallel-${key}`, '4:3')}[/parallel_media][/parallel_entry]`).join('')}
+[parallel_context][trajectory]Three threads continue.[/trajectory][intersection]Their timing creates pressure.[/intersection][/parallel_context][/PARALLEL]
+[SECRET|Lisa|She kept the letter.|Lisa][secret_media]${surfaceRequest('combined-secret')}[/secret_media][context]The envelope is hidden.[/context][pressure]Discovery changes trust.[/pressure][/SECRET]
+[WORLD|Campus|Night][world_media]${surfaceRequest('combined-world')}[/world_media][world_detail]Wet stone reflects the lamps.[/world_detail][world_context][why_it_matters]The paths are exposed.[/why_it_matters][future_use]The gate closes at midnight.[/future_use][/world_context][/WORLD]
+[[else security office]][else_media]${surfaceRequest('combined-off-stage')}[/else_media][else_scene]A guard rewinds the recording.[/else_scene][else_context][visibility]Reader only[/visibility][clock]Same night[/clock][knowledge]The cast does not know.[/knowledge][collision]The recording may be noticed.[/collision][/else_context][[/else]]
+[SCENE|Library|Night|Rain][scene_media]${surfaceRequest('combined-scene-card')}[/scene_media][scene_detail]Rain ticks against the glass.[/scene_detail][scene_context][reason]The story moved indoors.[/reason][continuity]The red notebook remains open.[/continuity][/scene_context][/SCENE]
+[Plot_Sparks][ID]combined-first-render[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${plotVectors.map((vector, index) => `[Spark][Key]${String.fromCharCode(97 + index)}[/Key][Vector]${vector}[/Vector][Text]Plot branch ${index + 1}.[/Text][Media]<reverie-illustration request="generate" slot="combined-plot-${index + 1}" aspect="16:9" cast="none"><visual_prompt>Grounded continuation ${index + 1}.</visual_prompt></reverie-illustration>[/Media][/Spark]`).join('')}[/Plot_Sparks]
+Ordinary prose after every Surface.`
+const combinedRendered = rendered(combinedFirstRender)
+const combinedIds = [
+  'combined-prose',
+  'combined-parallel-one', 'combined-parallel-two', 'combined-parallel-three',
+  'combined-secret', 'combined-world', 'combined-off-stage', 'combined-scene-card',
+  ...plotVectors.map((_, index) => `combined-plot-${index + 1}`),
+]
+assert(combinedIds.length === 15, 'combined first-render fixture inventory changed')
+assert((combinedRendered.match(/data-rrn-live-status="preparing"/g) || []).length === combinedIds.length, 'combined first render did not create one preparing Status Card per unresolved request')
+assert((combinedRendered.match(/class="rrl-main"/g) || []).length === combinedIds.length, 'combined first render lost shared Status Card chrome inside one or more Surface families')
+assert((combinedRendered.match(/class="rrl-media-skeleton rrl-generation-placeholder"/g) || []).length === combinedIds.length, 'combined first render did not reserve every unresolved Surface media footprint')
+for (const id of combinedIds) assertStableSlot(combinedRendered, id, id.startsWith('combined-parallel') || id === 'combined-prose' ? '4:3' : '16:9', 'preparing')
+assert(combinedRendered.includes('Ordinary prose before every Surface.') && combinedRendered.includes('Ordinary prose after every Surface.'), 'combined first render lost prose surrounding the Surface reservations')
+assert(!/<(?:image_request|reverie-illustration)\b/i.test(combinedRendered), 'combined first render leaked raw image-control markup')
+
 const nativeSource = readFileSync(new URL('../src/nativeSurfaces.ts', import.meta.url), 'utf8')
 assert(nativeSource.includes('data-reverie-stable-media-slot="2"') && nativeSource.includes('overflow-anchor:none'), 'stable media CSS must ship with Relay media output')
 assert(!/html\s*,\s*body[\s\S]{0,80}overflow-anchor\s*:\s*none/i.test(nativeSource), 'scroll anchoring must not be globally disabled')
-assert(nativeSource.includes('.rrl-card{display:block;min-height:0;padding:0;border:0') && nativeSource.includes('rrl-generation-placeholder'), 'reserved media geometry must render through the textless placeholder shell')
+assert(nativeSource.includes('.rrl-card{display:block;min-height:0;padding:0;border:0') && nativeSource.includes('rrl-generation-placeholder'), 'reserved media geometry must render through the shared placeholder shell')
 assert(nativeSource.includes('@keyframes rr-regex-floating-particle') && nativeSource.includes('translate3d(var(--dx),var(--dy),0)'), 'reserved media glitter must use the approved Regex particle motion')
 assert(!nativeSource.includes('animation:rrlSkeleton 2.2s') && !nativeSource.includes('transform:translateX(-42%)') && !nativeSource.includes('@keyframes rrlSparkleFall'), 'reserved media effect must not restore an older glint or shimmer')
 assert(nativeSource.includes('.rrl-card:hover .rrl-actions') && nativeSource.includes('[data-rrn-live-status="failed"] .rrl-actions'), 'media controls must reveal on interaction and terminal failure')
