@@ -797,7 +797,7 @@ assert(backendSource.includes('proseIllustrator') && backendSource.includes('gen
 assert(protocolsSource.includes('Sidecar Opportunity Discovery') && backendSource.includes('selectProseOpportunity') && backendSource.includes('composePromptForOpportunity'), 'expected bounded beat analysis and prompt composition through the Prompt Registry')
 assert(frontendSource.includes('Relay-Planned') && frontendSource.includes('Model-Placed') && frontendSource.includes('Illustrations per Response'), 'expected clear Illustrator modes and settings')
 assert(frontendSource.includes("mode: 'model-placed'") || frontendSource.includes("mode === 'model-placed'"), 'expected Model-Placed Illustrator path')
-assert(backendSource.includes('isHandsOffProseMode') && backendSource.includes('enqueueRelayJob(jobFromRecord(autoRecord)'), 'expected Relay-Planned to use the canonical bounded provider queue')
+assert(backendSource.includes('isHandsOffProseMode') && backendSource.includes('dispatchRelayJob(jobFromRecord(autoRecord)'), 'expected Relay-Planned to use direct generation dispatch')
 assert(frontendSource.includes("'Prompt Profile',") && frontendSource.includes('config?.promptProfiles') && !frontendSource.includes("textInput('Prompt Profile', settings.defaultPromptProfileId"), 'expected Illustrator Prompt Profile dropdown')
 
 assert(backendSource.includes('purgeOwnedMessageState') && backendSource.includes('sourceDeletedAt') && backendSource.includes('image retained in Relay History'), 'expected deleted-message cleanup to archive completed images first')

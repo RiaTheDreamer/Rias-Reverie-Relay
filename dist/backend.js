@@ -156782,6 +156782,7 @@ function releaseImageGenerationLane(key2, leaseId) {
   const diagnostic = lane.activeContext ? providerAttemptFor(lane.activeContext) : undefined;
   if (diagnostic) {
     diagnostic.providerLaneReleasedAt ||= Date.now();
+    diagnostic.providerLaneReleaseCount += 1;
   }
   if (lane.drainWatchdog)
     clearTimeout(lane.drainWatchdog);
@@ -156810,43 +156811,19 @@ function releaseImageGenerationLane(key2, leaseId) {
   imageGenerationLanes.delete(key2);
   emitImageWorkerRecoveryState(lane.userId);
 }
-function beginImageGenerationLaneDrain(lease, providerOperation, reason) {
+function releaseAbortedImageGenerationLane(lease, providerOperation, reason) {
   const lane = imageGenerationLanes.get(lease.key);
   if (!lane || lane.activeLeaseId !== lease.leaseId)
     return;
-  lane.draining = true;
-  lane.drainStartedAt = Date.now();
-  lane.drainReason = reason instanceof Error ? reason.message : String(reason || "Local cancellation while provider work remained active.");
   const diagnostic = providerAttemptFor(lease.context);
   if (diagnostic)
-    diagnostic.providerDraining = true;
-  spindle.log.warn(`[ReverieRelay:image_provider_draining] ${lease.context.generationId}: ${lane.drainReason}`);
-  let released = false;
-  const release = (event) => {
-    if (released)
-      return;
-    released = true;
-    if (diagnostic) {
-      diagnostic.providerDraining = false;
-      diagnostic.completedAt = Date.now();
-    }
-    if (event === "watchdog")
-      spindle.log.error(`[ReverieRelay:image_provider_drain_watchdog] ${lease.context.generationId}: provider work did not settle within ${lease.context.drainTimeoutMs || IMAGE_GENERATION_DRAIN_TIMEOUT_MS}ms; releasing the non-Swarm lane with possible orphaned host work.`);
-    else
-      spindle.log.info(`[ReverieRelay:image_provider_drained] ${lease.context.generationId}: underlying provider work settled; late result discarded.`);
-    lease.release();
-  };
-  if (!isSwarmUiProvider(lease.providerId)) {
-    const drainTimeoutMs = Number.isFinite(lease.context.drainTimeoutMs) ? Math.max(1, Math.floor(lease.context.drainTimeoutMs)) : IMAGE_GENERATION_DRAIN_TIMEOUT_MS;
-    lane.drainWatchdog = setTimeout(() => release("watchdog"), drainTimeoutMs);
-    lane.drainWatchdog.unref?.();
-  } else {
-    spindle.log.error(`[ReverieRelay:image_provider_quarantined] ${lease.context.generationId}: SwarmUI generation is still active after Relay stopped waiting. New Swarm generations are paused until the host operation settles; restart or reset ImageGen before retrying if it remains stuck.`);
-    lane.stuckVisibilityTimer = setTimeout(() => emitImageWorkerRecoveryState(lane.userId), SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS);
-    lane.stuckVisibilityTimer.unref?.();
-  }
-  emitImageWorkerRecoveryState(lane.userId);
-  providerOperation.then(() => release("settled"), () => release("settled"));
+    diagnostic.providerDraining = false;
+  const message = reason instanceof Error ? reason.message : String(reason || "Provider operation was cancelled.");
+  spindle.log.warn(`[ReverieRelay:image_provider_aborted] ${lease.context.generationId}: ${message}; serialized lane released after abort propagation.`);
+  providerOperation.then(() => spindle.log.info(`[ReverieRelay:image_provider_late_settlement] ${lease.context.generationId}: late result discarded.`), () => {
+    return;
+  });
+  lease.release();
 }
 async function acquireImageGenerationLane(userId, context, controller, providerId) {
   const key2 = imageGenerationLaneKey(userId);
@@ -157037,16 +157014,12 @@ var scheduledProseOpportunityScans = new Map;
 var deferredReparseRequests = new Map;
 var deferredRegenerateRequests = new Map;
 var abortableOperationSerials = new Map;
-var relayDispatchQueues = new Map;
 var promptPreparationLanes = new Map;
-var enqueuedRelayJobs = new Map;
+var activeRelayJobPromises = new Map;
 var activeRelayAttempts = new Map;
 var queueCancellationEpochs = new Map;
 var nativeSettingsBrokers = new Map;
 var lastStateDispatchMetrics = new Map;
-function relayPipelineDispatchCapacity(preparationLimit) {
-  return Math.max(1, preparationLimit) + 4;
-}
 function releasePromptPreparationWorker(scope) {
   const lane = promptPreparationLanes.get(scope);
   if (!lane)
@@ -157247,20 +157220,6 @@ function cleanupStaleChatWork(chatId, userId, reason = "Chat not found") {
   }
   const broker = nativeSettingsBrokers.get(relayQueueScope(userId));
   summary.nativeSettingsWaiters = broker ? removeNativeSettingsWaiters(broker.waiters, chatId) : 0;
-  const queue = relayDispatchQueues.get(relayQueueScope(userId));
-  if (queue) {
-    const retained = [];
-    for (const entry of queue.pending) {
-      if (entry.job.chatId !== chatId) {
-        retained.push(entry);
-        continue;
-      }
-      enqueuedRelayJobs.delete(entry.queueKey);
-      entry.resolve();
-      summary.dispatchQueueItems += 1;
-    }
-    queue.pending = retained;
-  }
   const cancellationScope = relayCancellationScope(chatId, userId);
   queueCancellationEpochs.set(cancellationScope, (queueCancellationEpochs.get(cancellationScope) || 0) + 1);
   for (const lane of imageGenerationLanes.values()) {
@@ -157317,13 +157276,13 @@ function cleanupStaleChatWork(chatId, userId, reason = "Chat not found") {
 }
 function inspectChatRuntimeWork(chatId, userId) {
   const broker = nativeSettingsBrokers.get(relayQueueScope(userId));
-  const queue = relayDispatchQueues.get(relayQueueScope(userId));
   return {
     stale: chatDestinationDiagnostics.get(staleChatScopeKey(chatId, userId))?.quarantined === true,
     scheduledScans: [...scheduledAssistantScans.values(), ...scheduledProseOpportunityScans.values()].filter((item) => item.chatId === chatId).length,
     deferredWork: [...deferredScans.values()].filter((item) => item[0] === chatId).length + [...deferredReparseRequests.keys(), ...deferredRegenerateRequests.keys()].filter((key2) => key2.startsWith(`${chatId}:`)).length,
     nativeSettingsWaiters: broker?.waiters.get(chatId)?.size || 0,
-    dispatchQueueItems: queue?.pending.filter((entry) => entry.job.chatId === chatId).length || 0,
+    dispatchQueueItems: 0,
+    activeDirectJobs: [...activeRelayAttempts.values()].filter((attempt) => attempt.chatId === chatId).length,
     providerWaiters: [...imageGenerationLanes.values()].reduce((count, lane) => count + lane.waiters.filter((waiter) => waiter.context.chatId === chatId).length, 0),
     placementBatches: [...pendingPlacementBatches.values()].filter((batch) => batch.chatId === chatId).length
   };
@@ -157351,30 +157310,6 @@ function stageStaleChatCleanupRegressionFixture(chatId, userId) {
   deferredReparseRequests.set(`${chatId}:fixture-retry`, { key: `${chatId}:fixture-retry`, userId, attempts: 0, timer: retryTimer });
   addNativeSettingsWaiters(nativeSettingsBroker(userId).waiters, chatId, [`${chatId}:fixture-waiter`]);
   const scope = relayQueueScope(userId);
-  const queue = relayDispatchQueues.get(scope) || { pending: [], active: 0, concurrency: 1 };
-  queue.pending.push({
-    queueKey: `${scope}:${chatId}:fixture-queue`,
-    userId,
-    epoch: currentQueueCancellationEpoch(chatId, userId),
-    resolve: () => {
-      return;
-    },
-    options: { replaceExisting: false, reparse: true, triggerType: "initial" },
-    job: {
-      chatId,
-      messageId: "fixture-message",
-      swipeId: 0,
-      requestId: "fixture-request",
-      target: "custom.artifact-media",
-      count: 1,
-      slots: ["fixture-slot"],
-      alt: "",
-      originalSceneBrief: "",
-      originalNegativePrompt: "",
-      originalRequestXml: ""
-    }
-  });
-  relayDispatchQueues.set(scope, queue);
   pendingPlacementBatches.set(`${scope}:${chatId}:fixture-message:0:fixture-request`, {
     chatId,
     messageId: "fixture-message",
@@ -160632,7 +160567,7 @@ function relayCancellationScope(chatId, userId) {
 function currentQueueCancellationEpoch(chatId, userId) {
   return queueCancellationEpochs.get(relayCancellationScope(chatId, userId)) || 0;
 }
-function relayQueueKey(job, userId) {
+function relayExecutionKey(job, userId) {
   return `${relayQueueScope(userId)}:${jobCancellationKey(job)}`;
 }
 function nativeSettingsBroker(userId) {
@@ -160827,7 +160762,7 @@ async function resumeNativeSettingsWaiters(snapshot, userId) {
     const processedKeys = new Set([...supersededKeys, ...validJobs.flatMap(dispatchKeysForJob)]);
     removeNativeSettingsWaiters(broker.waiters, chatId, processedKeys);
     for (const job of validJobs)
-      resumptions.push(enqueueRelayJob(job, {
+      resumptions.push(dispatchRelayJob(job, {
         replaceExisting: false,
         reparse: true,
         triggerType: "initial",
@@ -160852,126 +160787,83 @@ function updateQueueSafetySummary(state, now = Date.now()) {
     updatedAt: now
   };
 }
-async function enqueueRelayJob(job, options, userId) {
-  const queueKey = relayQueueKey(job, userId);
-  const existing = enqueuedRelayJobs.get(queueKey);
+async function dispatchRelayJob(job, options, userId) {
+  const executionKey = relayExecutionKey(job, userId);
+  const existing = activeRelayJobPromises.get(executionKey);
   if (existing)
     return existing;
-  const scope = relayQueueScope(userId);
-  const config = await getConfig(userId);
-  const queue = relayDispatchQueues.get(scope) || { pending: [], active: 0, concurrency: relayPipelineDispatchCapacity(config.queueConcurrencyLimit) };
-  queue.concurrency = relayPipelineDispatchCapacity(config.queueConcurrencyLimit);
-  relayDispatchQueues.set(scope, queue);
   const epoch = currentQueueCancellationEpoch(job.chatId, userId);
-  const promise = new Promise((resolve) => {
-    queue.pending.push({ queueKey, job, options, userId, epoch, resolve });
-  });
-  enqueuedRelayJobs.set(queueKey, promise);
-  const now = Date.now();
-  await mutateState(job.chatId, userId, (state) => {
-    for (const slot of job.slots) {
-      const record4 = state.slots[slotKey({ ...job, slot })];
-      if (!record4 || record4.status === "completed")
-        continue;
-      record4.status = "queued";
-      record4.queuedAt = now;
-      record4.updatedAt = now;
-      const dispatchKey = canonicalDispatchKey({ ...job, slot });
-      const lease = state.dispatchLeases[dispatchKey];
-      if (lease)
-        Object.assign(lease, { status: "queued", queuedAt: now, dispatchEligibleAt: now, cancellationEpoch: epoch });
-    }
-    updateQueueSafetySummary(state, now);
-  });
-  drainRelayDispatchQueue(scope);
-  return promise;
-}
-async function drainRelayDispatchQueue(scope) {
-  const queue = relayDispatchQueues.get(scope);
-  if (!queue)
-    return;
-  while (queue.active < queue.concurrency && queue.pending.length) {
-    const entry = queue.pending.shift();
-    if (entry.epoch !== currentQueueCancellationEpoch(entry.job.chatId, entry.userId)) {
-      enqueuedRelayJobs.delete(entry.queueKey);
-      entry.resolve();
-      continue;
-    }
-    queue.active += 1;
-    const attemptId = `${entry.queueKey}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-    const controller = new AbortController;
-    activeRelayAttempts.set(attemptId, { attemptId, chatId: entry.job.chatId, jobKey: entry.queueKey, controller, createdAt: Date.now() });
-    (async () => {
-      try {
-        const now = Date.now();
-        const dispatchAllowed = await mutateState(entry.job.chatId, entry.userId, (state) => {
-          const duplicate = dispatchKeysForJob(entry.job).some((key2) => {
-            const lease = state.dispatchLeases[key2];
-            return lease?.status === "completed" || lease?.status === "dispatched" && Boolean(lease.attemptId) && lease.attemptId !== attemptId;
-          });
-          if (duplicate && entry.options.automaticDispatch) {
-            appendStateLog(state, {
-              severity: "warning",
-              stage: "provider-dispatch",
-              eventType: "duplicate_auto_dispatch_suppressed",
-              chatId: entry.job.chatId,
-              messageId: entry.job.messageId,
-              swipeId: entry.job.swipeId,
-              requestId: entry.job.requestId,
-              message: "Suppressed an equivalent automatic provider dispatch before spend.",
-              details: { dispatchKeys: dispatchKeysForJob(entry.job), attemptId }
-            });
-            return false;
-          }
-          for (const key2 of dispatchKeysForJob(entry.job)) {
-            const lease = state.dispatchLeases[key2];
-            if (lease)
-              Object.assign(lease, {
-                attemptId,
-                status: "dispatched",
-                dispatchedAt: now,
-                cancellationEpoch: entry.epoch,
-                settingsSource: entry.options.settingsSource,
-                settingsAgeMs: entry.options.settingsAgeMs,
-                dispatchReason: entry.options.dispatchReason
-              });
-          }
-          updateQueueSafetySummary(state, now);
-          return true;
-        });
-        if (!dispatchAllowed)
-          return;
-        await runJob(entry.job, { ...entry.options, signal: controller.signal, attemptId, cancellationEpoch: entry.epoch }, entry.userId);
-      } finally {
-        activeRelayAttempts.delete(attemptId);
-        enqueuedRelayJobs.delete(entry.queueKey);
-        queue.active = Math.max(0, queue.active - 1);
-        entry.resolve();
-        maybeCommitInitialPlacementBatch(entry.job, entry.userId).catch((error) => spindle.log.error(`[Reverie Relay:placement_batch] ${error instanceof Error ? error.message : String(error)}`));
-        drainRelayDispatchQueue(scope);
+  const attemptId = `${executionKey}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+  const controller = new AbortController;
+  activeRelayAttempts.set(attemptId, { attemptId, chatId: job.chatId, jobKey: executionKey, controller, createdAt: Date.now() });
+  const promise = Promise.resolve().then(async () => {
+    if (epoch !== currentQueueCancellationEpoch(job.chatId, userId))
+      return;
+    const now = Date.now();
+    const dispatchAllowed = await mutateState(job.chatId, userId, (state) => {
+      for (const slot of job.slots) {
+        const record4 = state.slots[slotKey({ ...job, slot })];
+        if (!record4 || record4.status === "completed")
+          continue;
+        record4.status = "queued";
+        record4.queuedAt = now;
+        record4.updatedAt = now;
+        const dispatchKey = canonicalDispatchKey({ ...job, slot });
+        const lease = state.dispatchLeases[dispatchKey];
+        if (lease)
+          Object.assign(lease, { status: "queued", queuedAt: now, dispatchEligibleAt: now, cancellationEpoch: epoch });
       }
-    })().catch((error) => spindle.log.error(`[Reverie Relay:dispatch_queue] ${error instanceof Error ? error.message : String(error)}`));
-  }
+      const duplicate = dispatchKeysForJob(job).some((key2) => {
+        const lease = state.dispatchLeases[key2];
+        return lease?.status === "completed" || lease?.status === "dispatched" && Boolean(lease.attemptId) && lease.attemptId !== attemptId;
+      });
+      if (duplicate && options.automaticDispatch) {
+        appendStateLog(state, {
+          severity: "warning",
+          stage: "provider-dispatch",
+          eventType: "duplicate_auto_dispatch_suppressed",
+          chatId: job.chatId,
+          messageId: job.messageId,
+          swipeId: job.swipeId,
+          requestId: job.requestId,
+          message: "Suppressed an equivalent automatic provider dispatch before spend.",
+          details: { dispatchKeys: dispatchKeysForJob(job), attemptId }
+        });
+        updateQueueSafetySummary(state, now);
+        return false;
+      }
+      for (const key2 of dispatchKeysForJob(job)) {
+        const lease = state.dispatchLeases[key2];
+        if (lease)
+          Object.assign(lease, {
+            attemptId,
+            status: "dispatched",
+            dispatchedAt: now,
+            cancellationEpoch: epoch,
+            settingsSource: options.settingsSource,
+            settingsAgeMs: options.settingsAgeMs,
+            dispatchReason: options.dispatchReason
+          });
+      }
+      updateQueueSafetySummary(state, now);
+      return true;
+    });
+    if (!dispatchAllowed)
+      return;
+    await runJob(job, { ...options, signal: controller.signal, attemptId, cancellationEpoch: epoch }, userId);
+  }).finally(() => {
+    activeRelayAttempts.delete(attemptId);
+    activeRelayJobPromises.delete(executionKey);
+    maybeCommitInitialPlacementBatch(job, userId).catch((error) => spindle.log.error(`[Reverie Relay:placement_batch] ${error instanceof Error ? error.message : String(error)}`));
+  });
+  activeRelayJobPromises.set(executionKey, promise);
+  return promise;
 }
 function cancelRelayDispatchScope(chatId, userId) {
   const cancellationScope = relayCancellationScope(chatId, userId);
   const epoch = (queueCancellationEpochs.get(cancellationScope) || 0) + 1;
   queueCancellationEpochs.set(cancellationScope, epoch);
-  const queue = relayDispatchQueues.get(relayQueueScope(userId));
-  let queued = 0;
-  if (queue) {
-    const retained = [];
-    for (const entry of queue.pending) {
-      if (entry.job.chatId !== chatId) {
-        retained.push(entry);
-        continue;
-      }
-      queued += 1;
-      enqueuedRelayJobs.delete(entry.queueKey);
-      entry.resolve();
-    }
-    queue.pending = retained;
-  }
+  const queued = 0;
   let active = 0;
   for (const attempt of activeRelayAttempts.values()) {
     if (attempt.chatId !== chatId || attempt.controller.signal.aborted)
@@ -161633,7 +161525,7 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
       }
       return;
     }
-    await Promise.all(jobs.map((job) => enqueueRelayJob(job, {
+    await runWithConcurrency(jobs, config.queueConcurrencyLimit, (job) => dispatchRelayJob(job, {
       replaceExisting: false,
       reparse: true,
       triggerType: "initial",
@@ -161642,7 +161534,7 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
       settingsSource: freshness.source,
       settingsAgeMs: freshness.ageMs,
       dispatchReason: "new-eligible-automatic-request"
-    }, userId)));
+    }, userId));
   } finally {
     releaseDiscoveryLock();
   }
@@ -164669,7 +164561,7 @@ async function handleQueueAction(payload, nativeSnapshot, userId) {
     const state = await getState(payload.chatId, userId);
     const selected = new Set(payload.selectedKeys || []);
     const pending = Object.values(state.slots).filter((record4) => record4.status === "paused-backlog" && (!selected.size || selected.has(record4.key)));
-    await Promise.all(groupRecordsIntoJobs(pending).map((job) => enqueueRelayJob(job, {
+    await runWithConcurrency(groupRecordsIntoJobs(pending), config.queueConcurrencyLimit, (job) => dispatchRelayJob(job, {
       replaceExisting: false,
       reparse: true,
       triggerType: "initial",
@@ -164678,7 +164570,7 @@ async function handleQueueAction(payload, nativeSnapshot, userId) {
       settingsSource: freshness.source,
       settingsAgeMs: freshness.ageMs,
       dispatchReason: "explicit-generate-pending"
-    }, userId)));
+    }, userId));
     return;
   }
   if (payload.action === "discard_pending") {
@@ -165512,7 +165404,7 @@ async function generateProseIllustrationPlan(chatId, planId, nativeSnapshot, use
     if (!autoRecord)
       throw new Error("Relay-Planned could not resolve the synthetic prose slot after placement.");
     assertAbortableOperationCurrent(operationKey, operationSerial);
-    await enqueueRelayJob(jobFromRecord(autoRecord), {
+    await dispatchRelayJob(jobFromRecord(autoRecord), {
       replaceExisting: false,
       reparse: true,
       triggerType: "initial",
@@ -168087,7 +167979,7 @@ var MODEL_PLACED_PROTECTED_CUES = [
   { label: "close-up", family: "shot", patterns: [/\bclose[ -]?up\b/i] },
   { label: "medium close-up", family: "shot", patterns: [/\bmedium(?:\s+cinematic)?\s+close[ -]?up\b/i] },
   { label: "medium shot", family: "shot", patterns: [/\bmedium(?:\s+cinematic)?\s+shot\b/i] },
-  { label: "wide shot", family: "shot", patterns: [/\bwide(?:\s+[\p{L}-]+){0,2}\s+shot\b/iu, /\bwide\s+(?:composition|view|frame)\b/i] },
+  { label: "wide shot", family: "shot", patterns: [/\bwide(?:\s+[\p{L}-]+){0,2}\s+(?:shot|composition|view|frame|framing)\b/iu, /\b(?:broad\s+)?establishing\s+(?:shot|composition|view|frame)\b/i, /\blong shot\b/i] },
   { label: "over-the-shoulder", family: "shot", patterns: [/\bover[ -]the[ -]shoulder\b/i, /\bOTS\b/] },
   { label: "detail shot", family: "shot", patterns: [/\b(?:detail|insert|macro)\s+shot\b/i, /\bclose[ -]?up\b.{0,40}\b(?:hand|object|wrist|detail)\b/i] },
   { label: "low angle", family: "orientation", patterns: [/\blow angle\b/i, /\bfrom (?:a )?slightly low angle\b/i] },
@@ -168097,15 +167989,15 @@ var MODEL_PLACED_PROTECTED_CUES = [
   { label: "opposite blocking", family: "orientation", patterns: [/\bopposite (?:him|her|them|the (?:man|woman|subject))\b/i, /\bacross (?:from|the (?:room|table))\b/i] },
   { label: "closed eyes", family: "state", patterns: [/\b(?:closed eyes|eyes (?:are )?closed)\b/i] },
   { label: "kneeling", family: "posture", patterns: [/\bkneel(?:ing|s|ed)?\b/i], ownerSensitive: true },
-  { label: "sitting", family: "posture", patterns: [/\b(?:sit(?:ting|s)?|sat|seated|rests? on|resting on)\b/i, /\bleans? forward on one hand\b/i], ownerSensitive: true },
+  { label: "sitting", family: "posture", patterns: [/\b(?:sit(?:ting|s)?|sat|seated|rests? on|resting on|perch(?:ed|es|ing)? on|settles? (?:on|into)|settled (?:on|into))\b/i, /\bleans? forward on one hand\b/i], ownerSensitive: true },
   { label: "standing", family: "posture", patterns: [/\b(?:standing|stands?|stood|upright on (?:his|her|their) feet)\b/i], ownerSensitive: true },
   { label: "lying", family: "posture", patterns: [/\b(?:lying|lies|lay|reclining|reclines?)\b/i], ownerSensitive: true },
-  { label: "holding", family: "action", patterns: [/\b(?:hold(?:ing|s|held)?|clutch(?:ing|es|ed)?|cradl(?:ing|es|ed)|grasp(?:ing|s|ed)|grip(?:ping|s|ped))\b/i], rejectIfAdded: true, ownerSensitive: true },
+  { label: "holding", family: "action", patterns: [/\b(?:hold(?:ing|s|held)?|clutch(?:ing|es|ed)?|cradl(?:ing|es|ed)|grasp(?:ing|s|ed)|grip(?:ping|s|ped)|carr(?:y|ies|ied|ying)|bear(?:s|ing)?|support(?:s|ed|ing)?)\b/i, /\bkeeps?\b.{0,28}\b(?:in|between) (?:his|her|their) (?:hand|hands|arms)\b/i], rejectIfAdded: true, ownerSensitive: true },
   { label: "touching", family: "contact", patterns: [/\b(?:touch(?:ing|es|ed)?|brush(?:ing|es|ed)?(?:\s+(?:against|with))?|physical contact|hands? (?:meet|meeting)|fingers? (?:meet|meeting|touch(?:ing|es|ed)?))\b/i], rejectIfAdded: true, ownerSensitive: true },
   { label: "kissing", family: "contact", patterns: [/\b(?:kiss(?:ing|es|ed)?)\b/i], rejectIfAdded: true, ownerSensitive: true },
   { label: "barefoot", family: "state", patterns: [/\b(?:barefoot|bare feet|shoeless)\b/i] },
   { label: "shoes", family: "state", patterns: [/\b(?:shoes?|boots?|heels?|sandals?|sneakers?|slippers?|loafers?)\b/i] },
-  { label: "nudity", family: "state", patterns: [/\b(?:nude|naked|topless|shirtless|bare[- ]chested)\b/i], rejectIfAdded: true },
+  { label: "nudity", family: "state", patterns: [/\b(?:nude|naked|topless|shirtless|bare[- ]chested|bare (?:chest|torso|upper body)|uncovered (?:chest|torso|upper body)|open[- ]chested)\b/i], rejectIfAdded: true },
   { label: "explicit anatomy", family: "state", patterns: [/\b(?:penis|vagina|vulva|breasts?|nipples?|genitals?)\b/i], rejectIfAdded: true },
   { label: "underwear", family: "state", patterns: [/\b(?:underwear|lingerie|bra|panties)\b/i], rejectIfAdded: true }
 ];
@@ -168142,11 +168034,40 @@ function semanticRoleNearCue(value, cue) {
 }
 function semanticLocationTokens(value) {
   const found = new Set;
-  for (const token of ["greenhouse", "conservatory", "terrace", "cave", "cavern", "forest", "beach", "street", "city", "bedroom", "kitchen", "station", "palace", "underwater", "doorway", "gate"]) {
-    if (new RegExp(`\\b${token}\\b`, "i").test(value))
-      found.add(token);
+  const groups = [
+    ["greenhouse", /\b(?:greenhouse|conservatory|glasshouse)\b/i],
+    ["terrace", /\b(?:terrace|veranda|patio)\b/i],
+    ["cave", /\b(?:cave|cavern|grotto)\b/i],
+    ["forest", /\b(?:forest|woodland|woods)\b/i],
+    ["beach", /\b(?:beach|shore|seashore|coastline)\b/i],
+    ["street", /\b(?:street|road|alley|lane)\b/i],
+    ["city", /\b(?:city|cityscape|urban district)\b/i],
+    ["bedroom", /\b(?:bedroom|bedchamber)\b/i],
+    ["kitchen", /\b(?:kitchen|galley)\b/i],
+    ["station", /\b(?:station|terminal|depot)\b/i],
+    ["palace", /\b(?:palace|royal court|royal hall)\b/i],
+    ["underwater", /\b(?:underwater|submerged|beneath the (?:sea|ocean|water))\b/i],
+    ["doorway", /\b(?:doorway|door|threshold|entrance)\b/i],
+    ["gate", /\b(?:gate|gateway)\b/i]
+  ];
+  for (const [canonical, pattern] of groups) {
+    if (pattern.test(value))
+      found.add(canonical);
   }
   return found;
+}
+function stateCueAuthorizedByCurrentScene(cue, authoritative, supportingContext) {
+  if (hasSemanticCue(authoritative, cue))
+    return true;
+  if (cue.label === "nudity" || cue.label === "underwear" || cue.label === "explicit anatomy") {
+    if (/\b(?:fully clothed|buttoned (?:shirt|blouse|top|coat|jacket)|wearing (?:a |an )?(?:shirt|blouse|sweater|turtleneck|buttoned top)|chest (?:is )?covered)\b/i.test(authoritative))
+      return false;
+  }
+  if (cue.label === "barefoot" && hasSemanticCue(authoritative, MODEL_PLACED_PROTECTED_CUES.find((candidate) => candidate.label === "shoes")))
+    return false;
+  if (cue.label === "shoes" && hasSemanticCue(authoritative, MODEL_PLACED_PROTECTED_CUES.find((candidate) => candidate.label === "barefoot")))
+    return false;
+  return hasSemanticCue(supportingContext, cue);
 }
 function semanticBodyForms(value) {
   const forms = new Set;
@@ -168183,15 +168104,13 @@ function explicitPeopleCount(value) {
 }
 function modelPlacedSemanticViolations(authoritative, candidate, protectedSubjects = [], explicitlyNamedSource = authoritative, expectedPeopleCount = 0, supportingContext = "") {
   const violations = [];
-  const authorizedSource = [authoritative, supportingContext].filter(Boolean).join(`
-`);
   for (const cue of MODEL_PLACED_PROTECTED_CUES) {
     const authored = hasSemanticCue(authoritative, cue);
     const parsed = hasSemanticCue(candidate, cue);
     if (authored && !parsed)
       violations.push(cue.label);
-    const authorizationSource = cue.family === "state" ? authorizedSource : authoritative;
-    if (!authored && parsed && cue.rejectIfAdded && !hasSemanticCue(authorizationSource, cue))
+    const additionAuthorized = cue.family === "state" ? stateCueAuthorizedByCurrentScene(cue, authoritative, supportingContext) : hasSemanticCue(authoritative, cue);
+    if (!authored && parsed && cue.rejectIfAdded && !additionAuthorized)
       violations.push(`new ${cue.label}`);
     if (authored && parsed && cue.ownerSensitive) {
       const authoredOwners = semanticRoleNearCue(authoritative, cue);
@@ -170730,6 +170649,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     abortRequestedAt: 0,
     abortPropagatedAt: 0,
     providerLaneReleasedAt: 0,
+    providerLaneReleaseCount: 0,
     terminalResolutionCount: 0,
     cleanupCount: 0
   });
@@ -170849,7 +170769,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
       } catch (error) {
         diagnostic.providerInvocationRejectedAt ||= Date.now();
         if (!providerSettled2 && laneLease && (controller.signal.aborted || error instanceof ImageGenerationTimeoutError || isAbortError(error))) {
-          beginImageGenerationLaneDrain(laneLease, providerOperation2, controller.signal.reason || error);
+          releaseAbortedImageGenerationLane(laneLease, providerOperation2, controller.signal.reason || error);
           laneLease = null;
         }
         throw error;
@@ -170957,7 +170877,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     } catch (error) {
       diagnostic.providerInvocationRejectedAt ||= Date.now();
       if (!providerSettled && laneLease) {
-        beginImageGenerationLaneDrain(laneLease, providerOperation, controller.signal.reason || error);
+        releaseAbortedImageGenerationLane(laneLease, providerOperation, controller.signal.reason || error);
         laneLease = null;
       }
       throw error;
@@ -170986,10 +170906,9 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     const timeoutError = controller.signal.reason instanceof ImageGenerationTimeoutError ? controller.signal.reason : null;
     if (timeoutError) {
       resolveTerminal("timeout");
-      const reportedTimeout = isSwarmUiProvider(plan.provider) && diagnostic.providerDraining && !diagnostic.abortPropagatedAt ? Object.assign(new Error("SwarmUI generation is still active after Relay stopped waiting. New Swarm generations are paused to avoid colliding with the existing session. Restart or reset the ImageGen provider before retrying if it remains stuck."), { name: "ImageGenerationTimeoutError" }) : timeoutError;
-      diagnostic.failure = reportedTimeout.message;
-      sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Generation timed out.", error: reportedTimeout.message });
-      throw reportedTimeout;
+      diagnostic.failure = timeoutError.message;
+      sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Generation timed out.", error: timeoutError.message });
+      throw timeoutError;
     }
     if (diagnostic.providerDispatchCount === 0) {
       const message2 = error instanceof Error ? error.message : String(error);
@@ -171012,8 +170931,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     releaseImageStream(context, controller);
     controller.signal.removeEventListener("abort", recordAbort);
     diagnostic.cleanupCount += 1;
-    if (!diagnostic.providerDraining)
-      diagnostic.completedAt = diagnostic.completedAt || Date.now();
+    diagnostic.completedAt = diagnostic.completedAt || Date.now();
     if (!diagnostic.terminalState)
       resolveTerminal(diagnostic.providerDispatchCount ? "error" : "preflight-error");
   }
@@ -171121,7 +171039,7 @@ async function exportQueueDispatchDiagnostic(chatId, userId) {
   const state = await getState(chatId, userId);
   const config = await getConfig(userId);
   const broker = nativeSettingsBroker(userId);
-  const dispatchQueue = relayDispatchQueues.get(relayQueueScope(userId));
+  const executionScope = `${relayQueueScope(userId)}:`;
   const preparationLane = promptPreparationLanes.get(relayQueueScope(userId));
   const snapshot = nativeSnapshotFromConfig(config);
   const freshness = classifyNativeSettings(snapshot?.capturedAt);
@@ -171163,9 +171081,10 @@ async function exportQueueDispatchDiagnostic(chatId, userId) {
         waiterCountsByChat: nativeSettingsWaiterCountsByChat(broker.waiters)
       },
       relayDispatchQueue: {
-        active: dispatchQueue?.active || 0,
-        pending: dispatchQueue?.pending.length || 0,
-        concurrency: dispatchQueue?.concurrency || relayPipelineDispatchCapacity(config.queueConcurrencyLimit),
+        active: [...activeRelayAttempts.values()].filter((attempt) => attempt.jobKey.startsWith(executionScope)).length,
+        pending: 0,
+        concurrency: null,
+        executionMode: "direct-bounded-preparation",
         preparationConcurrency: preparationLane?.limit || config.queueConcurrencyLimit,
         activePreparations: preparationLane?.active || 0,
         preparationWaiters: preparationLane?.waiters.length || 0
@@ -174286,7 +174205,6 @@ export {
   replaceCharacterMacro,
   repairSelfieDeviceContamination,
   removeConflictingHumanNegatives,
-  relayPipelineDispatchCapacity,
   relayMediaPersistencePatch,
   registerDirectHostAppearanceSources,
   proseAnalysisText,

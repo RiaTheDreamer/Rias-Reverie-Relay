@@ -387,9 +387,8 @@ assert.equal((backend.inspectImageGenerationLaneDiagnostics('u1') as any).waiter
 resolveWaitOwner!({ imageId: 'wait-owner', imageUrl: '/wait-owner' })
 await waitOwner
 
-// A local timeout of uncancellable standard host work makes the caller
-// recoverable immediately, but the serialized lane drains until the actual
-// host promise settles. Its late result is discarded and cannot start/claim B.
+// A local timeout owns the lifecycle boundary. Even a host promise which
+// ignores abort cannot retain the serialized lane; its late result is ignored.
 let resolveHungStandard: ((value: any) => void) | undefined
 let postTimeoutCalls = 0
 imageApi.generate = (input: any) => input.prompt === 'hung-standard'
@@ -399,18 +398,18 @@ await assert.rejects(
   backend.generateWithOptionalStream({ prompt: 'hung-standard' }, plan, 'u1', { ...context('hung-standard'), chatId: 'chat-hung' }, false, 20),
   (error: any) => error?.name === 'ImageGenerationTimeoutError' && /Retry the slot/.test(error.message),
 )
-assert.equal((backend.inspectImageGenerationLaneDiagnostics('u1') as any).draining, true)
 const afterStandardTimeoutPromise = backend.generateWithOptionalStream({ prompt: 'retry-standard' }, plan, 'u1', { ...context('retry-standard'), chatId: 'chat-retry' }, false, 500)
 await delay(10)
-assert.equal(postTimeoutCalls, 0, 'standard timeout allowed unsafe provider overlap')
-resolveHungStandard!({ imageId: 'late-standard-result', imageUrl: '/late-standard-result' })
+assert.equal(postTimeoutCalls, 1, 'standard timeout failed to release the provider lane')
 const afterStandardTimeout = await afterStandardTimeoutPromise
 assert.equal(afterStandardTimeout.imageId, 'after-standard-timeout')
 assert.equal(postTimeoutCalls, 1)
+resolveHungStandard!({ imageId: 'late-standard-result', imageUrl: '/late-standard-result' })
+await Promise.resolve()
 assert(!frontendEvents.some(event => event?.generationId === 'hung-standard' && event?.event === 'done'), 'late timed-out standard result resurrected completion')
 
 // Chat-scoped Abort All semantics: cancelling Chat A must not cancel Chat B's
-// provider waiter. B remains queued while A drains, then proceeds normally.
+// provider waiter. B proceeds as soon as A's abort releases the lane.
 let resolveChatA: ((value: any) => void) | undefined
 let chatBCalls = 0
 imageApi.generate = (input: any) => input.prompt === 'chat-a-active'
@@ -422,11 +421,10 @@ const chatBWaiting = backend.generateWithOptionalStream({ prompt: 'chat-b-waitin
 await delay(10)
 assert.equal(backend.abortImageStreamsForChat('chat-a', 'u1'), 1)
 await assert.rejects(chatAActive, (error: any) => error?.name === 'AbortError')
-assert.equal(chatBCalls, 0)
-assert.equal((backend.inspectImageGenerationLaneDiagnostics('u1') as any).waiterCount, 1)
-resolveChatA!({ imageId: 'cancelled-chat-a-late', imageUrl: '/cancelled-chat-a-late' })
 assert.equal((await chatBWaiting).imageId, 'chat-b-result')
 assert.equal(chatBCalls, 1)
+resolveChatA!({ imageId: 'cancelled-chat-a-late', imageUrl: '/cancelled-chat-a-late' })
+await Promise.resolve()
 
 imageApi.getProviders = async () => [{ id: 'provider', capabilities: { websocketPreviewStreaming: { previews: true, status: true } } }]
 imageApi.generateStream = async function* () { await new Promise(() => {}); yield { type: 'done', result: { imageId: 'impossible' } } }
@@ -468,4 +466,4 @@ assertUtilitiesInjected(assembledText(slowStorageResult), 'slow diagnostic stora
 await new Promise(resolve => setTimeout(resolve, 10))
 assert(blockedStateWriteAttempts >= 1, 'prompt diagnostics were not scheduled after returning the injection')
 
-console.log('Runtime contract smoke passed: final assembled Story Model prompt has Core structural XML 0, Narrative structural XML 0, bracket image-control authoring 0, and canonical XML image controls; continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, one-spend streaming failure semantics, bounded provider timeout/drain/abort, snapshot Abort All, and deferred interceptor recovery.')
+console.log('Runtime contract smoke passed: final assembled Story Model prompt has Core structural XML 0, Narrative structural XML 0, bracket image-control authoring 0, and canonical XML image controls; continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, one-spend streaming failure semantics, bounded provider deadline/abort/lane release, snapshot Abort All, and deferred interceptor recovery.')

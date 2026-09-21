@@ -15,10 +15,10 @@ assert(backend.includes('Queued behind the current image. Relay will start this 
 assert(backend.includes("source: job.target === 'prose.illustration' ? 'relay-illustrator' : 'relay-slot'"), 'illustrations and surface images no longer share the generation path')
 assert(backend.includes("source: 'relay-slot' | 'relay-illustrator' | 'relay-candidate'"), 'retained generation stream sources disappeared')
 assert(backend.includes('Relay will not start a second provider generation after spend.') && !backend.includes('image_stream_fallback'), 'post-spend stream fallback was not removed')
-assert(backend.includes("isSwarmUiProvider(lease.providerId)") && backend.includes('image_provider_quarantined'), 'Swarm drain quarantine policy is missing')
 assert(backend.includes('export const IMAGE_GENERATION_TIMEOUT_MS = 5 * 60_000'), 'provider generation timeout is missing')
 assert(backend.includes('export const IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS = 6 * 60_000'), 'provider-lane wait timeout is missing')
-assert(backend.includes('beginImageGenerationLaneDrain'), 'uncancellable standard work does not quarantine the provider lane')
+assert(backend.includes('releaseAbortedImageGenerationLane') && backend.includes('serialized lane released after abort propagation'), 'timeout/cancel does not release the serialized provider lane')
+assert(!backend.includes('relayDispatchQueues') && !backend.includes('enqueuedRelayJobs'), 'obsolete pre-provider dispatch queue remains')
 assert(backend.includes("markSlotStatus(stored, 'provider-waiting')"), 'provider-waiting slot lifecycle is missing')
 assert(frontend.includes('const lastActivityAt = Math.max') && frontend.includes('stream?.updatedAt || 0'), 'queued stream activity does not prevent false stalled cards')
 

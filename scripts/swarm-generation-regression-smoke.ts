@@ -41,6 +41,7 @@ const assertExactlyOnce = (generationId: string, terminalState: string) => {
   assert.equal(diagnostic.cleanupCount, 1, `${generationId} cleaned up more than once`)
   assert(diagnostic.providerLaneAcquiredAt > 0)
   assert(diagnostic.providerLaneReleasedAt >= diagnostic.providerLaneAcquiredAt)
+  assert.equal(diagnostic.providerLaneReleaseCount, 1, `${generationId} released the provider lane more than once`)
   return diagnostic
 }
 
@@ -95,28 +96,35 @@ for (const id of ['lane-a', 'lane-b', 'lane-c', 'lane-d']) {
   assert.equal(diagnostic.swarmRequestId, `swarm-${id}`)
 }
 
-// Timeout aborts at the provider boundary and cannot wedge the lane. The next
-// request represents parser-fallback work using the exact same transport path.
+// A deterministic Swarm transport accepts the request, observes abort, and
+// then violates its contract by never yielding or settling. Relay's own
+// deadline must still terminate the exact slot and release the provider lane.
 let timeoutAbortObserved = 0
 imageApi.generateStream = async function* (input: any) {
-  if (input.prompt === 'hang until timeout') {
+  if (input.prompt === 'accept then never settle') {
     yield { type: 'status', status: 'accepted', requestId: 'swarm-timeout-request' }
-    await new Promise<void>((_resolve, reject) => {
-      const onAbort = () => { timeoutAbortObserved += 1; reject(Object.assign(new Error('provider aborted'), { name: 'AbortError' })) }
+    await new Promise<void>(() => {
+      const onAbort = () => { timeoutAbortObserved += 1 }
       if (input.signal.aborted) onAbort()
       else input.signal.addEventListener('abort', onAbort, { once: true })
     })
   }
   yield { type: 'done', result: { imageId: `image-${input.prompt}`, imageUrl: `/image-${input.prompt}` } }
 }
-const timedOut = backend.generateWithOptionalStream({ prompt: 'hang until timeout' }, swarmPlan, 'swarm-timeout', context('timeout-a'), false, 20)
-const afterTimeout = backend.generateWithOptionalStream({ prompt: 'parser fallback successor' }, swarmPlan, 'swarm-timeout', context('timeout-b'), false, 500)
+const timeoutContext = context('timeout-a', { chatId: 'same-chat', slotKey: 'slot-timeout-a' })
+const timedOut = backend.generateWithOptionalStream({ prompt: 'accept then never settle' }, swarmPlan, 'swarm-timeout', timeoutContext, false, 20)
 await assert.rejects(timedOut, /did not finish|timed out/i)
-assert.equal((await afterTimeout).imageId, 'image-parser fallback successor')
 assert.equal(timeoutAbortObserved, 1)
 const timeoutDiagnostic = assertExactlyOnce('timeout-a', 'timeout')
 assert(timeoutDiagnostic.abortRequestedAt > 0 && timeoutDiagnostic.abortPropagatedAt >= timeoutDiagnostic.abortRequestedAt)
-assertExactlyOnce('timeout-b', 'success')
+assert(frontendEvents.some(event => event?.generationId === 'timeout-a' && event?.slotKey === 'slot-timeout-a' && event?.event === 'error' && /timed out/i.test(event?.statusText || '')), 'exact timed-out slot did not receive terminal timeout state')
+assert.equal(frontendEvents.some(event => event?.generationId === 'timeout-a' && event?.event === 'done'), false, 'timed-out slot received stale success')
+const sameChat = await backend.generateWithOptionalStream({ prompt: 'same-chat successor' }, swarmPlan, 'swarm-timeout', context('timeout-same-chat', { chatId: 'same-chat' }), false, 500)
+const freshChat = await backend.generateWithOptionalStream({ prompt: 'fresh-chat successor' }, swarmPlan, 'swarm-timeout', context('timeout-fresh-chat', { chatId: 'fresh-chat' }), false, 500)
+assert.equal(sameChat.imageId, 'image-same-chat successor')
+assert.equal(freshChat.imageId, 'image-fresh-chat successor')
+assertExactlyOnce('timeout-same-chat', 'success')
+assertExactlyOnce('timeout-fresh-chat', 'success')
 assert.equal(backend.inspectImageGenerationLaneDiagnostics('swarm-timeout'), null)
 
 // Explicit user cancellation uses the same abort propagation and cleanup path.
@@ -125,8 +133,8 @@ const userController = new AbortController()
 imageApi.generateStream = async function* (input: any) {
   if (input.prompt === 'cancel me') {
     yield { type: 'status', status: 'accepted' }
-    await new Promise<void>((_resolve, reject) => {
-      const onAbort = () => { userAbortObserved += 1; reject(Object.assign(new Error('user abort'), { name: 'AbortError' })) }
+    await new Promise<void>(() => {
+      const onAbort = () => { userAbortObserved += 1 }
       input.signal.addEventListener('abort', onAbort, { once: true })
     })
   }

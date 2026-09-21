@@ -62,6 +62,21 @@ const laughSource = '2people, medium close-up, volcanic conservatory terrace, fe
 const laughRewrite = 'A cinematic medium close-up in a volcanic conservatory terrace. A young woman laughs, her slender hands clutching the robe collar. Opposite her, a topless young man leans forward on one hand.'
 assert.deepEqual(backend.modelPlacedSemanticViolations(laughSource, laughRewrite, ['Taejun', 'Arin'], laughSource, 2, 'continuity for Taejun: topless'), [])
 
+// Synonym acceptance is semantic rather than fixture-specific. Framing,
+// posture, action, exposure, and location aliases retain their owners.
+const synonymSource = '2people, broad establishing view of a glasshouse veranda, female subject perched on a bench carrying a folded robe, male subject beside her with a bare torso'
+const synonymRewrite = 'An establishing composition on a greenhouse terrace: a woman is seated on a bench holding the folded robe while a bare-chested man stands beside her.'
+assert.deepEqual(backend.modelPlacedSemanticViolations(synonymSource, synonymRewrite, [], synonymSource, 2), [])
+assert.deepEqual(backend.modelPlacedSemanticViolations('Wide view inside a cavern.', 'Wide composition inside a grotto.', [], undefined, 0), [])
+
+// Current scene state outranks stale context. A historical topless fact cannot
+// authorize the Parser to undress a subject whose current shirt is explicit.
+assert(backend.modelPlacedSemanticViolations(
+  'Medium shot of a man wearing a buttoned shirt at the greenhouse door.',
+  'Medium shot of a topless man at the greenhouse entrance.',
+  [], undefined, 1, 'Earlier continuity: the man was topless.',
+).includes('new nudity'))
+
 assert.deepEqual(backend.modelPlacedSemanticViolations(
   'A two-person underwater scene: a man and woman sit on rock while their hands meet.',
   'Wide underwater composition of two people seated on rock, Arin named for clarity, their fingers brushing.',

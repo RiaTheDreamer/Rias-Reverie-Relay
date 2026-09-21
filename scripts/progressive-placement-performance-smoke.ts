@@ -125,8 +125,6 @@ for (const id of prepIds) {
 await Promise.all(pipelines)
 assert.equal(maxPreparations, 2)
 assert.equal(maxSwarmConcurrentProviderCalls, 1)
-assert.equal(backend.relayPipelineDispatchCapacity(2), 6)
-
 // Provider execution is measured independently from placement and cannot be
 // inflated by an unrelated sibling that finishes much later.
 const timing = backend.generationTimingForRecord({
