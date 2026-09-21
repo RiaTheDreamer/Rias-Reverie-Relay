@@ -138697,7 +138697,7 @@ var STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="2">
 .rrl-generation-placeholder .rr-regex-particles{position:absolute;inset:0;z-index:2;overflow:hidden;pointer-events:none}.rrl-generation-placeholder .rr-regex-particles i{position:absolute;left:var(--x);top:var(--y);width:var(--s);height:var(--s);border-radius:999px;background:radial-gradient(circle,color-mix(in srgb,var(--rr-accent-text) 90%,var(--rr-text) 10%) 0 28%,color-mix(in srgb,var(--rr-accent-text) 66%,var(--rr-accent) 34%) 38%,color-mix(in srgb,var(--rr-accent) 22%,transparent) 65%,transparent 72%);box-shadow:0 0 5px color-mix(in srgb,var(--rr-accent-text) 72%,transparent),0 0 12px color-mix(in srgb,var(--rr-accent) 34%,transparent);opacity:0;animation:rr-regex-floating-particle var(--d) ease-in-out var(--delay) infinite}.rrl-generation-placeholder .rr-regex-particles i:nth-child(1){--x:3%;--y:88%;--dx:6px;--dy:-76px;--s:2px;--d:10.2s;--delay:-7.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(2){--x:8%;--y:66%;--dx:-5px;--dy:-63px;--s:3px;--d:12.4s;--delay:-3.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(3){--x:13%;--y:92%;--dx:7px;--dy:-84px;--s:2px;--d:11.8s;--delay:-9.4s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(4){--x:18%;--y:46%;--dx:-4px;--dy:-55px;--s:2px;--d:9.9s;--delay:-5.6s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(5){--x:22%;--y:78%;--dx:8px;--dy:-71px;--s:3px;--d:13.2s;--delay:-1.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(6){--x:27%;--y:58%;--dx:-6px;--dy:-64px;--s:2px;--d:10.8s;--delay:-8.3s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(7){--x:31%;--y:96%;--dx:5px;--dy:-89px;--s:3px;--d:14.1s;--delay:-6.2s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(8){--x:35%;--y:34%;--dx:-7px;--dy:-48px;--s:2px;--d:11.3s;--delay:-2.5s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(9){--x:39%;--y:73%;--dx:6px;--dy:-69px;--s:2px;--d:10.7s;--delay:-9.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(10){--x:43%;--y:90%;--dx:-7px;--dy:-86px;--s:3px;--d:13.7s;--delay:-4.4s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(11){--x:47%;--y:53%;--dx:4px;--dy:-59px;--s:2px;--d:9.7s;--delay:-7.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(12){--x:51%;--y:82%;--dx:-5px;--dy:-75px;--s:3px;--d:12.6s;--delay:-10.6s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(13){--x:55%;--y:42%;--dx:7px;--dy:-52px;--s:2px;--d:11.1s;--delay:-3.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(14){--x:59%;--y:94%;--dx:-6px;--dy:-91px;--s:2px;--d:14.5s;--delay:-8.9s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(15){--x:63%;--y:69%;--dx:5px;--dy:-67px;--s:3px;--d:10.4s;--delay:-5.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(16){--x:67%;--y:31%;--dx:-7px;--dy:-46px;--s:2px;--d:12.9s;--delay:-1.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(17){--x:71%;--y:86%;--dx:8px;--dy:-81px;--s:3px;--d:13.9s;--delay:-11.3s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(18){--x:75%;--y:57%;--dx:-5px;--dy:-61px;--s:2px;--d:10.1s;--delay:-6.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(19){--x:79%;--y:97%;--dx:6px;--dy:-92px;--s:2px;--d:14.8s;--delay:-4.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(20){--x:83%;--y:38%;--dx:-4px;--dy:-51px;--s:3px;--d:11.6s;--delay:-9.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(21){--x:87%;--y:76%;--dx:7px;--dy:-72px;--s:2px;--d:12.2s;--delay:-2.9s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(22){--x:91%;--y:91%;--dx:-6px;--dy:-87px;--s:3px;--d:14.3s;--delay:-7.5s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(23){--x:95%;--y:49%;--dx:4px;--dy:-56px;--s:2px;--d:10.9s;--delay:-10.2s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(24){--x:98%;--y:84%;--dx:-5px;--dy:-79px;--s:2px;--d:13.4s;--delay:-5.9s}@keyframes rr-regex-floating-particle{0%{opacity:0;transform:translate3d(0,10px,0) scale(.45)}18%{opacity:.72}55%{opacity:.94}100%{opacity:0;transform:translate3d(var(--dx),var(--dy),0) scale(1.18)}}
 .rrl-generation-placeholder .rr-orb{width:21px;height:21px;position:relative;border-radius:50%;background:radial-gradient(circle at 31% 25%,rgba(255,255,255,.95) 0,rgba(255,255,255,.28) 8%,transparent 23%),radial-gradient(circle at 50% 55%,rgba(255,255,255,.11),color-mix(in srgb,var(--rr-primary) 14%,transparent) 48%,color-mix(in srgb,var(--rr-secondary) 7%,transparent) 72%,rgba(255,255,255,.04));border:1px solid rgba(255,255,255,.24);box-shadow:inset -3px -4px 8px color-mix(in srgb,var(--rr-primary) 13%,transparent),inset 2px 2px 5px rgba(255,255,255,.13),0 0 7px color-mix(in srgb,var(--rr-secondary) 17%,transparent);animation:rr-orb-float 5.8s ease-in-out infinite,rr-orb-breathe 7s ease-in-out infinite}.rrl-generation-placeholder .rr-orb:before{content:"";position:absolute;width:3px;height:3px;top:5px;right:5px;border-radius:50%;background:rgba(255,255,255,.95);box-shadow:0 0 4px rgba(255,255,255,.6);animation:rr-glint 3.9s ease-in-out infinite}.rrl-generation-placeholder .rr-orb:after{content:"";position:absolute;width:1.5px;height:1.5px;bottom:5px;left:5px;border-radius:50%;background:white;opacity:.5;box-shadow:0 0 3px rgba(255,255,255,.6);animation:rr-glint 5.1s ease-in-out -2s infinite}@keyframes rr-orb-float{0%,100%{transform:translateY(1px)}50%{transform:translateY(-3px)}}@keyframes rr-orb-breathe{0%,100%{scale:.97}50%{scale:1.025}}@keyframes rr-glint{0%,70%,100%{opacity:.25;transform:scale(.8)}82%{opacity:1;transform:scale(1.35)}}
 .rrl-media-slot{box-shadow:0 2px 10px rgba(0,0,0,.12),inset 0 1px rgba(255,255,255,.055)}
-@media(prefers-reduced-motion:reduce){.rrl-media-slot .rrl-slot-image.rrl-final-reveal,.rrl-generation-placeholder .rr-spinner,.rrl-generation-placeholder .rr-orb,.rrl-generation-placeholder .rr-orb:before,.rrl-generation-placeholder .rr-orb:after{animation:none!important}.rrl-generation-placeholder .rr-regex-particles{display:none}}
+@media(prefers-reduced-motion:reduce){.rrl-media-slot .rrl-slot-image.rrl-final-reveal,.rrl-generation-placeholder .rr-spinner,.rrl-generation-placeholder .rr-orb,.rrl-generation-placeholder .rr-orb:before,.rrl-generation-placeholder .rr-orb:after{animation:none!important}.rrl-generation-placeholder .rr-regex-particles{display:block}.rrl-generation-placeholder .rr-regex-particles i{animation:none!important;opacity:.72;transform:none}}
 </style>`;
 function lifecycleCardIsland(card) {
   return lifecycleCardShell(card);
@@ -160942,6 +160942,9 @@ function updateQueueSafetySummary(state, now = Date.now()) {
   };
 }
 async function dispatchRelayJob(job, options, userId) {
+  const userAbortEpoch = options.userAbortEpoch ?? currentUserAbortEpoch(userId);
+  if (userAbortEpoch !== currentUserAbortEpoch(userId))
+    return;
   const executionKey = relayExecutionKey(job, userId);
   const existing = activeRelayJobPromises.get(executionKey);
   if (existing)
@@ -160951,6 +160954,8 @@ async function dispatchRelayJob(job, options, userId) {
   const controller = new AbortController;
   activeRelayAttempts.set(attemptId, { attemptId, chatId: job.chatId, userId, jobKey: executionKey, controller, createdAt: Date.now() });
   const promise = Promise.resolve().then(async () => {
+    if (userAbortEpoch !== currentUserAbortEpoch(userId))
+      return;
     if (epoch !== currentQueueCancellationEpoch(job.chatId, userId))
       return;
     const now = Date.now();
@@ -161022,12 +161027,14 @@ async function dispatchRelayJob(job, options, userId) {
   activeRelayJobPromises.set(executionKey, promise);
   return promise;
 }
-async function runWithConcurrency(items, limit, worker) {
+async function runWithConcurrency(items, limit, worker, shouldStart = () => true) {
   let cursor = 0;
   const count = Math.max(1, Math.min(Math.max(1, limit), items.length || 1));
   await Promise.all(Array.from({ length: count }, async () => {
     while (cursor < items.length) {
       const index = cursor++;
+      if (!shouldStart(items[index], index))
+        continue;
       await worker(items[index], index);
     }
   }));
@@ -161363,6 +161370,7 @@ async function enrichManualCharacterAppearance(chatId, focusCharacter, userId) {
   }
 }
 async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeSnapshot, sourceContent, registerOnly = false) {
+  const automaticBatchAbortEpoch = currentUserAbortEpoch(userId);
   if (!hasRequiredPermissions()) {
     spindle.sendToFrontend({ type: "error", source: "scan_message", message: "Reverie Relay needs generation, image_gen, and chat_mutation permissions." }, userId);
     return;
@@ -161682,10 +161690,11 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
       triggerType: "initial",
       nativeSnapshot: effectiveSnapshot,
       automaticDispatch: true,
+      userAbortEpoch: automaticBatchAbortEpoch,
       settingsSource: freshness.source,
       settingsAgeMs: freshness.ageMs,
       dispatchReason: "new-eligible-automatic-request"
-    }, userId));
+    }, userId), () => automaticBatchAbortEpoch === currentUserAbortEpoch(userId));
   } finally {
     releaseDiscoveryLock();
   }
@@ -161720,10 +161729,12 @@ async function runJob(job, options, userId) {
   let failureStage = "parser-failed";
   let expectedAttemptNumbers = {};
   const backgroundTaskId = `slot:${contentFingerprint(lockKey).slice(0, 20)}`;
-  const providerAbortEpoch = currentUserAbortEpoch(userId);
+  const providerAbortEpoch = options.userAbortEpoch ?? currentUserAbortEpoch(userId);
   const providerOrigin = options.providerOrigin || (job.target === "prose.illustration" ? "illustrator-generation" : options.automaticDispatch ? "new-response-auto" : options.triggerType.startsWith("regenerate") ? "explicit-regenerate" : options.triggerType === "reparse" ? "explicit-reparse" : "explicit-single-retry");
   try {
     throwIfAborted(options.signal);
+    if (providerAbortEpoch !== currentUserAbortEpoch(userId))
+      throw new JobCancelledError;
     if (options.cancellationEpoch !== undefined && options.cancellationEpoch !== currentQueueCancellationEpoch(job.chatId, userId))
       throw new JobCancelledError;
     if (isJobCancelled(job))

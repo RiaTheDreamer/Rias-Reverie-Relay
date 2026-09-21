@@ -27,8 +27,21 @@ const abortProvider = abortSlice.indexOf('abortImageStreamsForUser(userId)')
 assert(freeze >= 0 && rejectWaiters > freeze && clearDeferred > rejectWaiters && abortProvider > clearDeferred, 'Global Abort All ordering is not freeze -> reject waiters -> clear deferred work -> abort provider')
 assert.match(abortSlice, /runtime\.epoch \+= 1/)
 assert.match(abortSlice, /broker\.waiters\.clear\(\)/)
+const scanSlice = backend.slice(backend.indexOf('async function scanAndGenerate('), backend.indexOf('function clearIdleCancellationKeys'))
+assert.match(scanSlice, /const automaticBatchAbortEpoch = currentUserAbortEpoch\(userId\)/)
+assert.match(scanSlice, /userAbortEpoch: automaticBatchAbortEpoch/)
+assert.match(scanSlice, /\(\) => automaticBatchAbortEpoch === currentUserAbortEpoch\(userId\)/)
+assert.match(backend.slice(backend.indexOf('async function dispatchRelayJob'), backend.indexOf('function cancelRelayDispatchScope')), /userAbortEpoch !== currentUserAbortEpoch\(userId\)/)
 assert.match(frontend, /action: 'abort_all'/)
 assert.doesNotMatch(frontend.slice(frontend.indexOf('function abortActiveGeneration'), frontend.indexOf('function openDryRunReport')), /cancel_selected/)
+
+let continueBatch = true
+const batchStarts: number[] = []
+await backendModule.runWithConcurrency([1, 2, 3, 4], 1, async (item: number) => {
+  batchStarts.push(item)
+  if (item === 1) continueBatch = false
+}, () => continueBatch)
+assert.deepEqual(batchStarts, [1], 'Abort-invalidated work already waiting inside a bounded batch was allowed to start')
 
 for (const origin of [
   'new-response-auto', 'explicit-single-retry', 'explicit-generate-selected-pending', 'explicit-generate-all-pending',

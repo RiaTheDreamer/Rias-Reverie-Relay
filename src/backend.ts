@@ -1685,6 +1685,7 @@ type RunJobOptions = {
   signal?: AbortSignal
   attemptId?: string
   cancellationEpoch?: number
+  userAbortEpoch?: number
   settingsSource?: string
   settingsAgeMs?: number
   dispatchReason?: string
@@ -5751,6 +5752,8 @@ function updateQueueSafetySummary(state: StateFile, now = Date.now()): void {
 }
 
 async function dispatchRelayJob(job: RouterJob, options: RunJobOptions, userId?: string): Promise<void> {
+  const userAbortEpoch = options.userAbortEpoch ?? currentUserAbortEpoch(userId)
+  if (userAbortEpoch !== currentUserAbortEpoch(userId)) return
   const executionKey = relayExecutionKey(job, userId)
   const existing = activeRelayJobPromises.get(executionKey)
   if (existing) return existing
@@ -5759,6 +5762,7 @@ async function dispatchRelayJob(job: RouterJob, options: RunJobOptions, userId?:
   const controller = new AbortController()
   activeRelayAttempts.set(attemptId, { attemptId, chatId: job.chatId, userId, jobKey: executionKey, controller, createdAt: Date.now() })
   const promise = Promise.resolve().then(async () => {
+    if (userAbortEpoch !== currentUserAbortEpoch(userId)) return
     if (epoch !== currentQueueCancellationEpoch(job.chatId, userId)) return
     const now = Date.now()
     const dispatchAllowed = await mutateState(job.chatId, userId, state => {
@@ -5827,12 +5831,18 @@ function cancelRelayDispatchScope(chatId: string, userId?: string): { queued: nu
   return { queued, active, epoch }
 }
 
-export async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>): Promise<void> {
+export async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<void>,
+  shouldStart: (item: T, index: number) => boolean = () => true,
+): Promise<void> {
   let cursor = 0
   const count = Math.max(1, Math.min(Math.max(1, limit), items.length || 1))
   await Promise.all(Array.from({ length: count }, async () => {
     while (cursor < items.length) {
       const index = cursor++
+      if (!shouldStart(items[index], index)) continue
       await worker(items[index], index)
     }
   }))
@@ -6194,6 +6204,12 @@ async function scanAndGenerate(
   sourceContent?: string,
   registerOnly = false,
 ): Promise<void> {
+  // Capture the user-wide cancellation epoch before any discovery or parser
+  // work. Jobs waiting inside the bounded batch are not active attempts yet,
+  // so Abort All cannot reach them through the active-attempt registry. They
+  // must retain this original epoch and fail closed instead of waking later as
+  // apparently fresh automatic work.
+  const automaticBatchAbortEpoch = currentUserAbortEpoch(userId)
   if (!hasRequiredPermissions()) {
     spindle.sendToFrontend({ type: 'error', source: 'scan_message', message: 'Reverie Relay needs generation, image_gen, and chat_mutation permissions.' }, userId)
     return
@@ -6505,10 +6521,11 @@ async function scanAndGenerate(
       triggerType: 'initial',
       nativeSnapshot: effectiveSnapshot,
       automaticDispatch: true,
+      userAbortEpoch: automaticBatchAbortEpoch,
       settingsSource: freshness.source,
       settingsAgeMs: freshness.ageMs,
       dispatchReason: 'new-eligible-automatic-request',
-    }, userId))
+    }, userId), () => automaticBatchAbortEpoch === currentUserAbortEpoch(userId))
   } finally {
     releaseDiscoveryLock()
   }
@@ -6542,7 +6559,7 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
   let failureStage: 'provider-validation' | 'parser-failed' | 'image-generation-failed' = 'parser-failed'
   let expectedAttemptNumbers: Record<string, number> = {}
   const backgroundTaskId = `slot:${contentFingerprint(lockKey).slice(0, 20)}`
-  const providerAbortEpoch = currentUserAbortEpoch(userId)
+  const providerAbortEpoch = options.userAbortEpoch ?? currentUserAbortEpoch(userId)
   const providerOrigin: ProviderDispatchOrigin = options.providerOrigin
     || (job.target === 'prose.illustration' ? 'illustrator-generation'
       : options.automaticDispatch ? 'new-response-auto'
@@ -6552,6 +6569,7 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
 
   try {
     throwIfAborted(options.signal)
+    if (providerAbortEpoch !== currentUserAbortEpoch(userId)) throw new JobCancelledError()
     if (options.cancellationEpoch !== undefined && options.cancellationEpoch !== currentQueueCancellationEpoch(job.chatId, userId)) throw new JobCancelledError()
     if (isJobCancelled(job)) throw new JobCancelledError()
     await assertPersonaPovDispatchAllowed(job, userId)

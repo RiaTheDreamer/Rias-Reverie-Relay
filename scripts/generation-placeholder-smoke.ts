@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { normalizeGenerationPlaceholderEffect } from '../src/contracts'
 import { lifecycleRuntimeCss, renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
+import { renderNarrativeRegex } from '../src/narrativeRegexAssets'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
 
@@ -48,6 +49,31 @@ for (const effect of ['spinner', 'glitter', 'none', 'dream-orb'] as const) {
   if (effect === 'dream-orb') assert(orb === 1 && spinner === 0 && glitter === 0, 'dream-orb mode must render orb only')
   if (effect === 'none') assert(spinner === 0 && glitter === 0 && orb === 0 && /rrl-generation-placeholder[^>]*><\/div>/.test(markup), 'none mode must render an empty effect shell')
 }
+
+const activeRecord = (messageId: string, id: string, target = 'custom.artifact-media') => ({
+  key: `chat:${messageId}:0:${id}:${id}`, chatId: 'chat', messageId, swipeId: 0, requestId: id, slot: id,
+  target, targetApp: target === 'prose.illustration' ? 'prose' : 'custom', status: 'generating', requestAspect: target === 'prose.illustration' ? '16:9' : '1:1', createdAt: 1, updatedAt: 2,
+})
+
+const relationship = definitions.find(definition => definition.baseSurfaceId === 'relationship-map')!
+const relationshipIds = [...relationship.sampleXml.matchAll(/<image_request\b[^>]*\bid="([^"]+)"/g)].map(match => match[1])
+const relationshipRendered = withoutStyles(renderNativeSurfaceMarkup(relationship.sampleXml, studio as any, {
+  chatId: 'chat', messageId: 'relationship-mounted-source', swipeId: 0, autoGenerate: true,
+  generationPlaceholderEffect: 'glitter', records: relationshipIds.map(id => activeRecord('relationship-mounted-source', id)),
+}).content)
+assert(relationshipIds.length >= 3, 'Relationship Map fixture must exercise at least three portrait owners')
+assert((relationshipRendered.match(/class="rrl-media-skeleton rrl-generation-placeholder"/g) || []).length === relationshipIds.length, 'Relationship Map did not retain one visible placeholder per portrait owner')
+for (const id of relationshipIds) assert((relationshipRendered.match(new RegExp(`data-rrn-native-request="${id}"`, 'g')) || []).length === 1, `Relationship Map/${id}: portrait placeholder ownership changed`)
+
+const plotIds = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(key => `plot-spark-${key}-placeholder`)
+const plotSource = `[Plot_Sparks][ID]placeholder-visibility[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${plotIds.map((id, index) => `[Spark][Key]${String.fromCharCode(97 + index)}[/Key][Vector]${['detonation','heartknife','wrongness','crash-in','matchstrike','reputation-fire','wildcard-collision'][index]}[/Vector][Text]Plot branch ${index + 1}.[/Text][Media]<reverie-illustration request="generate" slot="${id}" aspect="16:9" cast="none"><visual_prompt>Grounded plot continuation ${index + 1}.</visual_prompt></reverie-illustration>[/Media][/Spark]`).join('')}[/Plot_Sparks]`
+const plotHydrated = renderNativeSurfaceMarkup(plotSource, studio as any, {
+  chatId: 'chat', messageId: 'plot-placeholder-source', swipeId: 0, autoGenerate: true,
+  generationPlaceholderEffect: 'glitter', records: plotIds.map(id => activeRecord('plot-placeholder-source', id, 'prose.illustration')),
+}).content
+const plotRendered = withoutStyles(renderNarrativeRegex(plotHydrated, 'inline', 'plot-placeholder-source', { chatId: 'chat', swipeId: 0 }))
+assert((plotRendered.match(/class="rrl-media-skeleton rrl-generation-placeholder"/g) || []).length === 7, 'Plot Sparks did not retain seven visible generated-media placeholders')
+for (const id of plotIds) assert((plotRendered.match(new RegExp(`data-rrn-native-request="${id}"`, 'g')) || []).length === 1, `Plot Sparks/${id}: placeholder ownership changed`)
 
 const completed = runtimeMarkup('glitter', 'completed', '/images/completed.png')
 assert(!completed.includes('data-rr-placeholder-effect=') && completed.includes('/images/completed.png'), 'completed generation must remove the active effect and keep the image')
@@ -144,7 +170,9 @@ assert(nativeSource.includes('@keyframes rr-orb-float{0%,100%{transform:translat
 assert(nativeSource.includes('@keyframes rr-orb-breathe{0%,100%{scale:.97}50%{scale:1.025}}'), 'Dream Orb breathe loop endpoints must remain identical')
 assert(nativeSource.includes('@keyframes rr-glint{0%,70%,100%{opacity:.25;transform:scale(.8)}82%{opacity:1;transform:scale(1.35)}}'), 'Dream Orb glint loop endpoints must remain identical')
 assert(nativeSource.includes('animation:rr-glint 3.9s ease-in-out infinite') && nativeSource.includes('animation:rr-glint 5.1s ease-in-out -2s infinite'), 'Dream Orb glints must retain asynchronous continuous timing')
-assert(nativeSource.includes('@media(prefers-reduced-motion:reduce)') && nativeSource.includes('.rrl-generation-placeholder .rr-regex-particles{display:none}'), 'reduced-motion handling is missing')
+const reducedMotionCss = '@media(prefers-reduced-motion:reduce){.rrl-media-slot .rrl-slot-image.rrl-final-reveal,.rrl-generation-placeholder .rr-spinner,.rrl-generation-placeholder .rr-orb,.rrl-generation-placeholder .rr-orb:before,.rrl-generation-placeholder .rr-orb:after{animation:none!important}.rrl-generation-placeholder .rr-regex-particles{display:block}.rrl-generation-placeholder .rr-regex-particles i{animation:none!important;opacity:.72;transform:none}}'
+assert(nativeSource.includes(reducedMotionCss), 'reduced motion must stop animation while retaining a visible static glitter representation')
+assert(!lifecycleRuntimeCss().includes('.rrl-generation-placeholder .rr-regex-particles{display:none}'), 'reduced motion must never erase the selected glitter placeholder')
 assert(!nativeSource.includes('\ni{') && !nativeSource.includes('}i{'), 'unscoped global i selector is forbidden')
 
 const frontendSource = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')

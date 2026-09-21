@@ -30,6 +30,7 @@ class FakeClassList {
 }
 
 class FakeElement {
+  constructor(readonly tagName = 'div') {}
   listeners = new Map<string, Array<() => void>>()
   parentNode: FakeElement | null = null
   children: FakeElement[] = []
@@ -47,6 +48,9 @@ class FakeElement {
   scrollTop = 0
   offsetWidth = 52
   offsetHeight = 52
+  nodeType = 1
+  shadowRoot: FakeElement | null = null
+  get childNodes(): FakeElement[] { return this.children }
   append(...nodes: FakeElement[]): void { nodes.forEach(node => this.appendChild(node)) }
   appendChild(node: FakeElement): FakeElement {
     node.parentNode = this
@@ -66,11 +70,20 @@ class FakeElement {
   closest(): null { return null }
   querySelector(selector: string): FakeElement | null { return this.querySelectorAll(selector)[0] || null }
   querySelectorAll(selector: string): FakeElement[] {
-    if (selector !== '.dg-relay-orb') return []
-    return this.children.flatMap(child => [
-      ...(String(child.className).split(/\s+/).includes('dg-relay-orb') ? [child] : []),
-      ...child.querySelectorAll(selector),
-    ])
+    const selectors = selector.split(',').map(value => value.trim()).filter(Boolean)
+    const descendants = this.children.flatMap(child => [child, ...child.querySelectorAll('*')])
+    if (selectors.includes('*')) return descendants
+    const matches = (node: FakeElement, candidate: string): boolean => {
+      const classMatch = /^\.([\w-]+)$/.exec(candidate)
+      if (classMatch) return String(node.className).split(/\s+/).includes(classMatch[1])
+      const attributeMatch = /^\[data-([\w-]+)(?:="([^"]*)")?\]$/.exec(candidate)
+      if (attributeMatch) {
+        const key = attributeMatch[1].replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase())
+        return key in node.dataset && (attributeMatch[2] === undefined || node.dataset[key] === attributeMatch[2])
+      }
+      return node.tagName.toLocaleLowerCase() === candidate.toLocaleLowerCase()
+    }
+    return descendants.filter(node => selectors.some(candidate => matches(node, candidate)))
   }
   setAttribute(): void {}
   removeAttribute(): void {}
@@ -96,7 +109,7 @@ const documentMock = {
   body,
   documentElement: new FakeElement(),
   activeElement: null,
-  createElement: () => new FakeElement(),
+  createElement: (tagName: string) => new FakeElement(tagName),
   createDocumentFragment: () => new FakeElement(),
   addEventListener: () => {},
   removeEventListener: () => {},
@@ -131,6 +144,7 @@ Object.assign(globalThis, {
   HTMLImageElement: FakeElement,
   Element: FakeElement,
   ShadowRoot: class {},
+  Node: { TEXT_NODE: 3 },
   MutationObserver: FakeMutationObserver,
   requestAnimationFrame: (callback: () => void) => { callback(); return 0 },
   fetch: async () => ({ ok: false, status: 404, json: async () => ({}) }),
@@ -175,10 +189,11 @@ const inputAction = (id: string) => {
   }
 }
 
+const messageRoots = new Map<string, FakeElement>()
 const ctx: any = {
   dom: {
     addStyle: () => { stylesRegistered += 1; return () => { stylesRemoved += 1 } },
-    findMessageElement: () => null,
+    findMessageElement: (messageId: string) => messageRoots.get(messageId) || null,
     cleanup: () => {},
   },
   events: {
@@ -254,6 +269,48 @@ const bootState = {
 }
 backendHandler!(bootState)
 assert(body.children.some(child => child.className.includes('dg-relay-orb')), 'Orb bootstrap must be reachable after the accepted config and chat state arrive')
+
+// Mount a real lifecycle card into the host harness, then drive the production
+// state/bind path. This catches DOM hydration regressions that renderer-string
+// assertions cannot see.
+const mountedRoot = new FakeElement()
+const mountedCard = new FakeElement()
+mountedCard.className = 'rrl-card'
+mountedCard.dataset.rrnNativeRequest = 'mounted-placeholder'
+mountedCard.dataset.rrnRecordKey = 'boot-chat:boot-message:0:mounted-placeholder:mounted-placeholder'
+const mountedMedia = new FakeElement()
+mountedMedia.className = 'rrl-media-slot'
+const mountedPlaceholder = new FakeElement()
+mountedPlaceholder.className = 'rrl-media-skeleton rrl-generation-placeholder'
+mountedPlaceholder.dataset.rrPlaceholderEffect = 'spinner'
+mountedPlaceholder.appendChild(new FakeElement('span'))
+mountedMedia.appendChild(mountedPlaceholder)
+mountedCard.appendChild(mountedMedia)
+mountedRoot.appendChild(mountedCard)
+messageRoots.set('boot-message', mountedRoot)
+const mountedRecord = {
+  key: mountedCard.dataset.rrnRecordKey, chatId: 'boot-chat', messageId: 'boot-message', swipeId: 0,
+  requestId: 'mounted-placeholder', slot: 'mounted-placeholder', target: 'custom.artifact-media', targetApp: 'custom',
+  status: 'generating', createdAt: Date.now(), updatedAt: Date.now(),
+}
+backendHandler!({
+  ...bootState,
+  revision: 2,
+  records: [mountedRecord],
+  config: { ...bootState.config, generationPlaceholderEffect: 'glitter' },
+})
+assert(mountedRoot.contains(mountedCard) && mountedCard.contains(mountedMedia) && mountedMedia.contains(mountedPlaceholder), 'mounted active lifecycle reservation was remounted or removed')
+assert(mountedPlaceholder.dataset.rrPlaceholderEffect === 'glitter', 'mounted active placeholder did not hydrate the selected effect')
+const mountedGlitter = mountedPlaceholder.querySelector('.rr-regex-particles')
+assert(mountedGlitter && mountedGlitter.children.length === 24, 'mounted active placeholder did not hydrate the 24-particle glitter layer')
+
+backendHandler!({
+  ...bootState,
+  revision: 3,
+  records: [{ ...mountedRecord, status: 'completed', imageId: 'mounted-image', imageUrl: '/mounted-image.png', updatedAt: Date.now() + 1 }],
+  config: { ...bootState.config, generationPlaceholderEffect: 'glitter' },
+})
+assert(!mountedCard.querySelector('.rrl-generation-placeholder'), 'completed mounted lifecycle retained active placeholder UI')
 
 for (let tick = 0; tick < 8; tick += 1) await Promise.resolve()
 assert(backendPayloads.some((payload: any) => payload?.type === 'list_state' && payload.chatId === 'boot-chat'), 'frontend setup must begin backend state synchronization')
