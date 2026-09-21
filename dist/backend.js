@@ -996,9 +996,9 @@ function removeNativeSettingsWaiters(registry, chatId, keys) {
   if (!waiting)
     return 0;
   if (!keys) {
-    const removed2 = waiting.size;
+    const removed = waiting.size;
     registry.delete(chatId);
-    return removed2;
+    return removed;
   }
   let removed = 0;
   for (const key of keys)
@@ -1091,6 +1091,17 @@ function classifyBacklog(records, now = Date.now()) {
     oldestPendingAgeMs,
     reason: stale ? "stale" : large ? "large" : "ready"
   };
+}
+function partitionBacklogByOwnership(records, currentSessionKeys) {
+  const currentSession = [];
+  const priorSession = [];
+  for (const record of records) {
+    if (currentSessionKeys.has(canonicalDispatchKey(record)))
+      currentSession.push(record);
+    else
+      priorSession.push(record);
+  }
+  return { currentSession, priorSession };
 }
 function throwIfAborted(signal) {
   if (!signal?.aborted)
@@ -4248,8 +4259,8 @@ function grammarFor(spec) {
   const mediaLike = [...known].filter((tag) => /(?:^|_)(?:media|image|photo|avatar|cover|artwork|feed|frame|attachment|portrait)$/i.test(tag) || ["photo", "image", "artwork", "portrait"].includes(tag));
   for (const tag of mediaLike)
     children.set(tag, [...new Set([...children.get(tag) || [], "image_request", "image_request_error", "img"])]);
-  for (const rows2 of children.values())
-    for (const tag of rows2)
+  for (const rows of children.values())
+    for (const tag of rows)
       known.add(tag);
   for (const fields of attrFields.values())
     for (const field of fields)
@@ -4684,12 +4695,12 @@ function normalizeInstagramProfileSurface(root) {
   const avatarChildren = avatar ? avatar.children : [];
   let tagged = directChild(root, "igp_tagged");
   for (const post of descendantsByTag(root, "igp_post")) {
-    const attrs2 = surfaceXmlAttributes(post.attrs);
+    const attrs = surfaceXmlAttributes(post.attrs);
     post.attrs = [
-      ` id="${surfaceAttrValue(kakaoKnown(attrs2.id || attrs2.slot) || "post")}"`,
-      ` owner="${surfaceAttrValue(kakaoKnown(attrs2.owner || handle) || "@profile")}"`,
-      ` likes="${surfaceAttrValue(kakaoKnown(attrs2.likes) || "0")}"`,
-      ` time="${surfaceAttrValue(kakaoKnown(attrs2.time) || "now")}"`
+      ` id="${surfaceAttrValue(kakaoKnown(attrs.id || attrs.slot) || "post")}"`,
+      ` owner="${surfaceAttrValue(kakaoKnown(attrs.owner || handle) || "@profile")}"`,
+      ` likes="${surfaceAttrValue(kakaoKnown(attrs.likes) || "0")}"`,
+      ` time="${surfaceAttrValue(kakaoKnown(attrs.time) || "now")}"`
     ].join("");
     const mediaChildren = post.children.filter((child) => typeof child !== "string" && ["image_request", "image_request_error", "img"].includes(child.tag));
     post.children = post.children.filter((child) => !(typeof child !== "string" && ["image_request", "image_request_error", "img"].includes(child.tag)));
@@ -4917,7 +4928,7 @@ function normalizeSurfaceBlock(input, spec) {
     }
     let redirectedParent = null;
     if (isClosing) {
-      const index = stack.map((node2) => node2.tag).lastIndexOf(tag);
+      const index = stack.map((node) => node.tag).lastIndexOf(tag);
       if (index < 0) {
         error ||= `Unmatched closing tag </${sourceTag}>.`;
         continue;
@@ -4937,14 +4948,14 @@ function normalizeSurfaceBlock(input, spec) {
       }
       const allowedHere = (parent) => (grammar.children.get(parent) || []).includes(tag) || Boolean(metadataFieldForChild(grammar, parent, tag)) || parent === spec.wrapper && (spec.normalization?.allowedChildren || []).includes(tag) || tag === "image_request" && parent === "portrait";
       if (!allowedHere(stack.at(-1).tag)) {
-        const ancestor = stack.map((node2) => node2.tag).findLastIndex(allowedHere);
+        const ancestor = stack.map((node) => node.tag).findLastIndex(allowedHere);
         if (ancestor >= 0) {
           if (xmlChildren(stack[ancestor]).some((child) => child.tag === tag) && !["s_recv", "s_sent", "image_request", "tw_post"].includes(tag))
             error ||= `<${tag}> cannot appear inside <${stack.at(-1).tag}>; its destination already exists.`;
           stack.splice(ancestor + 1);
         } else {
           const imageRequestChild = ["scene_brief", "prompt", "negative_prompt", "negative", "context_caption"].includes(tag);
-          const imageRequestDestinations = imageRequestChild ? descendantsByTag(stack.at(-1), "image_request").filter((node2) => !xmlChildren(node2).some((child) => child.tag === tag)) : [];
+          const imageRequestDestinations = imageRequestChild ? descendantsByTag(stack.at(-1), "image_request").filter((node) => !xmlChildren(node).some((child) => child.tag === tag)) : [];
           if (imageRequestDestinations.length === 1)
             redirectedParent = imageRequestDestinations[0];
           else if (imageRequestDestinations.length > 1)
@@ -5419,9 +5430,9 @@ function invalidateContextSnapshots() {
   sourceCache.clear();
 }
 function selectLorebookContext(entries, query, tier = "routine") {
-  const rows2 = Array.isArray(entries) ? entries : typeof entries === "string" ? [{ content: entries }] : [];
+  const rows = Array.isArray(entries) ? entries : typeof entries === "string" ? [{ content: entries }] : [];
   const terms = words(query);
-  const ranked = rows2.map((value, index) => {
+  const ranked = rows.map((value, index) => {
     const row = record2(value);
     const title = text(row.name || row.title || row.comment);
     const keys = Array.isArray(row.keys || row.key) ? (row.keys || row.key).filter((key) => typeof key === "string") : [];
@@ -5455,12 +5466,12 @@ ${excerpt}`;
 `), entries: chosen.length, segments, cacheHits, cacheMisses };
 }
 function selectHistoryContext(history, query, tier = "routine") {
-  const rows2 = Array.isArray(history) ? history : [];
+  const rows = Array.isArray(history) ? history : [];
   const terms = words(query);
-  const ranked = rows2.map((value, index) => {
+  const ranked = rows.map((value, index) => {
     const row = record2(value);
     const content = text(row.content);
-    return { id: text(row.id), role: text(row.role), content, index, score: terms.reduce((sum, term) => sum + (content.toLowerCase().includes(term) ? 2 : 0), 0) + (visual.test(content) ? 4 : 0) + index / Math.max(1, rows2.length) };
+    return { id: text(row.id), role: text(row.role), content, index, score: terms.reduce((sum, term) => sum + (content.toLowerCase().includes(term) ? 2 : 0), 0) + (visual.test(content) ? 4 : 0) + index / Math.max(1, rows.length) };
   }).filter((row) => row.content && row.content !== query && row.score >= 2).sort((a, b) => b.score - a.score || b.index - a.index).slice(0, CONTEXT_LIMITS[tier].messages);
   return ranked.sort((a, b) => a.index - b.index).map((row) => ({ id: row.id, role: row.role, content: selectExcerpts(row.content, query, Math.floor(CONTEXT_LIMITS[tier].history / Math.max(1, ranked.length)), true) }));
 }
@@ -5618,28 +5629,28 @@ function canonicalTag(value) {
   return clean2(value).normalize("NFKC").toLocaleLowerCase().replace(/[\u2019']/g, "").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").replace(/_{2,}/g, "_");
 }
 function splitAppearanceSegments(value) {
-  const text2 = clean2(value).replace(/\bwearing\s+/gi, "").replace(/\bdressed\s+in\s+/gi, "").replace(/\bclad\s+in\s+/gi, "");
-  const parts = text2.split(/[,;\n]+|\s+\band\b\s+|_and_/i).map(clean2).filter(Boolean);
-  return unique(parts.length > 1 ? parts : [text2]);
+  const text = clean2(value).replace(/\bwearing\s+/gi, "").replace(/\bdressed\s+in\s+/gi, "").replace(/\bclad\s+in\s+/gi, "");
+  const parts = text.split(/[,;\n]+|\s+\band\b\s+|_and_/i).map(clean2).filter(Boolean);
+  return unique(parts.length > 1 ? parts : [text]);
 }
 function explicitEditorRows(value, layer, category) {
-  const rows2 = [];
+  const rows = [];
   for (const segment of clean2(value).split(/[,;\n]+/).map(clean2).filter(Boolean)) {
     const tag = canonicalTag(segment);
     if (!tag || tag.length > 64)
       throw new Error("Appearance editor tags must normalize to 1-64 characters each.");
     const inferredCategory = layer === "visual-identity" ? stableCategory(tagText(tag)) : category;
-    addCanonicalRow(rows2, {
+    addCanonicalRow(rows, {
       layer,
       category: isCategoryAllowedForLayer(layer, inferredCategory) ? inferredCategory : category,
       value: tag,
       conflictDomain: `editor:tag-${hash(tag)}`
     });
   }
-  return rows2;
+  return rows;
 }
 function semanticTagFingerprint(value) {
-  const normalized2 = normalizeValue(value).replace(/\b(\d+)\s+(cm|mm|kg|lb|lbs)\b/g, "$1$2");
+  const normalized = normalizeValue(value).replace(/\b(\d+)\s+(cm|mm|kg|lb|lbs)\b/g, "$1$2");
   const synonyms = {
     blurred: "soft",
     grey: "gray",
@@ -5649,7 +5660,7 @@ function semanticTagFingerprint(value) {
     frame: "build",
     frames: "build"
   };
-  return unique(normalized2.split(" ").filter(Boolean).map((token) => synonyms[token] || token)).sort().join("-");
+  return unique(normalized.split(" ").filter(Boolean).map((token) => synonyms[token] || token)).sort().join("-");
 }
 function semanticFactSpecificity(value) {
   const fingerprint = semanticTagFingerprint(value);
@@ -5660,139 +5671,139 @@ function serializeCanonicalTagList(value) {
   const items = Array.isArray(value) ? stringList(value) : clean2(value) ? [clean2(value)] : [];
   return unique(items.flatMap((item) => clean2(item).split(/[,;\n]+/)).map(canonicalTag).filter(Boolean)).join(", ");
 }
-function addCanonicalRow(rows2, row) {
+function addCanonicalRow(rows, row) {
   const value = row.valueKind === "visual-phrase" ? clean2(row.value) : canonicalTag(row.value);
   if (!value || value.length < 2 || value.length > (row.valueKind === "visual-phrase" ? 160 : 64))
     return;
   const conflictDomain = row.conflictDomain ? row.conflictDomain.replace(/_/g, "-") : undefined;
   const key = `${row.layer}:${row.category}:${conflictDomain || ""}:${value}`;
-  if (rows2.some((existing) => `${existing.layer}:${existing.category}:${existing.conflictDomain || ""}:${existing.value}` === key))
+  if (rows.some((existing) => `${existing.layer}:${existing.category}:${existing.conflictDomain || ""}:${existing.value}` === key))
     return;
-  rows2.push({ ...row, value, conflictDomain });
+  rows.push({ ...row, value, conflictDomain });
 }
 function domainTag(value) {
   return canonicalTag(value).replace(/_/g, "-");
 }
 function canonicalRowsForSegment(segment, requestedLayer, requestedCategory) {
-  const rows2 = [];
-  const text2 = tagText(segment);
-  const lower = text2.toLocaleLowerCase();
+  const rows = [];
+  const text = tagText(segment);
+  const lower = text.toLocaleLowerCase();
   const allowStable = !requestedLayer || requestedLayer === "visual-identity";
   const allowWardrobe = !requestedLayer || requestedLayer === "wardrobe";
   const allowCurrent = !requestedLayer || requestedLayer === "current-appearance";
   const stableCategoryOverride = requestedLayer === "visual-identity" && requestedCategory && isCategoryAllowedForLayer("visual-identity", requestedCategory) ? requestedCategory : undefined;
   const wardrobeCategoryOverride = requestedLayer === "wardrobe" && requestedCategory && isCategoryAllowedForLayer("wardrobe", requestedCategory) ? requestedCategory : undefined;
   if (allowStable && !/\b(?:bronze|golden)\b.+\b(?:sunset|lighting|lights?|under|looked)\b/i.test(lower)) {
-    if (/\b(?:golden(?:\s+cream)?|cream(?:\s+golden)?|golden\s+cream)\s+(?:labrador\s+)?retriever(?:\s+puppy)?\b|\bgolden[_ ]retriever\b/i.test(text2)) {
-      addCanonicalRow(rows2, { layer: "visual-identity", category: stableCategoryOverride || "other", value: "golden_retriever", conflictDomain: "species-trait:breed" });
+    if (/\b(?:golden(?:\s+cream)?|cream(?:\s+golden)?|golden\s+cream)\s+(?:labrador\s+)?retriever(?:\s+puppy)?\b|\bgolden[_ ]retriever\b/i.test(text)) {
+      addCanonicalRow(rows, { layer: "visual-identity", category: stableCategoryOverride || "other", value: "golden_retriever", conflictDomain: "species-trait:breed" });
     }
-    if (/\bcream(?:[-_ ]colored)?\s+(?:coat|fur)\b|\bcream_fur\b/i.test(text2)) {
-      addCanonicalRow(rows2, { layer: "visual-identity", category: stableCategoryOverride || "other", value: "cream_fur", conflictDomain: "skin-color" });
+    if (/\bcream(?:[-_ ]colored)?\s+(?:coat|fur)\b|\bcream_fur\b/i.test(text)) {
+      addCanonicalRow(rows, { layer: "visual-identity", category: stableCategoryOverride || "other", value: "cream_fur", conflictDomain: "skin-color" });
     }
-    if (/\bfloppy(?:[-_ ]shaped)?\s+ears?\b|\bfloppy_ears\b/i.test(text2)) {
-      addCanonicalRow(rows2, { layer: "visual-identity", category: stableCategoryOverride || "other", value: "floppy_ears", conflictDomain: "species-trait:ears" });
+    if (/\bfloppy(?:[-_ ]shaped)?\s+ears?\b|\bfloppy_ears\b/i.test(text)) {
+      addCanonicalRow(rows, { layer: "visual-identity", category: stableCategoryOverride || "other", value: "floppy_ears", conflictDomain: "species-trait:ears" });
     }
     if (requestedCategory === "hair-color") {
       if (/^(?:jet[- ]black|raven[- ]black|black)$/i.test(lower))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "hair-color", value: "black_hair", conflictDomain: "hair-color" });
+        addCanonicalRow(rows, { layer: "visual-identity", category: "hair-color", value: "black_hair", conflictDomain: "hair-color" });
       else if (/^dark$/i.test(lower))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "hair-color", value: "dark_hair", conflictDomain: "hair-color" });
+        addCanonicalRow(rows, { layer: "visual-identity", category: "hair-color", value: "dark_hair", conflictDomain: "hair-color" });
       else if (/^medium[- ]brown$/i.test(lower))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "hair-color", value: "medium_brown_hair", conflictDomain: "hair-color" });
+        addCanonicalRow(rows, { layer: "visual-identity", category: "hair-color", value: "medium_brown_hair", conflictDomain: "hair-color" });
       else if (/^(?:brown|brunette)$/i.test(lower))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "hair-color", value: "brown_hair", conflictDomain: "hair-color" });
+        addCanonicalRow(rows, { layer: "visual-identity", category: "hair-color", value: "brown_hair", conflictDomain: "hair-color" });
       else if (/^(?:blonde|blond)$/i.test(lower))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "hair-color", value: "blonde_hair", conflictDomain: "hair-color" });
+        addCanonicalRow(rows, { layer: "visual-identity", category: "hair-color", value: "blonde_hair", conflictDomain: "hair-color" });
       else if (/^(?:white|silver|red|auburn|pink|blue|green|purple)$/i.test(lower))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "hair-color", value: `${canonicalTag(lower)}_hair`, conflictDomain: "hair-color" });
+        addCanonicalRow(rows, { layer: "visual-identity", category: "hair-color", value: `${canonicalTag(lower)}_hair`, conflictDomain: "hair-color" });
     }
     if (requestedCategory === "eye-color") {
       if (/^(?:deep[- ]brown|dark[- ]brown|brown)$/i.test(lower))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "eye-color", value: "brown_eyes", conflictDomain: "eye-color" });
+        addCanonicalRow(rows, { layer: "visual-identity", category: "eye-color", value: "brown_eyes", conflictDomain: "eye-color" });
       else if (/^(?:blue|green|hazel|amber|black|violet|pink|red)$/i.test(lower))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "eye-color", value: `${canonicalTag(lower)}_eyes`, conflictDomain: "eye-color" });
+        addCanonicalRow(rows, { layer: "visual-identity", category: "eye-color", value: `${canonicalTag(lower)}_eyes`, conflictDomain: "eye-color" });
       else if (/^gr[ae]y$/i.test(lower))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "eye-color", value: "gray_eyes", conflictDomain: "eye-color" });
+        addCanonicalRow(rows, { layer: "visual-identity", category: "eye-color", value: "gray_eyes", conflictDomain: "eye-color" });
     }
     for (const [pattern, tag] of HAIR_COLOR_TAGS) {
-      if (pattern.test(segment) || pattern.test(text2))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "hair-color", value: tag, conflictDomain: "hair-color" });
+      if (pattern.test(segment) || pattern.test(text))
+        addCanonicalRow(rows, { layer: "visual-identity", category: "hair-color", value: tag, conflictDomain: "hair-color" });
     }
     for (const [pattern, tag] of EYE_COLOR_TAGS) {
-      if (pattern.test(segment) || pattern.test(text2))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "eye-color", value: tag, conflictDomain: "eye-color" });
+      if (pattern.test(segment) || pattern.test(text))
+        addCanonicalRow(rows, { layer: "visual-identity", category: "eye-color", value: tag, conflictDomain: "eye-color" });
     }
-    const metricHeight = text2.match(/\b\d{2,3}\s*cm(?:\s+tall)?\b/i)?.[0];
-    const imperialHeight = text2.match(/\b\d(?:\.\d+)?\s*(?:ft|feet|foot)(?:\s*\d{1,2}\s*(?:in|inches?))?(?:\s+tall)?\b/i)?.[0];
+    const metricHeight = text.match(/\b\d{2,3}\s*cm(?:\s+tall)?\b/i)?.[0];
+    const imperialHeight = text.match(/\b\d(?:\.\d+)?\s*(?:ft|feet|foot)(?:\s*\d{1,2}\s*(?:in|inches?))?(?:\s+tall)?\b/i)?.[0];
     const height = metricHeight || imperialHeight;
     if (height)
-      addCanonicalRow(rows2, { layer: "visual-identity", category: "height", value: canonicalTag(height), conflictDomain: "height" });
+      addCanonicalRow(rows, { layer: "visual-identity", category: "height", value: canonicalTag(height), conflictDomain: "height" });
     for (const [pattern, tag] of HAIR_LENGTH_TAGS) {
-      if (pattern.test(segment) || pattern.test(text2))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "hair-length", value: tag, conflictDomain: `hair-length:${domainTag(tag)}` });
+      if (pattern.test(segment) || pattern.test(text))
+        addCanonicalRow(rows, { layer: "visual-identity", category: "hair-length", value: tag, conflictDomain: `hair-length:${domainTag(tag)}` });
     }
     for (const [pattern, tag] of HAIR_TEXTURE_TAGS) {
-      if (pattern.test(segment) || pattern.test(text2))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "hair-texture", value: tag, conflictDomain: `hair-texture:${domainTag(tag)}` });
+      if (pattern.test(segment) || pattern.test(text))
+        addCanonicalRow(rows, { layer: "visual-identity", category: "hair-texture", value: tag, conflictDomain: `hair-texture:${domainTag(tag)}` });
     }
     for (const [pattern, tag] of BODY_TAGS) {
-      if (pattern.test(segment) || pattern.test(text2))
-        addCanonicalRow(rows2, { layer: "visual-identity", category: "body-build", value: tag, conflictDomain: `body:${domainTag(tag)}` });
+      if (pattern.test(segment) || pattern.test(text))
+        addCanonicalRow(rows, { layer: "visual-identity", category: "body-build", value: tag, conflictDomain: `body:${domainTag(tag)}` });
     }
     if (/\bwinged\s+eyeliner\b|\bwinged_eyeliner\b/i.test(segment)) {
-      addCanonicalRow(rows2, { layer: "visual-identity", category: stableCategoryOverride || "other", value: "winged_eyeliner", conflictDomain: "makeup:eyeliner" });
+      addCanonicalRow(rows, { layer: "visual-identity", category: stableCategoryOverride || "other", value: "winged_eyeliner", conflictDomain: "makeup:eyeliner" });
     }
     if (/\b(?:manhwa\s+lashes|long\s+eyelashes|long\s+lashes)\b|\blong_eyelashes\b/i.test(segment)) {
-      addCanonicalRow(rows2, { layer: "visual-identity", category: stableCategoryOverride || "other", value: "long_eyelashes", conflictDomain: "feature:eyelashes" });
+      addCanonicalRow(rows, { layer: "visual-identity", category: stableCategoryOverride || "other", value: "long_eyelashes", conflictDomain: "feature:eyelashes" });
     }
     if (/\b(?:beauty\s+mark|mole)\b.*\b(?:under|beneath|below|outer\s+corner).*\b(?:eye|right\s+eye|left\s+eye)\b|\bbeauty_mark_under_eye\b/i.test(segment)) {
-      addCanonicalRow(rows2, { layer: "visual-identity", category: "mole", value: "beauty_mark_under_eye", conflictDomain: "mark:under-eye" });
+      addCanonicalRow(rows, { layer: "visual-identity", category: "mole", value: "beauty_mark_under_eye", conflictDomain: "mark:under-eye" });
     } else if (/\b(?:beauty\s+mark|mole)\b/i.test(segment)) {
-      addCanonicalRow(rows2, { layer: "visual-identity", category: "mole", value: "beauty_mark", conflictDomain: "mark:mole" });
+      addCanonicalRow(rows, { layer: "visual-identity", category: "mole", value: "beauty_mark", conflictDomain: "mark:mole" });
     }
     if (/\bfreckles\b/i.test(segment))
-      addCanonicalRow(rows2, { layer: "visual-identity", category: "permanent-mark", value: "freckles", conflictDomain: "mark:freckles" });
+      addCanonicalRow(rows, { layer: "visual-identity", category: "permanent-mark", value: "freckles", conflictDomain: "mark:freckles" });
     if (/\b(?:eye)?glasses\b|\bspectacles\b/i.test(segment))
-      addCanonicalRow(rows2, { layer: "visual-identity", category: "other", value: "glasses", conflictDomain: "feature:glasses" });
+      addCanonicalRow(rows, { layer: "visual-identity", category: "other", value: "glasses", conflictDomain: "feature:glasses" });
     if (/\b(?:eyebrow|brow)\s+scar\b|\bscar\b.*\b(?:eyebrow|brow)\b/i.test(segment))
-      addCanonicalRow(rows2, { layer: "visual-identity", category: "scar", value: "eyebrow_scar", conflictDomain: "scar:eyebrow" });
+      addCanonicalRow(rows, { layer: "visual-identity", category: "scar", value: "eyebrow_scar", conflictDomain: "scar:eyebrow" });
     else if (/\bscar\b/i.test(segment))
-      addCanonicalRow(rows2, { layer: "visual-identity", category: "scar", value: canonicalTag(segment).includes("scar") ? canonicalTag(segment).replace(/^.*?(scar(?:_[a-z0-9]+){0,4}).*$/, "$1") : "scar" });
+      addCanonicalRow(rows, { layer: "visual-identity", category: "scar", value: canonicalTag(segment).includes("scar") ? canonicalTag(segment).replace(/^.*?(scar(?:_[a-z0-9]+){0,4}).*$/, "$1") : "scar" });
   }
   if (allowWardrobe) {
     for (const [pattern, tag] of WARDROBE_TAGS) {
-      if (pattern.test(segment) || pattern.test(text2))
-        addCanonicalRow(rows2, { layer: "wardrobe", category: wardrobeCategoryOverride || wardrobeCategory(text2), value: tag, conflictDomain: `outfit:${domainTag(tag)}` });
+      if (pattern.test(segment) || pattern.test(text))
+        addCanonicalRow(rows, { layer: "wardrobe", category: wardrobeCategoryOverride || wardrobeCategory(text), value: tag, conflictDomain: `outfit:${domainTag(tag)}` });
     }
-    if (!rows2.some((row) => row.layer === "wardrobe") && (CLOTHING_RE.test(text2) || requestedLayer === "wardrobe")) {
-      const stripped = clean2(text2).replace(/^(?:a|an|the)\s+/i, "");
+    if (!rows.some((row) => row.layer === "wardrobe") && (CLOTHING_RE.test(text) || requestedLayer === "wardrobe")) {
+      const stripped = clean2(text).replace(/^(?:a|an|the)\s+/i, "");
       const tag = canonicalTag(stripped);
       if (tag && tag.length <= 48 && !/\b(?:because|while|looked|under|scene|prompt|metadata)\b/i.test(stripped)) {
-        addCanonicalRow(rows2, { layer: "wardrobe", category: wardrobeCategoryOverride || wardrobeCategory(text2), value: tag, conflictDomain: `outfit:${domainTag(tag)}` });
+        addCanonicalRow(rows, { layer: "wardrobe", category: wardrobeCategoryOverride || wardrobeCategory(text), value: tag, conflictDomain: `outfit:${domainTag(tag)}` });
       }
     }
   }
   if (allowCurrent) {
-    if (/\b(?:medical|athletic)?\s*compression\s+tape\b.*\b(?:lower\s+)?ribs?\b|\bbandag(?:e|ed|ing)\b.*\b(?:lower\s+)?ribs?\b|\bbandaged_ribs\b/i.test(text2)) {
-      addCanonicalRow(rows2, { layer: "current-appearance", category: "temporary-injury", value: "bandaged_ribs", conflictDomain: "injury-wrap:ribs" });
-    } else if (TEMPORARY_RE.test(text2)) {
-      const tag = canonicalTag(text2);
+    if (/\b(?:medical|athletic)?\s*compression\s+tape\b.*\b(?:lower\s+)?ribs?\b|\bbandag(?:e|ed|ing)\b.*\b(?:lower\s+)?ribs?\b|\bbandaged_ribs\b/i.test(text)) {
+      addCanonicalRow(rows, { layer: "current-appearance", category: "temporary-injury", value: "bandaged_ribs", conflictDomain: "injury-wrap:ribs" });
+    } else if (TEMPORARY_RE.test(text)) {
+      const tag = canonicalTag(text);
       if (tag)
-        addCanonicalRow(rows2, { layer: "current-appearance", category: requestedCategory && isCategoryAllowedForLayer("current-appearance", requestedCategory) ? requestedCategory : temporaryCategory(text2), value: tag });
+        addCanonicalRow(rows, { layer: "current-appearance", category: requestedCategory && isCategoryAllowedForLayer("current-appearance", requestedCategory) ? requestedCategory : temporaryCategory(text), value: tag });
     }
   }
-  return rows2;
+  return rows;
 }
 function canonicalizeAppearanceFactInput(input) {
   if (input.layer === "current-appearance" && isSceneActionOnlyAppearanceValue(input.value, input.category))
     return [];
-  const rows2 = [];
+  const rows = [];
   const segments = splitAppearanceSegments(input.value);
   const analyzedSegments = segments.map((segment) => ({ segment, rows: canonicalRowsForSegment(segment, input.layer, input.category) }));
   const hasRecognizedSegment = analyzedSegments.some((segment) => segment.rows.length > 0);
   for (const { segment, rows: segmentRows } of analyzedSegments) {
     for (const row of segmentRows)
-      addCanonicalRow(rows2, {
+      addCanonicalRow(rows, {
         ...row,
         conflictDomain: segments.length === 1 ? clean2(input.conflictDomain) || row.conflictDomain : row.conflictDomain
       });
@@ -5805,10 +5816,10 @@ function canonicalizeAppearanceFactInput(input) {
     const value = authoredCanonicalTag ? authored.toLocaleLowerCase() : authored;
     const authoredAuthority = Boolean(input.semanticAuthority) || input.sourceType === "manual";
     if (value && value.length <= 160 && (authoredCanonicalTag || authoredAuthority)) {
-      const text2 = value.replace(/_/g, " ");
-      const classification = classifyAppearanceValue(text2, input.category);
+      const text = value.replace(/_/g, " ");
+      const classification = classifyAppearanceValue(text, input.category);
       if (classification.layer === input.layer || Boolean(input.semanticAuthority)) {
-        addCanonicalRow(rows2, {
+        addCanonicalRow(rows, {
           layer: input.layer,
           category: isCategoryAllowedForLayer(input.layer, input.category) ? input.category : classification.category || input.category,
           value,
@@ -5818,7 +5829,7 @@ function canonicalizeAppearanceFactInput(input) {
       }
     }
   }
-  return rows2.sort((left, right) => {
+  return rows.sort((left, right) => {
     const leftRequested = Number(left.layer === input.layer && left.category === input.category);
     const rightRequested = Number(right.layer === input.layer && right.category === input.category);
     return rightRequested - leftRequested;
@@ -5830,28 +5841,28 @@ function semanticFactIdentityKey(layer, characterId, category, value, conflictDo
   return `${layer}:${characterId}:${category}:${conflictDomain || "legacy"}:${normalizeValue(value)}`;
 }
 function currentAppearanceDomain(fact) {
-  const text2 = clean2(fact.value).replace(/_/g, " ").toLocaleLowerCase();
-  if (fact.category === "temporary-hair" || /\b(?:hair|bangs|ponytail|braid|bun|wet|drying|dry|damp|loose|curled?|wavy)\b/.test(text2))
+  const text = clean2(fact.value).replace(/_/g, " ").toLocaleLowerCase();
+  if (fact.category === "temporary-hair" || /\b(?:hair|bangs|ponytail|braid|bun|wet|drying|dry|damp|loose|curled?|wavy)\b/.test(text))
     return "current:hair-state";
-  if (fact.category === "temporary-makeup" || /\b(?:makeup|eyeliner|liner|mascara|lipstick|washed away|smudged)\b/.test(text2))
+  if (fact.category === "temporary-makeup" || /\b(?:makeup|eyeliner|liner|mascara|lipstick|washed away|smudged)\b/.test(text))
     return "current:makeup-state";
-  if (fact.category === "temporary-injury" || /\b(?:bruise|blood|bandage|injur|swollen|scratch|cut lip)\b/.test(text2))
+  if (fact.category === "temporary-injury" || /\b(?:bruise|blood|bandage|injur|swollen|scratch|cut lip)\b/.test(text))
     return "current:injury-state";
-  if (fact.category === "temporary-clothing-state" || /\b(?:torn|damaged|muddy|wet clothing|soaked clothing)\b/.test(text2))
+  if (fact.category === "temporary-clothing-state" || /\b(?:torn|damaged|muddy|wet clothing|soaked clothing)\b/.test(text))
     return "current:clothing-state";
-  if (fact.category === "temporary-accessory" || /\baccessor/i.test(text2))
+  if (fact.category === "temporary-accessory" || /\baccessor/i.test(text))
     return "current:accessory-state";
   return `current:${fact.category}`;
 }
 function isSceneActionOnlyAppearanceValue(value, category) {
-  const text2 = clean2(value).replace(/_/g, " ").toLocaleLowerCase();
-  if (!text2)
+  const text = clean2(value).replace(/_/g, " ").toLocaleLowerCase();
+  if (!text)
     return false;
-  const visualState = /\b(?:wet|drying|dry|damp|loose|curled?|wavy|makeup|eyeliner|liner|mascara|washed away|smudged|bandage|bruise|blood|injur|swollen|scratch|torn|damaged|muddy|barefoot|hair|eyes?|scar|mole|tattoo|birthmark|freckles|skin)\b/.test(text2);
-  const staging = /\b(?:standing|sitting|running|walking|fled|holding|watching|leaning|lying|kneeling|by the door|floor cushion|center room|tea in hand|folder|stage|van bench|shoulder|room)\b/.test(text2);
+  const visualState = /\b(?:wet|drying|dry|damp|loose|curled?|wavy|makeup|eyeliner|liner|mascara|washed away|smudged|bandage|bruise|blood|injur|swollen|scratch|torn|damaged|muddy|barefoot|hair|eyes?|scar|mole|tattoo|birthmark|freckles|skin)\b/.test(text);
+  const staging = /\b(?:standing|sitting|running|walking|fled|holding|watching|leaning|lying|kneeling|by the door|floor cushion|center room|tea in hand|folder|stage|van bench|shoulder|room)\b/.test(text);
   if (staging && !visualState)
     return true;
-  if (staging && category === "temporary-expression" && !/\b(?:tear|flushed|smile|frown|angry|sad|afraid|expression|makeup|hair|injur|bandage|blood|bruise)\b/.test(text2))
+  if (staging && category === "temporary-expression" && !/\b(?:tear|flushed|smile|frown|angry|sad|afraid|expression|makeup|hair|injur|bandage|blood|bruise)\b/.test(text))
     return true;
   return false;
 }
@@ -5867,10 +5878,10 @@ var APPEARANCE_TRAIT_PATTERNS = [
   /\b(?:red[- ]rimmed eyes|tear[- ]streaked (?:face|cheeks)|wet hair|dishevelled hair|disheveled hair|smudged makeup|cut lip|torn clothing|damaged clothing|bloody [\p{L}-]+|bruised? [\p{L}-]+|bandaged [\p{L}-]+|swollen [\p{L}-]+|scratched [\p{L}-]+|muddy [\p{L}-]+|sweaty skin)\b/giu
 ];
 function extractAppearanceTraitPhrases(input) {
-  const text2 = clean2(input).replace(/<[^>]+>/g, " ").replace(/!\[[^\]]*\]\([^)]*\)/g, " ").replace(/\[[^\]]+\]\([^)]*\)/g, " ").replace(/[`*_~#>]+/g, " ").replace(/\s+/g, " ").trim();
-  if (!text2)
+  const text = clean2(input).replace(/<[^>]+>/g, " ").replace(/!\[[^\]]*\]\([^)]*\)/g, " ").replace(/\[[^\]]+\]\([^)]*\)/g, " ").replace(/[`*_~#>]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!text)
     return [];
-  const sentences = text2.split(/(?<=[.!?])\s+|\n+/).map(clean2).filter(Boolean);
+  const sentences = text.split(/(?<=[.!?])\s+|\n+/).map(clean2).filter(Boolean);
   const output = [];
   const seen = new Set;
   for (const sourceSentence of sentences) {
@@ -5928,8 +5939,8 @@ function normalizeContinuityVault(value, chatId = "", sourceSchemaVersion = 1) {
   vault.suggestions = normalizeSuggestions(raw.suggestions);
   vault.quarantine = normalizeQuarantine(raw.quarantine);
   vault.history = Array.isArray(raw.history) ? raw.history.map(normalizeHistory).filter(Boolean) : [];
-  for (const [id, value2] of Object.entries(asRecord(raw.characters))) {
-    const character = asRecord(value2);
+  for (const [id, value] of Object.entries(asRecord(raw.characters))) {
+    const character = asRecord(value);
     if (!isUnresolvedAppearanceRole(clean2(character.canonicalCharacterName || character.name)))
       continue;
     const characterId = clean2(character.canonicalCharacterId) || id;
@@ -5969,15 +5980,15 @@ function isValidCanonicalCharacterName(value) {
     return false;
   if (isUnresolvedAppearanceRole(name))
     return false;
-  const normalized2 = normalizeAlias(name);
-  if (INVALID_SUBJECTS.has(normalized2))
+  const normalized = normalizeAlias(name);
+  if (INVALID_SUBJECTS.has(normalized))
     return false;
   if (STYLE_RE.test(name) || CAMERA_RE.test(name))
     return false;
-  const words2 = name.split(/\s+/).filter(Boolean);
-  if (words2.length > 4)
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length > 4)
     return false;
-  if (words2.some((word) => INVALID_SUBJECTS.has(normalizeAlias(word))))
+  if (words.some((word) => INVALID_SUBJECTS.has(normalizeAlias(word))))
     return false;
   return /[\p{L}]/u.test(name) && !/^\d+$/.test(name);
 }
@@ -6000,9 +6011,9 @@ function registerCanonicalCharacter(vault, input, now = Date.now()) {
   const name = clean2(input.name);
   if (!isValidCanonicalCharacterName(name))
     throw new Error(`Invalid canonical character name: ${name || "(empty)"}`);
-  const byId = (input.canonicalCharacterId ? vault.characters[input.canonicalCharacterId] : undefined) || Object.values(vault.characters).find((character2) => input.lumiversePersonaId && character2.lumiversePersonaId === input.lumiversePersonaId || input.lumiverseCharacterId && character2.lumiverseCharacterId === input.lumiverseCharacterId);
+  const byId = (input.canonicalCharacterId ? vault.characters[input.canonicalCharacterId] : undefined) || Object.values(vault.characters).find((character) => input.lumiversePersonaId && character.lumiversePersonaId === input.lumiversePersonaId || input.lumiverseCharacterId && character.lumiverseCharacterId === input.lumiverseCharacterId);
   const names = [name, ...stringList(input.aliases)];
-  const namedMatches = [...new Set(names.map((candidate) => resolveCanonicalCharacter(vault, candidate)).filter((character2) => Boolean(character2)))].filter((character2) => !(input.lumiversePersonaId && character2.lumiversePersonaId && input.lumiversePersonaId !== character2.lumiversePersonaId) && !(input.lumiverseCharacterId && character2.lumiverseCharacterId && input.lumiverseCharacterId !== character2.lumiverseCharacterId));
+  const namedMatches = [...new Set(names.map((candidate) => resolveCanonicalCharacter(vault, candidate)).filter((character) => Boolean(character)))].filter((character) => !(input.lumiversePersonaId && character.lumiversePersonaId && input.lumiversePersonaId !== character.lumiversePersonaId) && !(input.lumiverseCharacterId && character.lumiverseCharacterId && input.lumiverseCharacterId !== character.lumiverseCharacterId));
   const existing = byId || namedMatches[0];
   if (existing) {
     for (const duplicate of namedMatches) {
@@ -6051,44 +6062,44 @@ function registerCanonicalCharacter(vault, input, now = Date.now()) {
   return character;
 }
 function classifyAppearanceValue(value, legacyEntityType = "") {
-  const text2 = clean2(value).replace(/_/g, " ");
+  const text = clean2(value).replace(/_/g, " ");
   const legacy = clean2(legacyEntityType).toLocaleLowerCase();
-  if (!text2)
+  if (!text)
     return { kind: "invalid-unresolved", reason: "Empty appearance value." };
-  if (STYLE_RE.test(text2) && !STABLE_RE.test(text2) && !CLOTHING_RE.test(text2) && !TEMPORARY_RE.test(text2)) {
+  if (STYLE_RE.test(text) && !STABLE_RE.test(text) && !CLOTHING_RE.test(text) && !TEMPORARY_RE.test(text)) {
     return { kind: "style-rendering", reason: "Rendering/style language is prompt metadata, not character memory." };
   }
-  if (CAMERA_RE.test(text2) && !STABLE_RE.test(text2) && !CLOTHING_RE.test(text2) && !TEMPORARY_RE.test(text2)) {
+  if (CAMERA_RE.test(text) && !STABLE_RE.test(text) && !CLOTHING_RE.test(text) && !TEMPORARY_RE.test(text)) {
     return { kind: "camera-composition", reason: "Camera and composition language is prompt metadata." };
   }
-  if (ACTION_RE.test(text2) && !STABLE_RE.test(text2) && !CLOTHING_RE.test(text2) && !TEMPORARY_RE.test(text2)) {
+  if (ACTION_RE.test(text) && !STABLE_RE.test(text) && !CLOTHING_RE.test(text) && !TEMPORARY_RE.test(text)) {
     return { kind: "pose-action", reason: "Pose/action language is not appearance memory." };
   }
-  if (TEMPORARY_RE.test(text2) || /injury|temporary|expression/.test(legacy)) {
+  if (TEMPORARY_RE.test(text) || /injury|temporary|expression/.test(legacy)) {
     return {
       kind: "current-appearance",
       layer: "current-appearance",
-      category: temporaryCategory(text2),
+      category: temporaryCategory(text),
       reason: "Temporary emotional, injury, makeup, hair, or clothing state belongs to Scene Appearance."
     };
   }
-  if (CLOTHING_RE.test(text2) || /clothing|accessory|wardrobe/.test(legacy)) {
+  if (CLOTHING_RE.test(text) || /clothing|accessory|wardrobe/.test(legacy)) {
     return {
       kind: "wardrobe",
       layer: "wardrobe",
-      category: wardrobeCategory(text2),
+      category: wardrobeCategory(text),
       reason: "Clothing and accessories belong to Wardrobe rather than biological identity."
     };
   }
-  if (STABLE_RE.test(text2) || /character-appearance|hairstyle|permanent/.test(legacy)) {
+  if (STABLE_RE.test(text) || /character-appearance|hairstyle|permanent/.test(legacy)) {
     return {
       kind: "stable-identity",
       layer: "visual-identity",
-      category: stableCategory(text2),
+      category: stableCategory(text),
       reason: "Stable physical identity anchor."
     };
   }
-  if (/\b(?:smile|frown|angry|sad|happy|afraid|tearful|expression)\b/i.test(text2)) {
+  if (/\b(?:smile|frown|angry|sad|happy|afraid|tearful|expression)\b/i.test(text)) {
     return { kind: "expression", reason: "Expression is scene metadata unless explicitly stored as temporary state." };
   }
   return { kind: "invalid-unresolved", reason: "The value could not be safely classified as stable identity, wardrobe, or current appearance." };
@@ -6173,15 +6184,15 @@ function addCanonicalAppearanceFact(vault, input, now = Date.now(), options = {}
   return fact;
 }
 function addAppearanceFacts(vault, input, now = Date.now()) {
-  const rows2 = canonicalizeAppearanceFactInput(input);
-  if (!rows2.length)
+  const rows = canonicalizeAppearanceFactInput(input);
+  if (!rows.length)
     throw new Error("Appearance value could not be normalized into canonical appearance tags.");
-  return addCanonicalAppearanceRows(vault, input, rows2, now);
+  return addCanonicalAppearanceRows(vault, input, rows, now);
 }
-function addCanonicalAppearanceRows(vault, input, rows2, now, preserveInputOrder = false) {
-  const currentWardrobeBatch = input.layer === "wardrobe" && input.currentWardrobe && rows2.some((row) => row.layer === "wardrobe");
+function addCanonicalAppearanceRows(vault, input, rows, now, preserveInputOrder = false) {
+  const currentWardrobeBatch = input.layer === "wardrobe" && input.currentWardrobe && rows.some((row) => row.layer === "wardrobe");
   const saved = [];
-  for (const [index, row] of rows2.entries()) {
+  for (const [index, row] of rows.entries()) {
     saved.push(addCanonicalAppearanceFact(vault, {
       ...input,
       layer: row.layer,
@@ -6428,16 +6439,16 @@ function selectContinuityForSubjects(vault, input, now = Date.now()) {
   const grouped = new Map;
   for (const fact of resolvedEligible) {
     const key = `${fact.canonicalCharacterId}:${conflictCategory(fact.category, fact.value, fact.conflictDomain)}`;
-    const rows2 = grouped.get(key) || [];
-    rows2.push(fact);
-    grouped.set(key, rows2);
+    const rows = grouped.get(key) || [];
+    rows.push(fact);
+    grouped.set(key, rows);
   }
   const winners = [];
-  for (const rows2 of grouped.values()) {
-    rows2.sort(compareFactPriority);
-    const take = rows2[0];
+  for (const rows of grouped.values()) {
+    rows.sort(compareFactPriority);
+    const take = rows[0];
     winners.push(take);
-    for (const loser of rows2.slice(1)) {
+    for (const loser of rows.slice(1)) {
       const conflict = `Preferred ${take.factId} over ${loser.factId} for ${take.canonicalCharacterName} / ${conflictCategory(take.category, take.value, take.conflictDomain)}.`;
       conflicts.push(conflict);
       excluded.push({ factId: loser.factId, included: false, reason: "Superseded by a higher-priority relevant fact.", conflict });
@@ -6591,9 +6602,9 @@ function projectContinuityForGeneration(vault, input, now = Date.now()) {
   const perSubjectLimit = strength === "strong" ? 6 : strength === "medium" ? 5 : strength === "low" ? 3 : 0;
   const capped = [];
   for (const characterId of base.subjectCharacterIds) {
-    const rows2 = projectedIncluded.filter((fact) => fact.canonicalCharacterId === characterId).sort((left, right) => projectedFactPriority(left) - projectedFactPriority(right) || compareFactPriority(left, right));
-    capped.push(...rows2.slice(0, perSubjectLimit));
-    for (const fact of rows2.slice(perSubjectLimit)) {
+    const rows = projectedIncluded.filter((fact) => fact.canonicalCharacterId === characterId).sort((left, right) => projectedFactPriority(left) - projectedFactPriority(right) || compareFactPriority(left, right));
+    capped.push(...rows.slice(0, perSubjectLimit));
+    for (const fact of rows.slice(perSubjectLimit)) {
       projectedExcluded.push({ factId: fact.factId, included: false, reason: `Omitted by ${strength} generation projection limit of ${perSubjectLimit} facts per visible subject.` });
     }
   }
@@ -6627,16 +6638,16 @@ function appearanceFactDescriptor(fact) {
 function formatSelectedAppearanceFacts(facts) {
   const byCharacter = new Map;
   for (const fact of dedupeResolvedAppearanceFacts(facts)) {
-    const rows2 = byCharacter.get(fact.canonicalCharacterId) || [];
-    rows2.push(fact);
-    byCharacter.set(fact.canonicalCharacterId, rows2);
+    const rows = byCharacter.get(fact.canonicalCharacterId) || [];
+    rows.push(fact);
+    byCharacter.set(fact.canonicalCharacterId, rows);
   }
   const sections = [];
-  for (const rows2 of byCharacter.values()) {
-    const name = rows2[0]?.canonicalCharacterName || "Character";
-    const identity = rows2.filter((fact) => fact.layer === "visual-identity");
-    const wardrobe = rows2.filter((fact) => fact.layer === "wardrobe");
-    const current = rows2.filter((fact) => fact.layer === "current-appearance");
+  for (const rows of byCharacter.values()) {
+    const name = rows[0]?.canonicalCharacterName || "Character";
+    const identity = rows.filter((fact) => fact.layer === "visual-identity");
+    const wardrobe = rows.filter((fact) => fact.layer === "wardrobe");
+    const current = rows.filter((fact) => fact.layer === "current-appearance");
     sections.push([
       `${name}:`,
       identity.length ? `  Appearance booru tags: ${identity.map(appearanceFactDescriptor).join("; ")}` : "",
@@ -6675,8 +6686,8 @@ function compileAppearancePromptFacts(facts, authoritativeScene = "") {
   const byCharacter = new Map;
   for (const fact of dedupeResolvedAppearanceFacts(facts)) {
     const readable = fact.value.replace(/_/g, " ");
-    const normalized2 = normalizedPromptFragment(readable);
-    if (normalized2 && normalizedScene.includes(normalized2))
+    const normalized = normalizedPromptFragment(readable);
+    if (normalized && normalizedScene.includes(normalized))
       continue;
     if (sceneSaysFootwear && BAREFOOT_RE.test(readable))
       continue;
@@ -6692,15 +6703,15 @@ function compileAppearancePromptFacts(facts, authoritativeScene = "") {
       continue;
     if (sceneSaysWet && DRY_STATE_RE.test(readable))
       continue;
-    const rows2 = byCharacter.get(fact.canonicalCharacterId) || [];
-    rows2.push(fact);
-    byCharacter.set(fact.canonicalCharacterId, rows2);
+    const rows = byCharacter.get(fact.canonicalCharacterId) || [];
+    rows.push(fact);
+    byCharacter.set(fact.canonicalCharacterId, rows);
   }
   const blocks = [];
-  for (const rows2 of byCharacter.values()) {
+  for (const rows of byCharacter.values()) {
     const seen = new Set;
     const descriptors = [];
-    for (const fact of rows2) {
+    for (const fact of rows) {
       const value = fact.value.trim();
       const key = normalizedPromptFragment(value);
       if (!key || seen.has(key))
@@ -6709,7 +6720,7 @@ function compileAppearancePromptFacts(facts, authoritativeScene = "") {
       descriptors.push(value);
     }
     if (descriptors.length)
-      blocks.push(`${rows2[0]?.canonicalCharacterName || "subject"}, ${descriptors.join(", ")}`);
+      blocks.push(`${rows[0]?.canonicalCharacterName || "subject"}, ${descriptors.join(", ")}`);
   }
   return blocks.join("; ");
 }
@@ -6721,8 +6732,8 @@ function mergeAppearancePromptFacts(basePrompt, facts, authoritativeScene = "") 
   const additions = compiled.split(/\s*;\s*/).map((block) => {
     const [subject = "", ...rawDescriptors] = block.split(/\s*,\s*/);
     const descriptors = rawDescriptors.filter((descriptor) => {
-      const normalized2 = normalizedPromptFragment(descriptor);
-      return normalized2 && !base.includes(normalized2);
+      const normalized = normalizedPromptFragment(descriptor);
+      return normalized && !base.includes(normalized);
     });
     if (!descriptors.length)
       return "";
@@ -6745,21 +6756,21 @@ function dedupeResolvedAppearanceFacts(facts) {
     if (fact.layer === "current-appearance" && isSceneActionOnlyAppearanceValue(fact.value, fact.category))
       continue;
     const key = fact.layer === "visual-identity" ? `${fact.canonicalCharacterId}:${fact.layer}:${conflictCategory(fact.category, fact.value, fact.conflictDomain)}` : fact.layer === "current-appearance" ? `${fact.canonicalCharacterId}:${fact.layer}:${currentAppearanceDomain(fact)}` : `${fact.canonicalCharacterId}:${fact.layer}:${conflictCategory(fact.category, fact.value, fact.conflictDomain)}`;
-    const rows2 = groups.get(key) || [];
-    rows2.push(fact);
-    groups.set(key, rows2);
+    const rows = groups.get(key) || [];
+    rows.push(fact);
+    groups.set(key, rows);
   }
-  return [...groups.values()].map((rows2) => rows2.sort((left, right) => {
+  return [...groups.values()].map((rows) => rows.sort((left, right) => {
     if (left.layer === "current-appearance" || right.layer === "current-appearance")
       return right.updatedAt - left.updatedAt || compareFactPriority(left, right);
     return compareSemanticFacts(left, right);
   })[0]);
 }
 function appearanceMemoryView(vault, characterId) {
-  const active = (facts2) => {
-    const rows2 = dedupeResolvedAppearanceFacts(facts2.filter((fact) => fact.canonicalCharacterId === characterId && fact.status === "active" && (fact.layer !== "current-appearance" || fact.active !== false)).sort(compareFactPriority));
+  const active = (facts) => {
+    const rows = dedupeResolvedAppearanceFacts(facts.filter((fact) => fact.canonicalCharacterId === characterId && fact.status === "active" && (fact.layer !== "current-appearance" || fact.active !== false)).sort(compareFactPriority));
     const byConflict = new Map;
-    for (const fact of rows2) {
+    for (const fact of rows) {
       const key = fact.layer === "visual-identity" ? `${fact.layer}:${conflictCategory(fact.category, fact.value, fact.conflictDomain)}` : fact.layer === "current-appearance" ? `${fact.layer}:${currentAppearanceDomain(fact)}` : `${fact.layer}:${conflictCategory(fact.category, fact.value, fact.conflictDomain)}`;
       if (!byConflict.has(key))
         byConflict.set(key, fact);
@@ -7416,7 +7427,7 @@ function normalizeFactMap(value, layer, characters) {
       continue;
     const sourceReference = normalizeSourceReference(raw.sourceReference, raw.sourceType);
     const sourceType = sourceReference.sourceType;
-    const rows2 = canonicalizeAppearanceFactInput({
+    const rows = canonicalizeAppearanceFactInput({
       layer,
       characterId,
       category,
@@ -7425,7 +7436,7 @@ function normalizeFactMap(value, layer, characters) {
       sourceType,
       semanticAuthority: "legacy-migration"
     });
-    for (const row of rows2) {
+    for (const row of rows) {
       if (row.layer !== layer)
         continue;
       const conflictDomain = isValidConflictDomain(clean2(row.conflictDomain)) ? clean2(row.conflictDomain) : undefined;
@@ -7666,9 +7677,9 @@ function canonicalizeResolvedAppearanceState(vault, now = Date.now()) {
     if (fact.status !== "active")
       continue;
     const key = `${fact.canonicalCharacterId}:${conflictCategory(fact.category, fact.value, fact.conflictDomain)}`;
-    const rows2 = stableGroups.get(key) || [];
-    rows2.push(fact);
-    stableGroups.set(key, rows2);
+    const rows = stableGroups.get(key) || [];
+    rows.push(fact);
+    stableGroups.set(key, rows);
   }
   for (const facts of stableGroups.values()) {
     if (facts.length < 2)
@@ -7701,9 +7712,9 @@ function canonicalizeResolvedAppearanceState(vault, now = Date.now()) {
     if (fact.status !== "active" || fact.active === false)
       continue;
     const key = `${fact.canonicalCharacterId}:${currentAppearanceDomain(fact)}`;
-    const rows2 = currentGroups.get(key) || [];
-    rows2.push(fact);
-    currentGroups.set(key, rows2);
+    const rows = currentGroups.get(key) || [];
+    rows.push(fact);
+    currentGroups.set(key, rows);
   }
   for (const facts of currentGroups.values()) {
     if (facts.length < 2)
@@ -7720,19 +7731,19 @@ function canonicalizeResolvedAppearanceState(vault, now = Date.now()) {
   }
 }
 function appearanceOverrideDomains(value, category) {
-  const text2 = clean2(value).replace(/_/g, " ");
+  const text = clean2(value).replace(/_/g, " ");
   const domains = new Set;
-  if (category === "eye-color" || EYE_COLOR_RE.test(text2))
+  if (category === "eye-color" || EYE_COLOR_RE.test(text))
     domains.add("eye-color");
-  if (category === "hair-color" || HAIR_COLOR_RE.test(text2) || /\bhair\s+(?:dyed\s+)?(?:black|brown|blonde|blond|white|silver|red|auburn|pink|blue|green|purple|brunette)\b/i.test(text2))
+  if (category === "hair-color" || HAIR_COLOR_RE.test(text) || /\bhair\s+(?:dyed\s+)?(?:black|brown|blonde|blond|white|silver|red|auburn|pink|blue|green|purple|brunette)\b/i.test(text))
     domains.add("hair-color");
-  if (category === "hair-length" || HAIR_LENGTH_RE.test(text2))
+  if (category === "hair-length" || HAIR_LENGTH_RE.test(text))
     domains.add("hair-shape");
-  if (category === "hair-texture" || HAIR_TEXTURE_RE.test(text2))
+  if (category === "hair-texture" || HAIR_TEXTURE_RE.test(text))
     domains.add("hair-shape");
-  if (category === "hairstyle" || category === "temporary-hair" || /(?:hairstyle|haircut|bangs|ponytail|bun|braid)/i.test(text2))
+  if (category === "hairstyle" || category === "temporary-hair" || /(?:hairstyle|haircut|bangs|ponytail|bun|braid)/i.test(text))
     domains.add("hair-shape");
-  if (category === "current-outfit" || category === "base-attire" || category === "saved-outfit" || category === "uniform" || category === "work-attire" || CLOTHING_RE.test(text2))
+  if (category === "current-outfit" || category === "base-attire" || category === "saved-outfit" || category === "uniform" || category === "work-attire" || CLOTHING_RE.test(text))
     domains.add("outfit");
   return [...domains];
 }
@@ -7743,30 +7754,30 @@ function conflictCategory(category, value = "", conflictDomain) {
   const suppliedDomain = clean2(conflictDomain);
   if (/^editor:tag-[a-z0-9-]+$/.test(suppliedDomain))
     return suppliedDomain;
-  const text2 = normalizeValue(value);
-  if (category === "hair-color" || HAIR_COLOR_RE.test(text2))
+  const text = normalizeValue(value);
+  if (category === "hair-color" || HAIR_COLOR_RE.test(text))
     return "hair-color";
-  if (category === "hair-length" || HAIR_LENGTH_RE.test(text2))
+  if (category === "hair-length" || HAIR_LENGTH_RE.test(text))
     return "hair-length";
-  if (category === "hair-texture" || HAIR_TEXTURE_RE.test(text2))
+  if (category === "hair-texture" || HAIR_TEXTURE_RE.test(text))
     return "hair-texture";
   if (category === "hairstyle")
     return "hairstyle";
-  if (category === "eye-color" || /\b(?:dark|brown|blue|green|grey|gray|hazel|amber|black|violet|pink|red)\s+eyes?\b/i.test(text2))
+  if (category === "eye-color" || /\b(?:dark|brown|blue|green|grey|gray|hazel|amber|black|violet|pink|red)\s+eyes?\b/i.test(text))
     return "eye-color";
-  if (category === "height" || /\b(?:\d{2,3}\s*cm|\d(?:\.\d+)?\s*(?:ft|feet|foot)|tall|short)\b/i.test(text2))
+  if (category === "height" || /\b(?:\d{2,3}\s*cm|\d(?:\.\d+)?\s*(?:ft|feet|foot)|tall|short)\b/i.test(text))
     return "height";
-  if (/\b(?:broad\s+shoulders?|broad\s+shouldered|shoulder\s+width)\b/i.test(text2))
+  if (/\b(?:broad\s+shoulders?|broad\s+shouldered|shoulder\s+width)\b/i.test(text))
     return "body-shoulders";
-  if (category === "body-build" || /\b(?:body\s+build|build|frame|physique|athletic|muscular|slender|slim|lean|petite|stocky)\b/i.test(text2))
+  if (category === "body-build" || /\b(?:body\s+build|build|frame|physique|athletic|muscular|slender|slim|lean|petite|stocky)\b/i.test(text))
     return "body-build";
   if (category === "face-shape")
     return "face-shape";
-  if (/\b(?:eyeliner|eye\s+liner)\b/i.test(text2))
+  if (/\b(?:eyeliner|eye\s+liner)\b/i.test(text))
     return "makeup:eyeliner";
-  if (/\b(?:lip|lips|lipstick)\b/i.test(text2))
+  if (/\b(?:lip|lips|lipstick)\b/i.test(text))
     return `makeup:lips:${semanticTagFingerprint(value).replace(/(?:^|-)lip(?:s|stick)?(?:-|$)/g, "-").replace(/^-|-$/g, "")}`;
-  if (/\b(?:eyelashes|lashes)\b/i.test(text2))
+  if (/\b(?:eyelashes|lashes)\b/i.test(text))
     return "feature:eyelashes";
   if (isValidConflictDomain(suppliedDomain))
     return `sidecar:${suppliedDomain}`;
@@ -7779,58 +7790,58 @@ function conflictCategory(category, value = "", conflictDomain) {
 function isValidConflictDomain(value) {
   return /^[a-z][a-z0-9-]{0,47}(?::[a-z][a-z0-9-]{0,47})?$/.test(value) && value.length <= 96;
 }
-function stableCategory(text2) {
-  if (EYE_COLOR_RE.test(text2))
+function stableCategory(text) {
+  if (EYE_COLOR_RE.test(text))
     return "eye-color";
-  if (HAIR_COLOR_RE.test(text2))
+  if (HAIR_COLOR_RE.test(text))
     return "hair-color";
-  if (HAIR_LENGTH_RE.test(text2))
+  if (HAIR_LENGTH_RE.test(text))
     return "hair-length";
-  if (HAIR_TEXTURE_RE.test(text2))
+  if (HAIR_TEXTURE_RE.test(text))
     return "hair-texture";
-  if (/face shape|jawline|round-faced|sharp-featured/i.test(text2))
+  if (/face shape|jawline|round-faced|sharp-featured/i.test(text))
     return "face-shape";
-  if (/height|\btall\b|\bshort\b/i.test(text2))
+  if (/height|\btall\b|\bshort\b/i.test(text))
     return "height";
-  if (/body build|\bslim\b|\blean\b|\bstocky\b|\bbroad\b|\bpetite\b/i.test(text2))
+  if (/body build|\bslim\b|\blean\b|\bstocky\b|\bbroad\b|\bpetite\b/i.test(text))
     return "body-build";
-  if (/tattoo/i.test(text2))
+  if (/tattoo/i.test(text))
     return "tattoo";
-  if (/birthmark/i.test(text2))
+  if (/birthmark/i.test(text))
     return "birthmark";
-  if (/\bmole\b/i.test(text2))
+  if (/\bmole\b/i.test(text))
     return "mole";
-  if (/prosthetic/i.test(text2))
+  if (/prosthetic/i.test(text))
     return "prosthetic";
-  if (/scar/i.test(text2))
+  if (/scar/i.test(text))
     return "scar";
-  if (PERMANENT_MARK_RE.test(text2))
+  if (PERMANENT_MARK_RE.test(text))
     return "permanent-mark";
   return "other";
 }
-function wardrobeCategory(text2) {
-  if (/uniform/i.test(text2))
+function wardrobeCategory(text) {
+  if (/uniform/i.test(text))
     return "uniform";
-  if (/work attire/i.test(text2))
+  if (/work attire/i.test(text))
     return "work-attire";
-  if (/signature|always wears|earrings?|necklace|bracelet|glasses|hat|scarf/i.test(text2))
+  if (/signature|always wears|earrings?|necklace|bracelet|glasses|hat|scarf/i.test(text))
     return "signature-accessory";
-  if (/current|wearing|dressed|clad/i.test(text2))
+  if (/current|wearing|dressed|clad/i.test(text))
     return "current-outfit";
-  if (/default|base outfit/i.test(text2))
+  if (/default|base outfit/i.test(text))
     return "base-attire";
   return "saved-outfit";
 }
-function temporaryCategory(text2) {
-  if (/bruise|blood|bandage|injur|swollen|scratch|cut lip/i.test(text2))
+function temporaryCategory(text) {
+  if (/bruise|blood|bandage|injur|swollen|scratch|cut lip/i.test(text))
     return "temporary-injury";
-  if (/wet hair|dishevel|temporary hairstyle|hair/i.test(text2))
+  if (/wet hair|dishevel|temporary hairstyle|hair/i.test(text))
     return "temporary-hair";
-  if (/makeup|smudged/i.test(text2))
+  if (/makeup|smudged/i.test(text))
     return "temporary-makeup";
-  if (/clothing|torn|damaged|muddy outfit/i.test(text2))
+  if (/clothing|torn|damaged|muddy outfit/i.test(text))
     return "temporary-clothing-state";
-  if (/accessor/i.test(text2))
+  if (/accessor/i.test(text))
     return "temporary-accessory";
   return "temporary-expression";
 }
@@ -7900,10 +7911,10 @@ function aliasForms(value) {
   if (!name)
     return [];
   const withoutVocative = name.replace(/[-\u2013\u2014](?:ya|ah)$/i, "").replace(/(?:\uC57C|\uC544)$/u, "").trim();
-  const words2 = withoutVocative.split(/\s+/).filter(Boolean);
+  const words = withoutVocative.split(/\s+/).filter(Boolean);
   const forms = [normalizeAlias(name), normalizeAlias(withoutVocative)];
-  if (words2.length >= 2)
-    forms.push(normalizeAlias(words2[words2.length - 1]));
+  if (words.length >= 2)
+    forms.push(normalizeAlias(words[words.length - 1]));
   return unique(forms.filter(Boolean));
 }
 function normalizeAlias(value) {
@@ -7934,9 +7945,9 @@ function stringList(value) {
 function stringRecord(value) {
   const out = {};
   for (const [key, row] of Object.entries(asRecord(value))) {
-    const text2 = clean2(row);
-    if (text2)
-      out[key] = text2;
+    const text = clean2(row);
+    if (text)
+      out[key] = text;
   }
   return out;
 }
@@ -8066,9 +8077,9 @@ function parseSidecarJsonObject(raw) {
 }
 function normalizeAppearanceSidecarOutput(raw) {
   const parsed = parseSidecarJsonObject(raw);
-  const rows2 = Array.isArray(parsed.observations) ? parsed.observations : [];
+  const rows = Array.isArray(parsed.observations) ? parsed.observations : [];
   const observations = [];
-  for (const rawObservation of rows2.slice(0, 24)) {
+  for (const rawObservation of rows.slice(0, 24)) {
     const observation = asRecord2(rawObservation);
     const subject = asRecord2(observation.subject);
     const name = clean3(subject.name);
@@ -8198,11 +8209,11 @@ function buildAppearanceSidecarPayload(input) {
   const persona = input.activePersona ? active(input.activePersona, "persona") : null;
   const lorebook = selectLorebookContext(input.lorebook, query, tier);
   const history = selectHistoryContext(input.fullHistory, input.currentAssistantMessage, tier);
-  const relevantCharacters = Object.values(input.appearanceMemory.characters).filter((character2) => [character2.canonicalCharacterName, character2.canonicalCharacterId, ...character2.aliases].some((name) => name && query.toLowerCase().includes(name.toLowerCase())));
-  const ids = new Set(relevantCharacters.map((character2) => character2.canonicalCharacterId));
+  const relevantCharacters = Object.values(input.appearanceMemory.characters).filter((character) => [character.canonicalCharacterName, character.canonicalCharacterId, ...character.aliases].some((name) => name && query.toLowerCase().includes(name.toLowerCase())));
+  const ids = new Set(relevantCharacters.map((character) => character.canonicalCharacterId));
   const memory = [];
   let memoryChars = 0;
-  for (const fact of dedupeResolvedAppearanceFacts([...Object.values(input.appearanceMemory.visualIdentity), ...Object.values(input.appearanceMemory.wardrobe), ...Object.values(input.appearanceMemory.currentAppearance)]).filter((fact2) => ids.has(fact2.canonicalCharacterId) && fact2.status === "active").sort((a, b) => Number(b.userConfirmed) - Number(a.userConfirmed) || b.updatedAt - a.updatedAt)) {
+  for (const fact of dedupeResolvedAppearanceFacts([...Object.values(input.appearanceMemory.visualIdentity), ...Object.values(input.appearanceMemory.wardrobe), ...Object.values(input.appearanceMemory.currentAppearance)]).filter((fact) => ids.has(fact.canonicalCharacterId) && fact.status === "active").sort((a, b) => Number(b.userConfirmed) - Number(a.userConfirmed) || b.updatedAt - a.updatedAt)) {
     const selected = { subject: fact.canonicalCharacterName, layer: fact.layer, category: fact.category, value: fact.value, userConfirmed: fact.userConfirmed, updatedAt: fact.updatedAt };
     const size = JSON.stringify(selected).length;
     if (memoryChars + size > CONTEXT_LIMITS[tier].memory)
@@ -8302,12 +8313,12 @@ function integer(value, fallback = 0) {
   return Number.isFinite(numeric) ? Math.trunc(numeric) : fallback;
 }
 function parseJsonObject(raw) {
-  const clean4 = String(raw || "").trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-  const start = clean4.indexOf("{");
-  const end = clean4.lastIndexOf("}");
+  const clean = String(raw || "").trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const start = clean.indexOf("{");
+  const end = clean.lastIndexOf("}");
   if (start < 0 || end < start)
     throw new Error("Illustration Director returned no JSON object.");
-  const parsed = JSON.parse(clean4.slice(start, end + 1));
+  const parsed = JSON.parse(clean.slice(start, end + 1));
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
     throw new Error("Illustration Director result must be a JSON object.");
   return parsed;
@@ -8481,10 +8492,10 @@ function dedupeOrdered(values) {
   const seen = new Set;
   const output = [];
   for (const value of values.map(text2).filter(Boolean)) {
-    const normalized2 = key(value);
-    if (seen.has(normalized2))
+    const normalized = key(value);
+    if (seen.has(normalized))
       continue;
-    seen.add(normalized2);
+    seen.add(normalized);
     output.push(value);
   }
   return output;
@@ -8541,8 +8552,8 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.6";
-var BUILD_ID = "20260920-0.2.8.6";
+var EXTENSION_VERSION = "0.2.8.6.1";
+var BUILD_ID = "20260921-0.2.8.6.1";
 
 // src/providerPromptSafety.ts
 class ProviderPromptSafetyError extends Error {
@@ -137882,38 +137893,38 @@ var sortedLegacyXmlScripts = new Map;
 var sortedBracketScripts = new Map;
 var currentBracketPacks = new Map;
 function currentBracketPack(presentation, color) {
-  const key2 = `${presentation}:${color}`;
-  const cached = currentBracketPacks.get(key2);
+  const key = `${presentation}:${color}`;
+  const cached = currentBracketPacks.get(key);
   if (cached)
     return cached;
-  const presentationPack = LEGACY_XML_PACKS[key2];
+  const presentationPack = LEGACY_XML_PACKS[key];
   const matcherPack = BRACKET_MATCHER_PACKS[presentation];
   if (!presentationPack || !matcherPack || presentationPack.scripts.length !== 138 || matcherPack.scripts.length !== 138) {
-    throw new Error(`Invalid Core Surface bracket authority selection: ${key2}`);
+    throw new Error(`Invalid Core Surface bracket authority selection: ${key}`);
   }
   const scripts = presentationPack.scripts.map((script, index) => {
     const matcher = matcherPack.scripts[index];
     if (!matcher || matcher.sort_order !== script.sort_order || matcher.flags !== script.flags) {
-      throw new Error(`Core Surface bracket matcher alignment failed: ${key2} script ${script.script_id}`);
+      throw new Error(`Core Surface bracket matcher alignment failed: ${key} script ${script.script_id}`);
     }
     return { ...script, find_regex: matcher.find_regex };
   });
   const pack = { ...presentationPack, scripts };
-  currentBracketPacks.set(key2, pack);
+  currentBracketPacks.set(key, pack);
   return pack;
 }
 function normalizeR45BracketRuntime(markup) {
   let output = String(markup || "").replace(/\[media\]\s*([\s\S]*?)\s*\[\/media\]/gi, "$1").replace(/\[lc_step\]\s*([\s\S]*?)\s*\[\/lc_step\]/gi, "<lc_step>$1</lc_step>").replace(/(\[med_vital\]\s*\[label\][\s\S]*?\[\/label\])\s*\[value\]\s*([\s\S]*?)\s*\[\/value\](\s*\[\/med_vital\])/gi, "$1$2$3").replace(/\[details\]\s*\[summary\]\s*Amenities\s*\[\/summary\]\s*(\[prop_amenities\][\s\S]*?\[\/prop_amenities\])\s*\[\/details\]/gi, "$1").replace(/\[details\]\s*\[summary\]\s*History\s*\[\/summary\]\s*(\[prop_history\][\s\S]*?\[\/prop_history\])\s*\[\/details\]/gi, "$1");
   output = output.replace(/\[mission_items\]([\s\S]*?)\[\/mission_items\]/gi, (full, body) => {
     let slot = 0;
-    const normalized2 = body.replace(/\[mission_item\]\s*(?!\[slot\])/gi, () => `[mission_item][slot]${++slot}[/slot]`);
-    return full.replace(body, normalized2);
+    const normalized = body.replace(/\[mission_item\]\s*(?!\[slot\])/gi, () => `[mission_item][slot]${++slot}[/slot]`);
+    return full.replace(body, normalized);
   });
   output = output.replace(/\[twip_post\]([\s\S]*?)\[\/twip_post\]/gi, (full, body) => {
-    let normalized2 = body.replace(/\[name\]/i, "[author]").replace(/\[\/name\]/i, "[/author]");
-    if (!/\[verified\]/i.test(normalized2))
-      normalized2 = normalized2.replace(/(\[handle\][\s\S]*?\[\/handle\])/i, "$1[verified][/verified]");
-    return full.replace(body, normalized2);
+    let normalized = body.replace(/\[name\]/i, "[author]").replace(/\[\/name\]/i, "[/author]");
+    if (!/\[verified\]/i.test(normalized))
+      normalized = normalized.replace(/(\[handle\][\s\S]*?\[\/handle\])/i, "$1[verified][/verified]");
+    return full.replace(body, normalized);
   });
   output = output.replace(/\[s_img\]\s*\[side\]\s*([^\[]+?)\s*\[\/side\]\s*\[time\][\s\S]*?\[\/time\]\s*([\s\S]*?)\s*\[\/s_img\]/gi, (_full, sideValue, payload) => {
     const side = /^(?:sent|right|user)$/i.test(sideValue.trim()) ? "sent" : "recv";
@@ -137949,37 +137960,37 @@ function renderVariableNotes(markup, template, macro) {
   });
 }
 function r45SurfaceAuthorityPack(presentation, color) {
-  const key2 = `${presentation}:${color}`;
+  const key = `${presentation}:${color}`;
   const pack = currentBracketPack(presentation, color);
   if (!pack || pack.type !== "lumiverse_regex_scripts" || pack.relay_product_version !== "0.2.8" || pack.scripts.length !== 138) {
-    throw new Error(`Invalid R4.5 Surface authority selection: ${key2}`);
+    throw new Error(`Invalid R4.5 Surface authority selection: ${key}`);
   }
   return pack;
 }
 function r45SurfaceAuthorityScripts(presentation, color) {
-  const key2 = `${presentation}:${color}`;
-  const cached = sortedScripts.get(key2);
+  const key = `${presentation}:${color}`;
+  const cached = sortedScripts.get(key);
   if (cached)
     return cached;
   const scripts = [...r45SurfaceAuthorityPack(presentation, color).scripts].filter((script) => script.disabled !== true).sort((left, right) => Number(left.sort_order) - Number(right.sort_order));
-  sortedScripts.set(key2, scripts);
+  sortedScripts.set(key, scripts);
   return scripts;
 }
 function r45LegacyXmlSurfaceAuthorityPack(presentation, color) {
-  const key2 = `${presentation}:${color}`;
-  const pack = LEGACY_XML_PACKS[key2];
+  const key = `${presentation}:${color}`;
+  const pack = LEGACY_XML_PACKS[key];
   if (!pack || pack.type !== "lumiverse_regex_scripts" || pack.relay_product_version !== "0.2.8" || pack.scripts.length !== 138) {
-    throw new Error(`Invalid legacy XML Core Surface authority selection: ${key2}`);
+    throw new Error(`Invalid legacy XML Core Surface authority selection: ${key}`);
   }
   return pack;
 }
 function r45LegacyXmlSurfaceAuthorityScripts(presentation, color) {
-  const key2 = `${presentation}:${color}`;
-  const cached = sortedLegacyXmlScripts.get(key2);
+  const key = `${presentation}:${color}`;
+  const cached = sortedLegacyXmlScripts.get(key);
   if (cached)
     return cached;
   const scripts = [...r45LegacyXmlSurfaceAuthorityPack(presentation, color).scripts].filter((script) => script.disabled !== true).sort((left, right) => Number(left.sort_order) - Number(right.sort_order));
-  sortedLegacyXmlScripts.set(key2, scripts);
+  sortedLegacyXmlScripts.set(key, scripts);
   return scripts;
 }
 function r45BracketSurfaceAuthorityPack(presentation, color = "realistic") {
@@ -137990,12 +138001,12 @@ function r45BracketSurfaceAuthorityPack(presentation, color = "realistic") {
   return pack;
 }
 function r45BracketSurfaceAuthorityScripts(presentation, color = "realistic") {
-  const key2 = `${presentation}:${color}`;
-  const cached = sortedBracketScripts.get(key2);
+  const key = `${presentation}:${color}`;
+  const cached = sortedBracketScripts.get(key);
   if (cached)
     return cached;
   const scripts = [...r45BracketSurfaceAuthorityPack(presentation, color).scripts].filter((script) => script.disabled !== true).sort((left, right) => Number(left.sort_order) - Number(right.sort_order));
-  sortedBracketScripts.set(key2, scripts);
+  sortedBracketScripts.set(key, scripts);
   return scripts;
 }
 function renderR45BracketSurfaceAuthority(markup, presentation, messageId, color = "realistic") {
@@ -138035,10 +138046,10 @@ function renderR45SurfaceAuthority(markup, presentation, color, messageId) {
     const figcaption = caption ? `<figcaption>${caption}</figcaption>` : "";
     return `<figure class="html-safe-wrap kk-image" data-reverie-r45-lifecycle-media="kakao">${body}${figcaption}</figure>`;
   });
-  output = output.replace(/<k_img\b([^>]*)>\s*(<img\b[^>]*>)\s*<\/k_img>/gi, (_full, attrs, image2) => {
+  output = output.replace(/<k_img\b([^>]*)>\s*(<img\b[^>]*>)\s*<\/k_img>/gi, (_full, attrs, image) => {
     if (/\bcaption\s*=/.test(attrs))
-      return `<k_img${attrs}>${image2}</k_img>`;
-    return `<k_img caption="">${image2}</k_img>`;
+      return `<k_img${attrs}>${image}</k_img>`;
+    return `<k_img caption="">${image}</k_img>`;
   });
   const macro = safeMessageId(messageId);
   for (const script of r45LegacyXmlSurfaceAuthorityScripts(presentation, color)) {
@@ -138144,15 +138155,15 @@ function isCharacterPhoneAppId(value) {
 function normalizeCharacterPhoneDefaultApps(value, options = {}) {
   if (!Array.isArray(value))
     return options.migrateMissing === false ? [] : [...ORIGINAL_CHARACTER_PHONE_DEFAULT_APPS];
-  const unique2 = [];
+  const unique = [];
   for (const candidate of value) {
-    if (!isCharacterPhoneAppId(candidate) || unique2.includes(candidate))
+    if (!isCharacterPhoneAppId(candidate) || unique.includes(candidate))
       continue;
-    unique2.push(candidate);
-    if (unique2.length === 8)
+    unique.push(candidate);
+    if (unique.length === 8)
       break;
   }
-  return unique2;
+  return unique;
 }
 function characterPhoneAppLabel(id) {
   return APP_LABELS.get(id) || id;
@@ -138207,8 +138218,8 @@ ${common}
 var GALLERY_FULL_IMAGE_CSS = `<style data-reverie-gallery-fit="contain">.srv-gallery-photo img,.srv-gallery-photo .rrl-card img,.srv-gallery-photo .rrl-resolved img,.srv-gallery-photo .rrn-media img{object-fit:contain!important;object-position:center!important;background:#101014}.srv-gallery-photo .rrl-preview,.srv-gallery-photo .rrl-resolved,.srv-gallery-photo .rrn-media{overflow:visible}.srv-gallery-photo .rrn-media,.srv-gallery-photo .rrl-resolved{box-sizing:border-box;margin:0!important;width:100%!important;height:100%!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important}.srv-gallery-photo .rrn-media img,.srv-gallery-photo .rrl-resolved img{width:100%!important;height:100%!important;max-height:none!important}</style>`;
 var DOSSIER_CSS = `<style data-reverie-surface-presentation="c5b3-dossier">.rr-dossier{--case-accent:var(--lumiverse-primary,#ba4c7d);max-width:760px;margin:0 auto;padding:16px;border:1px solid var(--case-accent);border-radius:18px;background:var(--lumiverse-bg-elevated,#20151d);color:var(--lumiverse-text,#f5edf3);font:13px/1.5 system-ui,sans-serif}.rr-dossier header{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:baseline;border-bottom:1px solid #ffffff20;padding-bottom:10px}.rr-dossier h3{font:700 18px/1.25 system-ui,sans-serif;margin:0}.rr-dossier .rr-case-meta{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;opacity:.8}.rr-case-radio{position:absolute;opacity:0;width:1px;height:1px}.rr-case-tabs{display:flex;gap:8px;margin:12px 0}.rr-case-tabs label{cursor:pointer;padding:7px 13px;border:1px solid var(--case-accent);border-radius:99px;font-size:11px;font-weight:700}.rr-case-radio:nth-of-type(1):checked~.rr-case-tabs label:nth-child(1),.rr-case-radio:nth-of-type(2):checked~.rr-case-tabs label:nth-child(2),.rr-case-radio:nth-of-type(3):checked~.rr-case-tabs label:nth-child(3){background:var(--case-accent);color:white}.rr-case-radio:focus-visible~.rr-case-tabs{outline:2px solid currentColor}.rrn-case-sheet{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:14px}.rr-case-media{min-width:0}.rr-case-media figure,.rr-case-media .rrn-media,.rr-case-media .rrl-preview{box-sizing:border-box;margin:0!important;width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;overflow:visible!important}.rr-case-media img{display:block}.rr-case-media img{max-width:100%;max-height:360px;height:auto;object-fit:contain!important;aspect-ratio:auto!important}.rr-case-facts{display:grid;align-content:start;gap:6px}.rrn-case-fact{padding:7px 10px;border-left:2px solid var(--case-accent);background:#0002}.rrn-case-fact small{display:block;opacity:.65;font-size:10px;letter-spacing:.05em}.rrn-case-fact b{font-weight:600;font-size:12px}.rr-case-timeline,.rr-case-evidence-text{grid-column:1/-1;white-space:pre-line}.rr-case-timeline{display:none}.rr-case-radio:nth-of-type(2):checked~.rrn-case-sheet .rr-case-facts,.rr-case-radio:nth-of-type(3):checked~.rrn-case-sheet .rr-case-media,.rr-case-radio:nth-of-type(3):checked~.rrn-case-sheet .rr-case-facts,.rr-case-radio:nth-of-type(3):checked~.rrn-case-sheet .rr-case-evidence-text{display:none}.rr-case-radio:nth-of-type(2):checked~.rrn-case-sheet{grid-template-columns:1fr}.rr-case-radio:nth-of-type(3):checked~.rrn-case-sheet .rr-case-timeline{display:block}.rr-case-notes{margin-top:12px;padding:9px 12px;border:1px dashed #ffffff40;border-radius:10px}.rr-case-notes summary{cursor:pointer;font-weight:700}.rr-dossier .rrl-actions,.rr-dossier .rrn-actions,.rr-dossier .rrl-resolved-actions{display:flex!important;flex-wrap:wrap!important;gap:8px!important;padding:9px 0!important}.rr-dossier button,.rr-dossier [data-rrn-action]{padding:7px 10px!important;margin:3px!important;min-height:32px;border:1px solid var(--case-accent);border-radius:7px;background:#0003;color:inherit;cursor:pointer}@media(max-width:520px){.rrn-case-sheet{grid-template-columns:1fr}.rr-dossier{padding:12px}.rr-case-media{max-width:320px;margin:auto}}</style>`;
 function dossierPresentation(input) {
-  const key2 = input.key.replace(/[^\w${}-]/g, "-");
-  return `${DOSSIER_CSS}<section class="rr-dossier" data-reverie-surface-contract="case-file-dossier"><header><h3>${input.subject}</h3><div class="rr-case-meta">${input.meta}</div></header>${["subject", "evidence", "timeline"].map((tab, i) => `<input class="rr-case-radio" type="radio" name="case-${key2}" id="case-${key2}-${tab}" aria-label="${tab}"${i === 0 ? " checked" : ""}>`).join("")}<div class="rr-case-tabs">${["Subject", "Evidence", "Timeline"].map((tab) => `<label for="case-${key2}-${tab.toLowerCase()}">${tab}</label>`).join("")}</div><div class="rrn-case-sheet"><div class="rr-case-media">${input.media}</div><div class="rr-case-facts">${input.facts}</div><div class="rr-case-evidence-text">${input.evidence || ""}</div><div class="rr-case-timeline">${input.timeline || "No timeline supplied."}</div></div><details class="rr-case-notes"><summary>Case notes</summary><div>${input.notes || "No notes supplied."}</div></details></section>`;
+  const key = input.key.replace(/[^\w${}-]/g, "-");
+  return `${DOSSIER_CSS}<section class="rr-dossier" data-reverie-surface-contract="case-file-dossier"><header><h3>${input.subject}</h3><div class="rr-case-meta">${input.meta}</div></header>${["subject", "evidence", "timeline"].map((tab, i) => `<input class="rr-case-radio" type="radio" name="case-${key}" id="case-${key}-${tab}" aria-label="${tab}"${i === 0 ? " checked" : ""}>`).join("")}<div class="rr-case-tabs">${["Subject", "Evidence", "Timeline"].map((tab) => `<label for="case-${key}-${tab.toLowerCase()}">${tab}</label>`).join("")}</div><div class="rrn-case-sheet"><div class="rr-case-media">${input.media}</div><div class="rr-case-facts">${input.facts}</div><div class="rr-case-evidence-text">${input.evidence || ""}</div><div class="rr-case-timeline">${input.timeline || "No timeline supplied."}</div></div><details class="rr-case-notes"><summary>Case notes</summary><div>${input.notes || "No notes supplied."}</div></details></section>`;
 }
 var ALBUM_CSS = `<style data-reverie-surface-presentation="c5b3-album">.rr-album{max-width:560px;margin:auto;color:var(--lumiverse-text,#f6edf3);font-family:system-ui,sans-serif}.rr-album-art{border-radius:16px;overflow:hidden;background:#100b10;box-shadow:0 14px 35px #0005}.rr-album-art figure,.rr-album-art .rrn-media{box-sizing:border-box;margin:0!important;width:100%!important;height:auto!important;min-height:0!important;aspect-ratio:1/1!important}.rr-album-art img{display:block;width:100%;aspect-ratio:1/1;object-fit:contain!important}.rr-album-title{font-size:22px;line-height:1.2;margin:14px 2px 4px;font-weight:750}.rr-album-artist{font-size:14px;margin:4px 2px}.rr-album-release{font-size:11px;opacity:.65;margin:4px 2px}.rr-album-title:empty,.rr-album-artist:empty,.rr-album-release:empty{display:none}</style>`;
 function albumPresentation(input) {
@@ -138225,19 +138236,19 @@ function bracketNodeText(node) {
   return node.children.map((child) => typeof child === "string" ? child : bracketNodeText(child)).join("").trim();
 }
 function parseBracketAttributes(trailer) {
-  const text3 = String(trailer || "").trim();
-  if (!text3)
+  const text = String(trailer || "").trim();
+  if (!text)
     return {};
   const attrs = {};
   let cursor = 0;
-  for (const match of text3.matchAll(ATTR_RE2)) {
-    const between = text3.slice(cursor, match.index || 0);
+  for (const match of text.matchAll(ATTR_RE2)) {
+    const between = text.slice(cursor, match.index || 0);
     if (between.trim())
       return null;
     attrs[normalizeBracketName(match[1] || "")] = match[2] ?? match[3] ?? match[4] ?? "";
     cursor = (match.index || 0) + match[0].length;
   }
-  return text3.slice(cursor).trim() ? null : attrs;
+  return text.slice(cursor).trim() ? null : attrs;
 }
 function parseBracketDocument(source) {
   const diagnostics = [];
@@ -138268,9 +138279,9 @@ function parseBracketDocument(source) {
       if (attrs) {
         if (stack.at(-1)?.name === name)
           stack.pop();
-        const node2 = { name, attrs, dialect: Object.keys(attrs).length ? "legacy-attribute-drift" : "canonical-child-fields", children: [] };
-        stack.at(-1).children.push(node2);
-        stack.push(node2);
+        const node = { name, attrs, dialect: Object.keys(attrs).length ? "legacy-attribute-drift" : "canonical-child-fields", children: [] };
+        stack.at(-1).children.push(node);
+        stack.push(node);
         continue;
       }
       if (stack.length === 1 && documentNode.children.every((child) => typeof child === "string" && !child.trim())) {
@@ -138285,7 +138296,7 @@ function parseBracketDocument(source) {
     if (!closing && stack.at(-1)?.name === name)
       stack.pop();
     if (closing) {
-      const openIndex = stack.map((node2) => node2.name).lastIndexOf(name);
+      const openIndex = stack.map((node) => node.name).lastIndexOf(name);
       if (openIndex <= 0) {
         diagnostics.push(`Unmatched closing bracket [/${rawName}].`);
         continue;
@@ -138375,9 +138386,9 @@ function normalizeSmartphoneBracketDrift(source) {
 }
 function collectAttrFields(specs) {
   const complete = completeSurfaceSpecs(specs);
-  const key2 = complete.map((spec) => `${spec.id}:${spec.sampleXml}`).join(`
+  const key = complete.map((spec) => `${spec.id}:${spec.sampleXml}`).join(`
 `);
-  const cached = attrCache.get(key2);
+  const cached = attrCache.get(key);
   if (cached)
     return cached;
   const byTag = new Map;
@@ -138394,7 +138405,7 @@ function collectAttrFields(specs) {
     if (root)
       visit(root);
   }
-  attrCache.set(key2, byTag);
+  attrCache.set(key, byTag);
   while (attrCache.size > 8)
     attrCache.delete(attrCache.keys().next().value);
   return byTag;
@@ -138427,8 +138438,8 @@ function childField(name, value) {
   return { name: normalizeBracketName(name), dialect: "canonical-child-fields", children: [value] };
 }
 function compactInitials(value) {
-  const words2 = String(value || "").trim().split(/\s+/).filter(Boolean);
-  const initials = words2.slice(0, 2).map((word) => word[0] || "").join("").toUpperCase();
+  const words = String(value || "").trim().split(/\s+/).filter(Boolean);
+  const initials = words.slice(0, 2).map((word) => word[0] || "").join("").toUpperCase();
   return initials || "\u2022";
 }
 function withoutChildFields(children, names) {
@@ -138518,12 +138529,12 @@ function canonicalizeNode(node, attrFieldsByTag, warnings, parentName = "") {
   const attrFields = new Set([...attrFieldsByTag.get(name) || new Set, ...knownBracketAttrFields(name, parentName)]);
   const children = [];
   for (const [rawKey, rawValue] of Object.entries(node.attrs || {})) {
-    const key2 = normalizeBracketName(rawKey);
-    if (!attrFields.has(key2)) {
-      warnings.push(`${name}: ignored unknown bracket attribute drift "${key2}".`);
+    const key = normalizeBracketName(rawKey);
+    if (!attrFields.has(key)) {
+      warnings.push(`${name}: ignored unknown bracket attribute drift "${key}".`);
       continue;
     }
-    children.push({ name: key2, dialect: "legacy-attribute-drift", children: [key2 === "side" ? normalizeSide(name, rawValue) : rawValue] });
+    children.push({ name: key, dialect: "legacy-attribute-drift", children: [key === "side" ? normalizeSide(name, rawValue) : rawValue] });
   }
   for (const child of node.children) {
     if (typeof child === "string") {
@@ -138766,74 +138777,74 @@ function parityModeForSurface(baseSurfaceId, preset, context) {
   return "inline";
 }
 function matchingRequestRecords(context, requestId, target) {
-  return (context.records || []).filter((record4) => record4.requestId === requestId).filter((record4) => !context.messageId || !record4.messageId || record4.messageId === context.messageId).filter((record4) => context.swipeId === undefined || record4.swipeId === undefined || record4.swipeId === context.swipeId).filter((record4) => !target || !record4.target || record4.target === target).sort((left, right) => (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0) || (Number(right.attemptNumber) || 0) - (Number(left.attemptNumber) || 0) || String(left.slot || "").localeCompare(String(right.slot || ""), undefined, { numeric: true }));
+  return (context.records || []).filter((record) => record.requestId === requestId).filter((record) => !context.messageId || !record.messageId || record.messageId === context.messageId).filter((record) => context.swipeId === undefined || record.swipeId === undefined || record.swipeId === context.swipeId).filter((record) => !target || !record.target || record.target === target).sort((left, right) => (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0) || (Number(right.attemptNumber) || 0) - (Number(left.attemptNumber) || 0) || String(left.slot || "").localeCompare(String(right.slot || ""), undefined, { numeric: true }));
 }
 function currentRequestRecord(input) {
   return matchingRequestRecords(input.context, input.requestId, "")[0];
 }
-function requestRecordAttributes(record4) {
+function requestRecordAttributes(record) {
   return [
-    record4.key ? ` data-dgir-key="${escapeAttr2(record4.key)}"` : "",
-    record4.requestId ? ` data-dgir-request-id="${escapeAttr2(record4.requestId)}"` : "",
-    record4.slot ? ` data-dgir-slot="${escapeAttr2(record4.slot)}"` : "",
-    record4.imageId ? ` data-dgir-image-id="${escapeAttr2(record4.imageId)}"` : "",
-    record4.messageId ? ` data-dgir-message-id="${escapeAttr2(record4.messageId)}"` : "",
-    record4.swipeId !== undefined ? ` data-dgir-swipe-id="${escapeAttr2(String(record4.swipeId))}"` : ""
+    record.key ? ` data-dgir-key="${escapeAttr2(record.key)}"` : "",
+    record.requestId ? ` data-dgir-request-id="${escapeAttr2(record.requestId)}"` : "",
+    record.slot ? ` data-dgir-slot="${escapeAttr2(record.slot)}"` : "",
+    record.imageId ? ` data-dgir-image-id="${escapeAttr2(record.imageId)}"` : "",
+    record.messageId ? ` data-dgir-message-id="${escapeAttr2(record.messageId)}"` : "",
+    record.swipeId !== undefined ? ` data-dgir-swipe-id="${escapeAttr2(String(record.swipeId))}"` : ""
   ].join("");
 }
 function resolvedParityRequestMarkup(attrs, records) {
   const target = attrs.target || records[0]?.target || "";
-  const ready = records.filter((record4) => Boolean(record4.imageUrl) && ["completed", "placement-pending", "placement-repair-needed"].includes(record4.status));
+  const ready = records.filter((record) => Boolean(record.imageUrl) && ["completed", "placement-pending", "placement-repair-needed"].includes(record.status));
   if (!ready.length)
     return null;
   const alt = attrs.alt || ready[0]?.alt || "Reverie media";
   if (target === "twitter.media") {
-    const record4 = ready[0];
-    return `<tw_media src="${escapeAttr2(record4.imageUrl || "")}" alt="${escapeAttr2(alt)}" type="image"${requestRecordAttributes(record4)}></tw_media>`;
+    const record = ready[0];
+    return `<tw_media src="${escapeAttr2(record.imageUrl || "")}" alt="${escapeAttr2(alt)}" type="image"${requestRecordAttributes(record)}></tw_media>`;
   }
   if (target === "instagram.single") {
-    const record4 = ready[0];
-    return `<image><img src="${escapeAttr2(record4.imageUrl || "")}" alt="${escapeAttr2(alt)}"${requestRecordAttributes(record4)}></image>`;
+    const record = ready[0];
+    return `<image><img src="${escapeAttr2(record.imageUrl || "")}" alt="${escapeAttr2(alt)}"${requestRecordAttributes(record)}></image>`;
   }
   if (target === "instagram.carousel") {
-    const slides = ready.map((record4, index) => `<ig_slide src="${escapeAttr2(record4.imageUrl || "")}" alt="${escapeAttr2(alt ? `${alt} ${index + 1}` : `Slide ${index + 1}`)}"${requestRecordAttributes(record4)}></ig_slide>`).join("");
+    const slides = ready.map((record, index) => `<ig_slide src="${escapeAttr2(record.imageUrl || "")}" alt="${escapeAttr2(alt ? `${alt} ${index + 1}` : `Slide ${index + 1}`)}"${requestRecordAttributes(record)}></ig_slide>`).join("");
     return `<ig_media active="1" total="${ready.length}">${slides}</ig_media>`;
   }
   if (target === "smartphone.message-image") {
-    const record4 = ready[0];
-    return `<img src="${escapeAttr2(record4.imageUrl || "")}" alt="${escapeAttr2(alt || "Smartphone attachment")}"${requestRecordAttributes(record4)}>`;
+    const record = ready[0];
+    return `<img src="${escapeAttr2(record.imageUrl || "")}" alt="${escapeAttr2(alt || "Smartphone attachment")}"${requestRecordAttributes(record)}>`;
   }
   if (target === "kakao.image") {
-    const record4 = ready[0];
-    return `<img src="${escapeAttr2(record4.imageUrl || "")}" alt="${escapeAttr2(alt || "Kakao attachment")}"${requestRecordAttributes(record4)}>`;
+    const record = ready[0];
+    return `<img src="${escapeAttr2(record.imageUrl || "")}" alt="${escapeAttr2(alt || "Kakao attachment")}"${requestRecordAttributes(record)}>`;
   }
   if (target.startsWith("custom.")) {
-    const record4 = ready[0];
-    const caption = record4.caption ? ` data-caption="${escapeAttr2(record4.caption)}"` : "";
+    const record = ready[0];
+    const caption = record.caption ? ` data-caption="${escapeAttr2(record.caption)}"` : "";
     const artifactMedia = target === "custom.artifact-media" ? ' class="reverie-artifact-media" data-reverie-artifact-media="true"' : "";
-    return `<img src="${escapeAttr2(record4.imageUrl || "")}" alt="${escapeAttr2(alt || target)}"${artifactMedia}${requestRecordAttributes(record4)} data-dgir-custom-target="${escapeAttr2(target)}"${caption} loading="lazy" decoding="async">`;
+    return `<img src="${escapeAttr2(record.imageUrl || "")}" alt="${escapeAttr2(alt || target)}"${artifactMedia}${requestRecordAttributes(record)} data-dgir-custom-target="${escapeAttr2(target)}"${caption} loading="lazy" decoding="async">`;
   }
   return null;
 }
 function hydrateParityRequests(markup, baseSurfaceId, context, options = {}) {
   let content = String(markup || "").replace(/\[image_request\]([\s\S]*?)\[\/image_request\]/gi, (full) => {
-    const request2 = parseImageRequests(full)[0];
-    if (!request2)
+    const request = parseImageRequests(full)[0];
+    if (!request)
       return full;
     const attrs = [
-      ["id", request2.id],
-      ["target", request2.target],
-      ["slot", request2.slot],
-      ["aspect", request2.aspect],
-      ["alt", request2.alt],
-      ["count", request2.count > 1 ? String(request2.count) : ""],
-      ["intent", request2.intent !== "auto" ? request2.intent : ""],
-      ["cast", request2.cast],
-      ["time", request2.time]
+      ["id", request.id],
+      ["target", request.target],
+      ["slot", request.slot],
+      ["aspect", request.aspect],
+      ["alt", request.alt],
+      ["count", request.count > 1 ? String(request.count) : ""],
+      ["intent", request.intent !== "auto" ? request.intent : ""],
+      ["cast", request.cast],
+      ["time", request.time]
     ].filter((entry) => Boolean(entry[1])).map(([name, value]) => ` ${name}="${escapeAttr2(value)}"`).join("");
-    const caption = request2.caption ? `<context_caption>${escapeHtml(request2.caption)}</context_caption>` : "";
-    const negative = request2.negative ? `<negative>${escapeHtml(request2.negative)}</negative>` : "";
-    return `<image_request${attrs}><scene_brief>${escapeHtml(request2.prompt)}</scene_brief>${caption}${negative}</image_request>`;
+    const caption = request.caption ? `<context_caption>${escapeHtml(request.caption)}</context_caption>` : "";
+    const negative = request.negative ? `<negative>${escapeHtml(request.negative)}</negative>` : "";
+    return `<image_request${attrs}><scene_brief>${escapeHtml(request.prompt)}</scene_brief>${caption}${negative}</image_request>`;
   });
   content = content.replace(/<image_request\b([^>]*)>([\s\S]*?)<\/image_request>/gi, (full, rawAttrs, body) => {
     const attrs = parseAttrs2(rawAttrs);
@@ -138844,13 +138855,13 @@ function hydrateParityRequests(markup, baseSurfaceId, context, options = {}) {
       return resolved;
     if (options.unresolved === "preserve")
       return full;
-    const record4 = records[0];
-    const failed = record4?.status === "failed" || record4?.status === "image-unavailable" || record4?.status === "cancelled";
+    const record = records[0];
+    const failed = record?.status === "failed" || record?.status === "image-unavailable" || record?.status === "cancelled";
     return lifecycleCardIsland(renderRequestCard({
       title: failed ? "Media unavailable" : "Media requested",
       brief: firstTagText2(body, "scene_brief") || firstTagText2(body, "prompt") || stripMarkup(body),
       requestId,
-      aspect: attrs.aspect || record4?.requestAspect || "16:9",
+      aspect: attrs.aspect || record?.requestAspect || "16:9",
       rootTag: "image_request",
       baseSurfaceId,
       context,
@@ -138861,13 +138872,13 @@ function hydrateParityRequests(markup, baseSurfaceId, context, options = {}) {
     const attrs = parseAttrs2(rawAttrs);
     const requestId = attrs.id || attrs.request_id || attrs.slot || "";
     const records = matchingRequestRecords(context, requestId, attrs.target || "");
-    const record4 = records[0];
-    const forceFailed = !record4 || ["failed", "image-unavailable", "cancelled"].includes(record4.status);
+    const record = records[0];
+    const forceFailed = !record || ["failed", "image-unavailable", "cancelled"].includes(record.status);
     return lifecycleCardIsland(renderRequestCard({
       title: "Media unavailable",
-      brief: record4?.error || stripMarkup(body) || "Relay could not generate this media.",
+      brief: record?.error || stripMarkup(body) || "Relay could not generate this media.",
       requestId,
-      aspect: attrs.aspect || record4?.requestAspect || "16:9",
+      aspect: attrs.aspect || record?.requestAspect || "16:9",
       rootTag: "image_request_error",
       baseSurfaceId,
       context,
@@ -138877,16 +138888,16 @@ function hydrateParityRequests(markup, baseSurfaceId, context, options = {}) {
   return content;
 }
 function decorateParityImages(markup, context) {
-  const records = (context.records || []).filter((record4) => record4.imageUrl);
+  const records = (context.records || []).filter((record) => record.imageUrl);
   if (!records.length)
     return markup;
   return String(markup || "").replace(/<img\b([^>]*)>/gi, (full, rawAttrs) => {
     const attrs = parseAttrs2(rawAttrs);
     const src = attrs.src || "";
-    const record4 = records.find((candidate) => candidate.imageUrl === src);
-    if (!record4 || /\bdata-dgir-(?:key|request-id|image-id)\s*=/.test(rawAttrs))
+    const record = records.find((candidate) => candidate.imageUrl === src);
+    if (!record || /\bdata-dgir-(?:key|request-id|image-id)\s*=/.test(rawAttrs))
       return full;
-    return `<img${rawAttrs}${requestRecordAttributes(record4)}>`;
+    return `<img${rawAttrs}${requestRecordAttributes(record)}>`;
   });
 }
 function normalizeTwitterContract(markup) {
@@ -138968,8 +138979,8 @@ function surfaceStreamIslandKey(messageId, swipeId, surfaceId, ordinal = 0) {
 var reviewedSurfaceDiagnostics = new Map;
 var reviewedSurfacePipelineDiagnostics = new Map;
 function recordSurfacePipelineDiagnostic(surfaceId, stage, detail) {
-  const rows2 = [...reviewedSurfacePipelineDiagnostics.get(surfaceId) || [], `${stage}: ${detail}`].slice(-24);
-  reviewedSurfacePipelineDiagnostics.set(surfaceId, rows2);
+  const rows = [...reviewedSurfacePipelineDiagnostics.get(surfaceId) || [], `${stage}: ${detail}`].slice(-24);
+  reviewedSurfacePipelineDiagnostics.set(surfaceId, rows);
   while (reviewedSurfacePipelineDiagnostics.size > 128)
     reviewedSurfacePipelineDiagnostics.delete(reviewedSurfacePipelineDiagnostics.keys().next().value);
 }
@@ -139281,19 +139292,19 @@ function renderBySurface(baseSurfaceId, rootTag, attrs, body, preset, context) {
   }
 }
 function normalizeSmartphoneBody(body) {
-  let normalized2 = body;
+  let normalized = body;
   const warnings = [];
-  normalized2 = normalized2.replace(/<notif\b(?=[^>]*\bapp\s*=\s*["']([^"']*)["'])(?=[^>]*\bfrom\s*=\s*["']([^"']*)["'])(?=[^>]*\btext\s*=\s*["']([^"']*)["'])(?=[^>]*\btime\s*=\s*["']([^"']*)["'])[^>]*\/>/gi, (_m, app, sender, text3, time) => {
+  normalized = normalized.replace(/<notif\b(?=[^>]*\bapp\s*=\s*["']([^"']*)["'])(?=[^>]*\bfrom\s*=\s*["']([^"']*)["'])(?=[^>]*\btext\s*=\s*["']([^"']*)["'])(?=[^>]*\btime\s*=\s*["']([^"']*)["'])[^>]*\/>/gi, (_m, app, sender, text, time) => {
     warnings.push("notif \u2192 s_note");
-    return `<s_note app="${escapeAttr2(app)}" sender="${escapeAttr2(sender)}" time="${escapeAttr2(time)}">${escapeHtml(text3)}</s_note>`;
+    return `<s_note app="${escapeAttr2(app)}" sender="${escapeAttr2(sender)}" time="${escapeAttr2(time)}">${escapeHtml(text)}</s_note>`;
   });
-  normalized2 = normalized2.replace(/<contact\b([^>]*)\/>/gi, (_m, rawAttrs) => {
+  normalized = normalized.replace(/<contact\b([^>]*)\/>/gi, (_m, rawAttrs) => {
     const a = parseAttrs2(rawAttrs);
     warnings.push("self-closing contact \u2192 paired contact");
-    const rows2 = [a.name || "", a.status || "", a.avatar || ""].filter(Boolean);
-    return `<contact>${rows2.map((row) => escapeHtml(row)).join("<br>")}</contact>`;
+    const rows = [a.name || "", a.status || "", a.avatar || ""].filter(Boolean);
+    return `<contact>${rows.map((row) => escapeHtml(row)).join("<br>")}</contact>`;
   });
-  normalized2 = normalized2.replace(/<k_msg\b([^>]*)>([\s\S]*?)<\/k_msg>/gi, (_m, rawAttrs, content) => {
+  normalized = normalized.replace(/<k_msg\b([^>]*)>([\s\S]*?)<\/k_msg>/gi, (_m, rawAttrs, content) => {
     const a = parseAttrs2(rawAttrs);
     const side = String(a.side || "").toLowerCase();
     if (side !== "left" && side !== "right")
@@ -139301,11 +139312,11 @@ function normalizeSmartphoneBody(body) {
     warnings.push(`k_msg ${side} \u2192 ${side === "left" ? "s_recv" : "s_sent"}`);
     return `<${side === "left" ? "s_recv" : "s_sent"} time="${escapeAttr2(a.time || "")}">${content}</${side === "left" ? "s_recv" : "s_sent"}>`;
   });
-  return { body: normalized2, warnings: [...new Set(warnings)] };
+  return { body: normalized, warnings: [...new Set(warnings)] };
 }
 function renderSmartphone(attrs, body, preset, context) {
-  const normalized2 = normalizeSmartphoneBody(body);
-  body = normalized2.body;
+  const normalized = normalizeSmartphoneBody(body);
+  body = normalized.body;
   const notes = firstTagText2(body, "notifications") || "";
   const contact = removeMediaMarkup(firstTagText2(body, "contact") || "") || attrs.sender || "Contact";
   const messages = firstTagText2(body, "messages") || "";
@@ -139316,7 +139327,7 @@ function renderSmartphone(attrs, body, preset, context) {
   }).join("");
   const messageRows = renderMessageChildren(messages, context, "smartphone");
   const hasTextMessages = /<(?:s_recv|s_sent)\b[^>]*>[\s\S]*?\S[\s\S]*?<\/(?:s_recv|s_sent)>/i.test(messages);
-  const validationWarnings = [...normalized2.warnings];
+  const validationWarnings = [...normalized.warnings];
   if (!/^\d{2}:\d{2}$/.test(attrs.time || ""))
     validationWarnings.push("time must use 24-hour HH:MM");
   const battery = Number(attrs.battery);
@@ -139331,17 +139342,17 @@ function renderSmartphone(attrs, body, preset, context) {
   return shell("smartphone", attrs.sender ? `${attrs.sender}'s phone` : "Smartphone", "Private thread", inner, preset, context, "rrn-compact");
 }
 function renderInlineChat(attrs, body, preset, context) {
-  const rows2 = [];
+  const rows = [];
   const tokenRe = /<(message|s_recv|s_sent)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
   let match;
   while ((match = tokenRe.exec(body)) !== null) {
     const tag = match[1].toLowerCase();
     const a = parseAttrs2(match[2] || "");
     const sent = tag === "s_sent" || a.side === "right" || a.side === "sent" || a.sender === "self";
-    rows2.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"><div class="rrn-copy"><div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(match[3])}</div>${a.time ? `<div class="rrn-meta"><time>${escapeHtml(a.time)}</time></div>` : ""}</div></div>`);
+    rows.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"><div class="rrn-copy"><div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(match[3])}</div>${a.time ? `<div class="rrn-meta"><time>${escapeHtml(a.time)}</time></div>` : ""}</div></div>`);
   }
   const media = renderAnyMedia(body, context, "inline-chat");
-  const fallback = rows2.length ? rows2.join("") : sanitizeParagraphs(removeMediaMarkup(body));
+  const fallback = rows.length ? rows.join("") : sanitizeParagraphs(removeMediaMarkup(body));
   return shell("inline-chat", attrs.header || attrs.sender || "Inline Chat", "Compact conversation", `<div class="rrn-card">${fallback || '<div class="rrn-sub">No visible messages</div>'}${media}</div>`, preset, context);
 }
 function renderInstagram(attrs, body, preset, context) {
@@ -139364,8 +139375,8 @@ function renderInstagram(attrs, body, preset, context) {
   return shell("instagram", `@${attrs.user || "instagram"}`, attrs.loc || "Visual post", inner, preset, context);
 }
 function renderInstagramMedia(body, context) {
-  const request2 = firstTagMatch(body, "image_request");
-  if (request2)
+  const request = firstTagMatch(body, "image_request");
+  if (request)
     return renderAnyMedia(body, context, "instagram");
   const container = firstTagMatch(body, "ig_media");
   const source = container?.body || body;
@@ -139449,7 +139460,7 @@ function renderKakao(attrs, body, preset, context) {
     const a = parseAttrs2(row.attrs);
     return `<span class="rrn-chip">${escapeHtml(a.avatar || initial(a.name || "K"))} ${escapeHtml(a.name || "")}</span>`;
   }).join("");
-  const rows2 = [];
+  const rows = [];
   const tokenRe = /<(k_msg|k_date|k_system|k_unread)\b([^>]*)>([\s\S]*?)<\/\1>|<(k_typing|k_part|k_react)\b([^>]*)\/?\s*>/gi;
   let match;
   while ((match = tokenRe.exec(messages)) !== null) {
@@ -139466,22 +139477,22 @@ function renderKakao(attrs, body, preset, context) {
         const ra = parseAttrs2(row.attrs);
         return `<span class="rrn-chip">${escapeHtml(ra.emoji || "")} ${escapeHtml(ra.count || "")}</span>`;
       }).join("");
-      let clean4 = removeMediaMarkup(value);
-      clean4 = stripKnownTags2(clean4, ["k_reply", "k_file", "k_react"]);
+      let clean = removeMediaMarkup(value);
+      clean = stripKnownTags2(clean, ["k_reply", "k_file", "k_react"]);
       const replyMarkup = reply ? `<div class="rrn-card rrn-quote"><div class="rrn-meta"><b>${escapeHtml(parseAttrs2(reply.attrs).sender || "")}</b></div>${sanitizeInline(reply.body)}</div>` : "";
       const fileMarkup = file ? (() => {
         const fa = parseAttrs2(file.attrs);
         return `<div class="rrn-file"><span>\u25A7</span><div><b>${escapeHtml(fa.name || "Attachment")}</b><div class="rrn-sub">${escapeHtml(fa.type || "")}${fa.size ? ` \xB7 ${escapeHtml(fa.size)}` : ""}</div>${stripMarkup(file.body) ? `<div>${sanitizeInline(file.body)}</div>` : ""}</div></div>`;
       })() : "";
-      rows2.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"${colorAttr}>${sent ? "" : `<span class="rrn-avatar">${escapeHtml(a.avatar || initial(a.sender || "K"))}</span>`}<div class="rrn-copy"><div class="rrn-meta">${sent ? "" : `<b>${escapeHtml(a.sender || "")}</b>`}<time>${escapeHtml(a.time || "")}</time>${a.read ? `<span>${escapeHtml(a.read)}</span>` : ""}</div>${replyMarkup}<div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(clean4)}</div>${renderAnyMedia(value, context, "kakao")}${fileMarkup}${reactions ? `<div class="rrn-reactions">${reactions}</div>` : ""}</div></div>`);
+      rows.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"${colorAttr}>${sent ? "" : `<span class="rrn-avatar">${escapeHtml(a.avatar || initial(a.sender || "K"))}</span>`}<div class="rrn-copy"><div class="rrn-meta">${sent ? "" : `<b>${escapeHtml(a.sender || "")}</b>`}<time>${escapeHtml(a.time || "")}</time>${a.read ? `<span>${escapeHtml(a.read)}</span>` : ""}</div>${replyMarkup}<div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(clean)}</div>${renderAnyMedia(value, context, "kakao")}${fileMarkup}${reactions ? `<div class="rrn-reactions">${reactions}</div>` : ""}</div></div>`);
     } else if (tag === "k_date" || tag === "k_unread")
-      rows2.push(`<div class="rrn-sub" style="text-align:center;padding:8px">${sanitizeInline(value)}</div>`);
+      rows.push(`<div class="rrn-sub" style="text-align:center;padding:8px">${sanitizeInline(value)}</div>`);
     else if (tag === "k_system")
-      rows2.push(`<div class="rrn-chip" style="margin:6px auto;display:flex;width:max-content">${sanitizeInline(value)}</div>`);
+      rows.push(`<div class="rrn-chip" style="margin:6px auto;display:flex;width:max-content">${sanitizeInline(value)}</div>`);
     else if (tag === "k_typing")
-      rows2.push(`<div class="rrn-sub">${escapeHtml(a.names || "")} is typing\u2026</div>`);
+      rows.push(`<div class="rrn-sub">${escapeHtml(a.names || "")} is typing\u2026</div>`);
   }
-  return shell("kakao", attrs.title || "KakaoTalk", `${attrs.date || ""} \xB7 ${attrs.time || ""}`, `<div class="rrn-kakao-head"><div class="rrn-copy"><div class="rrn-meta">${chips}</div></div>${attrs.unread && attrs.unread !== "0" ? `<span class="rrn-chip">${escapeHtml(attrs.unread)} unread</span>` : ""}</div><div class="rrn-card">${rows2.join("")}</div>`, preset, context);
+  return shell("kakao", attrs.title || "KakaoTalk", `${attrs.date || ""} \xB7 ${attrs.time || ""}`, `<div class="rrn-kakao-head"><div class="rrn-copy"><div class="rrn-meta">${chips}</div></div>${attrs.unread && attrs.unread !== "0" ? `<span class="rrn-chip">${escapeHtml(attrs.unread)} unread</span>` : ""}</div><div class="rrn-card">${rows.join("")}</div>`, preset, context);
 }
 function renderImageSurface(baseSurfaceId, rootTag, attrs, body, preset, context) {
   const labels = {
@@ -139539,44 +139550,44 @@ function renderCharacterProfile(body, preset, context) {
   return `<div class="rrn-native-island">${NATIVE_SURFACE_CSS}${CHARACTER_PROFILE_CSS}${rendered}${safePresetCss(preset)}</div>`;
 }
 function renderMessageChildren(body, context, baseSurfaceId) {
-  const rows2 = [];
+  const rows = [];
   const re = /<(s_recv|s_sent|s_img|image_request|image_request_error)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
   let match;
   while ((match = re.exec(body)) !== null) {
     const tag = match[1].toLowerCase();
     const full = match[0];
     if (tag === "image_request" || tag === "image_request_error" || tag === "s_img") {
-      rows2.push(renderAnyMedia(full, context, baseSurfaceId));
+      rows.push(renderAnyMedia(full, context, baseSurfaceId));
       continue;
     }
     const sent = tag === "s_sent";
     const attrs = parseAttrs2(match[2]);
-    rows2.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"><div class="rrn-copy"><div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(match[3])}</div><div class="rrn-meta"><time>${escapeHtml(attrs.time || "")}</time></div></div></div>`);
+    rows.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"><div class="rrn-copy"><div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(match[3])}</div><div class="rrn-meta"><time>${escapeHtml(attrs.time || "")}</time></div></div></div>`);
   }
-  return rows2.join("");
+  return rows.join("");
 }
 function renderAnyMedia(body, context, baseSurfaceId) {
-  const request2 = firstTagMatch(body, "image_request");
-  if (request2) {
-    const attrs = parseAttrs2(request2.attrs);
-    return renderRequestCard({ title: "Media requested", brief: firstTagText2(request2.body, "scene_brief") || firstTagText2(request2.body, "prompt") || stripMarkup(request2.body), requestId: attrs.id || attrs.request_id || "", aspect: attrs.aspect || "16:9", rootTag: "image_request", baseSurfaceId, preset: undefined, context }, true);
+  const request = firstTagMatch(body, "image_request");
+  if (request) {
+    const attrs = parseAttrs2(request.attrs);
+    return renderRequestCard({ title: "Media requested", brief: firstTagText2(request.body, "scene_brief") || firstTagText2(request.body, "prompt") || stripMarkup(request.body), requestId: attrs.id || attrs.request_id || "", aspect: attrs.aspect || "16:9", rootTag: "image_request", baseSurfaceId, preset: undefined, context }, true);
   }
   const error = firstTagMatch(body, "image_request_error");
   if (error) {
     const attrs = parseAttrs2(error.attrs);
     return renderRequestCard({ title: "Generation failed", brief: stripMarkup(error.body) || "Relay could not generate this media.", requestId: attrs.id || "", aspect: attrs.aspect || "16:9", rootTag: "image_request_error", baseSurfaceId, preset: undefined, context, failed: true }, true);
   }
-  const image2 = extractImage(body);
-  if (!image2)
+  const image = extractImage(body);
+  if (!image)
     return "";
   const relayAttrs = [
-    image2.key ? ` data-dgir-key="${escapeAttr2(image2.key)}"` : "",
-    image2.requestId ? ` data-dgir-request-id="${escapeAttr2(image2.requestId)}"` : "",
-    image2.slot ? ` data-dgir-slot="${escapeAttr2(image2.slot)}"` : "",
-    image2.imageId ? ` data-dgir-image-id="${escapeAttr2(image2.imageId)}"` : ""
+    image.key ? ` data-dgir-key="${escapeAttr2(image.key)}"` : "",
+    image.requestId ? ` data-dgir-request-id="${escapeAttr2(image.requestId)}"` : "",
+    image.slot ? ` data-dgir-slot="${escapeAttr2(image.slot)}"` : "",
+    image.imageId ? ` data-dgir-image-id="${escapeAttr2(image.imageId)}"` : ""
   ].join("");
-  const aspect = image2.aspect || "16:9";
-  return `<figure class="rrn-media" data-aspect="${escapeAttr2(aspect)}" style="--reverie-media-aspect:${escapeAttr2(cssAspectRatio(aspect, "16:9"))}"><img src="${escapeAttr2(image2.src)}" alt="${escapeAttr2(image2.alt || "Reverie media")}" data-rrn-request-id="${escapeAttr2(image2.requestId)}"${relayAttrs}>${image2.caption ? `<figcaption class="rrn-caption">${sanitizeInline(image2.caption)}</figcaption>` : ""}</figure>`;
+  const aspect = image.aspect || "16:9";
+  return `<figure class="rrn-media" data-aspect="${escapeAttr2(aspect)}" style="--reverie-media-aspect:${escapeAttr2(cssAspectRatio(aspect, "16:9"))}"><img src="${escapeAttr2(image.src)}" alt="${escapeAttr2(image.alt || "Reverie media")}" data-rrn-request-id="${escapeAttr2(image.requestId)}"${relayAttrs}>${image.caption ? `<figcaption class="rrn-caption">${sanitizeInline(image.caption)}</figcaption>` : ""}</figure>`;
 }
 function extractImage(body) {
   const img = /<img\b([^>]*)>/i.exec(body);
@@ -139625,9 +139636,9 @@ function stableLifecycleMediaSlot(aspect, state, title, inner = "", empty = true
   return `<div${stableMediaSlotAttrs(aspect, state, empty)}>${inner}${fallbackImage}<div class="rrl-preview" hidden><img class="rrl-preview-image" alt=""></div>${placeholder}</div>`;
 }
 function renderRequestCard(input, bare = false) {
-  const record4 = currentRequestRecord({ context: input.context, requestId: input.requestId });
+  const record = currentRequestRecord({ context: input.context, requestId: input.requestId });
   const fallbackStatus = input.context.autoGenerate === false ? "recovered-pending" : "preparing";
-  const liveStatus = record4?.status || (input.failed ? "failed" : fallbackStatus);
+  const liveStatus = record?.status || (input.failed ? "failed" : fallbackStatus);
   const statusLabels = {
     "recovered-pending": "Discovered",
     preparing: "Preparing",
@@ -139666,29 +139677,29 @@ function renderRequestCard(input, bare = false) {
   };
   const failure = isFailureRecoveryStatus(liveStatus);
   const icon = failure ? "!" : liveStatus === "completed" ? "\u2713" : "\u2726";
-  const brief = failure && record4?.error ? record4.error : input.brief || "Visual request attached to this message.";
+  const brief = failure && record?.error ? record.error : input.brief || "Visual request attached to this message.";
   const active = isSlotLifecycleActive(liveStatus);
-  const repairAvailable = liveStatus === "placement-repair-needed" && Boolean(record4?.pendingPlacement);
-  const completedImageUrl = record4?.imageUrl || record4?.pendingPlacement?.imageUrl;
-  const aspect = input.aspect || record4?.requestAspect || "1:1";
+  const repairAvailable = liveStatus === "placement-repair-needed" && Boolean(record?.pendingPlacement);
+  const completedImageUrl = record?.imageUrl || record?.pendingPlacement?.imageUrl;
+  const aspect = input.aspect || record?.requestAspect || "1:1";
   const streamIsland = surfaceStreamIslandKey(input.context.messageId, input.context.swipeId, `request-${input.requestId}`, 0);
   const streamIslandAttr = ` data-reverie-stream-island="${escapeAttr2(streamIsland)}"`;
   if (completedImageUrl && liveStatus === "completed") {
     const artifactMedia = input.baseSurfaceId === "character-profile" ? ' class="reverie-artifact-media" data-reverie-artifact-media="true" data-dgir-custom-target="custom.artifact-media"' : "";
     const imageAttrs = artifactMedia || ' class="rrl-slot-image"';
-    const resolved = `<figure class="rrl-resolved" data-rrn-completed-request="${escapeAttr2(input.requestId)}"${streamIslandAttr}><img src="${escapeAttr2(completedImageUrl)}" alt="${escapeAttr2(input.title || "Reverie media")}"${imageAttrs}${requestRecordAttributes(record4)} loading="lazy" decoding="async"></figure>`;
+    const resolved = `<figure class="rrl-resolved" data-rrn-completed-request="${escapeAttr2(input.requestId)}"${streamIslandAttr}><img src="${escapeAttr2(completedImageUrl)}" alt="${escapeAttr2(input.title || "Reverie media")}"${imageAttrs}${requestRecordAttributes(record)} loading="lazy" decoding="async"></figure>`;
     return bare ? resolved : lifecycleCardIsland(resolved);
   }
   const selectedEffect = input.context.generationPlaceholderEffect || "glitter";
-  const failedImage = repairAvailable && completedImageUrl ? `<figure class="rrl-resolved"><img src="${escapeAttr2(completedImageUrl)}" alt="${escapeAttr2(input.title || "Reverie media")}" class="rrl-slot-image"${requestRecordAttributes(record4)} loading="lazy" decoding="async"></figure>` : "";
+  const failedImage = repairAvailable && completedImageUrl ? `<figure class="rrl-resolved"><img src="${escapeAttr2(completedImageUrl)}" alt="${escapeAttr2(input.title || "Reverie media")}" class="rrl-slot-image"${requestRecordAttributes(record)} loading="lazy" decoding="async"></figure>` : "";
   const mediaSlot = stableLifecycleMediaSlot(aspect, liveStatus, input.title, failedImage, !failedImage, active ? selectedEffect : undefined);
   if (active) {
-    const placeholder = `<div class="rrl-card" data-rrn-native-request="${escapeAttr2(input.requestId)}" data-rrn-record-key="${escapeAttr2(record4?.key || "")}" data-rrn-live-status="${escapeAttr2(liveStatus)}"${streamIslandAttr}>${mediaSlot}</div>`;
+    const placeholder = `<div class="rrl-card" data-rrn-native-request="${escapeAttr2(input.requestId)}" data-rrn-record-key="${escapeAttr2(record?.key || "")}" data-rrn-live-status="${escapeAttr2(liveStatus)}"${streamIslandAttr}>${mediaSlot}</div>`;
     return bare ? placeholder : lifecycleCardIsland(placeholder);
   }
   const failureActions = repairAvailable ? "repair" : failure ? "failed" : undefined;
   const actions = failureActions ? `<div class="rrl-actions">${renderActionButtons(input.requestId, input.context, input.baseSurfaceId, failureActions, input.rootTag)}</div>` : "";
-  const card = `<div class="rrl-card ${failure ? "rrl-error" : ""}" data-rrn-native-request="${escapeAttr2(input.requestId)}" data-rrn-record-key="${escapeAttr2(record4?.key || "")}" data-rrn-live-status="${escapeAttr2(liveStatus)}"${streamIslandAttr} aria-live="polite">${mediaSlot}<div class="rrl-main"><span class="rrl-icon"><span class="rrl-spinner" aria-hidden="true"></span><span class="rrl-state-icon">${icon}</span></span><div class="rrl-copy"><strong class="rrl-title">${escapeHtml(titleLabels[liveStatus] || input.title)}</strong><span class="rrl-status">${escapeHtml(statusLabels[liveStatus] || titleCaseToken(liveStatus))}</span><span class="rrl-stream-status"></span><div class="rrl-progress" hidden><span></span></div></div></div>${actions}<details class="rrl-detail"><summary aria-label="Show request details"></summary><p>${escapeHtml(brief)}</p></details></div>`;
+  const card = `<div class="rrl-card ${failure ? "rrl-error" : ""}" data-rrn-native-request="${escapeAttr2(input.requestId)}" data-rrn-record-key="${escapeAttr2(record?.key || "")}" data-rrn-live-status="${escapeAttr2(liveStatus)}"${streamIslandAttr} aria-live="polite">${mediaSlot}<div class="rrl-main"><span class="rrl-icon"><span class="rrl-spinner" aria-hidden="true"></span><span class="rrl-state-icon">${icon}</span></span><div class="rrl-copy"><strong class="rrl-title">${escapeHtml(titleLabels[liveStatus] || input.title)}</strong><span class="rrl-status">${escapeHtml(statusLabels[liveStatus] || titleCaseToken(liveStatus))}</span><span class="rrl-stream-status"></span><div class="rrl-progress" hidden><span></span></div></div></div>${actions}<details class="rrl-detail"><summary aria-label="Show request details"></summary><p>${escapeHtml(brief)}</p></details></div>`;
   return bare ? card : lifecycleCardIsland(card);
 }
 function renderActionButtons(requestId, context, baseSurfaceId, state, rootTag = "") {
@@ -139744,8 +139755,8 @@ function safePresetCss(preset) {
   return `<style data-rrn-preset-style="${escapeAttr2(presetId)}">${css}</style>`;
 }
 function sanitizeCssLength(value) {
-  const clean4 = value.trim();
-  return /^(?:\d+(?:\.\d+)?(?:px|rem|em|%|vw)|min\([^;{}]+\)|clamp\([^;{}]+\))$/i.test(clean4) ? clean4 : "760px";
+  const clean = value.trim();
+  return /^(?:\d+(?:\.\d+)?(?:px|rem|em|%|vw)|min\([^;{}]+\)|clamp\([^;{}]+\))$/i.test(clean) ? clean : "760px";
 }
 function parseAttrs2(raw) {
   const out = {};
@@ -139788,13 +139799,13 @@ function removeMediaMarkup(body) {
   return value;
 }
 function firstSceneBrief(body) {
-  const request2 = firstTagMatch(body, "image_request");
-  return request2 ? firstTagText2(request2.body, "scene_brief") || firstTagText2(request2.body, "prompt") || stripMarkup(request2.body) : "";
+  const request = firstTagMatch(body, "image_request");
+  return request ? firstTagText2(request.body, "scene_brief") || firstTagText2(request.body, "prompt") || stripMarkup(request.body) : "";
 }
 function firstRequestId(body) {
-  const request2 = firstTagMatch(body, "image_request");
-  if (request2) {
-    const attrs = parseAttrs2(request2.attrs);
+  const request = firstTagMatch(body, "image_request");
+  if (request) {
+    const attrs = parseAttrs2(request.attrs);
     return attrs.id || attrs.request_id || "";
   }
   const img = /<img\b([^>]*)>/i.exec(body);
@@ -139803,8 +139814,8 @@ function firstRequestId(body) {
   return "";
 }
 function firstRequestAspect(body) {
-  const request2 = firstTagMatch(body, "image_request");
-  return request2 ? parseAttrs2(request2.attrs).aspect || "" : "";
+  const request = firstTagMatch(body, "image_request");
+  return request ? parseAttrs2(request.attrs).aspect || "" : "";
 }
 function sanitizeParagraphs(value) {
   const paragraphs = allTagMatches(value, "p");
@@ -155730,20 +155741,20 @@ function normalizeLegacyPlotSparksMarkup(markup) {
     if (hooks.length !== 7)
       return full;
     const id = markupAttribute(attrs, "id");
-    const lifecycle2 = markupAttribute(attrs, "lifecycle") || "Unused Plot Sparks dissolve after this response.";
+    const lifecycle = markupAttribute(attrs, "lifecycle") || "Unused Plot Sparks dissolve after this response.";
     if (!id)
       return full;
     const sparks = hooks.map((match) => {
-      const key2 = markupAttribute(match[1] || "", "key");
+      const key = markupAttribute(match[1] || "", "key");
       const vector = markupAttribute(match[1] || "", "vector");
-      const text3 = match[2]?.match(/<hook_text\b[^>]*>([\s\S]*?)<\/hook_text\s*>/i)?.[1]?.trim() || "";
+      const text = match[2]?.match(/<hook_text\b[^>]*>([\s\S]*?)<\/hook_text\s*>/i)?.[1]?.trim() || "";
       const media = match[2]?.match(/<hook_media\b[^>]*>([\s\S]*?)<\/hook_media\s*>/i)?.[1]?.trim() || "";
-      if (!key2 || !vector || !text3 || !media)
+      if (!key || !vector || !text || !media)
         return "";
       return `[Spark]
-[Key]${key2}[/Key]
+[Key]${key}[/Key]
 [Vector]${vector}[/Vector]
-[Text]${text3}[/Text]
+[Text]${text}[/Text]
 [Media]${media}[/Media]
 [/Spark]`;
     });
@@ -155751,7 +155762,7 @@ function normalizeLegacyPlotSparksMarkup(markup) {
       return full;
     return `[Plot_Sparks]
 [ID]${id}[/ID]
-[Lifecycle]${lifecycle2}[/Lifecycle]
+[Lifecycle]${lifecycle}[/Lifecycle]
 
 ${sparks.join(`
 
@@ -155768,9 +155779,10 @@ function normalizePlotSparksMediaMarkup(markup) {
       return full;
     const sceneBriefs = media.match(/<scene_brief\b[^>]*>[\s\S]*?<\/scene_brief\s*>/gi) || [];
     const wrongClosers = media.match(/<\/image_request\s*>/gi) || [];
-    if (sceneBriefs.length !== 1 || wrongClosers.length !== 1 || /<\/reverie-illustration\s*>/i.test(media))
+    if (sceneBriefs.length !== 1 || wrongClosers.length > 1 || /<\/reverie-illustration\s*>/i.test(media))
       return full;
-    const repaired = media.replace(/<scene_brief\b[^>]*>/i, "<visual_prompt>").replace(/<\/scene_brief\s*>/i, "</visual_prompt>").replace(/<\/image_request\s*>/i, "</reverie-illustration>");
+    let repaired = media.replace(/<scene_brief\b[^>]*>/i, "<visual_prompt>").replace(/<\/scene_brief\s*>/i, "</visual_prompt>");
+    repaired = wrongClosers.length === 1 ? repaired.replace(/<\/image_request\s*>/i, "</reverie-illustration>") : `${repaired.trimEnd()}</reverie-illustration>`;
     return `[Media]${repaired}[/Media]`;
   });
 }
@@ -155809,10 +155821,10 @@ var WORLD_BODY_SHELL = /^\s*\[world_media\]([\s\S]{1,24000}?)\[\/world_media\]\s
 var NESTED_NARRATIVE_OWNER = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i;
 function normalizeWorldMarkup(markup) {
   return String(markup || "").replace(WORLD_OWNER_RANGE, (full, opening, body, closing) => {
-    const shell2 = WORLD_BODY_SHELL.exec(body);
-    if (!shell2 || NESTED_NARRATIVE_OWNER.test(body))
+    const shell = WORLD_BODY_SHELL.exec(body);
+    if (!shell || NESTED_NARRATIVE_OWNER.test(body))
       return full;
-    const context = shell2[3];
+    const context = shell[3];
     if ((context.match(/\[why_it_matters\]/gi) || []).length !== 1)
       return full;
     if ((context.match(/\[\/why_it_matters\]/gi) || []).length !== 0)
@@ -155825,7 +155837,7 @@ function normalizeWorldMarkup(markup) {
     if (!malformed || !malformed[1].trim() || !malformed[2].trim())
       return full;
     const repairedContext = context.replace(/\[\/future_use\]/i, "[/why_it_matters]");
-    const repairedBody = body.slice(0, shell2.index) + shell2[0].replace(context, repairedContext) + body.slice(shell2.index + shell2[0].length);
+    const repairedBody = body.slice(0, shell.index) + shell[0].replace(context, repairedContext) + body.slice(shell.index + shell[0].length);
     return `${opening}${repairedBody}${closing}`;
   });
 }
@@ -155907,8 +155919,8 @@ function withLorebookExportAction(rendered, kind, context, messageId, occurrence
 function renderNarrativeRegex(markup, variant, messageId = "narrative", context = {}) {
   let output = normalizeNarrativeMarkupForRendering(markup);
   const macro = safeMessageId2(messageId);
-  for (const script of narrativeRegexScripts(variant).filter((script2) => {
-    const targets = Array.isArray(script2.target) ? script2.target : [script2.target || "display"];
+  for (const script of narrativeRegexScripts(variant).filter((script) => {
+    const targets = Array.isArray(script.target) ? script.target : [script.target || "display"];
     return targets.includes("display");
   })) {
     const flags = script.flags?.includes("g") ? script.flags : `${script.flags || ""}g`;
@@ -155971,7 +155983,7 @@ function comparable(value) {
   if (Array.isArray(value))
     return `[${value.map(comparable).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key2, child]) => `${JSON.stringify(key2)}:${comparable(child)}`).join(",")}}`;
+    return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${comparable(child)}`).join(",")}}`;
   }
   return JSON.stringify(value);
 }
@@ -156157,7 +156169,7 @@ var PLOT_SPARK_COMPLETION_LOCK = `PLOT SPARKS STRUCTURAL LOCK \u2014 BEFORE ENDI
 Mandatory structured contracts outrank prose length. Shorten nonessential prose before dropping required Plot Sparks structure.
 
 Verify exactly seven [Spark] blocks with keys a through g, each key exactly once, and this exact mapping:
-${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key2, vector]) => `${key2} = ${vector}`).join(`
+${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key} = ${vector}`).join(`
 `)}
 
 Every [Spark] must contain one non-empty [Text] and one non-empty [Media]. Every [Media] must contain exactly one complete current <reverie-illustration request="generate"> ... <visual_prompt> ... </visual_prompt> ... </reverie-illustration> with a non-empty <visual_prompt>. Close every Spark with [/Spark] and close the root with [/Plot_Sparks]. Plot Sparks d through g and required closing tags may never be silently dropped. Resolved historical images and Relay runtime markup do not count. If any check fails, fix the [Plot_Sparks] block before stopping.`;
@@ -156206,17 +156218,17 @@ function isCurrentPlotSparksUtilityContent(content) {
       continue;
     const seenKeys = new Set;
     const valid = sparks.every((spark) => {
-      const key2 = singlePlotSparkField(spark, "Key");
+      const key = singlePlotSparkField(spark, "Key");
       const vector = singlePlotSparkField(spark, "Vector");
-      const text3 = singlePlotSparkField(spark, "Text");
+      const text = singlePlotSparkField(spark, "Text");
       const media = singlePlotSparkField(spark, "Media");
-      const expectedVector = key2 ? PLOT_SPARK_VECTOR_BY_KEY[key2] : undefined;
-      if (!key2 || seenKeys.has(key2) || !expectedVector || vector !== expectedVector || !text3 || !media)
+      const expectedVector = key ? PLOT_SPARK_VECTOR_BY_KEY[key] : undefined;
+      if (!key || seenKeys.has(key) || !expectedVector || vector !== expectedVector || !text || !media)
         return false;
-      seenKeys.add(key2);
+      seenKeys.add(key);
       return containsOneCurrentPlotSparkIllustration(media);
     });
-    if (valid && Object.keys(PLOT_SPARK_VECTOR_BY_KEY).every((key2) => seenKeys.has(key2)))
+    if (valid && Object.keys(PLOT_SPARK_VECTOR_BY_KEY).every((key) => seenKeys.has(key)))
       return true;
   }
   return false;
@@ -156273,7 +156285,7 @@ function extractNarrativeLorebookRecord(source, kind, occurrence = 0) {
   if (!match)
     return null;
   if (kind === "cast-introduction") {
-    const title2 = cleanText(groups.name);
+    const title = cleanText(groups.name);
     const sections = [
       ["Tier", groups.tier],
       ["Identity", groups.identity],
@@ -156282,9 +156294,9 @@ function extractNarrativeLorebookRecord(source, kind, occurrence = 0) {
       ["History and Motivation", groups.history],
       ["Relationships", groups.relationships]
     ].map(([label, value]) => [label, cleanText(value)]).filter(([, value]) => value);
-    if (!title2 || !sections.length)
+    if (!title || !sections.length)
       return null;
-    return { title: title2, keys: [title2], content: `Cast Introduction: ${title2}
+    return { title, keys: [title], content: `Cast Introduction: ${title}
 
 ${sections.map(([label, value]) => `${label}: ${value}`).join(`
 `)}` };
@@ -156309,7 +156321,7 @@ async function listBooks(api, userId) {
   }
 }
 async function exportNarrativeLorebookRecord(input) {
-  const { api, chat, record: record4, kind, messageId, swipeId, userId } = input;
+  const { api, chat, record, kind, messageId, swipeId, userId } = input;
   const occurrence = Math.max(0, Number.isFinite(Number(input.occurrence)) ? Number(input.occurrence) : 0);
   const books = await listBooks(api, userId);
   let book = books.find((candidate) => candidate.metadata?.reverie_relay_export_book === true && candidate.metadata?.reverie_relay_lorebook_chat_id === chat.id);
@@ -156326,9 +156338,9 @@ async function exportNarrativeLorebookRecord(input) {
       createdBook = true;
     }
     const entry = await api.world_books.entries.create(book.id, {
-      key: record4.keys,
-      content: record4.content,
-      comment: `${kind === "character-dossier" ? "Character Dossier" : kind === "location-file" ? "Location File" : "Cast Introduction"} - ${record4.title}`,
+      key: record.keys,
+      content: record.content,
+      comment: `${kind === "character-dossier" ? "Character Dossier" : kind === "location-file" ? "Location File" : "Cast Introduction"} - ${record.title}`,
       position: 4,
       selective: false,
       constant: false,
@@ -156341,9 +156353,9 @@ async function exportNarrativeLorebookRecord(input) {
         reverie_relay_source_message_id: messageId,
         reverie_relay_source_swipe_id: swipeId,
         reverie_relay_source_fingerprint: contentFingerprint(`${kind}
-${record4.title}
-${record4.content}`),
-        reverie_relay_exported_title: record4.title,
+${record.title}
+${record.content}`),
+        reverie_relay_exported_title: record.title,
         reverie_relay_exported_at: new Date().toISOString(),
         reverie_relay_version: input.relayVersion || "unknown",
         reverie_relay_schema_version: Number.isFinite(Number(input.schemaVersion)) ? Number(input.schemaVersion) : 1
@@ -156354,7 +156366,7 @@ ${record4.content}`),
     if (!existingBindings.includes(book.id)) {
       await api.chats.update(chat.id, { metadata: { ...chat.metadata || {}, chat_world_book_ids: [...existingBindings, book.id] } }, userId);
     }
-    return { bookId: book.id, entryId, message: `Sent ${record4.title} to ${book.name}.` };
+    return { bookId: book.id, entryId, message: `Sent ${record.title} to ${book.name}.` };
   } catch (error) {
     if (entryId)
       await api.world_books.entries.delete(entryId, userId).catch(() => false);
@@ -156393,7 +156405,7 @@ function sanitizeRelayPromptMessageWithMetrics(message) {
 `);
   const reports = assistantHistory ? textParts.map(sanitizeRelayPromptHistoryTextWithReport) : [];
   let reportIndex = 0;
-  const sanitizeText = (text3) => assistantHistory ? reports[reportIndex++]?.text || "" : sanitizeRelayRuntimePromptText(text3);
+  const sanitizeText = (text) => assistantHistory ? reports[reportIndex++]?.text || "" : sanitizeRelayRuntimePromptText(text);
   const sanitized = typeof message.content === "string" ? { ...message, content: sanitizeText(message.content) } : {
     ...message,
     content: message.content.map((part) => part.type === "text" && typeof part.text === "string" ? { ...part, text: sanitizeText(part.text) } : part)
@@ -156401,7 +156413,7 @@ function sanitizeRelayPromptMessageWithMetrics(message) {
   const afterParts = typeof sanitized.content === "string" ? [sanitized.content] : sanitized.content.filter((part) => part.type === "text" && typeof part.text === "string").map((part) => part.text);
   const after = afterParts.join(`
 `);
-  const sum = (key2) => reports.reduce((total, report) => total + report.removed[key2], 0);
+  const sum = (key) => reports.reduce((total, report) => total + report.removed[key], 0);
   return {
     message: sanitized,
     metric: {
@@ -156598,11 +156610,11 @@ function claimProviderImageResult(imageId, generationId, userId) {
   const normalizedGenerationId = cleanString(generationId);
   if (!normalizedId || !normalizedGenerationId)
     return "";
-  const key2 = `${userId || "__default-user__"}:${normalizedId}`;
-  const existing = providerImageResultClaims.get(key2);
+  const key = `${userId || "__default-user__"}:${normalizedId}`;
+  const existing = providerImageResultClaims.get(key);
   if (existing && existing.generationId !== normalizedGenerationId)
     return `runtime generation ${existing.generationId}`;
-  rememberBoundedMap(providerImageResultClaims, key2, { generationId: normalizedGenerationId, claimedAt: Date.now() }, 1024);
+  rememberBoundedMap(providerImageResultClaims, key, { generationId: normalizedGenerationId, claimedAt: Date.now() }, 1024);
   return "";
 }
 function imageStreamAliases(context) {
@@ -156661,8 +156673,8 @@ function abortError(message = "Generation cancelled by user.") {
   error.name = "AbortError";
   return error;
 }
-var IMAGE_GENERATION_TIMEOUT_MS = 5 * 60000;
-var IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS = 6 * 60000;
+var IMAGE_GENERATION_TIMEOUT_MS = undefined;
+var IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS = undefined;
 var IMAGE_GENERATION_DRAIN_TIMEOUT_MS = 2 * 60000;
 var SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS = 2 * 60000;
 function isChatNotFoundError(error) {
@@ -156719,18 +156731,9 @@ class ImageGenerationWorkerResetError extends Error {
     this.name = "ImageGenerationWorkerResetError";
   }
 }
-async function withImageGenerationDeadline(operation, controller, timeoutMs = IMAGE_GENERATION_TIMEOUT_MS) {
-  const boundedTimeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, Math.floor(timeoutMs)) : IMAGE_GENERATION_TIMEOUT_MS;
+async function withImageGenerationDeadline(operation, controller, timeoutMs) {
   let timer;
   let abortHandler;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      const error = new ImageGenerationTimeoutError(boundedTimeoutMs);
-      if (!controller.signal.aborted)
-        controller.abort(error);
-      reject(error);
-    }, boundedTimeoutMs);
-  });
   const aborted = new Promise((_, reject) => {
     if (controller.signal.aborted) {
       reject(abortError());
@@ -156740,6 +156743,17 @@ async function withImageGenerationDeadline(operation, controller, timeoutMs = IM
     controller.signal.addEventListener("abort", abortHandler, { once: true });
   });
   try {
+    if (!Number.isFinite(timeoutMs))
+      return await Promise.race([operation(), aborted]);
+    const boundedTimeoutMs = Math.max(1, Math.floor(timeoutMs));
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new ImageGenerationTimeoutError(boundedTimeoutMs);
+        if (!controller.signal.aborted)
+          controller.abort(error);
+        reject(error);
+      }, boundedTimeoutMs);
+    });
     return await Promise.race([operation(), timeout, aborted]);
   } finally {
     if (timer)
@@ -156756,7 +156770,7 @@ function clearImageGenerationLaneWaiter(waiter) {
   if (waiter.abortHandler)
     waiter.controller.signal.removeEventListener("abort", waiter.abortHandler);
 }
-function grantImageGenerationLane(key2, lane, context, providerId) {
+function grantImageGenerationLane(key, lane, context, providerId) {
   const leaseId = `${context.generationId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
   lane.active = true;
   lane.draining = false;
@@ -156770,19 +156784,22 @@ function grantImageGenerationLane(key2, lane, context, providerId) {
     clearTimeout(lane.stuckVisibilityTimer);
   lane.stuckVisibilityTimer = undefined;
   const diagnostic = providerAttemptFor(context);
-  if (diagnostic)
+  if (diagnostic) {
     diagnostic.providerLaneAcquiredAt ||= Date.now();
+    diagnostic.providerLaneWaiterCountAtAcquire = lane.waiters.length;
+  }
   emitImageWorkerRecoveryState(lane.userId);
-  return { key: key2, leaseId, context, providerId, release: () => releaseImageGenerationLane(key2, leaseId) };
+  return { key, leaseId, context, providerId, release: () => releaseImageGenerationLane(key, leaseId) };
 }
-function releaseImageGenerationLane(key2, leaseId) {
-  const lane = imageGenerationLanes.get(key2);
+function releaseImageGenerationLane(key, leaseId) {
+  const lane = imageGenerationLanes.get(key);
   if (!lane || lane.activeLeaseId !== leaseId)
     return;
   const diagnostic = lane.activeContext ? providerAttemptFor(lane.activeContext) : undefined;
   if (diagnostic) {
     diagnostic.providerLaneReleasedAt ||= Date.now();
     diagnostic.providerLaneReleaseCount += 1;
+    diagnostic.providerLaneWaiterCountAtRelease = lane.waiters.length;
   }
   if (lane.drainWatchdog)
     clearTimeout(lane.drainWatchdog);
@@ -156804,11 +156821,11 @@ function releaseImageGenerationLane(key2, leaseId) {
       streaming: false,
       statusText: "Image worker available. Starting generation\u2026"
     });
-    waiter.resolve(grantImageGenerationLane(key2, lane, waiter.context, waiter.providerId));
+    waiter.resolve(grantImageGenerationLane(key, lane, waiter.context, waiter.providerId));
     return;
   }
   lane.active = false;
-  imageGenerationLanes.delete(key2);
+  imageGenerationLanes.delete(key);
   emitImageWorkerRecoveryState(lane.userId);
 }
 function releaseAbortedImageGenerationLane(lease, providerOperation, reason) {
@@ -156826,13 +156843,13 @@ function releaseAbortedImageGenerationLane(lease, providerOperation, reason) {
   lease.release();
 }
 async function acquireImageGenerationLane(userId, context, controller, providerId) {
-  const key2 = imageGenerationLaneKey(userId);
-  const lane = imageGenerationLanes.get(key2) || { userId, active: false, draining: false, waiters: [] };
+  const key = imageGenerationLaneKey(userId);
+  const lane = imageGenerationLanes.get(key) || { userId, active: false, draining: false, waiters: [] };
   lane.userId = userId;
-  imageGenerationLanes.set(key2, lane);
+  imageGenerationLanes.set(key, lane);
   await context.onProviderWaiting?.();
   if (!lane.active) {
-    return grantImageGenerationLane(key2, lane, context, providerId);
+    return grantImageGenerationLane(key, lane, context, providerId);
   }
   sendImageStreamEvent(userId, context, {
     event: "status",
@@ -156842,7 +156859,7 @@ async function acquireImageGenerationLane(userId, context, controller, providerI
   return await new Promise((resolve, reject) => {
     const waiter = { controller, context, userId, providerId, resolve, reject, queuedAt: Date.now() };
     const removeWaiter = () => {
-      const currentLane = imageGenerationLanes.get(key2);
+      const currentLane = imageGenerationLanes.get(key);
       if (currentLane)
         currentLane.waiters = currentLane.waiters.filter((candidate) => candidate !== waiter);
       clearImageGenerationLaneWaiter(waiter);
@@ -156862,25 +156879,27 @@ async function acquireImageGenerationLane(userId, context, controller, providerI
       });
     }, 20000);
     waiter.heartbeat.unref?.();
-    const waitTimeoutMs = Number.isFinite(context.laneWaitTimeoutMs) ? Math.max(1, Math.floor(context.laneWaitTimeoutMs)) : IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS;
-    waiter.timeout = setTimeout(() => {
-      removeWaiter();
-      reject(new ImageGenerationLaneWaitTimeoutError(waitTimeoutMs));
-    }, waitTimeoutMs);
-    waiter.timeout.unref?.();
+    if (Number.isFinite(context.laneWaitTimeoutMs)) {
+      const waitTimeoutMs = Math.max(1, Math.floor(context.laneWaitTimeoutMs));
+      waiter.timeout = setTimeout(() => {
+        removeWaiter();
+        reject(new ImageGenerationLaneWaitTimeoutError(waitTimeoutMs));
+      }, waitTimeoutMs);
+      waiter.timeout.unref?.();
+    }
     lane.waiters.push(waiter);
   });
 }
 function inspectImageGenerationLaneDiagnostics(userId, now = Date.now()) {
-  const key2 = imageGenerationLaneKey(userId);
-  const lane = imageGenerationLanes.get(key2);
+  const key = imageGenerationLaneKey(userId);
+  const lane = imageGenerationLanes.get(key);
   if (!lane)
     return null;
-  const reset = providerLaneResetDiagnostics.get(key2) || { laneResetCount: 0 };
+  const reset = providerLaneResetDiagnostics.get(key) || { laneResetCount: 0 };
   const drainAgeMs = lane.drainStartedAt ? Math.max(0, now - lane.drainStartedAt) : 0;
   const resetAvailable = lane.draining && isSwarmUiProvider(lane.activeProviderId || "") && drainAgeMs >= SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS;
   return {
-    laneKey: key2,
+    laneKey: key,
     active: lane.active,
     draining: lane.draining,
     activeGenerationId: lane.activeContext?.generationId || null,
@@ -156935,8 +156954,8 @@ function emitImageWorkerRecoveryState(userId) {
   }
 }
 function resetStuckImageWorker(userId, now = Date.now()) {
-  const key2 = imageGenerationLaneKey(userId);
-  const lane = imageGenerationLanes.get(key2);
+  const key = imageGenerationLaneKey(userId);
+  const lane = imageGenerationLanes.get(key);
   if (!lane?.draining)
     throw new Error("The ImageGen provider lane is not quarantined.");
   if (!isSwarmUiProvider(lane.activeProviderId || ""))
@@ -156946,7 +156965,7 @@ function resetStuckImageWorker(userId, now = Date.now()) {
     throw new Error("SwarmUI has not remained unresolved long enough to expose manual worker reset.");
   const abandonedGenerationId = lane.activeContext?.generationId || "";
   const diagnostic = lane.activeContext ? providerAttemptFor(lane.activeContext) : undefined;
-  const previousReset = providerLaneResetDiagnostics.get(key2) || { laneResetCount: 0 };
+  const previousReset = providerLaneResetDiagnostics.get(key) || { laneResetCount: 0 };
   const resetDiagnostic = {
     laneResetCount: previousReset.laneResetCount + 1,
     lastLaneResetAt: now,
@@ -156954,7 +156973,7 @@ function resetStuckImageWorker(userId, now = Date.now()) {
     lastAbandonReason: "explicit-worker-reset"
   };
   spindle.log.warn(`[ReverieRelay:image_worker_manual_reset] ${JSON.stringify({ generationId: abandonedGenerationId || null, provider: lane.activeProviderId, drainStartedAt: lane.drainStartedAt || 0, drainAgeMs, drainReason: lane.drainReason || "", rejectedWaiters: lane.waiters.length, laneResetCount: resetDiagnostic.laneResetCount, remoteCancellationClaimed: false })}`);
-  providerLaneResetDiagnostics.set(key2, resetDiagnostic);
+  providerLaneResetDiagnostics.set(key, resetDiagnostic);
   if (diagnostic) {
     diagnostic.providerAbandonedByUser = true;
     diagnostic.providerAbandonedAt = now;
@@ -156983,7 +157002,7 @@ function resetStuckImageWorker(userId, now = Date.now()) {
   lane.drainReason = undefined;
   lane.drainWatchdog = undefined;
   lane.stuckVisibilityTimer = undefined;
-  imageGenerationLanes.delete(key2);
+  imageGenerationLanes.delete(key);
   emitImageWorkerRecoveryState(userId);
   return { ...resetDiagnostic, abandonedGenerationId: abandonedGenerationId || null, rejectedWaiters: waiters.length, remoteCancellationClaimed: false };
 }
@@ -157098,8 +157117,8 @@ function destinationAvailable(context, userId) {
 function markChatDestinationUnavailable(chatId, userId, reason = "Chat not found", validationResult = "quarantined") {
   if (!chatId)
     return null;
-  const key2 = staleChatScopeKey(chatId, userId);
-  const previous = chatDestinationDiagnostics.get(key2);
+  const key = staleChatScopeKey(chatId, userId);
+  const previous = chatDestinationDiagnostics.get(key);
   const diagnostic = {
     chatId,
     userId: userId || "__default-user__",
@@ -157110,14 +157129,14 @@ function markChatDestinationUnavailable(chatId, userId, reason = "Chat not found
     validationResult,
     validationError: validationResult === "validation-error" ? reason : undefined
   };
-  chatDestinationDiagnostics.set(key2, diagnostic);
+  chatDestinationDiagnostics.set(key, diagnostic);
   return diagnostic;
 }
 function markChatDestinationAvailable(chatId, userId, validatedAt = Date.now()) {
   if (!chatId)
     return null;
-  const key2 = staleChatScopeKey(chatId, userId);
-  const previous = chatDestinationDiagnostics.get(key2);
+  const key = staleChatScopeKey(chatId, userId);
+  const previous = chatDestinationDiagnostics.get(key);
   const diagnostic = {
     chatId,
     userId: userId || "__default-user__",
@@ -157127,7 +157146,7 @@ function markChatDestinationAvailable(chatId, userId, validatedAt = Date.now()) 
     lastValidatedAt: validatedAt,
     validationResult: "exists"
   };
-  chatDestinationDiagnostics.set(key2, diagnostic);
+  chatDestinationDiagnostics.set(key, diagnostic);
   return diagnostic;
 }
 function inspectChatDestinationDiagnostic(chatId, userId) {
@@ -157156,9 +157175,9 @@ async function revalidateChatDestination(chatId, userId) {
       markChatDestinationUnavailable(chatId, userId, reason, "missing");
       return false;
     }
-    const key2 = staleChatScopeKey(chatId, userId);
-    const previous = chatDestinationDiagnostics.get(key2);
-    chatDestinationDiagnostics.set(key2, {
+    const key = staleChatScopeKey(chatId, userId);
+    const previous = chatDestinationDiagnostics.get(key);
+    chatDestinationDiagnostics.set(key, {
       chatId,
       userId: userId || "__default-user__",
       quarantined: previous?.quarantined === true,
@@ -157186,35 +157205,35 @@ function cleanupStaleChatWork(chatId, userId, reason = "Chat not found") {
   if (!chatId)
     return summary;
   markChatDestinationUnavailable(chatId, userId, reason);
-  for (const [key2, scheduled] of [...scheduledAssistantScans.entries()]) {
+  for (const [key, scheduled] of [...scheduledAssistantScans.entries()]) {
     if (scheduled.chatId !== chatId)
       continue;
     if (scheduled.timer)
       clearTimeout(scheduled.timer);
-    scheduledAssistantScans.delete(key2);
+    scheduledAssistantScans.delete(key);
     summary.scheduledScans += 1;
   }
-  for (const [key2, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
+  for (const [key, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
     if (scheduled.chatId !== chatId)
       continue;
     if (scheduled.timer)
       clearTimeout(scheduled.timer);
-    scheduledProseOpportunityScans.delete(key2);
+    scheduledProseOpportunityScans.delete(key);
     summary.scheduledScans += 1;
   }
-  for (const [key2, deferred] of [...deferredScans.entries()]) {
+  for (const [key, deferred] of [...deferredScans.entries()]) {
     if (deferred[0] !== chatId)
       continue;
-    deferredScans.delete(key2);
+    deferredScans.delete(key);
     summary.deferredWork += 1;
   }
   for (const registry of [deferredReparseRequests, deferredRegenerateRequests]) {
-    for (const [key2, request2] of [...registry.entries()]) {
-      if (!key2.startsWith(`${chatId}:`))
+    for (const [key, request] of [...registry.entries()]) {
+      if (!key.startsWith(`${chatId}:`))
         continue;
-      if (request2.timer)
-        clearTimeout(request2.timer);
-      registry.delete(key2);
+      if (request.timer)
+        clearTimeout(request.timer);
+      registry.delete(key);
       summary.deferredWork += 1;
     }
   }
@@ -157251,26 +157270,26 @@ function cleanupStaleChatWork(chatId, userId, reason = "Chat not found") {
       summary.activePreSpendCancelled += 1;
     }
   }
-  for (const [key2, batch] of [...pendingPlacementBatches.entries()]) {
+  for (const [key, batch] of [...pendingPlacementBatches.entries()]) {
     if (batch.chatId !== chatId)
       continue;
     if (batch.visualFallbackTimer)
       clearTimeout(batch.visualFallbackTimer);
-    pendingPlacementBatches.delete(key2);
+    pendingPlacementBatches.delete(key);
     summary.placementBatches += 1;
   }
-  for (const [key2, timer] of [...scheduledStateBroadcasts.entries()]) {
-    if (!key2.endsWith(`:${chatId}`))
+  for (const [key, timer] of [...scheduledStateBroadcasts.entries()]) {
+    if (!key.endsWith(`:${chatId}`))
       continue;
     clearTimeout(timer);
-    scheduledStateBroadcasts.delete(key2);
+    scheduledStateBroadcasts.delete(key);
   }
-  for (const key2 of [...latestMessageSnapshots.keys()])
-    if (key2.startsWith(`${chatId}:`))
-      latestMessageSnapshots.delete(key2);
-  for (const key2 of [...pendingGenerationContent.keys()])
-    if (key2.startsWith(`${chatId}:`))
-      pendingGenerationContent.delete(key2);
+  for (const key of [...latestMessageSnapshots.keys()])
+    if (key.startsWith(`${chatId}:`))
+      latestMessageSnapshots.delete(key);
+  for (const key of [...pendingGenerationContent.keys()])
+    if (key.startsWith(`${chatId}:`))
+      pendingGenerationContent.delete(key);
   spindle.log.warn(`[ReverieRelay:stale_chat_cleanup] ${JSON.stringify({ ...summary, reason })}`);
   return summary;
 }
@@ -157279,7 +157298,7 @@ function inspectChatRuntimeWork(chatId, userId) {
   return {
     stale: chatDestinationDiagnostics.get(staleChatScopeKey(chatId, userId))?.quarantined === true,
     scheduledScans: [...scheduledAssistantScans.values(), ...scheduledProseOpportunityScans.values()].filter((item) => item.chatId === chatId).length,
-    deferredWork: [...deferredScans.values()].filter((item) => item[0] === chatId).length + [...deferredReparseRequests.keys(), ...deferredRegenerateRequests.keys()].filter((key2) => key2.startsWith(`${chatId}:`)).length,
+    deferredWork: [...deferredScans.values()].filter((item) => item[0] === chatId).length + [...deferredReparseRequests.keys(), ...deferredRegenerateRequests.keys()].filter((key) => key.startsWith(`${chatId}:`)).length,
     nativeSettingsWaiters: broker?.waiters.get(chatId)?.size || 0,
     dispatchQueueItems: 0,
     activeDirectJobs: [...activeRelayAttempts.values()].filter((attempt) => attempt.chatId === chatId).length,
@@ -157331,10 +157350,10 @@ function userConfigCacheKey(userId) {
 }
 function trimSurfaceUtilityCache() {
   while (surfaceUtilityCache.size > 12) {
-    const first2 = surfaceUtilityCache.keys().next().value;
-    if (!first2)
+    const first = surfaceUtilityCache.keys().next().value;
+    if (!first)
       break;
-    surfaceUtilityCache.delete(first2);
+    surfaceUtilityCache.delete(first);
   }
 }
 function renderScopeKey(chatId, userId) {
@@ -157384,7 +157403,7 @@ function cacheRenderSnapshot(chatId, userId, state, config) {
     autoGenerate: config.autoGenerate,
     generationPlaceholderEffect: config.generationPlaceholderEffect,
     narrativeVariant: narrativeVariantForSurfaceShellMode(config.surfaceDefaultShellMode),
-    records: Object.values(state.slots).filter((record4) => record4.status !== "completed"),
+    records: Object.values(state.slots).filter((record) => record.status !== "completed"),
     cachedAt: Date.now()
   };
   renderSnapshotCache.set(renderScopeKey(chatId, userId), snapshot);
@@ -157392,19 +157411,19 @@ function cacheRenderSnapshot(chatId, userId, state, config) {
 }
 function invalidateRenderCaches(chatId, userId) {
   const scopePrefix = userId ? `${userId}:` : "";
-  for (const key2 of renderSnapshotCache.keys()) {
-    if (scopePrefix && !key2.startsWith(scopePrefix))
+  for (const key of renderSnapshotCache.keys()) {
+    if (scopePrefix && !key.startsWith(scopePrefix))
       continue;
-    if (chatId && !key2.endsWith(`:${chatId}`))
+    if (chatId && !key.endsWith(`:${chatId}`))
       continue;
-    renderSnapshotCache.delete(key2);
+    renderSnapshotCache.delete(key);
   }
-  for (const key2 of renderOutputCache.keys()) {
-    if (scopePrefix && !key2.startsWith(scopePrefix))
+  for (const key of renderOutputCache.keys()) {
+    if (scopePrefix && !key.startsWith(scopePrefix))
       continue;
-    if (chatId && !key2.includes(`:${chatId}:`))
+    if (chatId && !key.includes(`:${chatId}:`))
       continue;
-    renderOutputCache.delete(key2);
+    renderOutputCache.delete(key);
   }
 }
 var renderSnapshotWarmups = new Map;
@@ -157423,16 +157442,16 @@ function warmRenderSnapshot(chatId, userId) {
   });
   renderSnapshotWarmups.set(scope, warmup);
 }
-function cancelAbortableOperation(key2) {
-  const next = (abortableOperationSerials.get(key2) || 0) + 1;
-  rememberBoundedMap(abortableOperationSerials, key2, next, C5B_CACHE_LIMITS.abortableOperations);
+function cancelAbortableOperation(key) {
+  const next = (abortableOperationSerials.get(key) || 0) + 1;
+  rememberBoundedMap(abortableOperationSerials, key, next, C5B_CACHE_LIMITS.abortableOperations);
   return next;
 }
-function captureAbortableOperation(key2) {
-  return abortableOperationSerials.get(key2) || 0;
+function captureAbortableOperation(key) {
+  return abortableOperationSerials.get(key) || 0;
 }
-function assertAbortableOperationCurrent(key2, serial) {
-  if ((abortableOperationSerials.get(key2) || 0) !== serial) {
+function assertAbortableOperationCurrent(key, serial) {
+  if ((abortableOperationSerials.get(key) || 0) !== serial) {
     const error = new Error("Operation cancelled by user.");
     error.name = "OperationCancelledError";
     throw error;
@@ -157563,12 +157582,12 @@ function containsStalePromptTemplate(value) {
   return /(?:dreamglass:image|dreamglass\s+image\s+router|dreamglass\s+router|<dreamglass\b|\{\{\s*dreamglass|enabled\s+surface\s+authority)/i.test(cleanString(value));
 }
 function canonicalSurfaceUtilityTemplate(value) {
-  const text3 = cleanString(value);
-  return !text3 || containsStalePromptTemplate(text3) ? REVERIE_SURFACE_UTILITY_TEMPLATE : text3;
+  const text = cleanString(value);
+  return !text || containsStalePromptTemplate(text) ? REVERIE_SURFACE_UTILITY_TEMPLATE : text;
 }
 function canonicalProtocolOverride(value, fallback) {
-  const text3 = cleanString(value);
-  return !text3 || containsStalePromptTemplate(text3) ? fallback : text3;
+  const text = cleanString(value);
+  return !text || containsStalePromptTemplate(text) ? fallback : text;
 }
 function registryPrompt(settings, id) {
   return Object.prototype.hasOwnProperty.call(settings.promptRegistry || {}, id) ? String(settings.promptRegistry[id] ?? "") : String(DEFAULT_PROMPT_REGISTRY[id] ?? "");
@@ -157576,7 +157595,7 @@ function registryPrompt(settings, id) {
 function buildResolvedNarrativeUtilityPrompt(config) {
   if (!config.narrativeDlcEnabled)
     return { content: "", utilityNames: [], characterPhoneDirective: "" };
-  const narrative = buildNarrativeUtilityPrompt(config.narrativeDlcUtilityNames, Object.fromEntries(Object.entries(config.narrativeUtilityOverrides || {}).map(([name, record4]) => [name, record4.content])));
+  const narrative = buildNarrativeUtilityPrompt(config.narrativeDlcUtilityNames, Object.fromEntries(Object.entries(config.narrativeUtilityOverrides || {}).map(([name, record]) => [name, record.content])));
   const characterPhoneDirective = narrative.utilityNames.includes("Character Phone") ? buildCharacterPhoneRuntimeDirective(config.characterPhoneDefaultApps) : "";
   return {
     ...narrative,
@@ -157587,8 +157606,8 @@ function buildResolvedNarrativeUtilityPrompt(config) {
   };
 }
 function expandPromptTemplate(template, values) {
-  return String(template || "").replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_match, key2) => {
-    const value = values[key2];
+  return String(template || "").replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_match, key) => {
+    const value = values[key];
     return (value === undefined || value === null ? "" : String(value)).trim().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   });
 }
@@ -157629,19 +157648,19 @@ Every authored ${definition.displayName || "surface"} must include a complete re
 [/${wrapper}]`;
 }
 function ensureSurfacePromptContainsImageRequest(definition, prompt) {
-  const text3 = cleanString(prompt);
+  const text = cleanString(prompt);
   const explicitlyNoRequiredMedia = (definition.validationRules || []).some((rule) => /^required-media:0$/i.test(cleanString(rule)));
-  if (!text3 || /<image_request\b/i.test(text3) || explicitlyNoRequiredMedia)
-    return text3;
-  return `${text3}
+  if (!text || /<image_request\b/i.test(text) || explicitlyNoRequiredMedia)
+    return text;
+  return `${text}
 
 ${surfacePromptMediaContract(definition)}`;
 }
 var COMPACT_SURFACE_PROMPT_MARKER = "FORMAT: compact-v1";
 function canonicalSurfacePromptModule(definition) {
-  const text3 = cleanString(definition.promptModule);
-  if (text3 && !definition.builtIn && !containsStalePromptTemplate(text3))
-    return ensureSurfacePromptContainsImageRequest(definition, text3);
+  const text = cleanString(definition.promptModule);
+  if (text && !definition.builtIn && !containsStalePromptTemplate(text))
+    return ensureSurfacePromptContainsImageRequest(definition, text);
   const builtInDefault = cleanString(builtInSurfaceDefinitionTemplate?.[definition.surfaceId]?.promptModule);
   if (builtInDefault.includes(COMPACT_SURFACE_PROMPT_MARKER)) {
     return builtInDefault;
@@ -157657,12 +157676,12 @@ function canonicalSurfacePromptModule(definition) {
     target: definition.targetId,
     aspect: definition.supportedAspectRatios[0]
   });
-  const builtInGuidance = r45 || text3;
+  const builtInGuidance = r45 || text;
   if (definition.builtIn)
     return ensureSurfacePromptContainsImageRequest(definition, `${bracket}${r45BracketSpecificGuidance(builtInGuidance)}`);
-  if (!text3 || containsStalePromptTemplate(text3))
+  if (!text || containsStalePromptTemplate(text))
     return ensureSurfacePromptContainsImageRequest(definition, bracket);
-  return ensureSurfacePromptContainsImageRequest(definition, `${text3}
+  return ensureSurfacePromptContainsImageRequest(definition, `${text}
 
 ${bracket}`);
 }
@@ -157865,33 +157884,33 @@ async function resolveSidecarPromptMessages(messages, chatId, userId, fallback) 
   const resolved = messages.map((message) => {
     let content = message.content.replace(ALL_MACRO_MARKER, values.reverie_all).replace(SURFACE_MACRO_MARKERS, values.reverie_surfaces).replace(ILLUSTRATOR_MACRO_MARKER, values.reverie_illustrator).replace(NARRATIVE_MACRO_MARKER, values.reverie_narrative);
     content = content.replace(/\{\{\s*(char|character|user|persona|character_prompt|character_negative_prompt|persona_prompt|persona_negative_prompt|reverie_surfaces|reverie_enabled_surfaces|reverie_illustrator|reverie_narrative|reverie_all)\s*\}\}/gi, (match, name) => {
-      const key2 = name.toLocaleLowerCase();
-      const value = values[key2];
-      if (!value && ["character_prompt", "character_negative_prompt", "persona_prompt", "persona_negative_prompt"].includes(key2)) {
-        resolvedMacros.add(`{{${key2}}}`);
+      const key = name.toLocaleLowerCase();
+      const value = values[key];
+      if (!value && ["character_prompt", "character_negative_prompt", "persona_prompt", "persona_negative_prompt"].includes(key)) {
+        resolvedMacros.add(`{{${key}}}`);
         return "";
       }
       if (!value) {
         unresolvedRequiredMacros.add(match);
         return "";
       }
-      resolvedMacros.add(`{{${key2}}}`);
+      resolvedMacros.add(`{{${key}}}`);
       return value;
     });
     return { ...message, content };
   });
   return { messages: resolved, resolvedMacros: [...resolvedMacros], unresolvedRequiredMacros: [...unresolvedRequiredMacros] };
 }
-async function generateRawSidecar(request2, chatId, userId) {
+async function generateRawSidecar(request, chatId, userId) {
   const config = await getConfig(userId);
-  const resolution = await resolveSidecarPromptMessages(request2.messages, chatId, userId, {
+  const resolution = await resolveSidecarPromptMessages(request.messages, chatId, userId, {
     characterPrompt: config.nativeCharacterPrompt,
     personaPrompt: config.nativePersonaPrompt,
     nativeSettings: nativeSnapshotFromConfig(config)?.settings || {}
   });
   if (resolution.unresolvedRequiredMacros.length)
     throw new Error(`Required Sidecar macros could not be resolved: ${resolution.unresolvedRequiredMacros.join(", ")}`);
-  const { relayContextMetrics, relayWorkflow, ...providerRequest } = request2;
+  const { relayContextMetrics, relayWorkflow, ...providerRequest } = request;
   const workflow = typeof relayWorkflow === "string" ? relayWorkflow : "parser";
   const measurement = measureModelMessages(workflow, resolution.messages, relayContextMetrics);
   assertModelContextBudget(measurement);
@@ -157974,26 +157993,26 @@ if (typeof registerMessageContentProcessor === "function") {
         generationPlaceholderEffect: snapshot.generationPlaceholderEffect,
         rendererMode: snapshot.studio.rendererMode,
         colorMode: snapshot.studio.colorMode,
-        records: snapshot.records.filter((record4) => !context.messageId || record4.messageId === context.messageId).filter((record4) => renderSwipeId === undefined || record4.swipeId === renderSwipeId)
+        records: snapshot.records.filter((record) => !context.messageId || record.messageId === context.messageId).filter((record) => renderSwipeId === undefined || record.swipeId === renderSwipeId)
       };
       let renderedContent = source;
       let renderedCount = 0;
-      if (nativeCandidate) {
-        const rendered = renderNativeSurfaceMarkup(renderedContent, snapshot.studio, renderContext);
-        renderedContent = rendered.content;
-        renderedCount += rendered.renderedCount;
-      }
       if (narrativeCandidate && shouldRelayRenderNarrativeMarkup(source, renderContext.rendererMode)) {
         const narrativeRendered = renderNarrativeRegex(renderedContent, snapshot.narrativeVariant, context.messageId || "narrative", { chatId: context.chatId, swipeId: renderSwipeId });
         if (narrativeRendered !== renderedContent)
           renderedCount += 1;
         renderedContent = narrativeRendered;
       }
+      if (nativeCandidate) {
+        const rendered = renderNativeSurfaceMarkup(renderedContent, snapshot.studio, renderContext);
+        renderedContent = rendered.content;
+        renderedCount += rendered.renderedCount;
+      }
       if (renderedCount < 1 || renderedContent === source)
         return;
       const messageScope = String(context.messageId || "__new__");
       const swipeScope = String(renderSwipeId ?? "__active__");
-      renderOutputCache.deleteWhere((key2, value) => key2 !== outputKey && value.scope === scope && value.messageId === messageScope && value.swipeId === swipeScope);
+      renderOutputCache.deleteWhere((key, value) => key !== outputKey && value.scope === scope && value.messageId === messageScope && value.swipeId === swipeScope);
       renderOutputCache.set(outputKey, { content: renderedContent, scope, messageId: messageScope, swipeId: swipeScope });
       return { content: renderedContent };
     } catch (error) {
@@ -158275,7 +158294,7 @@ spindle.registerMacro({
   handler: (ctx) => ctx?.env?.variables?.chat?.get?.("last_genned") || ctx?.env?.variables?.global?.get?.("last_genned") || ""
 });
 function resolvedRelayMacroValue(ctx, name) {
-  const read = (scope, key2) => cleanString(ctx?.env?.variables?.[scope]?.get?.(key2));
+  const read = (scope, key) => cleanString(ctx?.env?.variables?.[scope]?.get?.(key));
   const cached = read("chat", name);
   if (cached)
     return cached;
@@ -158450,12 +158469,12 @@ for (const eventName of ["MESSAGE_DELETED", "MESSAGE_REMOVED", "CHAT_MESSAGE_DEL
     if (chatId && messageId) {
       latestMessageSnapshots.delete(messageSnapshotKey(chatId, messageId));
       const batchPrefix = `${relayQueueScope(userId)}:${chatId}:${messageId}:`;
-      for (const key2 of [...pendingPlacementBatches.keys()])
-        if (key2.startsWith(batchPrefix)) {
-          const batch = pendingPlacementBatches.get(key2);
+      for (const key of [...pendingPlacementBatches.keys()])
+        if (key.startsWith(batchPrefix)) {
+          const batch = pendingPlacementBatches.get(key);
           if (batch)
             clearInitialPlacementVisualFallback(batch);
-          pendingPlacementBatches.delete(key2);
+          pendingPlacementBatches.delete(key);
         }
     }
     handleMessageDeleted(payload, userId).catch((error) => spindle.log.error(`[Reverie Relay:${eventName.toLocaleLowerCase()}] ${error instanceof Error ? error.message : String(error)}`));
@@ -158524,18 +158543,18 @@ async function acknowledgeSlotSubmission(payload, userId) {
   const submission = slotSubmissionDetails(payload);
   if (!submission)
     return;
-  const { record: record4 } = await getRecordByKey(payload.key, userId);
-  if (payload.type === "reparse_slot" && !canReparseRecord(record4))
+  const { record } = await getRecordByKey(payload.key, userId);
+  if (payload.type === "reparse_slot" && !canReparseRecord(record))
     throw new Error("This slot does not have enough source metadata to reparse.");
-  if (payload.type === "retry_placement" && (!["placement-pending", "placement-repair-needed"].includes(record4.status) || !record4.pendingPlacement))
+  if (payload.type === "retry_placement" && (!["placement-pending", "placement-repair-needed"].includes(record.status) || !record.pendingPlacement))
     throw new Error("This slot has no preserved generated asset to repair or reinsert.");
   if (payload.type === "regenerate_with_intent") {
-    if (!canReparseRecord(record4) && !canRegenerateRecord(record4))
+    if (!canReparseRecord(record) && !canRegenerateRecord(record))
       throw new Error("This slot does not have enough prompt metadata for direction regeneration.");
-    if (isProcessing(record4) || relayProcessingKeys.has(record4.key))
+    if (isProcessing(record) || relayProcessingKeys.has(record.key))
       throw new Error("This slot is already processing.");
   }
-  if (payload.type === "regenerate_slot" && !canReparseRecord(record4) && !canRegenerateRecord(record4))
+  if (payload.type === "regenerate_slot" && !canReparseRecord(record) && !canRegenerateRecord(record))
     throw new Error("This slot does not have enough prompt metadata to regenerate.");
   acceptedSlotSubmissions.add(submission.submissionId);
   spindle.sendToFrontend({
@@ -158727,12 +158746,12 @@ async function recordLifecycleEvent(stage, payload, userId) {
   })).catch((error) => spindle.log.warn(`[Reverie Relay:${stage}] ${error instanceof Error ? error.message : String(error)}`));
 }
 function relayPlannedJson(raw, label) {
-  const clean4 = cleanString(raw).replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-  const start = clean4.indexOf("{");
-  const end = clean4.lastIndexOf("}");
+  const clean = cleanString(raw).replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const start = clean.indexOf("{");
+  const end = clean.lastIndexOf("}");
   if (start < 0 || end < start)
     throw new Error(`${label} returned no JSON object.`);
-  const parsed = JSON.parse(clean4.slice(start, end + 1));
+  const parsed = JSON.parse(clean.slice(start, end + 1));
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
     throw new Error(`${label} result must be a JSON object.`);
   return parsed;
@@ -158938,13 +158957,13 @@ async function analyzeRelayPlannedResponse(input) {
     finalIllustrations.push({ illustration: repaired.illustration, warnings: [...row.issues.map((issue) => issue.message), ...repaired.issues.map((issue) => issue.message), "Repair Parser resolved structural ambiguity."] });
   }
   const parsedDirector = relayPlannedJson(rawDirectorOutput, "Illustration Director");
-  const sourceFingerprint2 = contentFingerprint(input.content);
+  const sourceFingerprint = contentFingerprint(input.content);
   const settingsFingerprint = proseOpportunitySettingsFingerprint(input.settings);
   const opportunities = finalIllustrations.map((row) => relayPlannedOpportunity(input, input.settings, context, row.illustration, {
     connectionId: connection.id,
     model: input.settings.plannerModel || connection.model,
     settingsFingerprint,
-    sourceFingerprint: sourceFingerprint2,
+    sourceFingerprint,
     raw: parsedDirector,
     warnings: row.warnings
   }));
@@ -159018,13 +159037,13 @@ async function discoverProseOpportunities(input) {
     return [];
   }
   const settingsFingerprint = proseOpportunitySettingsFingerprint(settings);
-  const sourceFingerprint2 = contentFingerprint(input.content);
+  const sourceFingerprint = contentFingerprint(input.content);
   if (!input.force) {
-    const frequency = await evaluateAndPersistProseFrequencyGate({ chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, sourceContentFingerprint: sourceFingerprint2, settingsFingerprint }, settings, input.userId);
+    const frequency = await evaluateAndPersistProseFrequencyGate({ chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, sourceContentFingerprint: sourceFingerprint, settingsFingerprint }, settings, input.userId);
     if (!frequency.passes)
       return [];
   }
-  const idempotenceKey = proseOpportunityIdempotenceKey(input.chatId, input.messageId, input.swipeId, sourceFingerprint2, settingsFingerprint);
+  const idempotenceKey = proseOpportunityIdempotenceKey(input.chatId, input.messageId, input.swipeId, sourceFingerprint, settingsFingerprint);
   if (!input.force && state.proseIllustrator.processedMessageKeys[idempotenceKey])
     return [];
   if (!settings.plannerConnectionId) {
@@ -159046,7 +159065,7 @@ async function discoverProseOpportunities(input) {
   }
   await mutateState(input.chatId, input.userId, (next) => {
     next.proseIllustrator.processedMessageKeys[idempotenceKey] = Date.now();
-    markStaleProseOpportunities(next, input.chatId, input.messageId, input.swipeId, sourceFingerprint2);
+    markStaleProseOpportunities(next, input.chatId, input.messageId, input.swipeId, sourceFingerprint);
     startBackgroundTask(next, {
       id: queueTaskId,
       chatId: input.chatId,
@@ -159066,7 +159085,7 @@ async function discoverProseOpportunities(input) {
       messageId: input.messageId,
       swipeId: input.swipeId,
       message: "Relay-Planned Illustration Director started.",
-      details: { source: input.source, settingsFingerprint, sourceFingerprint: sourceFingerprint2, plannerVersion: RELAY_PLANNED_V2 }
+      details: { source: input.source, settingsFingerprint, sourceFingerprint, plannerVersion: RELAY_PLANNED_V2 }
     });
   });
   await sendState(input.userId, input.chatId);
@@ -159134,7 +159153,7 @@ async function discoverProseOpportunities(input) {
         chatId: input.chatId,
         messageId: input.messageId,
         swipeId: input.swipeId,
-        sourceContentFingerprint: sourceFingerprint2,
+        sourceContentFingerprint: sourceFingerprint,
         settingsFingerprint,
         plannerVersion: RELAY_PLANNED_V2,
         status: "failed-analysis",
@@ -159188,16 +159207,16 @@ async function buildProseOpportunityMessages(chatId, messageId, swipeId, content
   const targetIndex = Math.max(0, messages.findIndex((message) => message.id === messageId));
   const filtered = [];
   const recent = messages.slice(Math.max(0, targetIndex - settings.contextMessageCount), targetIndex).filter((message) => message.role === "user" || message.role === "assistant").filter((message) => !isOwnMessage(message)).map((message) => {
-    const text3 = sanitizeRecentVisualContext(getSwipeContent(message, activeSwipeId(message)));
-    if (!text3)
+    const text = sanitizeRecentVisualContext(getSwipeContent(message, activeSwipeId(message)));
+    if (!text)
       filtered.push(message.id || "unknown");
-    return text3;
+    return text;
   }).filter(Boolean).slice(-settings.contextMessageCount);
   const namedSubjects = settings.perspectiveMode === "solo-scene" ? selectedCharacterOnlySubjects(settings) : extractCharacterCandidates(`${content} ${recent.join(" ")}`);
   const facts = selectProseContinuityFacts(state, chatId, settings, namedSubjects);
   const references = selectProseReferenceAssets(state, chatId, settings, false);
   const locationReferences = selectProseReferenceAssets(state, chatId, settings, true);
-  const existingIllustrations = Object.values(state.proseIllustrator.records).filter((record4) => state.proseIllustrator.plans[record4.planId]?.messageId === messageId && state.proseIllustrator.plans[record4.planId]?.swipeId === swipeId).map((record4) => `${record4.requestId}: ${record4.status}`);
+  const existingIllustrations = Object.values(state.proseIllustrator.records).filter((record) => state.proseIllustrator.plans[record.planId]?.messageId === messageId && state.proseIllustrator.plans[record.planId]?.swipeId === swipeId).map((record) => `${record.requestId}: ${record.status}`);
   const personaPovContext = settings.perspectiveMode === "persona-pov" ? await resolvePersonaPovContext(chatId, userId) : undefined;
   return sidecarRegistryMessages(settings, "opportunity", {
     plannerVersion: PROSE_OPPORTUNITY_PLANNER_VERSION,
@@ -159309,10 +159328,10 @@ function characterOnlyConstraint(settings) {
 `);
 }
 function enforceMaximumCharacters(subjects, maximum) {
-  const clean4 = [...new Set(subjects.map((subject) => subject.trim()).filter(Boolean))];
-  if (maximum <= 0 || clean4.length <= maximum)
-    return { kept: clean4, omitted: [] };
-  return { kept: clean4.slice(0, maximum), omitted: clean4.slice(maximum) };
+  const clean = [...new Set(subjects.map((subject) => subject.trim()).filter(Boolean))];
+  if (maximum <= 0 || clean.length <= maximum)
+    return { kept: clean, omitted: [] };
+  return { kept: clean.slice(0, maximum), omitted: clean.slice(maximum) };
 }
 function selectProseContinuityFacts(state, chatId, settings, namedSubjects = [], projection) {
   if (!settings.appearanceMemoryEnabled || settings.continuityStrength === "off" || state.continuityVault.strength === "off")
@@ -159343,19 +159362,19 @@ function selectProseReferenceAssets(state, chatId, settings, locationOnly) {
   return Object.values(state.assetLibrary.assets || {}).filter((asset) => asset.chatId === chatId && asset.status === "available" && asset.visualReference).filter((asset) => locationOnly ? asset.locationNames.length > 0 : true).slice(0, 8);
 }
 function countCommittedProseIllustrationsForMessage(state, chatId, messageId, swipeId) {
-  return Object.values(state.proseIllustrator.records || {}).filter((record4) => {
-    const plan = state.proseIllustrator.plans[record4.planId];
-    return plan?.chatId === chatId && plan.messageId === messageId && plan.swipeId === swipeId && record4.status !== "removed";
+  return Object.values(state.proseIllustrator.records || {}).filter((record) => {
+    const plan = state.proseIllustrator.plans[record.planId];
+    return plan?.chatId === chatId && plan.messageId === messageId && plan.swipeId === swipeId && record.status !== "removed";
   }).length;
 }
 function countActiveProsePlansForMessage(state, chatId, messageId, swipeId) {
-  return Object.values(state.proseIllustrator.plans || {}).filter((plan) => plan.chatId === chatId && plan.messageId === messageId && plan.swipeId === swipeId && ["awaiting-approval", "ready", "candidate-review", "generated"].includes(plan.status) && !Object.values(state.proseIllustrator.records || {}).some((record4) => record4.planId === plan.planId && record4.status === "completed")).length;
+  return Object.values(state.proseIllustrator.plans || {}).filter((plan) => plan.chatId === chatId && plan.messageId === messageId && plan.swipeId === swipeId && ["awaiting-approval", "ready", "candidate-review", "generated"].includes(plan.status) && !Object.values(state.proseIllustrator.records || {}).some((record) => record.planId === plan.planId && record.status === "completed")).length;
 }
 async function evaluateAndPersistProseFrequencyGate(input, settings, userId) {
-  const key2 = `${input.chatId}:${input.messageId}:${input.swipeId}:${input.sourceContentFingerprint}:${input.settingsFingerprint}`;
+  const key = `${input.chatId}:${input.messageId}:${input.swipeId}:${input.sourceContentFingerprint}:${input.settingsFingerprint}`;
   let result = { eligibleOrdinal: 0, frequencyMode: settings.frequencyMode, everyN: Math.max(1, settings.everyNEligibleMessages), passes: true, alreadyCounted: false };
   await mutateState(input.chatId, userId, (state) => {
-    const existing = state.proseIllustrator.frequencyDecisions[key2];
+    const existing = state.proseIllustrator.frequencyDecisions[key];
     if (existing) {
       result = { eligibleOrdinal: existing.eligibleOrdinal, frequencyMode: settings.frequencyMode, everyN: existing.everyN, passes: existing.passes, alreadyCounted: true };
       return;
@@ -159365,7 +159384,7 @@ async function evaluateAndPersistProseFrequencyGate(input, settings, userId) {
     counters.updatedAt = Date.now();
     const passes = settings.frequencyMode !== "every-n" || (counters.eligibleMessages - 1) % Math.max(1, settings.everyNEligibleMessages) === 0;
     state.proseIllustrator.autoCounters[input.chatId] = counters;
-    state.proseIllustrator.frequencyDecisions[key2] = { eligibleOrdinal: counters.eligibleMessages, passes, everyN: Math.max(1, settings.everyNEligibleMessages), recordedAt: Date.now() };
+    state.proseIllustrator.frequencyDecisions[key] = { eligibleOrdinal: counters.eligibleMessages, passes, everyN: Math.max(1, settings.everyNEligibleMessages), recordedAt: Date.now() };
     result = { eligibleOrdinal: counters.eligibleMessages, frequencyMode: settings.frequencyMode, everyN: Math.max(1, settings.everyNEligibleMessages), passes, alreadyCounted: false };
   });
   return result;
@@ -159392,15 +159411,15 @@ function proseOpportunitySettingsFingerprint(settings) {
     imageSize: settings.imageSize
   }));
 }
-function proseOpportunityIdempotenceKey(chatId, messageId, swipeId, sourceFingerprint2, settingsFingerprint) {
-  return `${chatId}:${messageId}:${swipeId}:${sourceFingerprint2}:${PROSE_OPPORTUNITY_PLANNER_VERSION}:${settingsFingerprint}`;
+function proseOpportunityIdempotenceKey(chatId, messageId, swipeId, sourceFingerprint, settingsFingerprint) {
+  return `${chatId}:${messageId}:${swipeId}:${sourceFingerprint}:${PROSE_OPPORTUNITY_PLANNER_VERSION}:${settingsFingerprint}`;
 }
-function markStaleProseOpportunities(state, chatId, messageId, swipeId, sourceFingerprint2) {
+function markStaleProseOpportunities(state, chatId, messageId, swipeId, sourceFingerprint) {
   const now = Date.now();
   for (const opportunity of Object.values(state.proseIllustrator.opportunities || {})) {
     if (opportunity.chatId !== chatId || opportunity.messageId !== messageId || opportunity.swipeId !== swipeId)
       continue;
-    if (opportunity.sourceContentFingerprint === sourceFingerprint2)
+    if (opportunity.sourceContentFingerprint === sourceFingerprint)
       continue;
     if (["generated", "dismissed", "stale", "superseded"].includes(opportunity.status))
       continue;
@@ -159412,8 +159431,8 @@ function markStaleProseOpportunities(state, chatId, messageId, swipeId, sourceFi
 function scheduleAssistantScan(input) {
   if (!input.chatId || !input.messageId)
     return;
-  const key2 = `${input.chatId}:${input.messageId}:${input.swipeId ?? "__active__"}`;
-  const existing = scheduledAssistantScans.get(key2);
+  const key = `${input.chatId}:${input.messageId}:${input.swipeId ?? "__active__"}`;
+  const existing = scheduledAssistantScans.get(key);
   if (existing?.timer)
     clearTimeout(existing.timer);
   const scheduled = existing || {
@@ -159432,20 +159451,20 @@ function scheduleAssistantScan(input) {
     scheduled.sourceContent = input.sourceContent;
   scheduled.attempt = Math.max(scheduled.attempt, input.attempt ?? 0);
   scheduled.timer = setTimeout(() => {
-    scheduledAssistantScans.delete(key2);
+    scheduledAssistantScans.delete(key);
     flushAssistantScan(scheduled).catch((error) => {
       if (handleChatBoundAsyncError("assistant_scan", scheduled.chatId, scheduled.userId, error))
         return;
       spindle.log.error(`[Reverie Relay:assistant_scan] ${error instanceof Error ? error.message : String(error)}`);
     });
   }, input.delayMs ?? 75);
-  scheduledAssistantScans.set(key2, scheduled);
+  scheduledAssistantScans.set(key, scheduled);
 }
 function scheduleProseOpportunityScan(input) {
   if (!input.chatId || !input.messageId)
     return;
-  const key2 = `${input.chatId}:${input.messageId}:${input.swipeId ?? "__active__"}`;
-  const existing = scheduledProseOpportunityScans.get(key2);
+  const key = `${input.chatId}:${input.messageId}:${input.swipeId ?? "__active__"}`;
+  const existing = scheduledProseOpportunityScans.get(key);
   if (existing?.timer)
     clearTimeout(existing.timer);
   const scheduled = existing || {
@@ -159466,14 +159485,14 @@ function scheduleProseOpportunityScan(input) {
     scheduled.sourceContent = input.sourceContent;
   scheduled.attempt = Math.max(scheduled.attempt, input.attempt ?? 0);
   scheduled.timer = setTimeout(() => {
-    scheduledProseOpportunityScans.delete(key2);
+    scheduledProseOpportunityScans.delete(key);
     flushProseOpportunityScan(scheduled).catch((error) => {
       if (handleChatBoundAsyncError("prose_opportunity_scan", scheduled.chatId, scheduled.userId, error))
         return;
       spindle.log.error(`[Reverie Relay:prose_opportunity_scan] ${error instanceof Error ? error.message : String(error)}`);
     });
   }, input.delayMs ?? 120);
-  scheduledProseOpportunityScans.set(key2, scheduled);
+  scheduledProseOpportunityScans.set(key, scheduled);
 }
 async function flushProseOpportunityScan(scheduled) {
   const message = await resolveMessage(scheduled.chatId, scheduled.messageId);
@@ -159549,7 +159568,7 @@ function purgeOwnedMessageState(state, chatId, messageId) {
   }
   if (archivedAssets)
     state.assetLibrary.updatedAt = now;
-  const ownedSlots = Object.values(state.slots).filter((record4) => record4.chatId === chatId && record4.messageId === messageId);
+  const ownedSlots = Object.values(state.slots).filter((record) => record.chatId === chatId && record.messageId === messageId);
   removeSlotRecords(state, ownedSlots);
   let opportunities = 0;
   let plans = 0;
@@ -159567,9 +159586,9 @@ function purgeOwnedMessageState(state, chatId, messageId) {
     delete state.proseIllustrator.plans[id];
     plans += 1;
   }
-  for (const [id, record4] of Object.entries({ ...state.proseIllustrator.records })) {
-    const slot = state.slots[record4.slotKey];
-    if (record4.anchor?.messageId !== messageId && slot?.messageId !== messageId)
+  for (const [id, record] of Object.entries({ ...state.proseIllustrator.records })) {
+    const slot = state.slots[record.slotKey];
+    if (record.anchor?.messageId !== messageId && slot?.messageId !== messageId)
       continue;
     delete state.proseIllustrator.records[id];
     records += 1;
@@ -159580,9 +159599,9 @@ function purgeOwnedMessageState(state, chatId, messageId) {
     delete state.candidateBatches[id];
     batches += 1;
   }
-  for (const key2 of Object.keys(state.proseIllustrator.processedMessageKeys)) {
-    if (key2.startsWith(`${chatId}:${messageId}:`))
-      delete state.proseIllustrator.processedMessageKeys[key2];
+  for (const key of Object.keys(state.proseIllustrator.processedMessageKeys)) {
+    if (key.startsWith(`${chatId}:${messageId}:`))
+      delete state.proseIllustrator.processedMessageKeys[key];
   }
   const activeOpportunityId = state.proseIllustrator.activeOpportunityIdByChat[chatId];
   if (activeOpportunityId && !state.proseIllustrator.opportunities[activeOpportunityId])
@@ -159597,25 +159616,25 @@ async function handleMessageDeleted(payload, userId) {
   if (!chatId || !messageId)
     return;
   pendingGenerationContent.delete(pendingContentKey(chatId, messageId));
-  for (const [key2, scheduled] of [...scheduledAssistantScans.entries()]) {
+  for (const [key, scheduled] of [...scheduledAssistantScans.entries()]) {
     if (scheduled.chatId !== chatId || scheduled.messageId !== messageId)
       continue;
     clearTimeout(scheduled.timer);
-    scheduledAssistantScans.delete(key2);
+    scheduledAssistantScans.delete(key);
   }
-  for (const [key2, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
+  for (const [key, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
     if (scheduled.chatId !== chatId || scheduled.messageId !== messageId)
       continue;
     clearTimeout(scheduled.timer);
-    scheduledProseOpportunityScans.delete(key2);
+    scheduledProseOpportunityScans.delete(key);
   }
-  for (const [key2, deferred] of [...deferredScans.entries()]) {
+  for (const [key, deferred] of [...deferredScans.entries()]) {
     if (deferred[0] === chatId && deferred[1] === messageId)
-      deferredScans.delete(key2);
+      deferredScans.delete(key);
   }
   const before = await getState(chatId, userId);
-  for (const record4 of Object.values(before.slots).filter((record5) => record5.messageId === messageId)) {
-    cancelledJobs.add(jobCancellationKey(record4));
+  for (const record of Object.values(before.slots).filter((record) => record.messageId === messageId)) {
+    cancelledJobs.add(jobCancellationKey(record));
   }
   await mutateState(chatId, userId, (state) => {
     const removed = purgeOwnedMessageState(state, chatId, messageId);
@@ -159658,8 +159677,8 @@ async function handleSwipeLifecycle(payload, userId) {
 }
 async function reconcileDeletedSwipe(chatId, messageId, deletedSwipeId, message, userId) {
   const before = await getState(chatId, userId);
-  for (const record4 of Object.values(before.slots).filter((record5) => record5.messageId === messageId && record5.swipeId === deletedSwipeId && isRecordJobActive(record5))) {
-    cancelledJobs.add(jobCancellationKey(record4));
+  for (const record of Object.values(before.slots).filter((record) => record.messageId === messageId && record.swipeId === deletedSwipeId && isRecordJobActive(record))) {
+    cancelledJobs.add(jobCancellationKey(record));
   }
   return mutateState(chatId, userId, (state) => {
     const summary = {
@@ -159674,35 +159693,35 @@ async function reconcileDeletedSwipe(chatId, messageId, deletedSwipeId, message,
       reconciledAt: Date.now()
     };
     const swipes = Array.isArray(message.swipes) ? message.swipes : [];
-    for (const [key2, record4] of Object.entries({ ...state.slots })) {
-      if (record4.messageId !== messageId)
+    for (const [key, record] of Object.entries({ ...state.slots })) {
+      if (record.messageId !== messageId)
         continue;
       summary.checked += 1;
-      if (!record4.requestId || !record4.slot || !record4.originalRequestXml)
+      if (!record.requestId || !record.slot || !record.originalRequestXml)
         summary.malformed += 1;
-      const survivingSwipe = swipes.findIndex((content) => hasRouterMarker(content || "", record4));
+      const survivingSwipe = swipes.findIndex((content) => hasRouterMarker(content || "", record));
       if (survivingSwipe >= 0) {
-        if (record4.swipeId !== survivingSwipe) {
-          delete state.slots[key2];
-          record4.swipeId = survivingSwipe;
-          record4.key = slotKey(record4);
-          state.slots[record4.key] = record4;
+        if (record.swipeId !== survivingSwipe) {
+          delete state.slots[key];
+          record.swipeId = survivingSwipe;
+          record.key = slotKey(record);
+          state.slots[record.key] = record;
         }
-        if (record4.imageAvailability !== "missing") {
-          record4.orphaned = false;
-          record4.orphanReason = undefined;
+        if (record.imageAvailability !== "missing") {
+          record.orphaned = false;
+          record.orphanReason = undefined;
         }
         summary.valid += 1;
         continue;
       }
-      if (record4.swipeId === deletedSwipeId) {
-        removeSlotRecords(state, [record4]);
+      if (record.swipeId === deletedSwipeId) {
+        removeSlotRecords(state, [record]);
         summary.deletedSwipeRemoved += 1;
         summary.orphanedRemoved += 1;
       } else {
-        record4.orphaned = true;
-        record4.orphanReason = "Relay marker was not found after swipe deletion reconciliation.";
-        record4.updatedAt = Date.now();
+        record.orphaned = true;
+        record.orphanReason = "Relay marker was not found after swipe deletion reconciliation.";
+        record.updatedAt = Date.now();
         summary.orphanedFound += 1;
         summary.retainedForManualReview += 1;
       }
@@ -159720,7 +159739,7 @@ async function reconcileDeletedSwipe(chatId, messageId, deletedSwipeId, message,
     for (const [id, plan] of Object.entries({ ...state.proseIllustrator.plans })) {
       if (plan.chatId !== chatId || plan.messageId !== messageId || plan.swipeId !== deletedSwipeId)
         continue;
-      const hasCompletedRecord = Object.values(state.proseIllustrator.records).some((record4) => record4.planId === id && ["completed", "ready-to-place"].includes(record4.status));
+      const hasCompletedRecord = Object.values(state.proseIllustrator.records).some((record) => record.planId === id && ["completed", "ready-to-place"].includes(record.status));
       if (hasCompletedRecord)
         continue;
       delete state.proseIllustrator.plans[id];
@@ -159769,13 +159788,13 @@ async function exportNarrativeSurfaceToLorebook(payload, userId) {
   if (!message)
     throw new Error("Relay could not find the message that owns this Narrative Surface.");
   const swipeId = Number.isFinite(Number(payload.swipeId)) ? Math.max(0, Number(payload.swipeId)) : activeSwipeId(message);
-  const record4 = extractNarrativeLorebookRecord(getSwipeContent(message, swipeId), payload.kind, payload.occurrence);
-  if (!record4)
+  const record = extractNarrativeLorebookRecord(getSwipeContent(message, swipeId), payload.kind, payload.occurrence);
+  if (!record)
     throw new Error("Relay could not safely isolate that exact Narrative Surface for Lorebook export.");
   const result = await exportNarrativeLorebookRecord({
     api: spindle,
     chat,
-    record: record4,
+    record,
     kind: payload.kind,
     messageId: payload.messageId,
     swipeId,
@@ -160131,11 +160150,11 @@ async function handleGalleryLinkResult(payload, userId) {
       failBackgroundTask(state, `queue:${link.id}`, link.error);
     }
     if (link.slotKey && state.slots[link.slotKey]) {
-      const record4 = state.slots[link.slotKey];
-      record4.galleryLinkStatus = link.status;
-      record4.galleryItemId = link.galleryItemId;
-      record4.galleryLinkError = link.error;
-      record4.galleryLinkedAt = payload.ok ? Date.now() : undefined;
+      const record = state.slots[link.slotKey];
+      record.galleryLinkStatus = link.status;
+      record.galleryItemId = link.galleryItemId;
+      record.galleryLinkError = link.error;
+      record.galleryLinkedAt = payload.ok ? Date.now() : undefined;
     }
     appendStateLog(state, {
       severity: payload.ok ? "info" : "error",
@@ -160150,8 +160169,8 @@ async function handleGalleryLinkResult(payload, userId) {
   await sendState(userId, chatId);
 }
 function numberParameter(parameters, ...keys) {
-  for (const key2 of keys) {
-    const value = Number(parameters[key2]);
+  for (const key of keys) {
+    const value = Number(parameters[key]);
     if (Number.isFinite(value) && value > 0)
       return Math.round(value);
   }
@@ -160317,14 +160336,14 @@ async function handleDryRun(payload, nativeSnapshot, userId) {
     if (!chatId || !payload.key)
       throw new Error("A Relay slot is required for Dry Run.");
     const state = await getState(chatId, userId);
-    const record4 = state.slots[payload.key];
-    if (!record4)
+    const record = state.slots[payload.key];
+    if (!record)
       throw new Error("Relay slot not found.");
-    const job = jobFromRecord(record4);
-    const plan = await prepareImagePlan(config, job, record4, nativeSnapshot, userId, record4.highResMode ?? config.highResMode);
-    const prompt = record4.resolvedPositivePrompt || record4.originalSceneBrief;
-    const negative = record4.resolvedNegativePrompt || record4.originalNegativePrompt;
-    report = dryRunReportFromPlan({ kind: "slot", chatId, title: record4.alt || record4.requestId, origin: record4.target === "prose.illustration" ? "relay-illustrator" : "relay-slot", prompt, negativePrompt: negative, subjects: record4.promptPipeline?.visualSubjectPrompts?.map((row) => row.name) || [], peoplePolicy: record4.promptPipeline?.requestClassification || "auto", vaultFacts: record4.includedContinuityFacts, plan, anchor: record4.proseAnchor, warnings: record4.promptPipeline?.warnings?.map((row) => row.message) || [], galleryDestination: "Current character Gallery" });
+    const job = jobFromRecord(record);
+    const plan = await prepareImagePlan(config, job, record, nativeSnapshot, userId, record.highResMode ?? config.highResMode);
+    const prompt = record.resolvedPositivePrompt || record.originalSceneBrief;
+    const negative = record.resolvedNegativePrompt || record.originalNegativePrompt;
+    report = dryRunReportFromPlan({ kind: "slot", chatId, title: record.alt || record.requestId, origin: record.target === "prose.illustration" ? "relay-illustrator" : "relay-slot", prompt, negativePrompt: negative, subjects: record.promptPipeline?.visualSubjectPrompts?.map((row) => row.name) || [], peoplePolicy: record.promptPipeline?.requestClassification || "auto", vaultFacts: record.includedContinuityFacts, plan, anchor: record.proseAnchor, warnings: record.promptPipeline?.warnings?.map((row) => row.message) || [], galleryDestination: "Current character Gallery" });
   }
   const stateId = chatId || UTILITY_STATE_ID;
   await mutateState(stateId, userId, (state) => {
@@ -160353,7 +160372,7 @@ function buildFullCompleteDryRunReport(input) {
     queueLifecycle: (slot.attempts || []).map((attempt) => attempt.stage)
   }));
   const ownershipKeys = ownership.map((row) => `${row.chatId}:${row.messageId}:${row.swipeId}:${row.requestId}:${row.slot}`);
-  const duplicates = ownershipKeys.filter((key2, index) => ownershipKeys.indexOf(key2) !== index);
+  const duplicates = ownershipKeys.filter((key, index) => ownershipKeys.indexOf(key) !== index);
   const promptPrefix = firstString(native.customPrompt, native.parameters?.positivePromptPrefix);
   const negativePrefix = firstString(native.customNegativePrompt, native.negativePrompt, native.parameters?.negativePromptPrefix);
   return {
@@ -160452,20 +160471,20 @@ async function handleExplainNoGeneration(payload, userId) {
     blockers.push({ code: "missing-image-connection", title: "No image connection", detail: "Choose an ImageGen connection or sync native ImageGen settings.", severity: "error", action: "Choose connection" });
   if (chatId && payload.scope === "slot" && payload.key) {
     const state = await getState(chatId, userId);
-    const record4 = state.slots[payload.key];
-    if (!record4)
+    const record = state.slots[payload.key];
+    if (!record)
       blockers.push({ code: "missing-slot", title: "Slot no longer exists", detail: "The message, swipe, or Relay slot was deleted.", severity: "error" });
     else {
-      if (record4.orphaned)
-        blockers.push({ code: "orphaned-slot", title: "Slot is orphaned", detail: record4.orphanReason || "The original message or swipe no longer exists.", severity: "error" });
-      if (record4.status === "failed")
-        blockers.push({ code: "slot-failed", title: "Last attempt failed", detail: record4.error || "Open Logs for the provider/parser failure.", severity: "error", action: "Retry or reparse" });
-      if (!isMeaningfulAutomaticPrompt(record4.resolvedPositivePrompt || record4.originalSceneBrief, record4.baseTagsAddedToPrompt || ""))
+      if (record.orphaned)
+        blockers.push({ code: "orphaned-slot", title: "Slot is orphaned", detail: record.orphanReason || "The original message or swipe no longer exists.", severity: "error" });
+      if (record.status === "failed")
+        blockers.push({ code: "slot-failed", title: "Last attempt failed", detail: record.error || "Open Logs for the provider/parser failure.", severity: "error", action: "Retry or reparse" });
+      if (!isMeaningfulAutomaticPrompt(record.resolvedPositivePrompt || record.originalSceneBrief, record.baseTagsAddedToPrompt || ""))
         blockers.push({ code: "style-only-prompt", title: "Only style/default tags were resolved", detail: "Relay blocked this request to prevent a random ghost portrait.", severity: "error", action: "Reparse the scene" });
-      if (record4.status === "placement-pending")
+      if (record.status === "placement-pending")
         blockers.push({ code: "placement-pending", title: "Image is waiting for placement", detail: "Generation finished and is awaiting the configured preview/placement confirmation.", severity: "warning", action: "Review placement" });
-      if (record4.status === "placement-repair-needed")
-        blockers.push({ code: "placement-repair-needed", title: "Surface placement needs repair", detail: record4.placementFailure?.reason || "Generation finished, but the exact Surface location could not be verified.", severity: "warning", action: "Repair / Reinsert" });
+      if (record.status === "placement-repair-needed")
+        blockers.push({ code: "placement-repair-needed", title: "Surface placement needs repair", detail: record.placementFailure?.reason || "Generation finished, but the exact Surface location could not be verified.", severity: "warning", action: "Repair / Reinsert" });
     }
   }
   if (chatId && payload.scope === "illustrator") {
@@ -160543,11 +160562,11 @@ function relayQueueScope(userId) {
 }
 function expandModelPromptTemplate(template, values) {
   const allowed = new Set(Object.keys(values));
-  const unknown = [...String(template || "").matchAll(/\{\{\s*([\w.-]+)\s*\}\}/g)].map((match) => match[1]).filter((key2) => !allowed.has(key2));
+  const unknown = [...String(template || "").matchAll(/\{\{\s*([\w.-]+)\s*\}\}/g)].map((match) => match[1]).filter((key) => !allowed.has(key));
   if (unknown.length)
     throw new Error(`Prompt template contains unsupported variables: ${[...new Set(unknown)].join(", ")}`);
-  return String(template || "").replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_match, key2) => {
-    const value = values[key2];
+  return String(template || "").replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (_match, key) => {
+    const value = values[key];
     return value === undefined || value === null ? "" : String(value);
   });
 }
@@ -160555,9 +160574,9 @@ function adultModeFromSettings(config, nativeSettings) {
   const sources = [nativeSettings, config];
   const keys = ["adultMode", "adult_mode", "allowNsfw", "allowNSFW", "nsfw", "adultContentEnabled"];
   for (const source of sources) {
-    for (const key2 of keys)
-      if (typeof source[key2] === "boolean")
-        return source[key2];
+    for (const key of keys)
+      if (typeof source[key] === "boolean")
+        return source[key];
   }
   return false;
 }
@@ -160612,23 +160631,23 @@ async function handleNativeSettingsRefreshTimeout(userId) {
   const availableSession = [...broker.frontendSessions.values()].find((session) => session.connected && session.nativeSettingsAvailable);
   if (availableSession && broker.refreshRetryCount < NATIVE_SETTINGS_REFRESH_MAX_RETRIES) {
     broker.refreshRetryCount += 1;
-    const request2 = broker.lastRequest || { chatId: availableSession.chatId || [...broker.waiters.keys()][0] };
+    const request = broker.lastRequest || { chatId: availableSession.chatId || [...broker.waiters.keys()][0] };
     spindle.log.warn(`[ReverieRelay:native_settings_watchdog_retry] Native settings refresh timed out; retrying for ${nativeSettingsWaiterCount(broker.waiters)} waiter(s).`);
-    requestNativeSettingsSnapshot(request2.chatId, request2.messageId, request2.swipeId, userId, request2.sourceContent);
+    requestNativeSettingsSnapshot(request.chatId, request.messageId, request.swipeId, userId, request.sourceContent);
     return;
   }
   const reason = "Timed out waiting for Native ImageGen settings. Retry the slot or sync Native settings when a frontend is connected.";
   for (const [chatId, waiterKeys] of [...broker.waiters.entries()]) {
     await mutateState(chatId, userId, (state) => {
       const now = Date.now();
-      for (const record4 of Object.values(state.slots)) {
-        const dispatchKey = canonicalDispatchKey(record4);
-        if (record4.status !== "awaiting-native-settings" || !waiterKeys.has(dispatchKey))
+      for (const record of Object.values(state.slots)) {
+        const dispatchKey = canonicalDispatchKey(record);
+        if (record.status !== "awaiting-native-settings" || !waiterKeys.has(dispatchKey))
           continue;
-        record4.status = "failed";
-        record4.error = reason;
-        record4.failedAt = now;
-        record4.updatedAt = now;
+        record.status = "failed";
+        record.error = reason;
+        record.failedAt = now;
+        record.updatedAt = now;
         const lease = state.dispatchLeases[dispatchKey];
         if (lease)
           lease.status = "failed";
@@ -160657,11 +160676,11 @@ async function markJobsAwaitingNativeSettings(jobs, userId) {
   await mutateState(chatId, userId, (state) => {
     for (const job of jobs)
       for (const slot of job.slots) {
-        const record4 = state.slots[slotKey({ ...job, slot })];
-        if (!record4 || record4.status === "completed")
+        const record = state.slots[slotKey({ ...job, slot })];
+        if (!record || record.status === "completed")
           continue;
-        record4.status = "awaiting-native-settings";
-        record4.updatedAt = now;
+        record.status = "awaiting-native-settings";
+        record.updatedAt = now;
         const dispatchKey = canonicalDispatchKey({ ...job, slot });
         const lease = state.dispatchLeases[dispatchKey];
         if (lease)
@@ -160693,21 +160712,40 @@ async function resumeNativeSettingsWaiters(snapshot, userId) {
   const resumptions = [];
   for (const [chatId, registeredKeys] of [...broker.waiters.entries()]) {
     const state = await getState(chatId, userId);
-    const waiting = Object.values(state.slots).filter((record4) => record4.status === "awaiting-native-settings" && registeredKeys.has(canonicalDispatchKey(record4)));
+    const waiting = Object.values(state.slots).filter((record) => record.status === "awaiting-native-settings" && registeredKeys.has(canonicalDispatchKey(record)));
     if (!waiting.length) {
       removeNativeSettingsWaiters(broker.waiters, chatId);
       continue;
     }
     const now = Date.now();
-    const decision = classifyBacklog(waiting, now);
-    if (decision.pause) {
+    const validJobs = [];
+    const supersededKeys = new Set;
+    for (const job of groupRecordsIntoJobs(waiting)) {
+      const message = await resolveMessage(job.chatId, job.messageId);
+      const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : "";
+      const active = message ? activeSwipeId(message) === job.swipeId : false;
+      const authored = Boolean(job.originalRequestXml && content.includes(job.originalRequestXml)) || parseSafeSurfaceImageRequests(content).some((request) => request.id === job.requestId);
+      if (!active || !authored) {
+        for (const key of dispatchKeysForJob(job))
+          supersededKeys.add(key);
+        continue;
+      }
+      validJobs.push(job);
+    }
+    const connectedCurrentSession = hasConnectedFrontendForChat(chatId, userId);
+    const currentSessionKeys = connectedCurrentSession ? new Set(validJobs.flatMap(dispatchKeysForJob)) : new Set;
+    const ownership = partitionBacklogByOwnership(waiting, currentSessionKeys);
+    const decision = classifyBacklog(ownership.priorSession, now);
+    const priorSessionKeys = new Set(ownership.priorSession.map(canonicalDispatchKey).filter((key) => !supersededKeys.has(key)));
+    if (decision.pause && priorSessionKeys.size) {
       await mutateState(chatId, userId, (next) => {
-        for (const record4 of Object.values(next.slots)) {
-          if (record4.status !== "awaiting-native-settings" || !registeredKeys.has(canonicalDispatchKey(record4)))
+        for (const record of Object.values(next.slots)) {
+          const dispatchKey = canonicalDispatchKey(record);
+          if (record.status !== "awaiting-native-settings" || !priorSessionKeys.has(dispatchKey))
             continue;
-          record4.status = "paused-backlog";
-          record4.updatedAt = now;
-          const lease = next.dispatchLeases[canonicalDispatchKey(record4)];
+          record.status = "paused-backlog";
+          record.updatedAt = now;
+          const lease = next.dispatchLeases[dispatchKey];
           if (lease)
             lease.status = "paused-backlog";
         }
@@ -160717,41 +160755,25 @@ async function resumeNativeSettingsWaiters(snapshot, userId) {
           stage: "native-settings-broker",
           eventType: "backlog_paused",
           chatId,
-          message: `Paused ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? "" : "s"} instead of auto-dispatching an earlier-session backlog.`,
-          details: decision
+          message: `Paused ${priorSessionKeys.size} pending image request${priorSessionKeys.size === 1 ? "" : "s"} instead of auto-dispatching an earlier-session backlog.`,
+          details: { ...decision, connectedCurrentSession, currentSessionOwned: ownership.currentSession.length }
         });
       });
-      removeNativeSettingsWaiters(broker.waiters, chatId, waiting.map(canonicalDispatchKey));
+      removeNativeSettingsWaiters(broker.waiters, chatId, priorSessionKeys);
       spindle.sendToFrontend({
         type: "relay_notice",
         level: "warning",
-        message: `Reverie Relay found ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? "" : "s"} from an earlier session. Review, generate, or discard them from Queue.`
+        message: `Reverie Relay found ${priorSessionKeys.size} pending image request${priorSessionKeys.size === 1 ? "" : "s"} from an earlier session. Review, generate, or discard them from Queue.`
       }, userId);
-      await sendState(userId, chatId);
-      continue;
-    }
-    const validJobs = [];
-    const supersededKeys = new Set;
-    for (const job of groupRecordsIntoJobs(waiting)) {
-      const message = await resolveMessage(job.chatId, job.messageId);
-      const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : "";
-      const active = message ? activeSwipeId(message) === job.swipeId : false;
-      const authored = Boolean(job.originalRequestXml && content.includes(job.originalRequestXml)) || parseSafeSurfaceImageRequests(content).some((request2) => request2.id === job.requestId);
-      if (!active || !authored) {
-        for (const key2 of dispatchKeysForJob(job))
-          supersededKeys.add(key2);
-        continue;
-      }
-      validJobs.push(job);
     }
     if (supersededKeys.size)
       await mutateState(chatId, userId, (next) => {
-        for (const record4 of Object.values(next.slots)) {
-          if (!supersededKeys.has(canonicalDispatchKey(record4)))
+        for (const record of Object.values(next.slots)) {
+          if (!supersededKeys.has(canonicalDispatchKey(record)))
             continue;
-          record4.status = "superseded";
-          record4.updatedAt = now;
-          const lease = next.dispatchLeases[canonicalDispatchKey(record4)];
+          record.status = "superseded";
+          record.updatedAt = now;
+          const lease = next.dispatchLeases[canonicalDispatchKey(record)];
           if (lease)
             lease.status = "superseded";
         }
@@ -160759,9 +160781,12 @@ async function resumeNativeSettingsWaiters(snapshot, userId) {
       });
     if (supersededKeys.size)
       await sendState(userId, chatId);
-    const processedKeys = new Set([...supersededKeys, ...validJobs.flatMap(dispatchKeysForJob)]);
+    const dispatchableJobs = validJobs.filter((job) => dispatchKeysForJob(job).some((key) => !priorSessionKeys.has(key) || !decision.pause));
+    const processedKeys = new Set([...supersededKeys, ...priorSessionKeys, ...dispatchableJobs.flatMap(dispatchKeysForJob)]);
     removeNativeSettingsWaiters(broker.waiters, chatId, processedKeys);
-    for (const job of validJobs)
+    if (supersededKeys.size || decision.pause && priorSessionKeys.size)
+      await sendState(userId, chatId);
+    for (const job of dispatchableJobs)
       resumptions.push(dispatchRelayJob(job, {
         replaceExisting: false,
         reparse: true,
@@ -160770,20 +160795,20 @@ async function resumeNativeSettingsWaiters(snapshot, userId) {
         automaticDispatch: true,
         settingsSource: "fresh-after-coalesced-refresh",
         settingsAgeMs: Math.max(0, Date.now() - snapshot.capturedAt),
-        dispatchReason: "native-settings-restored-recent-small-backlog"
+        dispatchReason: connectedCurrentSession ? "native-settings-restored-current-session" : "native-settings-restored-recent-small-backlog"
       }, userId));
   }
   await Promise.all(resumptions);
 }
 function updateQueueSafetySummary(state, now = Date.now()) {
-  const pending = Object.values(state.slots).filter((record4) => ["queued", "awaiting-native-settings", "paused-backlog"].includes(record4.status));
+  const pending = Object.values(state.slots).filter((record) => ["queued", "awaiting-native-settings", "paused-backlog"].includes(record.status));
   const decision = classifyBacklog(pending, now);
   state.queueSafety = {
     rawPendingRecords: decision.rawRecords,
     uniquePendingJobs: decision.uniqueJobs,
     duplicateRecordsCollapsed: decision.duplicateRecordsCollapsed,
     oldestPendingAgeMs: decision.oldestPendingAgeMs,
-    pausedBacklog: pending.some((record4) => record4.status === "paused-backlog"),
+    pausedBacklog: pending.some((record) => record.status === "paused-backlog"),
     updatedAt: now
   };
 }
@@ -160802,19 +160827,19 @@ async function dispatchRelayJob(job, options, userId) {
     const now = Date.now();
     const dispatchAllowed = await mutateState(job.chatId, userId, (state) => {
       for (const slot of job.slots) {
-        const record4 = state.slots[slotKey({ ...job, slot })];
-        if (!record4 || record4.status === "completed")
+        const record = state.slots[slotKey({ ...job, slot })];
+        if (!record || record.status === "completed")
           continue;
-        record4.status = "queued";
-        record4.queuedAt = now;
-        record4.updatedAt = now;
+        record.status = "queued";
+        record.queuedAt = now;
+        record.updatedAt = now;
         const dispatchKey = canonicalDispatchKey({ ...job, slot });
         const lease = state.dispatchLeases[dispatchKey];
         if (lease)
           Object.assign(lease, { status: "queued", queuedAt: now, dispatchEligibleAt: now, cancellationEpoch: epoch });
       }
-      const duplicate = dispatchKeysForJob(job).some((key2) => {
-        const lease = state.dispatchLeases[key2];
+      const duplicate = dispatchKeysForJob(job).some((key) => {
+        const lease = state.dispatchLeases[key];
         return lease?.status === "completed" || lease?.status === "dispatched" && Boolean(lease.attemptId) && lease.attemptId !== attemptId;
       });
       if (duplicate && options.automaticDispatch) {
@@ -160832,8 +160857,8 @@ async function dispatchRelayJob(job, options, userId) {
         updateQueueSafetySummary(state, now);
         return false;
       }
-      for (const key2 of dispatchKeysForJob(job)) {
-        const lease = state.dispatchLeases[key2];
+      for (const key of dispatchKeysForJob(job)) {
+        const lease = state.dispatchLeases[key];
         if (lease)
           Object.assign(lease, {
             attemptId,
@@ -160955,9 +160980,9 @@ function appearanceReadinessKey(input) {
 }
 async function ensureAppearanceReadyForTurn(input) {
   const mode = input.mode || "normal";
-  const key2 = appearanceReadinessKey(input);
+  const key = appearanceReadinessKey(input);
   if (mode === "normal") {
-    const existing = appearanceReadinessByTurn.get(key2);
+    const existing = appearanceReadinessByTurn.get(key);
     if (existing)
       return existing;
   }
@@ -160982,20 +161007,20 @@ async function ensureAppearanceReadyForTurn(input) {
           messageId: input.messageId,
           swipeId: input.swipeId,
           message: `Appearance Sidecar ${mode} fallback: ${message}`,
-          details: { mode, reason: input.reason || "lifecycle", readinessKey: key2 }
+          details: { mode, reason: input.reason || "lifecycle", readinessKey: key }
         });
       });
     }
   })();
   if (mode !== "normal")
     return ready;
-  appearanceReadinessByTurn.set(key2, ready);
+  appearanceReadinessByTurn.set(key, ready);
   try {
     await ready;
   } finally {
     setTimeout(() => {
-      if (appearanceReadinessByTurn.get(key2) === ready)
-        appearanceReadinessByTurn.delete(key2);
+      if (appearanceReadinessByTurn.get(key) === ready)
+        appearanceReadinessByTurn.delete(key);
     }, 1000);
   }
 }
@@ -161268,7 +161293,7 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
     const content = containsRelayRequestMarkup(capturedContent) ? capturedContent : storedContent;
     const storedContainsImageRequest = containsRelayRequestMarkup(storedContent);
     const capturedContainsImageRequest = containsRelayRequestMarkup(capturedContent);
-    const proseContractRepairs = [...storedProseNormalization.repairs, ...capturedProseNormalization.repairs].filter((repair, index, rows2) => rows2.findIndex((candidate) => candidate.slot === repair.slot && candidate.original === repair.original) === index);
+    const proseContractRepairs = [...storedProseNormalization.repairs, ...capturedProseNormalization.repairs].filter((repair, index, rows) => rows.findIndex((candidate) => candidate.slot === repair.slot && candidate.original === repair.original) === index);
     if (proseContractRepairs.length) {
       await mutateState(chatId, userId, (state) => appendStateLog(state, {
         severity: "info",
@@ -161329,8 +161354,8 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
       storedMessageContainsImageRequest: storedContainsImageRequest,
       rawTagCount: rawTags.length,
       parsedRequestCount: requests.length,
-      requestIdsFound: requests.map((request2) => request2.id),
-      targetsFound: requests.map((request2) => request2.target),
+      requestIdsFound: requests.map((request) => request.id),
+      targetsFound: requests.map((request) => request.target),
       ignoredRawTags: rawTags.length > requests.length ? rawTags.slice(requests.length) : []
     }, requests.length === 0 ? "warn" : "info");
     if (requests.length === 0) {
@@ -161353,9 +161378,9 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
       for (const req of requests) {
         const slots = slotsForRequest(req);
         const keys = slots.map((slot) => slotKey({ chatId, messageId: message.id, swipeId, requestId: req.id, slot }));
-        const registered = keys.map((key2) => state.slots[key2]).filter((record4) => Boolean(record4));
-        const blocking = registered.find((record4) => record4.status !== "queued");
-        const queuedRecords = registered.filter((record4) => record4.status === "queued");
+        const registered = keys.map((key) => state.slots[key]).filter((record) => Boolean(record));
+        const blocking = registered.find((record) => record.status !== "queued");
+        const queuedRecords = registered.filter((record) => record.status === "queued");
         const job = {
           chatId,
           messageId: message.id,
@@ -161399,7 +161424,7 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
             target: req.target,
             slots,
             reason: "partial existing registration requires explicit recovery",
-            existingKeys: registered.map((record4) => record4.key)
+            existingKeys: registered.map((record) => record.key)
           }, "warn");
           continue;
         }
@@ -161417,10 +161442,10 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
           continue;
         }
         for (const slot of slots) {
-          const key2 = slotKey({ chatId, messageId: message.id, swipeId, requestId: req.id, slot });
-          const previous = state.slots[key2];
-          state.slots[key2] = {
-            key: key2,
+          const key = slotKey({ chatId, messageId: message.id, swipeId, requestId: req.id, slot });
+          const previous = state.slots[key];
+          state.slots[key] = {
+            key,
             chatId,
             messageId: message.id,
             swipeId,
@@ -161520,8 +161545,8 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
     const effectiveSnapshot = candidateSnapshot;
     if (config.slotGenerationMode === "prompt-preview") {
       for (const job of jobs) {
-        const key2 = slotKey({ ...job, slot: job.slots[0] || "image" });
-        await previewReparse(key2, userId, effectiveSnapshot);
+        const key = slotKey({ ...job, slot: job.slots[0] || "image" });
+        await previewReparse(key, userId, effectiveSnapshot);
       }
       return;
     }
@@ -161541,12 +161566,12 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
 }
 function clearIdleCancellationKeys(chatId, messageId) {
   const prefix = `${chatId}:${messageId}:`;
-  for (const key2 of [...cancelledJobs]) {
-    if (!key2.startsWith(prefix))
+  for (const key of [...cancelledJobs]) {
+    if (!key.startsWith(prefix))
       continue;
-    const active = [...slotLocks].some((lock) => lock.startsWith(`${key2}:`));
+    const active = [...slotLocks].some((lock) => lock.startsWith(`${key}:`));
     if (!active)
-      cancelledJobs.delete(key2);
+      cancelledJobs.delete(key);
   }
 }
 async function assertPersonaPovDispatchAllowed(job, userId) {
@@ -161582,11 +161607,11 @@ async function runJob(job, options, userId) {
     if (options.automaticDispatch && !config.autoGenerate) {
       await mutateJobState(job, userId, (state) => {
         for (const slot of job.slots) {
-          const record4 = state.slots[slotKey({ ...job, slot })];
-          if (!record4)
+          const record = state.slots[slotKey({ ...job, slot })];
+          if (!record)
             continue;
-          record4.status = "queued";
-          record4.updatedAt = Date.now();
+          record.status = "queued";
+          record.updatedAt = Date.now();
         }
         appendStateLog(state, {
           severity: "info",
@@ -161606,7 +161631,7 @@ async function runJob(job, options, userId) {
       markJobStatus(state, job, "parsing", options.triggerType);
       startBackgroundTask(state, { id: backgroundTaskId, chatId: job.chatId, source: job.target === "prose.illustration" ? "relay-illustrator" : "relay-slot", label: job.target === "prose.illustration" ? `Illustrate ${job.alt || job.requestId}` : `Generate ${job.target}`, stage: "analyzing", statusText: "Analyzing 1/3", current: 1, total: 3, requestId: job.requestId, slotKey: job.slots[0] ? slotKey({ ...job, slot: job.slots[0] }) : undefined, planId: job.prosePlanId });
       for (const slot of job.slots) {
-        const record4 = state.slots[slotKey({ ...job, slot })];
+        const record = state.slots[slotKey({ ...job, slot })];
         appendStateLog(state, {
           severity: "info",
           stage: "parser-start",
@@ -161617,14 +161642,14 @@ async function runJob(job, options, userId) {
           requestId: job.requestId,
           slot,
           target: job.target,
-          attemptNumber: record4.attemptNumber,
+          attemptNumber: record.attemptNumber,
           triggerType: options.triggerType,
           message: "Prompt parsing started."
         });
       }
       return Object.fromEntries(job.slots.map((slot) => {
-        const record4 = state.slots[slotKey({ ...job, slot })];
-        return [slot, Number(record4?.attemptNumber || 0)];
+        const record = state.slots[slotKey({ ...job, slot })];
+        return [slot, Number(record?.attemptNumber || 0)];
       }));
     });
     await sendState(userId, job.chatId);
@@ -161634,22 +161659,22 @@ async function runJob(job, options, userId) {
     const targetIndex = Math.max(0, messages.findIndex((message) => message.id === job.messageId));
     const results = [];
     await runWithConcurrency(job.slots, Math.min(config.queueConcurrencyLimit, job.slots.length), async (slot) => {
-      const key2 = slotKey({ ...job, slot });
+      const key = slotKey({ ...job, slot });
       if (isJobCancelled(job))
         throw new JobCancelledError;
       const currentState = await getState(job.chatId, userId);
-      const record4 = currentState.slots[key2];
-      if (!record4)
+      const record = currentState.slots[key];
+      if (!record)
         throw new JobCancelledError;
-      const highResMode = options.highResMode ?? (options.reparse ? config.highResMode : record4.highResMode ?? config.highResMode);
+      const highResMode = options.highResMode ?? (options.reparse ? config.highResMode : record.highResMode ?? config.highResMode);
       const releasePreparationWorker = await acquirePromptPreparationWorker(userId, config.queueConcurrencyLimit, options.signal);
       let imagePlan;
       let prepared;
       let attemptNumber;
       try {
         failureStage = "provider-validation";
-        imagePlan = await raceWithAbort(prepareImagePlan(config, job, record4, options.nativeSnapshot, userId, highResMode), options.signal);
-        await mutateJobState(job, userId, (state) => stampImagePlan(state.slots[key2], imagePlan));
+        imagePlan = await raceWithAbort(prepareImagePlan(config, job, record, options.nativeSnapshot, userId, highResMode), options.signal);
+        await mutateJobState(job, userId, (state) => stampImagePlan(state.slots[key], imagePlan));
         scheduleStateBroadcast(userId, job.chatId);
         if (isJobCancelled(job))
           throw new JobCancelledError;
@@ -161657,13 +161682,13 @@ async function runJob(job, options, userId) {
         failureStage = "parser-failed";
         if (isJobCancelled(job))
           throw new JobCancelledError;
-        prepared = options.reparse ? await raceWithAbort(parseSlotPrompt(job, slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings, highResMode, options.triggerType === "reparse" || options.triggerType === "intent-regeneration"), options.signal) : resolvedPromptFromRecord(record4, config);
+        prepared = options.reparse ? await raceWithAbort(parseSlotPrompt(job, slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings, highResMode, options.triggerType === "reparse" || options.triggerType === "intent-regeneration"), options.signal) : resolvedPromptFromRecord(record, config);
         if (isJobCancelled(job))
           throw new JobCancelledError;
         enrichPromptPipelineWithImagePlan(prepared.promptPipeline, imagePlan, prepared.prompt, prepared.negativePrompt);
         attemptNumber = await mutateJobState(job, userId, (state) => {
           const now = Date.now();
-          const stored = state.slots[key2];
+          const stored = state.slots[key];
           stored.resolvedPositivePrompt = prepared.prompt;
           stored.resolvedNegativePrompt = prepared.negativePrompt;
           stored.promptMode = prepared.promptMode;
@@ -161732,16 +161757,25 @@ async function runJob(job, options, userId) {
       const generated = await generateImage(job.chatId, prepared, imagePlan, userId, {
         chatId: job.chatId,
         messageId: job.messageId,
-        generationId: `${key2}:${attemptNumber}`,
+        generationId: `${key}:${attemptNumber}`,
         source: job.target === "prose.illustration" ? "relay-illustrator" : "relay-slot",
-        slotKey: key2,
+        slotKey: key,
         requestId: job.requestId,
         addToGallery: config.galleryAutoLink,
         attemptSignal: options.signal,
+        onAttemptDiagnosticFinalized: async (diagnostic) => {
+          await mutateJobState(job, userId, (state) => {
+            const stored = state.slots[key];
+            if (!stored)
+              return;
+            retainProviderAttemptDiagnostic(stored, diagnostic);
+          });
+          scheduleStateBroadcast(userId, job.chatId);
+        },
         onProviderStarted: async () => {
           throwIfAborted(options.signal);
           await mutateJobState(job, userId, (state) => {
-            const stored = state.slots[key2];
+            const stored = state.slots[key];
             if (!stored || stored.status !== "provider-waiting")
               return;
             markSlotStatus(stored, "generating");
@@ -161778,7 +161812,7 @@ async function runJob(job, options, userId) {
           if (options.signal?.aborted || isJobCancelled(job))
             return;
           await mutateJobState(job, userId, (state) => {
-            const stored = state.slots[key2];
+            const stored = state.slots[key];
             if (!stored)
               return;
             const now = Date.now();
@@ -161800,7 +161834,7 @@ async function runJob(job, options, userId) {
       if (isJobCancelled(job))
         throw new JobCancelledError;
       await mutateJobState(job, userId, (state) => {
-        const stored = state.slots[key2];
+        const stored = state.slots[key];
         const now = Date.now();
         if (stored) {
           stored.providerCompletedAt ||= now;
@@ -161905,15 +161939,15 @@ async function runJob(job, options, userId) {
         const now = Date.now();
         updateBackgroundTask(state, backgroundTaskId, { stage: "cancelled", statusText: "Aborted", etaSeconds: null });
         for (const slot of job.slots) {
-          const record4 = state.slots[slotKey({ ...job, slot })];
-          if (!record4 || record4.status === "completed")
+          const record = state.slots[slotKey({ ...job, slot })];
+          if (!record || record.status === "completed")
             continue;
-          if (record4.status !== "cancelled")
+          if (record.status !== "cancelled")
             state.stats.cancelledTotal += 1;
-          record4.status = "cancelled";
-          record4.cancelledAt = now;
-          record4.updatedAt = now;
-          finishAttempt(record4, "cancelled", now, "Cancelled by user.");
+          record.status = "cancelled";
+          record.cancelledAt = now;
+          record.updatedAt = now;
+          finishAttempt(record, "cancelled", now, "Cancelled by user.");
           const lease = state.dispatchLeases[canonicalDispatchKey({ ...job, slot })];
           if (lease)
             lease.status = "cancelled";
@@ -161966,15 +162000,15 @@ async function enqueueGalleryLinksForResults(job, results, userId) {
     for (const result of results) {
       if (!result.imageId)
         continue;
-      const key2 = slotKey({ ...job, slot: result.slot });
-      const record4 = state.slots[key2];
+      const key = slotKey({ ...job, slot: result.slot });
+      const record = state.slots[key];
       if (result.galleryLinkStatus === "linked" && result.galleryItemId) {
         linked += 1;
-        if (record4) {
-          record4.galleryLinkStatus = "linked";
-          record4.galleryItemId = result.galleryItemId;
-          record4.galleryLinkError = undefined;
-          record4.galleryLinkedAt = result.galleryLinkedAt || Date.now();
+        if (record) {
+          record.galleryLinkStatus = "linked";
+          record.galleryItemId = result.galleryItemId;
+          record.galleryLinkError = undefined;
+          record.galleryLinkedAt = result.galleryLinkedAt || Date.now();
         }
         appendStateLog(state, {
           severity: "info",
@@ -161983,7 +162017,7 @@ async function enqueueGalleryLinksForResults(job, results, userId) {
           chatId: job.chatId,
           requestId: job.requestId,
           message: "Lumiverse confirmed the Character Gallery row during image persistence.",
-          details: { imageId: result.imageId, galleryItemId: result.galleryItemId, slotKey: key2 }
+          details: { imageId: result.imageId, galleryItemId: result.galleryItemId, slotKey: key }
         });
         continue;
       }
@@ -161995,13 +162029,13 @@ async function enqueueGalleryLinksForResults(job, results, userId) {
         imageUrl: result.imageUrl,
         caption: job.caption || job.alt || job.originalSceneBrief.slice(0, 180),
         source,
-        slotKey: key2
+        slotKey: key
       });
       queued += 1;
-      if (record4) {
-        record4.galleryLinkStatus = link.status;
-        record4.galleryItemId = link.galleryItemId;
-        record4.galleryLinkError = result.galleryLinkError || link.error;
+      if (record) {
+        record.galleryLinkStatus = link.status;
+        record.galleryItemId = link.galleryItemId;
+        record.galleryLinkError = result.galleryLinkError || link.error;
       }
     }
     appendStateLog(state, {
@@ -162015,27 +162049,27 @@ async function enqueueGalleryLinksForResults(job, results, userId) {
   });
   await sendState(userId, job.chatId);
 }
-async function regenerateSlot(key2, nativeSnapshot, userId, highResMode) {
-  const { chatId, record: record4 } = await getRecordByKey(key2, userId);
-  if (!canRegenerateRecord(record4)) {
-    if (canReparseRecord(record4)) {
-      await reparseSlot(key2, nativeSnapshot, userId);
+async function regenerateSlot(key, nativeSnapshot, userId, highResMode) {
+  const { chatId, record } = await getRecordByKey(key, userId);
+  if (!canRegenerateRecord(record)) {
+    if (canReparseRecord(record)) {
+      await reparseSlot(key, nativeSnapshot, userId);
       return;
     }
     throw new Error("Original prompt metadata was not available when this slot was recovered. Rebuild the request or supply a prompt first.");
   }
-  if (relayProcessingKeys.has(record4.key) || isRecordJobActive(record4)) {
-    cancelledJobs.add(jobCancellationKey(record4));
-    abortImageStream(record4.key);
-    abortImageStream(record4.requestId);
-    scheduleDeferredRegenerate(key2, nativeSnapshot, userId, highResMode);
+  if (relayProcessingKeys.has(record.key) || isRecordJobActive(record)) {
+    cancelledJobs.add(jobCancellationKey(record));
+    abortImageStream(record.key);
+    abortImageStream(record.requestId);
+    scheduleDeferredRegenerate(key, nativeSnapshot, userId, highResMode);
     spindle.sendToFrontend({ type: "relay_notice", level: "info", message: "Regeneration is queued and will start as soon as the current provider call stops." }, userId);
     await sendState(userId, chatId);
     return;
   }
-  cancelledJobs.delete(jobCancellationKey(record4));
-  const job = jobFromRecord(record4);
-  await runJob(job, { replaceExisting: record4.status === "completed", reparse: true, triggerType: nativeSnapshot ? "regenerate-current-settings" : "regenerate-same-settings", nativeSnapshot, highResMode }, userId);
+  cancelledJobs.delete(jobCancellationKey(record));
+  const job = jobFromRecord(record);
+  await runJob(job, { replaceExisting: record.status === "completed", reparse: true, triggerType: nativeSnapshot ? "regenerate-current-settings" : "regenerate-same-settings", nativeSnapshot, highResMode }, userId);
   await sendState(userId, chatId);
 }
 function normalizeRelaySurfaceContracts(content) {
@@ -162052,10 +162086,10 @@ async function preflightJobReplacement(job) {
     throw new ReplacementPreflightError("This recovered slot no longer has a message to update. Remove the Relay record or rebuild the request in an existing message.");
   const content = strictSwipeContent(message, job.swipeId);
   const requests = parseSafeSurfaceImageRequests(content);
-  const request2 = requests.find((candidate) => candidate.id === job.requestId && candidate.target === job.target);
-  const unresolvedSlots = request2 ? new Set(slotsForRequest(request2)) : new Set;
+  const request = requests.find((candidate) => candidate.id === job.requestId && candidate.target === job.target);
+  const unresolvedSlots = request ? new Set(slotsForRequest(request)) : new Set;
   for (const slot of job.slots) {
-    if (request2 && unresolvedSlots.has(slot))
+    if (request && unresolvedSlots.has(slot))
       continue;
     if (slotCommentVariants(job, slot).some((marker) => content.includes(marker)) || errorCommentVariants(job, slot).some((marker) => content.includes(marker)))
       continue;
@@ -162096,95 +162130,95 @@ async function reportReplacementPreflightFailure(job, message, userId) {
   }, userId);
   await sendState(userId, job.chatId);
 }
-async function resetRecordForReparse(chatId, key2, userId) {
-  await mutateState(chatId, userId, (state2) => {
-    const record5 = state2.slots[key2];
-    if (!record5)
+async function resetRecordForReparse(chatId, key, userId) {
+  await mutateState(chatId, userId, (state) => {
+    const record = state.slots[key];
+    if (!record)
       throw new Error("Slot not found.");
     const now = Date.now();
-    if (record5.attempts?.length) {
-      const attempt = record5.attempts[record5.attempts.length - 1];
+    if (record.attempts?.length) {
+      const attempt = record.attempts[record.attempts.length - 1];
       if (!["completed", "failed", "cancelled", "placement-pending", "placement-repair-needed"].includes(attempt.stage))
-        finishAttempt(record5, "cancelled", now, "Reset before explicit reparse.");
+        finishAttempt(record, "cancelled", now, "Reset before explicit reparse.");
     }
-    record5.status = record5.imageUrl ? "completed" : "recovered-pending";
-    record5.error = undefined;
-    record5.errorToastKey = undefined;
-    record5.cancelledAt = undefined;
-    record5.failedAt = undefined;
-    record5.pendingPlacement = undefined;
-    record5.previewPending = false;
-    record5.placementFailure = undefined;
-    record5.updatedAt = now;
+    record.status = record.imageUrl ? "completed" : "recovered-pending";
+    record.error = undefined;
+    record.errorToastKey = undefined;
+    record.cancelledAt = undefined;
+    record.failedAt = undefined;
+    record.pendingPlacement = undefined;
+    record.previewPending = false;
+    record.placementFailure = undefined;
+    record.updatedAt = now;
   });
   const state = await getState(chatId, userId);
-  const record4 = state.slots[key2];
-  if (!record4)
+  const record = state.slots[key];
+  if (!record)
     throw new Error("Slot not found.");
-  cancelledJobs.delete(jobCancellationKey(record4));
-  relayProcessingKeys.delete(record4.key);
-  return record4;
+  cancelledJobs.delete(jobCancellationKey(record));
+  relayProcessingKeys.delete(record.key);
+  return record;
 }
-function scheduleDeferredRegenerate(key2, nativeSnapshot, userId, highResMode, attempts = 0) {
-  const existing = deferredRegenerateRequests.get(key2);
+function scheduleDeferredRegenerate(key, nativeSnapshot, userId, highResMode, attempts = 0) {
+  const existing = deferredRegenerateRequests.get(key);
   if (existing?.timer)
     clearTimeout(existing.timer);
-  const request2 = { key: key2, nativeSnapshot, userId, highResMode, attempts };
-  request2.timer = setTimeout(() => {
+  const request = { key, nativeSnapshot, userId, highResMode, attempts };
+  request.timer = setTimeout(() => {
     (async () => {
       try {
-        const located = await getRecordByKey(key2, userId);
-        if (isRecordJobActive(located.record) || relayProcessingKeys.has(key2)) {
+        const located = await getRecordByKey(key, userId);
+        if (isRecordJobActive(located.record) || relayProcessingKeys.has(key)) {
           if (attempts < 120)
-            scheduleDeferredRegenerate(key2, nativeSnapshot, userId, highResMode, attempts + 1);
+            scheduleDeferredRegenerate(key, nativeSnapshot, userId, highResMode, attempts + 1);
           else
             spindle.sendToFrontend({ type: "relay_notice", level: "warning", message: "The previous provider call did not release this slot. Use Regenerate again after it stops." }, userId);
           return;
         }
-        deferredRegenerateRequests.delete(key2);
-        await regenerateSlot(key2, nativeSnapshot, userId, highResMode);
+        deferredRegenerateRequests.delete(key);
+        await regenerateSlot(key, nativeSnapshot, userId, highResMode);
       } catch (error) {
-        deferredRegenerateRequests.delete(key2);
+        deferredRegenerateRequests.delete(key);
         const message = error instanceof Error ? error.message : String(error);
         if (!/Slot not found/i.test(message))
           spindle.sendToFrontend({ type: "error", source: "deferred_regenerate", message }, userId);
       }
     })();
   }, 500);
-  deferredRegenerateRequests.set(key2, request2);
+  deferredRegenerateRequests.set(key, request);
 }
-function scheduleDeferredReparse(key2, nativeSnapshot, userId, attempts = 0) {
-  const existing = deferredReparseRequests.get(key2);
+function scheduleDeferredReparse(key, nativeSnapshot, userId, attempts = 0) {
+  const existing = deferredReparseRequests.get(key);
   if (existing?.timer)
     clearTimeout(existing.timer);
-  const request2 = { key: key2, nativeSnapshot, userId, attempts };
-  request2.timer = setTimeout(() => {
+  const request = { key, nativeSnapshot, userId, attempts };
+  request.timer = setTimeout(() => {
     (async () => {
       try {
-        const located = await getRecordByKey(key2, userId);
-        if (isRecordJobActive(located.record) || relayProcessingKeys.has(key2)) {
+        const located = await getRecordByKey(key, userId);
+        if (isRecordJobActive(located.record) || relayProcessingKeys.has(key)) {
           if (attempts < 120)
-            scheduleDeferredReparse(key2, nativeSnapshot, userId, attempts + 1);
+            scheduleDeferredReparse(key, nativeSnapshot, userId, attempts + 1);
           else
             spindle.sendToFrontend({ type: "relay_notice", level: "warning", message: "The previous provider call did not release this slot. Use Reparse again after it stops." }, userId);
           return;
         }
-        deferredReparseRequests.delete(key2);
-        await reparseSlot(key2, nativeSnapshot, userId);
+        deferredReparseRequests.delete(key);
+        await reparseSlot(key, nativeSnapshot, userId);
       } catch (error) {
-        deferredReparseRequests.delete(key2);
+        deferredReparseRequests.delete(key);
         const message = error instanceof Error ? error.message : String(error);
         if (!/Slot not found/i.test(message))
           spindle.sendToFrontend({ type: "error", source: "deferred_reparse", message }, userId);
       }
     })();
   }, 500);
-  deferredReparseRequests.set(key2, request2);
+  deferredReparseRequests.set(key, request);
 }
 async function reparseChatSlots(chatId, nativeSnapshot, userId) {
   await reconcileChatState(chatId, userId);
   const state = await getState(chatId, userId);
-  const eligible = Object.values(state.slots).filter((record4) => canReparseRecord(record4) && !record4.orphaned && record4.status !== "completed");
+  const eligible = Object.values(state.slots).filter((record) => canReparseRecord(record) && !record.orphaned && record.status !== "completed");
   if (!eligible.length) {
     spindle.sendToFrontend({ type: "relay_notice", level: "info", message: "No reparsable Relay slots were found in this chat." }, userId);
     await sendState(userId, chatId);
@@ -162193,50 +162227,50 @@ async function reparseChatSlots(chatId, nativeSnapshot, userId) {
   spindle.sendToFrontend({ type: "status", status: `Reparsing 0 / ${eligible.length} slots\u2026` }, userId);
   const config = await getConfig(userId);
   let completed = 0;
-  await runWithConcurrency(eligible, config.queueConcurrencyLimit, async (record4) => {
-    await reparseSlot(record4.key, nativeSnapshot || nativeSnapshotFromConfig(config), userId);
+  await runWithConcurrency(eligible, config.queueConcurrencyLimit, async (record) => {
+    await reparseSlot(record.key, nativeSnapshot || nativeSnapshotFromConfig(config), userId);
     completed += 1;
     spindle.sendToFrontend({ type: "status", status: `Reparsing ${completed} / ${eligible.length} slots\u2026` }, userId);
   });
   spindle.sendToFrontend({ type: "relay_notice", level: "success", message: `Reparse finished for ${completed} Relay slot${completed === 1 ? "" : "s"}.` }, userId);
   await sendState(userId, chatId);
 }
-async function reparseSlot(key2, nativeSnapshot, userId) {
-  const located = await getRecordByKey(key2, userId);
+async function reparseSlot(key, nativeSnapshot, userId) {
+  const located = await getRecordByKey(key, userId);
   const chatId = located.chatId;
-  const record4 = await resetRecordForReparse(chatId, key2, userId);
-  if (!canReparseRecord(record4))
+  const record = await resetRecordForReparse(chatId, key, userId);
+  if (!canReparseRecord(record))
     throw new Error("Original request metadata was not available when this slot was recovered. Rebuild the request first.");
-  if (isRecordJobActive(record4) || relayProcessingKeys.has(record4.key)) {
-    cancelledJobs.add(jobCancellationKey(record4));
-    abortImageStream(record4.key);
-    abortImageStream(record4.requestId);
-    scheduleDeferredReparse(key2, nativeSnapshot, userId);
+  if (isRecordJobActive(record) || relayProcessingKeys.has(record.key)) {
+    cancelledJobs.add(jobCancellationKey(record));
+    abortImageStream(record.key);
+    abortImageStream(record.requestId);
+    scheduleDeferredReparse(key, nativeSnapshot, userId);
     spindle.sendToFrontend({ type: "relay_notice", level: "info", message: "Reparse is queued and will start as soon as the previous provider call releases this slot." }, userId);
     await sendState(userId, chatId);
     return;
   }
-  cancelledJobs.delete(jobCancellationKey(record4));
-  if (record4.target === "instagram.carousel" && !record4.imageUrl) {
+  cancelledJobs.delete(jobCancellationKey(record));
+  if (record.target === "instagram.carousel" && !record.imageUrl) {
     const state = await getState(chatId, userId);
-    const siblings = Object.values(state.slots).filter((candidate) => candidate.target === "instagram.carousel" && candidate.chatId === record4.chatId && candidate.messageId === record4.messageId && candidate.swipeId === record4.swipeId && candidate.requestId === record4.requestId);
+    const siblings = Object.values(state.slots).filter((candidate) => candidate.target === "instagram.carousel" && candidate.chatId === record.chatId && candidate.messageId === record.messageId && candidate.swipeId === record.swipeId && candidate.requestId === record.requestId);
     if (siblings.some(isProcessing))
       throw new Error("This carousel is already processing.");
-    const job2 = groupFailedRetryJobs(siblings)[0];
-    if (!job2)
+    const job = groupFailedRetryJobs(siblings)[0];
+    if (!job)
       throw new Error("Could not reconstruct the original carousel request.");
-    await runJob(job2, { replaceExisting: false, reparse: true, triggerType: "reparse", nativeSnapshot: nativeSnapshot || nativeSnapshotFromConfig(await getConfig(userId)) }, userId);
+    await runJob(job, { replaceExisting: false, reparse: true, triggerType: "reparse", nativeSnapshot: nativeSnapshot || nativeSnapshotFromConfig(await getConfig(userId)) }, userId);
     await sendState(userId, chatId);
     return;
   }
-  const job = jobFromRecord(record4);
-  await runJob(job, { replaceExisting: Boolean(record4.imageUrl), reparse: true, triggerType: "reparse", nativeSnapshot: nativeSnapshot || nativeSnapshotFromConfig(await getConfig(userId)) }, userId);
+  const job = jobFromRecord(record);
+  await runJob(job, { replaceExisting: Boolean(record.imageUrl), reparse: true, triggerType: "reparse", nativeSnapshot: nativeSnapshot || nativeSnapshotFromConfig(await getConfig(userId)) }, userId);
   await sendState(userId, chatId);
 }
 async function retryFailed(chatId, userId) {
   await reconcileChatState(chatId, userId);
   const state = await getState(chatId, userId);
-  const failed = Object.values(state.slots).filter((record4) => record4.status === "failed" && !isProcessing(record4) && canReparseRecord(record4));
+  const failed = Object.values(state.slots).filter((record) => record.status === "failed" && !isProcessing(record) && canReparseRecord(record));
   const jobs = groupFailedRetryJobs(failed);
   const config = await getConfig(userId);
   const validationError = await validateRetryJobsBeforeAttempt(jobs, state, config, userId);
@@ -162266,11 +162300,11 @@ async function startRelayBatch(chatId, nativeSnapshot, userId, requestedCandidat
     const selectedKeySet = new Set(selectedKeys || []);
     for (const message of [...assistantMessages].reverse()) {
       const swipeId = activeSwipeId(message);
-      const candidates2 = Object.values(state.slots).filter((record4) => record4.messageId === message.id && record4.swipeId === swipeId && !record4.orphaned && (!selectedKeySet.size || selectedKeySet.has(record4.key)));
-      if (candidates2.length) {
+      const candidates = Object.values(state.slots).filter((record) => record.messageId === message.id && record.swipeId === swipeId && !record.orphaned && (!selectedKeySet.size || selectedKeySet.has(record.key)));
+      if (candidates.length) {
         selectedMessage = message;
         selectedSwipe = swipeId;
-        selectedRecords = candidates2;
+        selectedRecords = candidates;
         break;
       }
     }
@@ -162284,27 +162318,27 @@ async function startRelayBatch(chatId, nativeSnapshot, userId, requestedCandidat
     const batchId = `${chatId}:${selectedMessage.id}:${selectedSwipe}:${Date.now().toString(36)}`;
     const batchHighRes = options?.highResModeOverride ?? config.highResMode;
     const mode = batchHighRes ? "high-res" : "normal";
-    const candidates = selectedRecords.sort((a, b) => `${a.requestId}:${a.slot}`.localeCompare(`${b.requestId}:${b.slot}`)).flatMap((record4) => Array.from({ length: candidateCount }, (_value, index) => ({
-      candidateKey: candidateCount > 1 ? `${batchId}:${record4.key}:candidate-${index + 1}` : `${batchId}:${record4.key}`,
-      stableSlotKey: record4.key,
+    const candidates = selectedRecords.sort((a, b) => `${a.requestId}:${a.slot}`.localeCompare(`${b.requestId}:${b.slot}`)).flatMap((record) => Array.from({ length: candidateCount }, (_value, index) => ({
+      candidateKey: candidateCount > 1 ? `${batchId}:${record.key}:candidate-${index + 1}` : `${batchId}:${record.key}`,
+      stableSlotKey: record.key,
       batchId,
       chatId,
-      messageId: record4.messageId,
-      swipeId: record4.swipeId,
-      requestId: record4.requestId,
-      target: record4.target,
-      imageIntent: normalizeImageIntent(record4.imageIntent),
-      targetApp: record4.targetApp,
-      slot: record4.slot,
-      sourceImageId: record4.imageId,
-      sourceImageUrl: record4.imageUrl,
-      originalSceneBrief: record4.originalSceneBrief,
-      originalRequestXml: record4.originalRequestXml,
-      resolvedSourcePrompt: record4.resolvedPositivePrompt || "",
-      highResMode: options?.highResModeOverride ?? record4.highResMode ?? config.highResMode,
+      messageId: record.messageId,
+      swipeId: record.swipeId,
+      requestId: record.requestId,
+      target: record.target,
+      imageIntent: normalizeImageIntent(record.imageIntent),
+      targetApp: record.targetApp,
+      slot: record.slot,
+      sourceImageId: record.imageId,
+      sourceImageUrl: record.imageUrl,
+      originalSceneBrief: record.originalSceneBrief,
+      originalRequestXml: record.originalRequestXml,
+      resolvedSourcePrompt: record.resolvedPositivePrompt || "",
+      highResMode: options?.highResModeOverride ?? record.highResMode ?? config.highResMode,
       status: "preflight",
       createdAt: startedAt,
-      attemptNumber: (record4.attemptNumber || 0) + 1,
+      attemptNumber: (record.attemptNumber || 0) + 1,
       triggerType: intent ? "intent-regeneration" : "reparse",
       candidateNumber: index + 1,
       candidateTotal: candidateCount,
@@ -162352,13 +162386,13 @@ async function startRelayBatch(chatId, nativeSnapshot, userId, requestedCandidat
     const targetIndex = Math.max(0, messages.findIndex((message) => message.id === batch.messageId));
     for (const candidate of candidates) {
       try {
-        const record4 = state.slots[candidate.stableSlotKey];
-        const proseCandidatePending = record4?.target === "prose.illustration" && record4.proseSynthetic === true && record4.status === "queued";
-        if (!record4 || !proseCandidatePending && isProcessing(record4) || relayProcessingKeys.has(record4.key))
+        const record = state.slots[candidate.stableSlotKey];
+        const proseCandidatePending = record?.target === "prose.illustration" && record.proseSynthetic === true && record.status === "queued";
+        if (!record || !proseCandidatePending && isProcessing(record) || relayProcessingKeys.has(record.key))
           throw new ReplacementPreflightError("This slot is already processing.");
-        relayProcessingKeys.add(record4.key);
+        relayProcessingKeys.add(record.key);
         await updateRelayCandidate(chatId, batchId, candidate.candidateKey, { status: "parsing", replacementPreflightStatus: "ready" }, userId);
-        const result = await generateRelayCandidate(batch, candidate, record4, messages, targetIndex, config, nativeSnapshot, userId);
+        const result = await generateRelayCandidate(batch, candidate, record, messages, targetIndex, config, nativeSnapshot, userId);
         await updateRelayCandidate(chatId, batchId, candidate.candidateKey, {
           status: "ready",
           candidateImageId: result.imageId,
@@ -162418,16 +162452,16 @@ async function startRelayBatch(chatId, nativeSnapshot, userId, requestedCandidat
     relayBatchLocks.delete(chatId);
   }
 }
-async function generateRelayCandidate(batch, candidate, record4, messages, targetIndex, config, nativeSnapshot, userId) {
-  const job = jobFromRecord(record4);
+async function generateRelayCandidate(batch, candidate, record, messages, targetIndex, config, nativeSnapshot, userId) {
+  const job = jobFromRecord(record);
   await assertPersonaPovDispatchAllowed(job, userId);
   job.regenerationIntent = candidate.regenerationIntent;
   if (candidate.regenerationIntent?.aspectRatio)
     job.aspect = candidate.regenerationIntent.aspectRatio;
-  if (!(record4.target === "prose.illustration" && record4.proseSynthetic === true && record4.proseAnchor)) {
+  if (!(record.target === "prose.illustration" && record.proseSynthetic === true && record.proseAnchor)) {
     await preflightJobReplacement(job);
   }
-  const imagePlan = await prepareImagePlan(config, job, record4, nativeSnapshot, userId, candidate.highResMode);
+  const imagePlan = await prepareImagePlan(config, job, record, nativeSnapshot, userId, candidate.highResMode);
   validateImagePlan(imagePlan);
   const prepared = await parseSlotPrompt(job, candidate.slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings, candidate.highResMode);
   enrichPromptPipelineWithImagePlan(prepared.promptPipeline, imagePlan, prepared.prompt, prepared.negativePrompt);
@@ -162556,24 +162590,24 @@ async function replaceRelayCandidates(chatId, batchId, candidateKeys, userId) {
         continue;
       }
       winners.add(candidate.stableSlotKey);
-      const record4 = state.slots[candidate.stableSlotKey];
-      if (!record4 || record4.messageId !== batch.messageId || record4.swipeId !== batch.swipeId) {
+      const record = state.slots[candidate.stableSlotKey];
+      if (!record || record.messageId !== batch.messageId || record.swipeId !== batch.swipeId) {
         skipped.push(candidate.slot);
         continue;
       }
-      const job = jobFromRecord(record4);
+      const job = jobFromRecord(record);
       const result = candidate.snapshot;
-      const replaced = replaceResolvedSlotAfterComment(content, job, result) || replaceErrorAfterComment(content, job, renderResolvedMarkup(job, [result])) || insertProseCandidateAtStoredAnchor(content, record4, job, result);
+      const replaced = replaceResolvedSlotAfterComment(content, job, result) || replaceErrorAfterComment(content, job, renderResolvedMarkup(job, [result])) || insertProseCandidateAtStoredAnchor(content, record, job, result);
       if (!replaced) {
         skipped.push(candidate.slot);
         continue;
       }
       content = replaced;
       const now = Date.now();
-      record4.attemptNumber = Math.max(record4.attemptNumber || 0, candidate.attemptNumber);
-      record4.attempts ||= [];
-      record4.attempts.push({ attemptNumber: record4.attemptNumber, triggerType: "reparse", startedAt: candidate.createdAt, parsingStartedAt: candidate.createdAt, generationStartedAt: candidate.createdAt, stage: "image-generation" });
-      applyGeneration(state, record4, result, now);
+      record.attemptNumber = Math.max(record.attemptNumber || 0, candidate.attemptNumber);
+      record.attempts ||= [];
+      record.attempts.push({ attemptNumber: record.attemptNumber, triggerType: "reparse", startedAt: candidate.createdAt, parsingStartedAt: candidate.createdAt, generationStartedAt: candidate.createdAt, stage: "image-generation" });
+      applyGeneration(state, record, result, now);
       candidate.status = "replaced";
       candidate.selected = true;
       applied.push(candidate.slot);
@@ -162621,12 +162655,12 @@ async function discardRelayBatch(chatId, batchId, userId) {
   });
   await sendState(userId, chatId);
 }
-function hasTrustedRelayMarkerOwnership(state, key2, marker) {
+function hasTrustedRelayMarkerOwnership(state, key, marker) {
   return isRelayRuntimeMarkerTrusted({
     kind: marker.kind,
     imageId: marker.imageId,
     imageUrl: marker.imageUrl,
-    existingRecord: state.slots[key2],
+    existingRecord: state.slots[key],
     assets: Object.values(state.assetLibrary.assets || {})
   });
 }
@@ -162698,30 +162732,30 @@ async function rescanChatForSlots(chatId, userId, automatic = false, requestedIn
             details: { rawTags, rawSource: compact(content, 4000) }
           });
         }
-        for (const request2 of requests) {
-          for (const slot of slotsForRequest(request2)) {
-            const key2 = slotKey({ chatId, messageId: message.id, swipeId, requestId: request2.id, slot });
-            discoveries.set(key2, {
-              key: key2,
+        for (const request of requests) {
+          for (const slot of slotsForRequest(request)) {
+            const key = slotKey({ chatId, messageId: message.id, swipeId, requestId: request.id, slot });
+            discoveries.set(key, {
+              key,
               kind: "pending",
               record: {
-                key: key2,
+                key,
                 chatId,
                 messageId: message.id,
                 swipeId,
-                requestId: request2.id,
-                target: request2.target,
-                targetApp: targetApp(request2.target),
+                requestId: request.id,
+                target: request.target,
+                targetApp: targetApp(request.target),
                 slot,
                 status: "recovered-pending",
-                originalSceneBrief: request2.prompt,
-                originalNegativePrompt: request2.negative || "",
-                originalRequestXml: request2.fullMatch,
-                alt: request2.alt || "",
-                caption: request2.caption,
-                time: request2.time,
-                count: request2.count,
-                requestAspect: request2.aspect,
+                originalSceneBrief: request.prompt,
+                originalNegativePrompt: request.negative || "",
+                originalRequestXml: request.fullMatch,
+                alt: request.alt || "",
+                caption: request.caption,
+                time: request.time,
+                count: request.count,
+                requestAspect: request.aspect,
                 createdAt: discoveredAt,
                 discoveredAt,
                 registeredAt: discoveredAt,
@@ -162735,7 +162769,7 @@ async function rescanChatForSlots(chatId, userId, automatic = false, requestedIn
                 highResMode: config.highResMode,
                 attempts: [],
                 selectedPromptProfileId: effectiveGenerationProfile(config, chatId).defaultPromptProfileId,
-                promptPipeline: emptyPromptPipeline({ caption: request2.caption, originalNegativePrompt: request2.negative || "" }),
+                promptPipeline: emptyPromptPipeline({ caption: request.caption, originalNegativePrompt: request.negative || "" }),
                 history: []
               }
             });
@@ -162743,7 +162777,7 @@ async function rescanChatForSlots(chatId, userId, automatic = false, requestedIn
         }
         const markers = parseRouterMarkers(content);
         const markerCounts = new Map;
-        for (const marker of markers.filter((marker2) => marker2.valid && marker2.target)) {
+        for (const marker of markers.filter((marker) => marker.valid && marker.target)) {
           const group = `${marker.requestId}:${marker.target}`;
           markerCounts.set(group, (markerCounts.get(group) || 0) + 1);
         }
@@ -162764,8 +162798,8 @@ async function rescanChatForSlots(chatId, userId, automatic = false, requestedIn
             summary.resolvedMarkersFound += 1;
           else
             summary.errorMarkersFound += 1;
-          const key2 = slotKey({ chatId, messageId: message.id, swipeId, requestId: marker.requestId, slot: marker.slot });
-          if (!hasTrustedRelayMarkerOwnership(stateAtScanStart, key2, marker)) {
+          const key = slotKey({ chatId, messageId: message.id, swipeId, requestId: marker.requestId, slot: marker.slot });
+          if (!hasTrustedRelayMarkerOwnership(stateAtScanStart, key, marker)) {
             summary.malformedSources += 1;
             malformed.push({
               messageId: message.id,
@@ -162780,11 +162814,11 @@ async function rescanChatForSlots(chatId, userId, automatic = false, requestedIn
           const count = marker.target === "instagram.carousel" ? Math.max(1, markerCounts.get(`${marker.requestId}:${marker.target}`) || 1) : 1;
           const imageAvailable = marker.kind === "resolved" ? await isStoredImageAvailable(marker.imageId, userId) : false;
           const status = marker.kind === "resolved" ? imageAvailable ? "completed" : "image-unavailable" : "failed";
-          discoveries.set(key2, {
-            key: key2,
+          discoveries.set(key, {
+            key,
             kind: marker.kind === "resolved" ? imageAvailable ? "completed" : "unavailable" : "failed",
             record: {
-              key: key2,
+              key,
               chatId,
               messageId: message.id,
               swipeId,
@@ -162827,12 +162861,12 @@ async function rescanChatForSlots(chatId, userId, automatic = false, requestedIn
       }
     }
     await mutateState(chatId, userId, (state) => {
-      for (const [key2, fingerprint] of scannedFingerprints) {
-        const suppressed = state.suppressedContentFingerprints[key2];
+      for (const [key, fingerprint] of scannedFingerprints) {
+        const suppressed = state.suppressedContentFingerprints[key];
         if (!suppressed)
           continue;
         if (!automatic || suppressed !== fingerprint)
-          delete state.suppressedContentFingerprints[key2];
+          delete state.suppressedContentFingerprints[key];
       }
       appendStateLog(state, {
         severity: "info",
@@ -162871,21 +162905,21 @@ async function rescanChatForSlots(chatId, userId, automatic = false, requestedIn
         }
       }
       if (config.debugLogging)
-        for (const record4 of merged.skipped)
+        for (const record of merged.skipped)
           appendStateLog(state, {
             severity: "debug",
             stage: "chat-rescan-slot-skipped",
             eventType: "chat_rescan_slot_skipped",
             chatId,
-            messageId: record4.messageId,
-            swipeId: record4.swipeId,
-            requestId: record4.requestId,
-            slot: record4.slot,
-            target: record4.target,
+            messageId: record.messageId,
+            swipeId: record.swipeId,
+            requestId: record.requestId,
+            slot: record.slot,
+            target: record.target,
             message: "Latest state already contains this stable slot key; no fields were changed."
           });
-      for (const record4 of merged.added) {
-        const item = discoveries.get(record4.key);
+      for (const record of merged.added) {
+        const item = discoveries.get(record.key);
         summary.recoveredKeys.push(item.key);
         if (item.kind === "pending")
           summary.recoveredPending += 1;
@@ -162979,35 +163013,35 @@ function activeSwipeId(message) {
   const max = Array.isArray(message.swipes) && message.swipes.length ? message.swipes.length - 1 : Number.MAX_SAFE_INTEGER;
   return Math.max(0, Math.min(max, Number.isFinite(Number(message.swipe_id)) ? Number(message.swipe_id) : 0));
 }
-async function generateRecoveredSlot(key2, nativeSnapshot, userId) {
-  const initial2 = await getRecordByKey(key2, userId);
-  await reconcileChatState(initial2.chatId, userId);
-  const { chatId, state, record: record4 } = await getRecordByKey(key2, userId);
-  if (record4.status !== "recovered-pending") {
-    if (record4.status === "completed" || record4.status === "placement-pending") {
+async function generateRecoveredSlot(key, nativeSnapshot, userId) {
+  const initial = await getRecordByKey(key, userId);
+  await reconcileChatState(initial.chatId, userId);
+  const { chatId, state, record } = await getRecordByKey(key, userId);
+  if (record.status !== "recovered-pending") {
+    if (record.status === "completed" || record.status === "placement-pending") {
       spindle.sendToFrontend({ type: "relay_notice", level: "info", message: "That recovered slot has already finished." }, userId);
       await sendState(userId, chatId);
       return;
     }
     throw new Error("Recovered slot is no longer pending generation.");
   }
-  if (!canReparseRecord(record4))
+  if (!canReparseRecord(record))
     throw new Error("Recovered request source is incomplete. Rebuild the request before generation.");
   const config = await getConfig(userId);
   const effectiveSnapshot = nativeSnapshot || nativeSnapshotFromConfig(config);
-  cancelledJobs.delete(jobCancellationKey(record4));
-  relayProcessingKeys.delete(record4.key);
-  if (isRecordJobActive(record4)) {
-    scheduleDeferredReparse(key2, effectiveSnapshot, userId);
+  cancelledJobs.delete(jobCancellationKey(record));
+  relayProcessingKeys.delete(record.key);
+  if (isRecordJobActive(record)) {
+    scheduleDeferredReparse(key, effectiveSnapshot, userId);
     spindle.sendToFrontend({ type: "relay_notice", level: "info", message: "Recovery is queued and will resume when the interrupted provider call releases this slot." }, userId);
     await sendState(userId, chatId);
     return;
   }
   if (config.slotGenerationMode === "prompt-preview") {
-    await previewReparse(key2, userId, effectiveSnapshot);
+    await previewReparse(key, userId, effectiveSnapshot);
     return;
   }
-  const candidates = Object.values(state.slots).filter((candidate) => candidate.chatId === chatId && candidate.status === "recovered-pending" && candidate.messageId === record4.messageId && candidate.swipeId === record4.swipeId && candidate.requestId === record4.requestId);
+  const candidates = Object.values(state.slots).filter((candidate) => candidate.chatId === chatId && candidate.status === "recovered-pending" && candidate.messageId === record.messageId && candidate.swipeId === record.swipeId && candidate.requestId === record.requestId);
   const job = groupFailedRetryJobs(candidates)[0];
   if (!job)
     throw new Error("Could not reconstruct the recovered request.");
@@ -163017,7 +163051,7 @@ async function generateRecoveredSlot(key2, nativeSnapshot, userId) {
 async function generateAllRecovered(chatId, nativeSnapshot, userId) {
   await reconcileChatState(chatId, userId);
   const state = await getState(chatId, userId);
-  const pending = Object.values(state.slots).filter((record4) => record4.chatId === chatId && record4.status === "recovered-pending" && canReparseRecord(record4) && !record4.orphaned);
+  const pending = Object.values(state.slots).filter((record) => record.chatId === chatId && record.status === "recovered-pending" && canReparseRecord(record) && !record.orphaned);
   if (!pending.length) {
     spindle.sendToFrontend({ type: "relay_notice", level: "info", message: "No recovered Relay slots are waiting for generation." }, userId);
     await sendState(userId, chatId);
@@ -163025,15 +163059,15 @@ async function generateAllRecovered(chatId, nativeSnapshot, userId) {
   }
   const config = await getConfig(userId);
   const effectiveSnapshot = nativeSnapshot || nativeSnapshotFromConfig(config);
-  for (const record4 of pending) {
-    cancelledJobs.delete(jobCancellationKey(record4));
-    relayProcessingKeys.delete(record4.key);
+  for (const record of pending) {
+    cancelledJobs.delete(jobCancellationKey(record));
+    relayProcessingKeys.delete(record.key);
   }
   if (config.slotGenerationMode === "prompt-preview") {
     let previewed = 0;
     spindle.sendToFrontend({ type: "status", status: `Preparing recovered prompts 0 / ${pending.length}\u2026` }, userId);
-    for (const record4 of pending) {
-      await previewReparse(record4.key, userId, effectiveSnapshot);
+    for (const record of pending) {
+      await previewReparse(record.key, userId, effectiveSnapshot);
       previewed += 1;
       spindle.sendToFrontend({ type: "status", status: `Preparing recovered prompts ${previewed} / ${pending.length}\u2026` }, userId);
     }
@@ -163056,24 +163090,24 @@ async function rebuildRequest(payload, userId) {
   const sceneBrief = payload.sceneBrief.trim();
   if (!sceneBrief)
     throw new Error("Scene brief cannot be empty.");
-  const { chatId, record: record4 } = await getRecordByKey(payload.key, userId);
-  if (isProcessing(record4))
+  const { chatId, record } = await getRecordByKey(payload.key, userId);
+  if (isProcessing(record))
     throw new Error("This slot is already processing.");
   const reconstructedAt = Date.now();
-  record4.imageIntent = normalizeImageIntent(payload.imageIntent ?? record4.imageIntent);
-  const requestXml = renderReconstructedRequest(record4, sceneBrief, payload.negativePrompt.trim(), payload.aspect?.trim());
-  const message = await resolveMessage(record4.chatId, record4.messageId);
+  record.imageIntent = normalizeImageIntent(payload.imageIntent ?? record.imageIntent);
+  const requestXml = renderReconstructedRequest(record, sceneBrief, payload.negativePrompt.trim(), payload.aspect?.trim());
+  const message = await resolveMessage(record.chatId, record.messageId);
   if (!message)
     throw new ReplacementPreflightError("The original message no longer exists, so Reverie Relay cannot rebuild its raw slot anchor.");
-  const content = getSwipeContent(message, record4.swipeId);
-  const anchor = rebuildRawSlotAnchor(content, record4, requestXml);
+  const content = getSwipeContent(message, record.swipeId);
+  const anchor = rebuildRawSlotAnchor(content, record, requestXml);
   if (!anchor)
     throw new ReplacementPreflightError("No unique raw request, Relay marker, error marker, or target image anchor was found. The message was left unchanged.");
   if (anchor.content !== content)
-    await patchSwipeContent(chatId, message, record4.swipeId, anchor.content);
-  const verifiedMessage = await resolveMessage(record4.chatId, record4.messageId);
-  const verifiedContent = verifiedMessage ? getSwipeContent(verifiedMessage, record4.swipeId) : "";
-  const exactMarkers = slotCommentVariants(record4, record4.slot);
+    await patchSwipeContent(chatId, message, record.swipeId, anchor.content);
+  const verifiedMessage = await resolveMessage(record.chatId, record.messageId);
+  const verifiedContent = verifiedMessage ? getSwipeContent(verifiedMessage, record.swipeId) : "";
+  const exactMarkers = slotCommentVariants(record, record.slot);
   if (!verifiedContent.includes(requestXml) && !exactMarkers.some((marker) => verifiedContent.includes(marker))) {
     throw new ReplacementPreflightError("The rebuilt raw slot anchor could not be verified after saving. Relay state was not changed.");
   }
@@ -163131,15 +163165,15 @@ async function rebuildRequest(payload, userId) {
     highResMode: payload.highResMode
   }, userId);
 }
-function renderReconstructedRequest(record4, sceneBrief, negativePrompt, aspect) {
+function renderReconstructedRequest(record, sceneBrief, negativePrompt, aspect) {
   const attrs = [
-    `id="${escapeXml(record4.requestId)}"`,
-    `target="${escapeXml(record4.target)}"`,
-    `slot="${escapeXml(record4.slot)}"`,
-    `count="${Math.max(1, record4.count || 1)}"`,
+    `id="${escapeXml(record.requestId)}"`,
+    `target="${escapeXml(record.target)}"`,
+    `slot="${escapeXml(record.slot)}"`,
+    `count="${Math.max(1, record.count || 1)}"`,
     aspect ? `aspect="${escapeXml(aspect)}"` : "",
-    normalizeImageIntent(record4.imageIntent) !== "auto" ? `intent="${escapeXml(normalizeImageIntent(record4.imageIntent))}"` : "",
-    record4.alt ? `alt="${escapeXml(record4.alt)}"` : ""
+    normalizeImageIntent(record.imageIntent) !== "auto" ? `intent="${escapeXml(normalizeImageIntent(record.imageIntent))}"` : "",
+    record.alt ? `alt="${escapeXml(record.alt)}"` : ""
   ].filter(Boolean).join(" ");
   const negative = negativePrompt ? `
   <negative>${escapeXml(negativePrompt)}</negative>` : "";
@@ -163167,73 +163201,73 @@ async function reconcileChatState(chatId, userId, onlyMessageId, suppliedMessage
       retainedForManualReview: 0,
       reconciledAt: Date.now()
     };
-    for (const [key2, record4] of Object.entries({ ...state.slots })) {
-      if (onlyMessageId && record4.messageId !== onlyMessageId)
+    for (const [key, record] of Object.entries({ ...state.slots })) {
+      if (onlyMessageId && record.messageId !== onlyMessageId)
         continue;
       summary.checked += 1;
-      if (!record4.requestId || !record4.slot || !record4.originalRequestXml && record4.recoverySource === "unresolved-request")
+      if (!record.requestId || !record.slot || !record.originalRequestXml && record.recoverySource === "unresolved-request")
         summary.malformed += 1;
-      const message = byId.get(record4.messageId);
+      const message = byId.get(record.messageId);
       if (!message) {
-        removeSlotRecords(state, [record4]);
+        removeSlotRecords(state, [record]);
         changed = true;
         summary.deletedMessageRemoved += 1;
         summary.orphanedRemoved += 1;
         continue;
       }
-      const currentSwipeContent = getAuthoritativeSwipeContent(message, record4.swipeId);
-      if (record4.pendingPlacement && ["placement-pending", "placement-repair-needed"].includes(record4.status)) {
-        const pending = record4.pendingPlacement;
-        const job = jobFromRecord(record4);
+      const currentSwipeContent = getAuthoritativeSwipeContent(message, record.swipeId);
+      if (record.pendingPlacement && ["placement-pending", "placement-repair-needed"].includes(record.status)) {
+        const pending = record.pendingPlacement;
+        const job = jobFromRecord(record);
         if (placementIsPresent(currentSwipeContent, job, [pending])) {
-          applyGeneration(state, record4, pending, Date.now());
-          record4.placementFailure = undefined;
-          record4.error = undefined;
-          record4.errorToastKey = undefined;
+          applyGeneration(state, record, pending, Date.now());
+          record.placementFailure = undefined;
+          record.error = undefined;
+          record.errorToastKey = undefined;
           changed = true;
           summary.valid += 1;
           continue;
         }
       }
-      if (record4.status === "completed" && (record4.placementFailure || record4.error)) {
-        const result = record4.imageUrl ? { slot: record4.slot, imageId: record4.imageId || "", imageUrl: record4.imageUrl } : null;
-        if (result && placementIsPresent(currentSwipeContent, jobFromRecord(record4), [result])) {
-          record4.placementFailure = undefined;
-          record4.error = undefined;
-          record4.errorToastKey = undefined;
-          record4.updatedAt = Date.now();
+      if (record.status === "completed" && (record.placementFailure || record.error)) {
+        const result = record.imageUrl ? { slot: record.slot, imageId: record.imageId || "", imageUrl: record.imageUrl } : null;
+        if (result && placementIsPresent(currentSwipeContent, jobFromRecord(record), [result])) {
+          record.placementFailure = undefined;
+          record.error = undefined;
+          record.errorToastKey = undefined;
+          record.updatedAt = Date.now();
           changed = true;
         }
       }
-      if (isProcessing(record4)) {
+      if (isProcessing(record)) {
         summary.valid += 1;
         continue;
       }
       const swipes = Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.content];
-      const recordedContent = swipes[record4.swipeId];
-      const matchingSwipe = recordedContent && hasRouterMarker(recordedContent, record4) ? record4.swipeId : swipes.findIndex((content) => Boolean(content) && (slotCommentVariants(record4, record4.slot).some((marker) => content.includes(marker)) || errorCommentVariants(record4, record4.slot).some((marker) => content.includes(marker))));
+      const recordedContent = swipes[record.swipeId];
+      const matchingSwipe = recordedContent && hasRouterMarker(recordedContent, record) ? record.swipeId : swipes.findIndex((content) => Boolean(content) && (slotCommentVariants(record, record.slot).some((marker) => content.includes(marker)) || errorCommentVariants(record, record.slot).some((marker) => content.includes(marker))));
       if (matchingSwipe >= 0) {
-        if (record4.swipeId !== matchingSwipe) {
-          delete state.slots[key2];
-          record4.swipeId = matchingSwipe;
-          record4.key = slotKey(record4);
-          state.slots[record4.key] = record4;
+        if (record.swipeId !== matchingSwipe) {
+          delete state.slots[key];
+          record.swipeId = matchingSwipe;
+          record.key = slotKey(record);
+          state.slots[record.key] = record;
           changed = true;
         }
-        if (record4.imageAvailability !== "missing") {
-          if (record4.orphaned || record4.orphanReason)
+        if (record.imageAvailability !== "missing") {
+          if (record.orphaned || record.orphanReason)
             changed = true;
-          record4.orphaned = false;
-          record4.orphanReason = undefined;
+          record.orphaned = false;
+          record.orphanReason = undefined;
         }
         summary.valid += 1;
         continue;
       }
       const orphanReason = "Relay request or result marker is no longer present in the stored swipe content.";
-      if (!record4.orphaned || record4.orphanReason !== orphanReason) {
-        record4.orphaned = true;
-        record4.orphanReason = orphanReason;
-        record4.updatedAt = Date.now();
+      if (!record.orphaned || record.orphanReason !== orphanReason) {
+        record.orphaned = true;
+        record.orphanReason = orphanReason;
+        record.updatedAt = Date.now();
         changed = true;
       }
       summary.orphanedFound += 1;
@@ -163260,7 +163294,7 @@ async function reconcileChatState(chatId, userId, onlyMessageId, suppliedMessage
       const swipes = sourceMessage ? Array.isArray(sourceMessage.swipes) && sourceMessage.swipes.length ? sourceMessage.swipes : [sourceMessage.content] : [];
       if (sourceMessage && typeof swipes[plan.swipeId] === "string")
         continue;
-      const hasCompletedRecord = Object.values(state.proseIllustrator.records).some((record4) => record4.planId === id && ["completed", "ready-to-place"].includes(record4.status));
+      const hasCompletedRecord = Object.values(state.proseIllustrator.records).some((record) => record.planId === id && ["completed", "ready-to-place"].includes(record.status));
       if (hasCompletedRecord)
         continue;
       delete state.proseIllustrator.plans[id];
@@ -163297,18 +163331,18 @@ async function reconcileChatState(chatId, userId, onlyMessageId, suppliedMessage
     return summary;
   });
 }
-function hasRouterMarker(content, record4) {
-  if (slotCommentVariants(record4, record4.slot).some((marker) => content.includes(marker)) || errorCommentVariants(record4, record4.slot).some((marker) => content.includes(marker)))
+function hasRouterMarker(content, record) {
+  if (slotCommentVariants(record, record.slot).some((marker) => content.includes(marker)) || errorCommentVariants(record, record.slot).some((marker) => content.includes(marker)))
     return true;
-  return Boolean(record4.originalRequestXml && content.includes(record4.originalRequestXml));
+  return Boolean(record.originalRequestXml && content.includes(record.originalRequestXml));
 }
 function removeSlotRecords(state, records) {
-  for (const record4 of records) {
-    delete state.slots[record4.key];
-    if (isRecordJobActive(record4)) {
-      cancelledJobs.add(jobCancellationKey(record4));
+  for (const record of records) {
+    delete state.slots[record.key];
+    if (isRecordJobActive(record)) {
+      cancelledJobs.add(jobCancellationKey(record));
       const now = Date.now();
-      for (const sibling of Object.values(state.slots).filter((candidate) => jobCancellationKey(candidate) === jobCancellationKey(record4) && isProcessing(candidate))) {
+      for (const sibling of Object.values(state.slots).filter((candidate) => jobCancellationKey(candidate) === jobCancellationKey(record) && isProcessing(candidate))) {
         sibling.status = "cancelled";
         sibling.cancelledAt = now;
         sibling.updatedAt = now;
@@ -163317,9 +163351,9 @@ function removeSlotRecords(state, records) {
     }
   }
 }
-function isRecordJobActive(record4) {
-  const prefix = `${record4.chatId}:${record4.messageId}:${record4.swipeId}:${record4.requestId}:`;
-  return [...slotLocks].some((lock) => lock.startsWith(prefix)) || [...messageLocks].some((lock) => lock.startsWith(`${record4.chatId}:${record4.messageId}:`));
+function isRecordJobActive(record) {
+  const prefix = `${record.chatId}:${record.messageId}:${record.swipeId}:${record.requestId}:`;
+  return [...slotLocks].some((lock) => lock.startsWith(prefix)) || [...messageLocks].some((lock) => lock.startsWith(`${record.chatId}:${record.messageId}:`));
 }
 function jobCancellationKey(job) {
   return `${job.chatId}:${job.messageId}:${job.swipeId}:${job.requestId}`;
@@ -163333,58 +163367,58 @@ async function cleanupState(payload, userId) {
   if (payload.scope === "slot")
     beforeSelected = payload.key && before.slots[payload.key] ? [before.slots[payload.key]] : [];
   if (payload.scope === "message")
-    beforeSelected = beforeSelected.filter((record4) => record4.messageId === payload.messageId);
-  for (const record4 of beforeSelected.filter(isRecordJobActive))
-    cancelledJobs.add(jobCancellationKey(record4));
+    beforeSelected = beforeSelected.filter((record) => record.messageId === payload.messageId);
+  for (const record of beforeSelected.filter(isRecordJobActive))
+    cancelledJobs.add(jobCancellationKey(record));
   let clearedFingerprints = {};
   if (payload.action === "clear_all" && payload.scope === "chat") {
     const messages = await spindle.chat.getMessages(payload.chatId);
-    for (const message of messages.filter((message2) => isAssistantMessage(message2) && !isOwnMessage(message2))) {
+    for (const message of messages.filter((message) => isAssistantMessage(message) && !isOwnMessage(message))) {
       for (const row of selectRescanSwipeRows(message, true))
         clearedFingerprints[`${message.id}:${row.swipeId}`] = contentFingerprint(row.content);
     }
-    for (const key2 of [...pendingGenerationContent.keys()])
-      if (key2.startsWith(`${payload.chatId}:`))
-        pendingGenerationContent.delete(key2);
-    for (const [key2, scheduled] of [...scheduledAssistantScans.entries()]) {
-      if (!key2.startsWith(`${payload.chatId}:`))
+    for (const key of [...pendingGenerationContent.keys()])
+      if (key.startsWith(`${payload.chatId}:`))
+        pendingGenerationContent.delete(key);
+    for (const [key, scheduled] of [...scheduledAssistantScans.entries()]) {
+      if (!key.startsWith(`${payload.chatId}:`))
         continue;
       if (scheduled.timer)
         clearTimeout(scheduled.timer);
-      scheduledAssistantScans.delete(key2);
+      scheduledAssistantScans.delete(key);
     }
-    for (const key2 of [...deferredScans.keys()])
-      if (key2.startsWith(`${payload.chatId}:`))
-        deferredScans.delete(key2);
+    for (const key of [...deferredScans.keys()])
+      if (key.startsWith(`${payload.chatId}:`))
+        deferredScans.delete(key);
   }
   await mutateState(payload.chatId, userId, (state) => {
     let selected = Object.values(state.slots);
     if (payload.scope === "slot")
       selected = payload.key && state.slots[payload.key] ? [state.slots[payload.key]] : [];
     if (payload.scope === "message")
-      selected = selected.filter((record4) => record4.messageId === payload.messageId);
+      selected = selected.filter((record) => record.messageId === payload.messageId);
     if (payload.action === "clear_error") {
-      for (const record4 of selected) {
-        record4.error = undefined;
-        record4.errorToastKey = undefined;
-        if (record4.status === "failed")
-          record4.status = record4.imageUrl ? "completed" : "cancelled";
-        record4.updatedAt = Date.now();
-        appendStateLog(state, { severity: "info", stage: "manual-cleanup", eventType: "error_cleared", chatId: payload.chatId, messageId: record4.messageId, swipeId: record4.swipeId, requestId: record4.requestId, slot: record4.slot, target: record4.target, message: "Cleared slot error state." });
+      for (const record of selected) {
+        record.error = undefined;
+        record.errorToastKey = undefined;
+        if (record.status === "failed")
+          record.status = record.imageUrl ? "completed" : "cancelled";
+        record.updatedAt = Date.now();
+        appendStateLog(state, { severity: "info", stage: "manual-cleanup", eventType: "error_cleared", chatId: payload.chatId, messageId: record.messageId, swipeId: record.swipeId, requestId: record.requestId, slot: record.slot, target: record.target, message: "Cleared slot error state." });
       }
     } else if (payload.action === "clear_failed")
-      removeSlotRecords(state, selected.filter((record4) => record4.status === "failed"));
+      removeSlotRecords(state, selected.filter((record) => record.status === "failed"));
     else if (payload.action === "clear_completed") {
-      removeSlotRecords(state, selected.filter((record4) => record4.status === "completed"));
-      for (const [key2, archived] of Object.entries(state.completedArchive)) {
-        if (payload.scope === "chat" || payload.scope === "slot" && key2 === payload.key || payload.scope === "message" && archived.messageId === payload.messageId)
-          delete state.completedArchive[key2];
+      removeSlotRecords(state, selected.filter((record) => record.status === "completed"));
+      for (const [key, archived] of Object.entries(state.completedArchive)) {
+        if (payload.scope === "chat" || payload.scope === "slot" && key === payload.key || payload.scope === "message" && archived.messageId === payload.messageId)
+          delete state.completedArchive[key];
       }
       state.recentCompleted = Object.values(state.completedArchive).sort((a, b) => b.completedAt - a.completedAt).slice(0, RECENT_COMPLETED_HOT_LIMIT);
     } else if (payload.action === "clear_cancelled")
-      removeSlotRecords(state, selected.filter((record4) => record4.status === "cancelled"));
+      removeSlotRecords(state, selected.filter((record) => record.status === "cancelled"));
     else if (payload.action === "clear_orphaned")
-      removeSlotRecords(state, selected.filter((record4) => record4.orphaned));
+      removeSlotRecords(state, selected.filter((record) => record.orphaned));
     else if (payload.action === "clear_all") {
       if (payload.scope === "chat") {
         state.slots = {};
@@ -163407,50 +163441,50 @@ async function cleanupState(payload, userId) {
   });
   await sendState(userId, payload.chatId);
 }
-async function previewReparse(key2, userId, nativeSnapshot) {
-  const { chatId, record: record4 } = await getRecordByKey(key2, userId);
-  if (!canReparseRecord(record4))
+async function previewReparse(key, userId, nativeSnapshot) {
+  const { chatId, record } = await getRecordByKey(key, userId);
+  if (!canReparseRecord(record))
     throw new Error("Original request metadata was not available when this slot was recovered. Rebuild the request first.");
-  if ((record4.status === "parsing" || record4.status === "provider-waiting" || record4.status === "generating") && relayProcessingKeys.has(record4.key))
+  if ((record.status === "parsing" || record.status === "provider-waiting" || record.status === "generating") && relayProcessingKeys.has(record.key))
     throw new Error("This slot is already processing.");
   const config = await getConfig(userId);
-  const job = jobFromRecord(record4);
+  const job = jobFromRecord(record);
   await assertPersonaPovDispatchAllowed(job, userId);
   const messages = await spindle.chat.getMessages(chatId);
-  const targetIndex = Math.max(0, messages.findIndex((message) => message.id === record4.messageId));
+  const targetIndex = Math.max(0, messages.findIndex((message) => message.id === record.messageId));
   const effectiveSnapshot = nativeSnapshot || nativeSnapshotFromConfig(config);
-  const prepared = await parseSlotPrompt(job, record4.slot, messages, targetIndex, config, userId, effectiveSnapshot?.settings, config.highResMode, true);
+  const prepared = await parseSlotPrompt(job, record.slot, messages, targetIndex, config, userId, effectiveSnapshot?.settings, config.highResMode, true);
   await mutateState(chatId, userId, (state) => {
-    if (!state.slots[key2])
+    if (!state.slots[key])
       return;
     appendStateLog(state, {
       severity: "info",
       stage: "reparse-preview",
       eventType: "reparse_preview",
       chatId,
-      messageId: record4.messageId,
-      swipeId: record4.swipeId,
-      requestId: record4.requestId,
-      slot: record4.slot,
-      target: record4.target,
+      messageId: record.messageId,
+      swipeId: record.swipeId,
+      requestId: record.requestId,
+      slot: record.slot,
+      target: record.target,
       message: "Reparse preview completed without image generation."
     });
   });
-  spindle.sendToFrontend({ type: "reparse_preview", key: key2, prompt: prepared.prompt, negativePrompt: prepared.negativePrompt, pipeline: prepared.promptPipeline }, userId);
+  spindle.sendToFrontend({ type: "reparse_preview", key, prompt: prepared.prompt, negativePrompt: prepared.negativePrompt, pipeline: prepared.promptPipeline }, userId);
   await sendState(userId, chatId);
 }
-async function logPreviewAction(key2, action, userId) {
-  const { chatId, record: record4 } = await getRecordByKey(key2, userId);
+async function logPreviewAction(key, action, userId) {
+  const { chatId, record } = await getRecordByKey(key, userId);
   await mutateState(chatId, userId, (state) => appendStateLog(state, {
     severity: "info",
     stage: "reparse-preview",
     eventType: `reparse_preview_${action}`,
     chatId,
-    messageId: record4.messageId,
-    swipeId: record4.swipeId,
-    requestId: record4.requestId,
-    slot: record4.slot,
-    target: record4.target,
+    messageId: record.messageId,
+    swipeId: record.swipeId,
+    requestId: record.requestId,
+    slot: record.slot,
+    target: record.target,
     message: `Reparse preview ${action}.`
   }));
 }
@@ -163502,36 +163536,36 @@ async function runInstallationSelfTest(chatId, frontendBuildId, frontendLoadedAt
   if (chatId)
     await sendState(userId, chatId);
 }
-async function editPrompt(key2, prompt, negativePrompt, imageIntent, nativeSnapshot, userId) {
-  const { chatId, record: record4 } = await getRecordByKey(key2, userId);
-  if (record4.target === "instagram.carousel" && !record4.imageUrl && record4.recoveryCompleteness !== "marker-only") {
+async function editPrompt(key, prompt, negativePrompt, imageIntent, nativeSnapshot, userId) {
+  const { chatId, record } = await getRecordByKey(key, userId);
+  if (record.target === "instagram.carousel" && !record.imageUrl && record.recoveryCompleteness !== "marker-only") {
     throw new Error("Edit Prompt is unavailable until this failed carousel resolves. Use Reparse Carousel to preserve its original slide structure.");
   }
   const config = await getConfig(userId);
-  const normalized2 = normalizeNegativePrompts({
+  const normalized = normalizeNegativePrompts({
     native: config.nativeNegativePrompt,
-    request: record4.originalNegativePrompt,
-    subject: record4.promptPipeline?.subjectNegativePrompt || "",
+    request: record.originalNegativePrompt,
+    subject: record.promptPipeline?.subjectNegativePrompt || "",
     parser: "",
     router: ""
   });
-  const normalizedIntent = normalizeImageIntent(imageIntent ?? record4.imageIntent);
-  const specialEdited = applySpecialImageIntent(prompt.trim(), normalizedIntent, `${record4.originalSceneBrief} ${record4.caption || ""} ${record4.alt || ""}`);
+  const normalizedIntent = normalizeImageIntent(imageIntent ?? record.imageIntent);
+  const specialEdited = applySpecialImageIntent(prompt.trim(), normalizedIntent, `${record.originalSceneBrief} ${record.caption || ""} ${record.alt || ""}`);
   const prepared = {
     prompt: specialEdited.prompt,
     negativePrompt: negativePrompt.trim(),
     promptMode: "edited",
-    promptPresetId: record4.promptPresetId ?? config.nativePromptPresetId,
+    promptPresetId: record.promptPresetId ?? config.nativePromptPresetId,
     parserUsed: false,
     parserOutput: "",
-    parserConnectionId: record4.parserConnectionId ?? config.parserConnectionId,
-    parserModel: record4.parserModel ?? effectiveParserModel(config),
-    parserParameters: record4.parserParameters ?? config.parserParameters,
+    parserConnectionId: record.parserConnectionId ?? config.parserConnectionId,
+    parserModel: record.parserModel ?? effectiveParserModel(config),
+    parserParameters: record.parserParameters ?? config.parserParameters,
     promptPipeline: {
-      ...normalized2.pipeline,
+      ...normalized.pipeline,
       finalNormalizedNegativePrompt: negativePrompt.trim(),
       rawMergedNegativePrompt: negativePrompt.trim(),
-      warnings: [...normalized2.pipeline.warnings, ...promptWarnings(specialEdited.prompt, negativePrompt.trim(), normalized2.pipeline)],
+      warnings: [...normalized.pipeline.warnings, ...promptWarnings(specialEdited.prompt, negativePrompt.trim(), normalized.pipeline)],
       imageIntent: normalizedIntent,
       specialIntentApplied: specialEdited.applied,
       specialIntentSuppressedFragments: specialEdited.suppressed
@@ -163539,10 +163573,10 @@ async function editPrompt(key2, prompt, negativePrompt, imageIntent, nativeSnaps
   };
   if (!prepared.prompt)
     throw new Error("Prompt cannot be empty.");
-  if (isProcessing(record4))
+  if (isProcessing(record))
     throw new Error("This slot is already processing.");
-  record4.imageIntent = normalizedIntent;
-  const job = jobFromRecord(record4);
+  record.imageIntent = normalizedIntent;
+  const job = jobFromRecord(record);
   await assertPersonaPovDispatchAllowed(job, userId);
   const lockKey = `${job.chatId}:${job.messageId}:${job.swipeId}:${job.requestId}:${job.slots.join(",")}`;
   if (slotLocks.has(lockKey))
@@ -163553,7 +163587,7 @@ async function editPrompt(key2, prompt, negativePrompt, imageIntent, nativeSnaps
     await preflightJobReplacement(job);
     const attemptNumber = await mutateJobState(job, userId, (state) => {
       markJobStatus(state, job, "parsing", "edited-prompt");
-      const stored = state.slots[key2];
+      const stored = state.slots[key];
       stored.resolvedPositivePrompt = prepared.prompt;
       stored.resolvedNegativePrompt = prepared.negativePrompt;
       stored.promptMode = prepared.promptMode;
@@ -163567,31 +163601,31 @@ async function editPrompt(key2, prompt, negativePrompt, imageIntent, nativeSnaps
     await sendState(userId, chatId);
     if (isJobCancelled(job))
       throw new JobCancelledError;
-    const current = (await getState(chatId, userId)).slots[key2];
+    const current = (await getState(chatId, userId)).slots[key];
     if (!current)
       throw new JobCancelledError;
     const imagePlan = await prepareImagePlan(config, job, current, nativeSnapshot, userId, current.highResMode ?? config.highResMode);
     enrichPromptPipelineWithImagePlan(prepared.promptPipeline, imagePlan, prepared.prompt, prepared.negativePrompt);
-    await mutateJobState(job, userId, (state) => stampImagePlan(state.slots[key2], imagePlan));
+    await mutateJobState(job, userId, (state) => stampImagePlan(state.slots[key], imagePlan));
     if (isJobCancelled(job))
       throw new JobCancelledError;
     validateImagePlan(imagePlan);
-    await mutateJobState(job, userId, (state) => markSlotStatus(state.slots[key2], "provider-waiting"));
+    await mutateJobState(job, userId, (state) => markSlotStatus(state.slots[key], "provider-waiting"));
     await sendState(userId, chatId);
     failureStage = "image-generation-failed";
     if (isJobCancelled(job))
       throw new JobCancelledError;
     const generated = await generateImage(chatId, prepared, imagePlan, userId, {
       chatId,
-      messageId: record4.messageId,
-      generationId: `${key2}:${attemptNumber}`,
+      messageId: record.messageId,
+      generationId: `${key}:${attemptNumber}`,
       source: job.target === "prose.illustration" ? "relay-illustrator" : "relay-slot",
-      slotKey: key2,
+      slotKey: key,
       requestId: job.requestId,
       addToGallery: config.galleryAutoLink,
       onProviderStarted: async () => {
         await mutateJobState(job, userId, (state) => {
-          const stored = state.slots[key2];
+          const stored = state.slots[key];
           if (stored?.status === "provider-waiting")
             markSlotStatus(stored, "generating");
         });
@@ -163601,7 +163635,7 @@ async function editPrompt(key2, prompt, negativePrompt, imageIntent, nativeSnaps
     if (isJobCancelled(job))
       throw new JobCancelledError;
     await applyJobSuccess(job, [{
-      slot: record4.slot,
+      slot: record.slot,
       imageId: generated.imageId,
       imageUrl: generated.imageUrl,
       imageWidth: generated.imageWidth,
@@ -163645,14 +163679,14 @@ async function editPrompt(key2, prompt, negativePrompt, imageIntent, nativeSnaps
       galleryLinkedAt: generated.galleryLinkStatus === "linked" ? Date.now() : undefined,
       promptProfile: prepared.promptPipeline.promptProfile,
       regenerationIntent: job.regenerationIntent,
-      diagnostic: createSlotDiagnostic(job, record4.slot, prepared, generated, prepared.promptPipeline.promptProfile, job.regenerationIntent),
+      diagnostic: createSlotDiagnostic(job, record.slot, prepared, generated, prepared.promptPipeline.promptProfile, job.regenerationIntent),
       includedContinuityFacts: prepared.promptPipeline.includedContinuityFacts,
       excludedContinuityFacts: prepared.promptPipeline.excludedContinuityFacts,
       continuityStrength: prepared.promptPipeline.continuityStrength,
       attemptNumber,
       triggerType: "edited-prompt",
       generatedAt: Date.now()
-    }], record4.status === "completed", userId);
+    }], record.status === "completed", userId);
   } catch (error) {
     if (error instanceof JobCancelledError || isJobCancelled(job))
       return;
@@ -163714,7 +163748,7 @@ function visualSettlementsForResults(job, results, required) {
   }));
 }
 async function stageInitialPlacementBatchEntry(batch, job, results, replaceExisting, requireVisualSettlement, userId) {
-  const existing = batch.entries.findIndex((entry2) => entry2.job.requestId === job.requestId);
+  const existing = batch.entries.findIndex((entry) => entry.job.requestId === job.requestId);
   const previousEntry = existing >= 0 ? batch.entries[existing] : undefined;
   const entry = { job, results, replaceExisting, visualSettlements: visualSettlementsForResults(job, results, requireVisualSettlement && hasConnectedFrontendForChat(job.chatId, userId)) };
   if (existing >= 0)
@@ -163825,23 +163859,23 @@ async function markInitialPlacementBatchForRepair(batch, reason, currentContent,
     const now = Date.now();
     for (const { job, results } of entries)
       for (const result of results) {
-        const record4 = state.slots[slotKey({ ...job, slot: result.slot })];
-        if (!record4 || !placementFailureCanReplaceRecord(record4, result) || placementIsPresent(currentContent, job, [result]))
+        const record = state.slots[slotKey({ ...job, slot: result.slot })];
+        if (!record || !placementFailureCanReplaceRecord(record, result) || placementIsPresent(currentContent, job, [result]))
           continue;
-        record4.status = "placement-repair-needed";
-        record4.pendingPlacement = result;
-        record4.previewPending = false;
-        record4.placementFailure = {
+        record.status = "placement-repair-needed";
+        record.pendingPlacement = result;
+        record.previewPending = false;
+        record.placementFailure = {
           failedAt: now,
           reason,
           anchorsChecked: ["message/swipe generation-start fingerprint", "exact original request or Relay error marker", "atomic final placement verification"],
           contentFingerprint: contentFingerprint(currentContent),
-          retryCount: (record4.placementFailure?.retryCount || 0) + 1
+          retryCount: (record.placementFailure?.retryCount || 0) + 1
         };
-        record4.error = undefined;
-        record4.errorToastKey = undefined;
-        record4.updatedAt = now;
-        finishAttempt(record4, "placement-repair-needed", now, reason);
+        record.error = undefined;
+        record.errorToastKey = undefined;
+        record.updatedAt = now;
+        finishAttempt(record, "placement-repair-needed", now, reason);
         appendStateLog(state, {
           severity: "warning",
           stage: "placement-repair-needed",
@@ -163866,11 +163900,11 @@ async function commitInitialPlacementBatch(batch, userId) {
   await mutateState(batch.chatId, userId, (state) => {
     for (const { job, results } of batch.entries)
       for (const result of results) {
-        const record4 = state.slots[slotKey({ ...job, slot: result.slot })];
-        if (!record4 || !placementFailureCanReplaceRecord(record4, result))
+        const record = state.slots[slotKey({ ...job, slot: result.slot })];
+        if (!record || !placementFailureCanReplaceRecord(record, result))
           continue;
-        record4.placementStartedAt = placementStartedAt;
-        const attempt = currentAttempt(record4);
+        record.placementStartedAt = placementStartedAt;
+        const attempt = currentAttempt(record);
         if (attempt)
           attempt.placementStartedAt = placementStartedAt;
       }
@@ -163880,11 +163914,11 @@ async function commitInitialPlacementBatch(batch, userId) {
   await mutateState(batch.chatId, userId, (state) => {
     for (const { job, results } of batch.entries)
       for (const result of results) {
-        const record4 = state.slots[slotKey({ ...job, slot: result.slot })];
-        if (!record4 || !placementFailureCanReplaceRecord(record4, result))
+        const record = state.slots[slotKey({ ...job, slot: result.slot })];
+        if (!record || !placementFailureCanReplaceRecord(record, result))
           continue;
-        record4.messageRereadAt = messageRereadAt;
-        const attempt = currentAttempt(record4);
+        record.messageRereadAt = messageRereadAt;
+        const attempt = currentAttempt(record);
         if (attempt)
           attempt.messageRereadAt = messageRereadAt;
       }
@@ -163898,11 +163932,11 @@ async function commitInitialPlacementBatch(batch, userId) {
   await mutateState(batch.chatId, userId, (state) => {
     for (const { job, results } of batch.entries)
       for (const result of results) {
-        const record4 = state.slots[slotKey({ ...job, slot: result.slot })];
-        if (!record4 || !placementFailureCanReplaceRecord(record4, result))
+        const record = state.slots[slotKey({ ...job, slot: result.slot })];
+        if (!record || !placementFailureCanReplaceRecord(record, result))
           continue;
-        record4.markerReplacementStartedAt = markerReplacementStartedAt;
-        const attempt = currentAttempt(record4);
+        record.markerReplacementStartedAt = markerReplacementStartedAt;
+        const attempt = currentAttempt(record);
         if (attempt)
           attempt.markerReplacementStartedAt = markerReplacementStartedAt;
       }
@@ -163915,11 +163949,11 @@ async function commitInitialPlacementBatch(batch, userId) {
     await mutateState(batch.chatId, userId, (state) => {
       for (const { job, results } of batch.entries)
         for (const result of results) {
-          const record4 = state.slots[slotKey({ ...job, slot: result.slot })];
-          if (!record4 || !placementFailureCanReplaceRecord(record4, result))
+          const record = state.slots[slotKey({ ...job, slot: result.slot })];
+          if (!record || !placementFailureCanReplaceRecord(record, result))
             continue;
-          record4.markerReplacementCommittedAt = markerReplacementCommittedAt;
-          const attempt = currentAttempt(record4);
+          record.markerReplacementCommittedAt = markerReplacementCommittedAt;
+          const attempt = currentAttempt(record);
           if (attempt)
             attempt.markerReplacementCommittedAt = markerReplacementCommittedAt;
         }
@@ -163932,10 +163966,10 @@ async function commitInitialPlacementBatch(batch, userId) {
       const now = Date.now();
       for (const { job, results } of verifiedEntries)
         for (const result of results) {
-          const record4 = state.slots[slotKey({ ...job, slot: result.slot })];
-          if (!record4)
+          const record = state.slots[slotKey({ ...job, slot: result.slot })];
+          if (!record)
             continue;
-          applyGeneration(state, record4, result, now);
+          applyGeneration(state, record, result, now);
           appendStateLog(state, {
             severity: "info",
             stage: "image-generation-completed",
@@ -163946,13 +163980,13 @@ async function commitInitialPlacementBatch(batch, userId) {
             requestId: job.requestId,
             slot: result.slot,
             target: job.target,
-            attemptNumber: record4.attemptNumber,
+            attemptNumber: record.attemptNumber,
             triggerType: result.triggerType,
             provider: result.imageProvider,
             connectionId: result.imageConnectionId,
             connectionName: result.imageConnectionName,
             model: result.imageModel,
-            durationMs: currentAttempt(record4)?.durationMs,
+            durationMs: currentAttempt(record)?.durationMs,
             message: "Image generation completed and its message-scoped placement was verified."
           });
         }
@@ -163984,19 +164018,19 @@ function clearInitialPlacementVisualFallback(batch) {
 }
 async function maybeCommitInitialPlacementBatch(job, userId, allowSafetyFallback = false) {
   return withPlacementMutationLock(job, async () => {
-    const key2 = placementBatchKey(job, userId);
-    const batch = pendingPlacementBatches.get(key2);
+    const key = placementBatchKey(job, userId);
+    const batch = pendingPlacementBatches.get(key);
     if (!batch)
       return false;
     const placementLockAcquiredAt = Date.now();
     await mutateState(batch.chatId, userId, (state) => {
       for (const { job: entryJob, results } of batch.entries)
         for (const result of results) {
-          const record4 = state.slots[slotKey({ ...entryJob, slot: result.slot })];
-          if (!record4 || !placementFailureCanReplaceRecord(record4, result))
+          const record = state.slots[slotKey({ ...entryJob, slot: result.slot })];
+          if (!record || !placementFailureCanReplaceRecord(record, result))
             continue;
-          record4.placementLockAcquiredAt = placementLockAcquiredAt;
-          const attempt = currentAttempt(record4);
+          record.placementLockAcquiredAt = placementLockAcquiredAt;
+          const attempt = currentAttempt(record);
           if (attempt)
             attempt.placementLockAcquiredAt = placementLockAcquiredAt;
         }
@@ -164012,7 +164046,7 @@ async function maybeCommitInitialPlacementBatch(job, userId, allowSafetyFallback
     if (gate === "visual-pending")
       return false;
     clearInitialPlacementVisualFallback(batch);
-    pendingPlacementBatches.delete(key2);
+    pendingPlacementBatches.delete(key);
     await commitInitialPlacementBatch(batch, userId);
     return true;
   });
@@ -164020,24 +164054,24 @@ async function maybeCommitInitialPlacementBatch(job, userId, allowSafetyFallback
 async function recordPlacementVisualTelemetry(payload, field, userId) {
   const timestamp = Date.now();
   await mutateState(payload.chatId, userId, (state) => {
-    const record4 = state.slots[payload.key];
-    const expectedImageUrl = record4?.pendingPlacement?.imageUrl || record4?.imageUrl;
-    const expectedImageId = record4?.pendingPlacement?.imageId || record4?.imageId;
-    if (!record4 || record4.requestId !== payload.requestId || record4.slot !== payload.slot || expectedImageUrl !== payload.imageUrl || payload.imageId && expectedImageId !== payload.imageId)
+    const record = state.slots[payload.key];
+    const expectedImageUrl = record?.pendingPlacement?.imageUrl || record?.imageUrl;
+    const expectedImageId = record?.pendingPlacement?.imageId || record?.imageId;
+    if (!record || record.requestId !== payload.requestId || record.slot !== payload.slot || expectedImageUrl !== payload.imageUrl || payload.imageId && expectedImageId !== payload.imageId)
       return;
     if (field === "started")
-      record4.visualSettlementStartedAt ||= timestamp;
+      record.visualSettlementStartedAt ||= timestamp;
     else
-      record4.visualSettlementCompletedAt ||= timestamp;
-    const attempt = currentAttempt(record4);
+      record.visualSettlementCompletedAt ||= timestamp;
+    const attempt = currentAttempt(record);
     if (attempt) {
       if (field === "started")
         attempt.visualSettlementStartedAt ||= timestamp;
       else
         attempt.visualSettlementCompletedAt ||= timestamp;
     }
-    if (record4.diagnostic)
-      record4.diagnostic.relayInferred.timing = generationTimingForRecord(record4, timestamp);
+    if (record.diagnostic)
+      record.diagnostic.relayInferred.timing = generationTimingForRecord(record, timestamp);
   }).catch(() => {
     return;
   });
@@ -164079,19 +164113,19 @@ async function handlePlacementVisualUnavailable(payload, userId) {
 }
 async function reconsiderPendingPlacementBatches(userId) {
   const scopePrefix = `${relayQueueScope(userId)}:`;
-  const batches = [...pendingPlacementBatches.entries()].filter(([key2]) => key2.startsWith(scopePrefix)).map(([, batch]) => batch);
+  const batches = [...pendingPlacementBatches.entries()].filter(([key]) => key.startsWith(scopePrefix)).map(([, batch]) => batch);
   for (const batch of batches)
     await maybeCommitInitialPlacementBatch(batch, userId);
 }
 async function stageGeneratedPlacement(job, results, replaceExisting, requireVisualSettlement, userId) {
-  const key2 = placementBatchKey(job, userId);
+  const key = placementBatchKey(job, userId);
   await withPlacementMutationLock(job, async () => {
-    let batch = pendingPlacementBatches.get(key2);
+    let batch = pendingPlacementBatches.get(key);
     if (!batch) {
       const message = await resolveHostMessage(job.chatId, job.messageId);
       const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : "";
       batch = { chatId: job.chatId, messageId: job.messageId, swipeId: job.swipeId, requestId: job.requestId, sourceFingerprint: contentFingerprint(content), entries: [] };
-      pendingPlacementBatches.set(key2, batch);
+      pendingPlacementBatches.set(key, batch);
     }
     await stageInitialPlacementBatchEntry(batch, job, results, replaceExisting, requireVisualSettlement, userId);
   });
@@ -164119,19 +164153,19 @@ async function markGeneratedPlacementPending(job, results, userId) {
   await mutateJobState(job, userId, (state) => {
     const now = Date.now();
     for (const result of results) {
-      const record4 = state.slots[slotKey({ ...job, slot: result.slot })];
-      if (!record4 || !placementFailureCanReplaceRecord(record4, result))
+      const record = state.slots[slotKey({ ...job, slot: result.slot })];
+      if (!record || !placementFailureCanReplaceRecord(record, result))
         continue;
-      record4.status = "placement-pending";
-      record4.pendingPlacement = result;
-      record4.previewPending = false;
-      record4.placementFailure = undefined;
-      record4.error = undefined;
-      record4.errorToastKey = undefined;
-      record4.updatedAt = now;
-      finishAttempt(record4, "placement-pending", now);
-      if (record4.proseIllustrationId && state.proseIllustrator.records[record4.proseIllustrationId]) {
-        const proseRecord = state.proseIllustrator.records[record4.proseIllustrationId];
+      record.status = "placement-pending";
+      record.pendingPlacement = result;
+      record.previewPending = false;
+      record.placementFailure = undefined;
+      record.error = undefined;
+      record.errorToastKey = undefined;
+      record.updatedAt = now;
+      finishAttempt(record, "placement-pending", now);
+      if (record.proseIllustrationId && state.proseIllustrator.records[record.proseIllustrationId]) {
+        const proseRecord = state.proseIllustrator.records[record.proseIllustrationId];
         proseRecord.status = "ready-to-place";
         proseRecord.imageId = result.imageId;
         proseRecord.imageUrl = result.imageUrl;
@@ -164160,50 +164194,50 @@ function resolvedSlotRegex(target, flags = "i") {
   const tag = slotTagForTarget(target);
   return new RegExp(`<${tag}\\b[\\s\\S]*?<\\/${tag}>`, flags);
 }
-function rebuildRawSlotAnchor(content, record4, requestXml) {
-  const currentMarker = slotComment(record4, record4.slot);
-  const locatedMarker = findFirstMarker(content, slotCommentVariants(record4, record4.slot));
+function rebuildRawSlotAnchor(content, record, requestXml) {
+  const currentMarker = slotComment(record, record.slot);
+  const locatedMarker = findFirstMarker(content, slotCommentVariants(record, record.slot));
   if (locatedMarker) {
     const { marker, markerIndex } = locatedMarker;
-    const tag2 = slotTagForTarget(record4.target);
+    const tag = slotTagForTarget(record.target);
     const tail = content.slice(markerIndex + marker.length);
-    const direct = resolvedSlotRegex(record4.target, "i");
+    const direct = resolvedSlotRegex(record.target, "i");
     if (new RegExp(`^\\s*${direct.source}`, "i").test(tail))
       return { content, mode: "existing-resolved-marker" };
-    if (record4.imageUrl) {
+    if (record.imageUrl) {
       const withoutMarker = `${content.slice(0, markerIndex)}${content.slice(markerIndex + marker.length)}`;
-      const matches2 = [];
-      const re2 = resolvedSlotRegex(record4.target, "gi");
-      let match2;
-      while ((match2 = re2.exec(withoutMarker)) !== null) {
-        if (match2[0].includes(record4.imageUrl))
-          matches2.push({ index: match2.index, text: match2[0] });
+      const matches = [];
+      const re = resolvedSlotRegex(record.target, "gi");
+      let match;
+      while ((match = re.exec(withoutMarker)) !== null) {
+        if (match[0].includes(record.imageUrl))
+          matches.push({ index: match.index, text: match[0] });
       }
-      if (matches2.length === 1) {
-        const target2 = matches2[0];
+      if (matches.length === 1) {
+        const target = matches[0];
         return {
-          content: `${withoutMarker.slice(0, target2.index)}${currentMarker}
-${withoutMarker.slice(target2.index)}`,
-          mode: `normalized-${tag2}-marker`
+          content: `${withoutMarker.slice(0, target.index)}${currentMarker}
+${withoutMarker.slice(target.index)}`,
+          mode: `normalized-${tag}-marker`
         };
       }
     }
     return { content, mode: "existing-resolved-marker" };
   }
-  if (record4.originalRequestXml && content.includes(record4.originalRequestXml)) {
-    return { content: content.replace(record4.originalRequestXml, requestXml), mode: "existing-request" };
+  if (record.originalRequestXml && content.includes(record.originalRequestXml)) {
+    return { content: content.replace(record.originalRequestXml, requestXml), mode: "existing-request" };
   }
-  const replacedError = replaceErrorAfterComment(content, jobFromRecord(record4), requestXml);
+  const replacedError = replaceErrorAfterComment(content, jobFromRecord(record), requestXml);
   if (replacedError)
     return { content: replacedError, mode: "error-marker" };
-  if (!record4.imageUrl)
+  if (!record.imageUrl)
     return null;
-  const tag = slotTagForTarget(record4.target);
+  const tag = slotTagForTarget(record.target);
   const matches = [];
-  const re = resolvedSlotRegex(record4.target, "gi");
+  const re = resolvedSlotRegex(record.target, "gi");
   let match;
   while ((match = re.exec(content)) !== null) {
-    if (match[0].includes(record4.imageUrl))
+    if (match[0].includes(record.imageUrl))
       matches.push({ index: match.index, text: match[0] });
   }
   if (matches.length !== 1)
@@ -164257,25 +164291,25 @@ async function storePendingPlacement(job, results, reason, anchorsChecked, conte
   await mutateJobState(job, userId, (state) => {
     const now = Date.now();
     for (const result of results) {
-      const record4 = state.slots[slotKey({ ...job, slot: result.slot })];
-      if (!record4 || !placementFailureCanReplaceRecord(record4, result))
+      const record = state.slots[slotKey({ ...job, slot: result.slot })];
+      if (!record || !placementFailureCanReplaceRecord(record, result))
         continue;
-      record4.status = previewPending ? "placement-pending" : "placement-repair-needed";
-      record4.pendingPlacement = result;
-      record4.previewPending = previewPending;
-      record4.placementFailure = previewPending ? undefined : {
+      record.status = previewPending ? "placement-pending" : "placement-repair-needed";
+      record.pendingPlacement = result;
+      record.previewPending = previewPending;
+      record.placementFailure = previewPending ? undefined : {
         failedAt: now,
         reason,
         anchorsChecked: [...anchorsChecked],
         contentFingerprint: contentFingerprint(content),
-        retryCount: (record4.placementFailure?.retryCount || 0) + 1
+        retryCount: (record.placementFailure?.retryCount || 0) + 1
       };
-      record4.error = undefined;
-      record4.errorToastKey = undefined;
-      record4.updatedAt = now;
-      finishAttempt(record4, previewPending ? "placement-pending" : "placement-repair-needed", now, reason);
-      if (record4.proseIllustrationId && state.proseIllustrator.records[record4.proseIllustrationId]) {
-        const proseRecord = state.proseIllustrator.records[record4.proseIllustrationId];
+      record.error = undefined;
+      record.errorToastKey = undefined;
+      record.updatedAt = now;
+      finishAttempt(record, previewPending ? "placement-pending" : "placement-repair-needed", now, reason);
+      if (record.proseIllustrationId && state.proseIllustrator.records[record.proseIllustrationId]) {
+        const proseRecord = state.proseIllustrator.records[record.proseIllustrationId];
         proseRecord.status = "ready-to-place";
         proseRecord.imageId = result.imageId;
         proseRecord.imageUrl = result.imageUrl;
@@ -164291,7 +164325,7 @@ async function storePendingPlacement(job, results, reason, anchorsChecked, conte
         requestId: job.requestId,
         slot: result.slot,
         target: job.target,
-        attemptNumber: record4.attemptNumber,
+        attemptNumber: record.attemptNumber,
         triggerType: result.triggerType,
         provider: result.imageProvider,
         connectionId: result.imageConnectionId,
@@ -164304,12 +164338,12 @@ async function storePendingPlacement(job, results, reason, anchorsChecked, conte
   });
   await sendState(userId, job.chatId);
 }
-async function retryPendingPlacement(key2, userId) {
-  const { chatId, state, record: record4 } = await getRecordByKey(key2, userId);
-  if (!["placement-pending", "placement-repair-needed"].includes(record4.status) || !record4.pendingPlacement)
+async function retryPendingPlacement(key, userId) {
+  const { chatId, state, record } = await getRecordByKey(key, userId);
+  if (!["placement-pending", "placement-repair-needed"].includes(record.status) || !record.pendingPlacement)
     throw new Error("This slot has no pending image placement to retry.");
-  const siblings = Object.values(state.slots).filter((candidate) => candidate.chatId === record4.chatId && candidate.messageId === record4.messageId && candidate.swipeId === record4.swipeId && candidate.requestId === record4.requestId && ["placement-pending", "placement-repair-needed"].includes(candidate.status) && Boolean(candidate.pendingPlacement)).sort((a, b) => a.slot.localeCompare(b.slot, undefined, { numeric: true }));
-  const job = jobFromRecord(record4);
+  const siblings = Object.values(state.slots).filter((candidate) => candidate.chatId === record.chatId && candidate.messageId === record.messageId && candidate.swipeId === record.swipeId && candidate.requestId === record.requestId && ["placement-pending", "placement-repair-needed"].includes(candidate.status) && Boolean(candidate.pendingPlacement)).sort((a, b) => a.slot.localeCompare(b.slot, undefined, { numeric: true }));
+  const job = jobFromRecord(record);
   job.slots = siblings.map((candidate) => candidate.slot);
   job.count = siblings.length;
   const results = siblings.map((candidate) => candidate.pendingPlacement);
@@ -164338,7 +164372,7 @@ async function retryPendingPlacement(key2, userId) {
       });
     }
   });
-  spindle.sendToFrontend({ type: "status", status: "Repairing placement", requestId: record4.requestId }, userId);
+  spindle.sendToFrontend({ type: "status", status: "Repairing placement", requestId: record.requestId }, userId);
   await sendState(userId, chatId);
   const outcome = await applyJobSuccess(job, results, siblings.every((candidate) => Boolean(candidate.imageUrl)), userId, true);
   if (outcome !== "completed") {
@@ -164346,18 +164380,18 @@ async function retryPendingPlacement(key2, userId) {
     const reason = job.slots.map((slot) => refreshed.slots[slotKey({ ...job, slot })]?.placementFailure?.reason).find(Boolean);
     throw new Error(reason || "Relay could not verify the repaired placement in the original slot.");
   }
-  spindle.sendToFrontend({ type: "status", status: outcome === "completed" ? "Placed" : outcome === "placement-repair-needed" ? "Placement needs repair" : "Ready to Place", requestId: record4.requestId }, userId);
+  spindle.sendToFrontend({ type: "status", status: outcome === "completed" ? "Placed" : outcome === "placement-repair-needed" ? "Placement needs repair" : "Ready to Place", requestId: record.requestId }, userId);
   await sendState(userId, chatId);
 }
-async function regenerateWithIntent(key2, intent, candidateCount, nativeSnapshot, userId) {
-  const { chatId, record: record4 } = await getRecordByKey(key2, userId);
-  if (!canReparseRecord(record4) && !canRegenerateRecord(record4))
+async function regenerateWithIntent(key, intent, candidateCount, nativeSnapshot, userId) {
+  const { chatId, record } = await getRecordByKey(key, userId);
+  if (!canReparseRecord(record) && !canRegenerateRecord(record))
     throw new Error("This slot does not have enough prompt metadata for direction regeneration.");
-  if (isProcessing(record4) || relayProcessingKeys.has(record4.key))
+  if (isProcessing(record) || relayProcessingKeys.has(record.key))
     throw new Error("This slot is already processing.");
   const sanitizedIntent = sanitizeRegenerationIntent(intent);
   await mutateState(chatId, userId, (state) => {
-    const stored = state.slots[key2];
+    const stored = state.slots[key];
     if (!stored)
       return;
     stored.regenerationIntent = sanitizedIntent;
@@ -164378,7 +164412,7 @@ async function regenerateWithIntent(key2, intent, candidateCount, nativeSnapshot
   });
   const requestedCandidateCount = candidateCount || 1;
   if (requestedCandidateCount === 1) {
-    const updated = await getRecordByKey(key2, userId);
+    const updated = await getRecordByKey(key, userId);
     const job = jobFromRecord(updated.record);
     job.regenerationIntent = sanitizedIntent;
     if (sanitizedIntent.aspectRatio)
@@ -164388,7 +164422,7 @@ async function regenerateWithIntent(key2, intent, candidateCount, nativeSnapshot
     await runJob(job, { replaceExisting: Boolean(updated.record.imageUrl), reparse: true, triggerType: "intent-regeneration", nativeSnapshot: effectiveSnapshot }, userId);
     return;
   }
-  await startRelayBatch(chatId, nativeSnapshot, userId, requestedCandidateCount, sanitizedIntent, [key2]);
+  await startRelayBatch(chatId, nativeSnapshot, userId, requestedCandidateCount, sanitizedIntent, [key]);
 }
 function sanitizeRegenerationIntent(intent) {
   const builtIn = REGENERATION_INTENTS.find((item) => item.id === intent.id);
@@ -164411,15 +164445,15 @@ async function retryRelayCandidate(chatId, batchId, candidateKey, nativeSnapshot
   const candidate = batch?.candidates.find((item) => item.candidateKey === candidateKey);
   if (!batch || !candidate)
     throw new Error("Relay candidate not found.");
-  const record4 = state.slots[candidate.stableSlotKey];
-  if (!record4)
+  const record = state.slots[candidate.stableSlotKey];
+  if (!record)
     throw new Error("Original slot record not found.");
   const messages = await spindle.chat.getMessages(chatId);
   const targetIndex = Math.max(0, messages.findIndex((message) => message.id === batch.messageId));
   await updateRelayCandidate(chatId, batchId, candidateKey, { status: "parsing", error: undefined }, userId);
   try {
     const config = await getConfig(userId);
-    const result = await generateRelayCandidate(batch, candidate, record4, messages, targetIndex, config, nativeSnapshot, userId);
+    const result = await generateRelayCandidate(batch, candidate, record, messages, targetIndex, config, nativeSnapshot, userId);
     await updateRelayCandidate(chatId, batchId, candidateKey, {
       status: "ready",
       candidateImageId: result.imageId,
@@ -164468,57 +164502,57 @@ async function handleQueueAction(payload, nativeSnapshot, userId) {
   if (payload.action === "abort_all") {
     const queueAbort = cancelRelayDispatchScope(payload.chatId, userId);
     const stoppedStreams = abortImageStreamsForChat(payload.chatId, userId);
-    for (const key2 of [...abortableOperationSerials.keys()])
-      if (key2 === `prose:${payload.chatId}`)
-        cancelAbortableOperation(key2);
-    for (const [key2, scheduled] of [...scheduledAssistantScans.entries()]) {
+    for (const key of [...abortableOperationSerials.keys()])
+      if (key === `prose:${payload.chatId}`)
+        cancelAbortableOperation(key);
+    for (const [key, scheduled] of [...scheduledAssistantScans.entries()]) {
       if (scheduled.chatId !== payload.chatId)
         continue;
       if (scheduled.timer)
         clearTimeout(scheduled.timer);
-      scheduledAssistantScans.delete(key2);
+      scheduledAssistantScans.delete(key);
     }
-    for (const [key2, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
+    for (const [key, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
       if (scheduled.chatId !== payload.chatId)
         continue;
       if (scheduled.timer)
         clearTimeout(scheduled.timer);
-      scheduledProseOpportunityScans.delete(key2);
+      scheduledProseOpportunityScans.delete(key);
     }
-    for (const key2 of [...deferredScans.keys()])
-      if (key2.startsWith(`${payload.chatId}:`))
-        deferredScans.delete(key2);
-    for (const [key2, request2] of [...deferredRegenerateRequests.entries()]) {
-      if (!key2.startsWith(`${payload.chatId}:`))
+    for (const key of [...deferredScans.keys()])
+      if (key.startsWith(`${payload.chatId}:`))
+        deferredScans.delete(key);
+    for (const [key, request] of [...deferredRegenerateRequests.entries()]) {
+      if (!key.startsWith(`${payload.chatId}:`))
         continue;
-      if (request2.timer)
-        clearTimeout(request2.timer);
-      deferredRegenerateRequests.delete(key2);
+      if (request.timer)
+        clearTimeout(request.timer);
+      deferredRegenerateRequests.delete(key);
     }
-    for (const [key2, request2] of [...deferredReparseRequests.entries()]) {
-      if (!key2.startsWith(`${payload.chatId}:`))
+    for (const [key, request] of [...deferredReparseRequests.entries()]) {
+      if (!key.startsWith(`${payload.chatId}:`))
         continue;
-      if (request2.timer)
-        clearTimeout(request2.timer);
-      deferredReparseRequests.delete(key2);
+      if (request.timer)
+        clearTimeout(request.timer);
+      deferredReparseRequests.delete(key);
     }
     const broker = nativeSettingsBroker(userId);
     await mutateState(payload.chatId, userId, (state) => {
       const now = Date.now();
       state.backgroundQueue.abortRequestedAt = now;
       state.backgroundQueue.updatedAt = now;
-      for (const record4 of Object.values(state.slots)) {
-        if (!isGenerationActiveStatus(record4.status) && record4.status !== "paused-backlog")
+      for (const record of Object.values(state.slots)) {
+        if (!isGenerationActiveStatus(record.status) && record.status !== "paused-backlog")
           continue;
-        cancelledJobs.add(jobCancellationKey(record4));
-        removeNativeSettingsWaiters(broker.waiters, payload.chatId, [canonicalDispatchKey(record4)]);
-        if (record4.status !== "cancelled")
+        cancelledJobs.add(jobCancellationKey(record));
+        removeNativeSettingsWaiters(broker.waiters, payload.chatId, [canonicalDispatchKey(record)]);
+        if (record.status !== "cancelled")
           state.stats.cancelledTotal += 1;
-        record4.status = "cancelled";
-        record4.cancelledAt = now;
-        record4.updatedAt = now;
-        finishAttempt(record4, "cancelled", now, "Cancelled by global Abort All.");
-        const lease = state.dispatchLeases[canonicalDispatchKey(record4)];
+        record.status = "cancelled";
+        record.cancelledAt = now;
+        record.updatedAt = now;
+        finishAttempt(record, "cancelled", now, "Cancelled by global Abort All.");
+        const lease = state.dispatchLeases[canonicalDispatchKey(record)];
         if (lease)
           Object.assign(lease, { status: "cancelled", cancellationEpoch: queueAbort.epoch });
       }
@@ -164560,7 +164594,7 @@ async function handleQueueAction(payload, nativeSnapshot, userId) {
     }
     const state = await getState(payload.chatId, userId);
     const selected = new Set(payload.selectedKeys || []);
-    const pending = Object.values(state.slots).filter((record4) => record4.status === "paused-backlog" && (!selected.size || selected.has(record4.key)));
+    const pending = Object.values(state.slots).filter((record) => record.status === "paused-backlog" && (!selected.size || selected.has(record.key)));
     await runWithConcurrency(groupRecordsIntoJobs(pending), config.queueConcurrencyLimit, (job) => dispatchRelayJob(job, {
       replaceExisting: false,
       reparse: true,
@@ -164577,14 +164611,14 @@ async function handleQueueAction(payload, nativeSnapshot, userId) {
     const selected = new Set(payload.selectedKeys || []);
     await mutateState(payload.chatId, userId, (state) => {
       const now = Date.now();
-      for (const record4 of Object.values(state.slots)) {
-        if (!["paused-backlog", "awaiting-native-settings"].includes(record4.status) || selected.size && !selected.has(record4.key))
+      for (const record of Object.values(state.slots)) {
+        if (!["paused-backlog", "awaiting-native-settings"].includes(record.status) || selected.size && !selected.has(record.key))
           continue;
-        record4.status = "cancelled";
-        record4.cancelledAt = now;
-        record4.updatedAt = now;
+        record.status = "cancelled";
+        record.cancelledAt = now;
+        record.updatedAt = now;
         state.stats.cancelledTotal += 1;
-        const lease = state.dispatchLeases[canonicalDispatchKey(record4)];
+        const lease = state.dispatchLeases[canonicalDispatchKey(record)];
         if (lease)
           lease.status = "cancelled";
       }
@@ -164612,24 +164646,24 @@ async function handleQueueAction(payload, nativeSnapshot, userId) {
     if (payload.action === "cancel_selected" || payload.action === "skip_selected") {
       const status = payload.action === "cancel_selected" ? "cancelled" : "skipped";
       const selectedKeys = payload.selectedKeys || queue.selectedKeys;
-      const selectedRecords = selectedKeys.map((key2) => state.slots[key2]).filter(Boolean);
+      const selectedRecords = selectedKeys.map((key) => state.slots[key]).filter(Boolean);
       const abortableKeys = new Set(abortableSlotKeys(selectedRecords, canAbortSlotStatus));
-      for (const key2 of selectedKeys) {
-        const record4 = state.slots[key2];
-        if (status === "cancelled" && !abortableKeys.has(key2))
+      for (const key of selectedKeys) {
+        const record = state.slots[key];
+        if (status === "cancelled" && !abortableKeys.has(key))
           continue;
-        queue.jobStatuses[key2] = status;
-        if (record4 && (status === "skipped" ? isProcessing(record4) : canAbortSlotStatus(record4.status))) {
+        queue.jobStatuses[key] = status;
+        if (record && (status === "skipped" ? isProcessing(record) : canAbortSlotStatus(record.status))) {
           if (status === "cancelled") {
-            cancelledJobs.add(jobCancellationKey(record4));
-            abortImageStream(record4.key);
-            abortImageStream(record4.requestId);
+            cancelledJobs.add(jobCancellationKey(record));
+            abortImageStream(record.key);
+            abortImageStream(record.requestId);
           }
-          record4.status = status === "cancelled" ? "cancelled" : record4.status;
-          record4.cancelledAt = status === "cancelled" ? Date.now() : record4.cancelledAt;
-          record4.updatedAt = Date.now();
+          record.status = status === "cancelled" ? "cancelled" : record.status;
+          record.cancelledAt = status === "cancelled" ? Date.now() : record.cancelledAt;
+          record.updatedAt = Date.now();
           if (status === "cancelled")
-            finishAttempt(record4, "cancelled", Date.now(), "Cancelled by user from Relay controls.");
+            finishAttempt(record, "cancelled", Date.now(), "Cancelled by user from Relay controls.");
         }
       }
     }
@@ -164669,12 +164703,12 @@ async function handleProseIllustratorAction(payload, nativeSnapshot, userId) {
     }
     case "cancel_active": {
       cancelAbortableOperation(`prose:${chatId}`);
-      for (const [key2, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
+      for (const [key, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
         if (scheduled.chatId !== chatId)
           continue;
         if (scheduled.timer)
           clearTimeout(scheduled.timer);
-        scheduledProseOpportunityScans.delete(key2);
+        scheduledProseOpportunityScans.delete(key);
       }
       await mutateState(chatId, userId, (state) => {
         for (const plan of Object.values(state.proseIllustrator.plans)) {
@@ -164683,12 +164717,12 @@ async function handleProseIllustratorAction(payload, nativeSnapshot, userId) {
           plan.status = "cancelled";
           plan.warnings = [...new Set([...plan.warnings || [], "Cancelled by user."])];
         }
-        for (const record4 of Object.values(state.proseIllustrator.records)) {
-          const plan = state.proseIllustrator.plans[record4.planId];
-          if (!plan || plan.chatId !== chatId || ["completed", "removed", "cancelled"].includes(record4.status))
+        for (const record of Object.values(state.proseIllustrator.records)) {
+          const plan = state.proseIllustrator.plans[record.planId];
+          if (!plan || plan.chatId !== chatId || ["completed", "removed", "cancelled"].includes(record.status))
             continue;
-          record4.status = "cancelled";
-          record4.error = "Cancelled by user.";
+          record.status = "cancelled";
+          record.error = "Cancelled by user.";
         }
         for (const slot of Object.values(state.slots)) {
           if (slot.chatId !== chatId || slot.target !== "prose.illustration" || !isRecordJobActive(slot))
@@ -164817,21 +164851,21 @@ function normalizeGenerationLoraStack(value) {
   if (!Array.isArray(value))
     return [];
   const seen = new Set;
-  const rows2 = [];
+  const rows = [];
   for (const entry of value) {
     const row = cleanParameters(entry);
     const name = firstString(row.lora_name, row.name, row.path, row.fileName, row.filename, row.id);
     if (!name)
       continue;
     const id = cleanString(row.id) || contentFingerprint(name).slice(0, 16);
-    const key2 = name.replace(/\\/g, "/").split("/").pop().toLocaleLowerCase();
-    if (seen.has(key2))
+    const key = name.replace(/\\/g, "/").split("/").pop().toLocaleLowerCase();
+    if (seen.has(key))
       continue;
-    seen.add(key2);
+    seen.add(key);
     const model = Number(row.weight_model ?? row.strength ?? row.weight ?? row.multiplier ?? 1);
     const clip = Number(row.weight_clip ?? row.clipStrength ?? row.clip ?? model);
     const triggerWords = Array.isArray(row.triggerWords) ? row.triggerWords.map(cleanString).filter(Boolean) : Array.isArray(row.triggers) ? row.triggers.map(cleanString).filter(Boolean) : commaSeparatedValues(row.trigger_words);
-    rows2.push({
+    rows.push({
       id,
       lora_name: name,
       displayName: firstString(row.displayName, row.label, row.name, name),
@@ -164843,7 +164877,7 @@ function normalizeGenerationLoraStack(value) {
       metadata: cleanParameters(row.metadata || row.raw || row)
     });
   }
-  return rows2.slice(0, 64);
+  return rows.slice(0, 64);
 }
 async function planProseIllustrationForMessage(chatId, messageId, swipeIdInput, mode, userId, contentOverride) {
   const operationKey = `prose:${chatId}`;
@@ -164980,10 +165014,10 @@ function authoritativeSceneText(job) {
   return [job.originalSceneBrief, job.caption, job.alt].map(cleanString).filter(Boolean).join(" ");
 }
 function isExplicitAdultScene(value) {
-  const text3 = cleanString(value);
-  if (!text3 || UNDERAGE_SCENE_PATTERN.test(text3))
+  const text = cleanString(value);
+  if (!text || UNDERAGE_SCENE_PATTERN.test(text))
     return false;
-  return EXPLICIT_SEXUAL_SCENE_PATTERN.test(text3);
+  return EXPLICIT_SEXUAL_SCENE_PATTERN.test(text);
 }
 function hasUnrequestedExplicitEscalation(authoritativeScene, candidatePrompt) {
   const authoritative = cleanString(authoritativeScene);
@@ -165151,8 +165185,8 @@ async function buildProsePromptComposerMessages(chatId, opportunity, content, se
   });
 }
 function parseProsePromptCompositionJson(raw) {
-  const clean4 = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-  const json = clean4.startsWith("{") ? clean4 : clean4.slice(clean4.indexOf("{"), clean4.lastIndexOf("}") + 1);
+  const clean = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const json = clean.startsWith("{") ? clean : clean.slice(clean.indexOf("{"), clean.lastIndexOf("}") + 1);
   const parsed = JSON.parse(json);
   if (!cleanString(parsed.positivePrompt))
     throw new Error("Prompt composer JSON must include positivePrompt.");
@@ -165337,9 +165371,9 @@ async function generateProseIllustrationPlan(chatId, planId, nativeSnapshot, use
   assertAbortableOperationCurrent(operationKey, operationSerial);
   const now = Date.now();
   await mutateState(chatId, userId, (next) => {
-    const key2 = slotKey({ chatId, messageId: plan.messageId, swipeId: plan.swipeId, requestId: plan.planId, slot: "illustration" });
-    const record4 = {
-      key: key2,
+    const key = slotKey({ chatId, messageId: plan.messageId, swipeId: plan.swipeId, requestId: plan.planId, slot: "illustration" });
+    const record = {
+      key,
       chatId,
       messageId: plan.messageId,
       swipeId: plan.swipeId,
@@ -165375,11 +165409,11 @@ async function generateProseIllustrationPlan(chatId, planId, nativeSnapshot, use
       composedNegativePrompt: plan.promptComposition?.negativePrompt,
       prosePromptComposition: plan.promptComposition
     };
-    next.slots[key2] = record4;
+    next.slots[key] = record;
     next.proseIllustrator.records[plan.planId] = {
       illustrationId: plan.planId,
       requestId: plan.planId,
-      slotKey: key2,
+      slotKey: key,
       planId: plan.planId,
       anchor: plan.anchor,
       status: "queued",
@@ -165391,7 +165425,7 @@ async function generateProseIllustrationPlan(chatId, planId, nativeSnapshot, use
     plan.status = handsOffDispatch ? "ready" : "candidate-review";
     plan.approvalRequired = false;
     next.proseIllustrator.plans[plan.planId] = plan;
-    next.queueDirector.jobStatuses[key2] = next.queueDirector.pausedAfterCurrent ? "paused" : "queued";
+    next.queueDirector.jobStatuses[key] = next.queueDirector.pausedAfterCurrent ? "paused" : "queued";
     appendStateLog(next, { severity: "info", stage: "prose-illustrator", eventType: "prose_illustration_queued", chatId, messageId: plan.messageId, swipeId: plan.swipeId, requestId: plan.planId, target: "prose.illustration", message: "Queued synthetic prose illustration through the synthetic prose slot.", details: { plan } });
   });
   await sendState(userId, chatId);
@@ -165423,29 +165457,29 @@ async function generateProseIllustrationPlan(chatId, planId, nativeSnapshot, use
 }
 async function removeProseIllustration(chatId, illustrationId, userId) {
   await mutateState(chatId, userId, async (state) => {
-    const record4 = state.proseIllustrator.records[illustrationId];
-    const plan = state.proseIllustrator.plans[record4?.planId || illustrationId];
-    if (!record4 || !plan)
+    const record = state.proseIllustrator.records[illustrationId];
+    const plan = state.proseIllustrator.plans[record?.planId || illustrationId];
+    if (!record || !plan)
       throw new Error("Prose illustration not found.");
     const message = await resolveMessage(chatId, plan.messageId);
     if (!message)
       throw new Error("Message not found.");
     const content = strictSwipeContent(message, plan.swipeId);
-    const slot = state.slots[record4.slotKey];
+    const slot = state.slots[record.slotKey];
     const marker = slot ? slotComment(slot, slot.slot) : slotComment(jobFromProsePlan(plan, renderProsePendingMarker(plan)), "illustration");
     const next = removeOwnedProseSegment(content, marker, renderProsePendingMarker(plan));
     if (next === content)
       throw new Error("No owned prose illustration marker was found in the message.");
     await patchSwipeContent(chatId, message, plan.swipeId, next);
-    record4.removed = true;
-    record4.status = "removed";
-    record4.inserted = false;
+    record.removed = true;
+    record.status = "removed";
+    record.inserted = false;
     if (slot) {
       slot.orphaned = true;
       slot.orphanReason = "Prose illustration was removed from the message by the user.";
       slot.updatedAt = Date.now();
     }
-    appendStateLog(state, { severity: "info", stage: "prose-illustrator", eventType: "prose_illustration_removed", chatId, messageId: plan.messageId, swipeId: plan.swipeId, requestId: record4.requestId, slot: "illustration", target: "prose.illustration", message: "Removed only the owned inline prose illustration marker." });
+    appendStateLog(state, { severity: "info", stage: "prose-illustrator", eventType: "prose_illustration_removed", chatId, messageId: plan.messageId, swipeId: plan.swipeId, requestId: record.requestId, slot: "illustration", target: "prose.illustration", message: "Removed only the owned inline prose illustration marker." });
   });
   await sendState(userId, chatId);
 }
@@ -165517,8 +165551,8 @@ function storeProsePlan(state, plan) {
   });
 }
 function parseProsePlannerJson(raw) {
-  const clean4 = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
-  const json = clean4.startsWith("{") ? clean4 : clean4.slice(clean4.indexOf("{"), clean4.lastIndexOf("}") + 1);
+  const clean = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const json = clean.startsWith("{") ? clean : clean.slice(clean.indexOf("{"), clean.lastIndexOf("}") + 1);
   const parsed = JSON.parse(json);
   if (typeof parsed.shouldIllustrate !== "boolean")
     throw new Error("Planner JSON must include boolean shouldIllustrate.");
@@ -165599,8 +165633,8 @@ function isEligibleProseContent(content, settings) {
     return false;
   if (settings.skipTestFixtures && /\b(integration test|debug fixture|test-phone|router metadata|smoke test|lifecycle smoke)\b/i.test(prosePlainText(narrative)))
     return false;
-  const text3 = prosePlainText(narrative);
-  if (settings.skipShortMessages && text3.length < settings.minimumMessageLength)
+  const text = prosePlainText(narrative);
+  if (settings.skipShortMessages && text.length < settings.minimumMessageLength)
     return false;
   return proseParagraphs(narrative).length > 0;
 }
@@ -165653,15 +165687,15 @@ function insertProseMarker(content, anchor, marker) {
 
 ${marker}`, ambiguous: false };
   const paragraphs = splitRawParagraphs(content);
-  const normalized2 = paragraphs.map((part) => prosePlainText(part));
-  const fingerprints = normalized2.map(contentFingerprint);
+  const normalized = paragraphs.map((part) => prosePlainText(part));
+  const fingerprints = normalized.map(contentFingerprint);
   let index = -1;
   let warning;
   const exactIndexes = fingerprints.map((fingerprint, candidate) => fingerprint === anchor.paragraphFingerprint ? candidate : -1).filter((candidate) => candidate >= 0);
   if (exactIndexes.length === 1)
     index = exactIndexes[0];
   if (index < 0 && (anchor.previousParagraphFingerprint || anchor.nextParagraphFingerprint)) {
-    const neighbourMatches = normalized2.map((_, candidate) => {
+    const neighbourMatches = normalized.map((_, candidate) => {
       const previousMatches = !anchor.previousParagraphFingerprint || fingerprints[candidate - 1] === anchor.previousParagraphFingerprint;
       const nextMatches = !anchor.nextParagraphFingerprint || fingerprints[candidate + 1] === anchor.nextParagraphFingerprint;
       const evidenceCount = Number(Boolean(anchor.previousParagraphFingerprint)) + Number(Boolean(anchor.nextParagraphFingerprint));
@@ -165675,11 +165709,11 @@ ${marker}`, ambiguous: false };
   }
   if (index < 0 && anchor.selectedExcerpt) {
     const excerpt = prosePlainText(anchor.selectedExcerpt).toLocaleLowerCase().trim();
-    const matches = normalized2.map((paragraph, candidate) => {
-      const text3 = paragraph.toLocaleLowerCase().trim();
-      if (!text3 || !excerpt)
+    const matches = normalized.map((paragraph, candidate) => {
+      const text = paragraph.toLocaleLowerCase().trim();
+      if (!text || !excerpt)
         return -1;
-      return text3.includes(excerpt) || excerpt.includes(text3) ? candidate : -1;
+      return text.includes(excerpt) || excerpt.includes(text) ? candidate : -1;
     }).filter((candidate) => candidate >= 0);
     if (matches.length === 1) {
       index = matches[0];
@@ -165691,7 +165725,7 @@ ${marker}`, ambiguous: false };
     const previousMatches = !anchor.previousParagraphFingerprint || fingerprints[candidate - 1] === anchor.previousParagraphFingerprint;
     const nextMatches = !anchor.nextParagraphFingerprint || fingerprints[candidate + 1] === anchor.nextParagraphFingerprint;
     const excerpt = prosePlainText(anchor.selectedExcerpt || "").toLocaleLowerCase().trim();
-    const candidateText = normalized2[candidate].toLocaleLowerCase().trim();
+    const candidateText = normalized[candidate].toLocaleLowerCase().trim();
     const excerptMatches = Boolean(excerpt && candidateText && (candidateText.includes(excerpt) || excerpt.includes(candidateText)));
     if (previousMatches || nextMatches || excerptMatches || fingerprints[candidate] === anchor.paragraphFingerprint) {
       index = candidate;
@@ -165711,10 +165745,10 @@ ${marker}`, ambiguous: false };
 `);
   return { content: next, ambiguous: false, warning };
 }
-function insertProseCandidateAtStoredAnchor(content, record4, job, result) {
-  if (record4.target !== "prose.illustration" || !record4.proseSynthetic || !record4.proseAnchor)
+function insertProseCandidateAtStoredAnchor(content, record, job, result) {
+  if (record.target !== "prose.illustration" || !record.proseSynthetic || !record.proseAnchor)
     return null;
-  const placement = insertProseMarker(content, record4.proseAnchor, renderResolvedMarkup(job, [result]));
+  const placement = insertProseMarker(content, record.proseAnchor, renderResolvedMarkup(job, [result]));
   return placement.content && !placement.ambiguous ? placement.content : null;
 }
 function splitRawParagraphs(content) {
@@ -165778,25 +165812,25 @@ function proseSceneBrief(plan) {
 function escapeForMarker(value) {
   return String(value || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
-async function discardPendingPlacement(key2, userId) {
-  const { chatId, record: selected } = await getRecordByKey(key2, userId);
+async function discardPendingPlacement(key, userId) {
+  const { chatId, record: selected } = await getRecordByKey(key, userId);
   await mutateState(chatId, userId, (state) => {
-    const records = Object.values(state.slots).filter((record4) => record4.messageId === selected.messageId && record4.swipeId === selected.swipeId && record4.requestId === selected.requestId && Boolean(record4.pendingPlacement));
-    for (const record4 of records) {
-      record4.pendingPlacement = undefined;
-      record4.placementFailure = undefined;
-      record4.status = record4.imageUrl ? "completed" : "recovered-pending";
-      record4.updatedAt = Date.now();
+    const records = Object.values(state.slots).filter((record) => record.messageId === selected.messageId && record.swipeId === selected.swipeId && record.requestId === selected.requestId && Boolean(record.pendingPlacement));
+    for (const record of records) {
+      record.pendingPlacement = undefined;
+      record.placementFailure = undefined;
+      record.status = record.imageUrl ? "completed" : "recovered-pending";
+      record.updatedAt = Date.now();
       appendStateLog(state, {
         severity: "info",
         stage: "placement-discarded",
         eventType: "placement_discarded",
         chatId,
-        messageId: record4.messageId,
-        swipeId: record4.swipeId,
-        requestId: record4.requestId,
-        slot: record4.slot,
-        target: record4.target,
+        messageId: record.messageId,
+        swipeId: record.swipeId,
+        requestId: record.requestId,
+        slot: record.slot,
+        target: record.target,
         message: "Discarded the unplaced generated image without changing message content."
       });
     }
@@ -165809,20 +165843,20 @@ async function applyJobFailure(job, error, stage, userId, expectedAttemptNumbers
   await mutateJobState(job, userId, async (state) => {
     const now = Date.now();
     for (const slot of job.slots) {
-      const record4 = state.slots[slotKey({ ...job, slot })];
-      if (!record4 || expectedAttemptNumbers[slot] && record4.attemptNumber !== expectedAttemptNumbers[slot])
+      const record = state.slots[slotKey({ ...job, slot })];
+      if (!record || expectedAttemptNumbers[slot] && record.attemptNumber !== expectedAttemptNumbers[slot])
         continue;
       acceptedFailure = true;
-      if (record4.triggerType === "initial")
+      if (record.triggerType === "initial")
         stateDrivenFailure = true;
-      record4.status = "failed";
-      record4.error = error;
-      record4.errorToastKey = `${record4.key}:${record4.attemptNumber || 0}:${error}`;
-      record4.updatedAt = now;
-      record4.failedAt = now;
-      finishAttempt(record4, "failed", now, error);
-      if (record4.proseIllustrationId && state.proseIllustrator.records[record4.proseIllustrationId]) {
-        const proseRecord = state.proseIllustrator.records[record4.proseIllustrationId];
+      record.status = "failed";
+      record.error = error;
+      record.errorToastKey = `${record.key}:${record.attemptNumber || 0}:${error}`;
+      record.updatedAt = now;
+      record.failedAt = now;
+      finishAttempt(record, "failed", now, error);
+      if (record.proseIllustrationId && state.proseIllustrator.records[record.proseIllustrationId]) {
+        const proseRecord = state.proseIllustrator.records[record.proseIllustrationId];
         proseRecord.status = "failed";
         proseRecord.error = error;
       }
@@ -165836,14 +165870,14 @@ async function applyJobFailure(job, error, stage, userId, expectedAttemptNumbers
         requestId: job.requestId,
         slot,
         target: job.target,
-        attemptNumber: record4.attemptNumber,
-        triggerType: record4.triggerType,
-        provider: record4.imageProvider,
-        connectionId: record4.imageConnectionId,
-        connectionName: record4.imageConnectionName,
-        model: record4.imageModel,
+        attemptNumber: record.attemptNumber,
+        triggerType: record.triggerType,
+        provider: record.imageProvider,
+        connectionId: record.imageConnectionId,
+        connectionName: record.imageConnectionName,
+        model: record.imageModel,
         errorMessage: error,
-        durationMs: currentAttempt(record4)?.durationMs,
+        durationMs: currentAttempt(record)?.durationMs,
         message: `Job failed during ${stage}.`
       });
     }
@@ -165870,18 +165904,18 @@ async function forceMarkFailed(job, error, userId, expectedAttemptNumbers = {}) 
   await mutateState(job.chatId, userId, (state) => {
     const now = Date.now();
     for (const slot of job.slots) {
-      const record4 = state.slots[slotKey({ ...job, slot })];
-      if (!record4 || expectedAttemptNumbers[slot] && record4.attemptNumber !== expectedAttemptNumbers[slot])
+      const record = state.slots[slotKey({ ...job, slot })];
+      if (!record || expectedAttemptNumbers[slot] && record.attemptNumber !== expectedAttemptNumbers[slot])
         continue;
       acceptedFailure = true;
-      record4.status = "failed";
-      record4.error = error;
-      record4.errorToastKey = `${record4.key}:${record4.attemptNumber || 0}:${error}`;
-      record4.updatedAt = now;
-      record4.failedAt = now;
-      finishAttempt(record4, "failed", now, error);
-      if (record4.proseIllustrationId && state.proseIllustrator.records[record4.proseIllustrationId]) {
-        const proseRecord = state.proseIllustrator.records[record4.proseIllustrationId];
+      record.status = "failed";
+      record.error = error;
+      record.errorToastKey = `${record.key}:${record.attemptNumber || 0}:${error}`;
+      record.updatedAt = now;
+      record.failedAt = now;
+      finishAttempt(record, "failed", now, error);
+      if (record.proseIllustrationId && state.proseIllustrator.records[record.proseIllustrationId]) {
+        const proseRecord = state.proseIllustrator.records[record.proseIllustrationId];
         proseRecord.status = "failed";
         proseRecord.error = error;
       }
@@ -165890,96 +165924,96 @@ async function forceMarkFailed(job, error, userId, expectedAttemptNumbers = {}) 
   await sendState(userId, job.chatId);
   return acceptedFailure;
 }
-async function restoreHistory(chatId, key2, historyIndex, userId) {
+async function restoreHistory(chatId, key, historyIndex, userId) {
   await mutateState(chatId, userId, async (state) => {
-    const record4 = state.slots[key2];
-    if (!record4)
+    const record = state.slots[key];
+    if (!record)
       throw new Error("Slot not found.");
-    const snapshot = record4.history[historyIndex];
+    const snapshot = record.history[historyIndex];
     if (!snapshot)
       throw new Error("History entry not found.");
-    const message = await resolveMessage(record4.chatId, record4.messageId);
+    const message = await resolveMessage(record.chatId, record.messageId);
     if (!message)
       throw new Error("Message not found.");
-    const content = getSwipeContent(message, record4.swipeId);
-    const next = replaceImageUrlAfterSlotComment(content, record4, snapshot.imageUrl);
+    const content = getSwipeContent(message, record.swipeId);
+    const next = replaceImageUrlAfterSlotComment(content, record, snapshot.imageUrl);
     if (!next)
       throw new Error("Could not find the current image slot in the message.");
-    await patchSwipeContent(record4.chatId, message, record4.swipeId, next);
+    await patchSwipeContent(record.chatId, message, record.swipeId, next);
     const now = Date.now();
-    const current = snapshotFromRecord(record4, now);
+    const current = snapshotFromRecord(record, now);
     if (current)
-      record4.history.unshift(current);
-    record4.imageId = snapshot.imageId;
-    record4.imageUrl = snapshot.imageUrl;
-    record4.imageWidth = snapshot.imageWidth;
-    record4.imageHeight = snapshot.imageHeight;
-    record4.aspectRatio = snapshot.aspectRatio;
-    record4.resolvedPositivePrompt = snapshot.resolvedPositivePrompt;
-    record4.resolvedNegativePrompt = snapshot.resolvedNegativePrompt;
-    record4.promptMode = snapshot.promptMode;
-    record4.promptPresetId = snapshot.promptPresetId;
-    record4.parserUsed = snapshot.parserUsed;
-    record4.parserOutput = snapshot.parserOutput;
-    record4.parserConnectionId = snapshot.parserConnectionId;
-    record4.parserModel = snapshot.parserModel;
-    record4.parserParameters = snapshot.parserParameters;
-    record4.imageConnectionId = snapshot.imageConnectionId;
-    record4.imageConnectionName = snapshot.imageConnectionName;
-    record4.imageProvider = snapshot.imageProvider;
-    record4.imageModel = snapshot.imageModel;
-    record4.imageParameters = snapshot.imageParameters;
-    record4.nativeImageSettings = snapshot.nativeImageSettings;
-    record4.nativeSettingsCapturedAt = snapshot.nativeSettingsCapturedAt;
-    record4.connectionDefaultParameters = snapshot.connectionDefaultParameters;
-    record4.slotOverrides = snapshot.slotOverrides;
-    record4.finalImageParameters = snapshot.finalImageParameters;
-    record4.finalImageRequest = snapshot.finalImageRequest;
-    record4.finalImageSettingsSource = snapshot.finalImageSettingsSource;
-    record4.promptPipeline = snapshot.promptPipeline;
-    record4.nativeActiveLoraPreset = snapshot.nativeActiveLoraPreset;
-    record4.effectiveAppliedLoraPreset = snapshot.effectiveAppliedLoraPreset;
-    record4.lorasSentToProvider = snapshot.lorasSentToProvider;
-    record4.loraBaseTags = snapshot.loraBaseTags;
-    record4.baseTagsAddedToPrompt = snapshot.baseTagsAddedToPrompt;
-    record4.omittedBaseTags = snapshot.omittedBaseTags;
-    record4.highResMode = snapshot.highResMode;
-    record4.highResRetainedBaseTags = snapshot.highResRetainedBaseTags;
-    record4.highResPreservedFramingCues = snapshot.highResPreservedFramingCues;
-    record4.loraOmittedFields = snapshot.loraOmittedFields;
-    record4.promptProfile = snapshot.promptProfile;
-    record4.selectedPromptProfileId = snapshot.promptProfile?.selectedProfileId;
-    record4.regenerationIntent = snapshot.regenerationIntent;
-    record4.diagnostic = snapshot.diagnostic;
-    record4.includedContinuityFacts = snapshot.includedContinuityFacts;
-    record4.excludedContinuityFacts = snapshot.excludedContinuityFacts;
-    record4.continuityStrength = snapshot.continuityStrength;
-    record4.assetId = snapshot.assetId || assetIdForImage(snapshot.imageId, snapshot.imageUrl);
-    record4.currentVersionId = snapshot.versionId || versionIdForSnapshot(record4.key, snapshot);
-    record4.rootVersionId = snapshot.rootVersionId || record4.rootVersionId || record4.currentVersionId;
-    record4.versionTreeId = record4.versionTreeId || versionTreeIdForSlot(record4.key);
-    record4.triggerType = "restore";
-    record4.status = "completed";
-    record4.error = undefined;
-    record4.updatedAt = now;
-    record4.lastRestoredAt = now;
-    record4.completedAt = now;
-    markRestoredVersion(state, record4, snapshot, now);
-    record4.history.splice(historyIndex + 1, 1);
+      record.history.unshift(current);
+    record.imageId = snapshot.imageId;
+    record.imageUrl = snapshot.imageUrl;
+    record.imageWidth = snapshot.imageWidth;
+    record.imageHeight = snapshot.imageHeight;
+    record.aspectRatio = snapshot.aspectRatio;
+    record.resolvedPositivePrompt = snapshot.resolvedPositivePrompt;
+    record.resolvedNegativePrompt = snapshot.resolvedNegativePrompt;
+    record.promptMode = snapshot.promptMode;
+    record.promptPresetId = snapshot.promptPresetId;
+    record.parserUsed = snapshot.parserUsed;
+    record.parserOutput = snapshot.parserOutput;
+    record.parserConnectionId = snapshot.parserConnectionId;
+    record.parserModel = snapshot.parserModel;
+    record.parserParameters = snapshot.parserParameters;
+    record.imageConnectionId = snapshot.imageConnectionId;
+    record.imageConnectionName = snapshot.imageConnectionName;
+    record.imageProvider = snapshot.imageProvider;
+    record.imageModel = snapshot.imageModel;
+    record.imageParameters = snapshot.imageParameters;
+    record.nativeImageSettings = snapshot.nativeImageSettings;
+    record.nativeSettingsCapturedAt = snapshot.nativeSettingsCapturedAt;
+    record.connectionDefaultParameters = snapshot.connectionDefaultParameters;
+    record.slotOverrides = snapshot.slotOverrides;
+    record.finalImageParameters = snapshot.finalImageParameters;
+    record.finalImageRequest = snapshot.finalImageRequest;
+    record.finalImageSettingsSource = snapshot.finalImageSettingsSource;
+    record.promptPipeline = snapshot.promptPipeline;
+    record.nativeActiveLoraPreset = snapshot.nativeActiveLoraPreset;
+    record.effectiveAppliedLoraPreset = snapshot.effectiveAppliedLoraPreset;
+    record.lorasSentToProvider = snapshot.lorasSentToProvider;
+    record.loraBaseTags = snapshot.loraBaseTags;
+    record.baseTagsAddedToPrompt = snapshot.baseTagsAddedToPrompt;
+    record.omittedBaseTags = snapshot.omittedBaseTags;
+    record.highResMode = snapshot.highResMode;
+    record.highResRetainedBaseTags = snapshot.highResRetainedBaseTags;
+    record.highResPreservedFramingCues = snapshot.highResPreservedFramingCues;
+    record.loraOmittedFields = snapshot.loraOmittedFields;
+    record.promptProfile = snapshot.promptProfile;
+    record.selectedPromptProfileId = snapshot.promptProfile?.selectedProfileId;
+    record.regenerationIntent = snapshot.regenerationIntent;
+    record.diagnostic = snapshot.diagnostic;
+    record.includedContinuityFacts = snapshot.includedContinuityFacts;
+    record.excludedContinuityFacts = snapshot.excludedContinuityFacts;
+    record.continuityStrength = snapshot.continuityStrength;
+    record.assetId = snapshot.assetId || assetIdForImage(snapshot.imageId, snapshot.imageUrl);
+    record.currentVersionId = snapshot.versionId || versionIdForSnapshot(record.key, snapshot);
+    record.rootVersionId = snapshot.rootVersionId || record.rootVersionId || record.currentVersionId;
+    record.versionTreeId = record.versionTreeId || versionTreeIdForSlot(record.key);
+    record.triggerType = "restore";
+    record.status = "completed";
+    record.error = undefined;
+    record.updatedAt = now;
+    record.lastRestoredAt = now;
+    record.completedAt = now;
+    markRestoredVersion(state, record, snapshot, now);
+    record.history.splice(historyIndex + 1, 1);
     appendStateLog(state, {
       severity: "info",
       stage: "restore",
       eventType: "history_restored",
       chatId,
-      messageId: record4.messageId,
-      swipeId: record4.swipeId,
-      requestId: record4.requestId,
-      slot: record4.slot,
-      target: record4.target,
-      attemptNumber: record4.attemptNumber,
+      messageId: record.messageId,
+      swipeId: record.swipeId,
+      requestId: record.requestId,
+      slot: record.slot,
+      target: record.target,
+      attemptNumber: record.attemptNumber,
       triggerType: "restore",
-      provider: record4.imageProvider,
-      model: record4.imageModel,
+      provider: record.imageProvider,
+      model: record.imageModel,
       message: "Restored a previous slot image without regenerating."
     });
   });
@@ -166043,75 +166077,75 @@ async function handleAssetLibraryAction(payload, userId) {
   });
   await sendState(userId, payload.chatId);
 }
-async function reuseAssetInSlot(chatId, key2, assetId, userId) {
+async function reuseAssetInSlot(chatId, key, assetId, userId) {
   await mutateState(chatId, userId, async (state) => {
-    const record4 = state.slots[key2];
-    if (!record4)
+    const record = state.slots[key];
+    if (!record)
       throw new Error("Slot not found.");
     const asset = state.assetLibrary.assets[assetId];
     if (!asset)
       throw new Error("Asset not found.");
     if (asset.status !== "available" || !asset.imageUrl)
       throw new Error("This asset is unavailable and cannot be reused.");
-    if (asset.target !== record4.target && asset.targetApp !== record4.targetApp)
+    if (asset.target !== record.target && asset.targetApp !== record.targetApp)
       throw new Error("This asset belongs to an incompatible target surface.");
-    const message = await resolveMessage(record4.chatId, record4.messageId);
+    const message = await resolveMessage(record.chatId, record.messageId);
     if (!message)
       throw new Error("Message not found.");
-    const content = getSwipeContent(message, record4.swipeId);
-    const next = replaceImageUrlAfterSlotComment(content, record4, asset.imageUrl);
+    const content = getSwipeContent(message, record.swipeId);
+    const next = replaceImageUrlAfterSlotComment(content, record, asset.imageUrl);
     if (!next)
       throw new Error("Could not find the current image slot in the message.");
-    await patchSwipeContent(record4.chatId, message, record4.swipeId, next);
+    await patchSwipeContent(record.chatId, message, record.swipeId, next);
     const now = Date.now();
-    const current = snapshotFromRecord(record4, now);
+    const current = snapshotFromRecord(record, now);
     if (current)
-      record4.history.unshift(current);
+      record.history.unshift(current);
     const result = {
-      slot: record4.slot,
+      slot: record.slot,
       imageId: asset.imageId,
       imageUrl: asset.imageUrl,
-      resolvedPositivePrompt: asset.resolvedPositivePrompt || record4.resolvedPositivePrompt || asset.originalSceneBrief,
-      resolvedNegativePrompt: asset.resolvedNegativePrompt || record4.resolvedNegativePrompt || "",
+      resolvedPositivePrompt: asset.resolvedPositivePrompt || record.resolvedPositivePrompt || asset.originalSceneBrief,
+      resolvedNegativePrompt: asset.resolvedNegativePrompt || record.resolvedNegativePrompt || "",
       promptMode: "reused-asset",
       promptPresetId: asset.promptProfileId || null,
       promptProfile: asset.metadata.promptProfile,
       parserUsed: false,
       parserOutput: "",
-      imageProvider: cleanString(asset.metadata.provider) || record4.imageProvider,
-      imageConnectionName: cleanString(asset.metadata.connection) || record4.imageConnectionName,
-      imageModel: cleanString(asset.metadata.model) || record4.imageModel,
+      imageProvider: cleanString(asset.metadata.provider) || record.imageProvider,
+      imageConnectionName: cleanString(asset.metadata.connection) || record.imageConnectionName,
+      imageModel: cleanString(asset.metadata.model) || record.imageModel,
       finalImageParameters: cleanParameters(asset.metadata.generationParameters),
       finalImageRequest: cleanParameters(asset.metadata.finalImageRequest),
       nativeImageSettings: cleanParameters(asset.metadata.nativeImageSettings),
       diagnostic: asset.metadata.diagnostic,
-      attemptNumber: (record4.attemptNumber || 0) + 1,
+      attemptNumber: (record.attemptNumber || 0) + 1,
       triggerType: "restore",
       generatedAt: now
     };
-    record4.imageId = result.imageId;
-    record4.imageUrl = result.imageUrl;
-    record4.resolvedPositivePrompt = result.resolvedPositivePrompt;
-    record4.resolvedNegativePrompt = result.resolvedNegativePrompt;
-    record4.promptMode = result.promptMode;
-    record4.promptPresetId = result.promptPresetId;
-    record4.promptProfile = result.promptProfile;
-    record4.selectedPromptProfileId = result.promptProfile?.selectedProfileId || asset.promptProfileId;
-    record4.parserUsed = false;
-    record4.parserOutput = "";
-    record4.imageProvider = result.imageProvider;
-    record4.imageConnectionName = result.imageConnectionName;
-    record4.imageModel = result.imageModel;
-    record4.finalImageParameters = result.finalImageParameters;
-    record4.finalImageRequest = result.finalImageRequest;
-    record4.nativeImageSettings = result.nativeImageSettings;
-    record4.diagnostic = result.diagnostic;
-    record4.status = "completed";
-    record4.error = undefined;
-    record4.updatedAt = now;
-    record4.completedAt = now;
-    record4.lastRestoredAt = now;
-    commitSlotAssetVersion(state, record4, result, current, now);
+    record.imageId = result.imageId;
+    record.imageUrl = result.imageUrl;
+    record.resolvedPositivePrompt = result.resolvedPositivePrompt;
+    record.resolvedNegativePrompt = result.resolvedNegativePrompt;
+    record.promptMode = result.promptMode;
+    record.promptPresetId = result.promptPresetId;
+    record.promptProfile = result.promptProfile;
+    record.selectedPromptProfileId = result.promptProfile?.selectedProfileId || asset.promptProfileId;
+    record.parserUsed = false;
+    record.parserOutput = "";
+    record.imageProvider = result.imageProvider;
+    record.imageConnectionName = result.imageConnectionName;
+    record.imageModel = result.imageModel;
+    record.finalImageParameters = result.finalImageParameters;
+    record.finalImageRequest = result.finalImageRequest;
+    record.nativeImageSettings = result.nativeImageSettings;
+    record.diagnostic = result.diagnostic;
+    record.status = "completed";
+    record.error = undefined;
+    record.updatedAt = now;
+    record.completedAt = now;
+    record.lastRestoredAt = now;
+    commitSlotAssetVersion(state, record, result, current, now);
     asset.lastUsedAt = now;
     asset.updatedAt = now;
     appendStateLog(state, {
@@ -166119,11 +166153,11 @@ async function reuseAssetInSlot(chatId, key2, assetId, userId) {
       stage: "asset-library",
       eventType: "asset_reused",
       chatId,
-      messageId: record4.messageId,
-      swipeId: record4.swipeId,
-      requestId: record4.requestId,
-      slot: record4.slot,
-      target: record4.target,
+      messageId: record.messageId,
+      swipeId: record.swipeId,
+      requestId: record.requestId,
+      slot: record.slot,
+      target: record.target,
       message: "Reused an existing Relay asset without parser or ImageGen.",
       details: { assetId, imageUrl: asset.imageUrl }
     });
@@ -166161,9 +166195,9 @@ async function handleContinuityAction(payload, userId) {
             sheet.aliases = [...character.aliases];
             sheet.updatedAt = now;
           }
-          for (const fact2 of [...Object.values(vault.visualIdentity), ...Object.values(vault.wardrobe), ...Object.values(vault.currentAppearance)]) {
-            if (fact2.canonicalCharacterId === payload.characterId)
-              fact2.aliases = [...character.aliases];
+          for (const fact of [...Object.values(vault.visualIdentity), ...Object.values(vault.wardrobe), ...Object.values(vault.currentAppearance)]) {
+            if (fact.canonicalCharacterId === payload.characterId)
+              fact.aliases = [...character.aliases];
           }
           continuityNotice = `Updated aliases for ${character.canonicalCharacterName}.`;
           break;
@@ -166174,10 +166208,10 @@ async function handleContinuityAction(payload, userId) {
           const character = vault.characters[payload.characterId];
           if (!character)
             throw new Error("Character not found.");
-          const removeOwned = (rows2) => {
-            for (const [id, row] of Object.entries(rows2))
+          const removeOwned = (rows) => {
+            for (const [id, row] of Object.entries(rows))
               if (row.canonicalCharacterId === payload.characterId)
-                delete rows2[id];
+                delete rows[id];
           };
           delete vault.characters[payload.characterId];
           delete vault.characterSheets[payload.characterId];
@@ -166325,19 +166359,19 @@ async function handleContinuityAction(payload, userId) {
           const selectedFacts = selectedIds.map((id) => findAppearanceFact(vault, id)).filter(Boolean);
           const groups = new Map;
           for (const selectedFact of selectedFacts) {
-            const key2 = `${selectedFact.canonicalCharacterId}:${selectedFact.layer}:${selectedFact.category}`;
-            const rows2 = groups.get(key2) || [];
-            rows2.push(selectedFact);
-            groups.set(key2, rows2);
+            const key = `${selectedFact.canonicalCharacterId}:${selectedFact.layer}:${selectedFact.category}`;
+            const rows = groups.get(key) || [];
+            rows.push(selectedFact);
+            groups.set(key, rows);
           }
           let mergedGroups = 0;
           let mergedEntries = 0;
-          for (const rows2 of groups.values()) {
-            if (rows2.length < 2)
+          for (const rows of groups.values()) {
+            if (rows.length < 2)
               continue;
-            mergeAppearanceFacts(vault, rows2.map((row) => row.factId), now);
+            mergeAppearanceFacts(vault, rows.map((row) => row.factId), now);
             mergedGroups += 1;
-            mergedEntries += rows2.length;
+            mergedEntries += rows.length;
           }
           if (!mergedGroups)
             throw new Error("No compatible duplicates were selected. Duplicates must belong to the same character, Vault section, and appearance category.");
@@ -166474,7 +166508,7 @@ async function handleContinuityAction(payload, userId) {
           vault.ignoredForSlotKeys = [...new Set([...vault.ignoredForSlotKeys, payload.key])];
           break;
         case "clear_ignore_slot":
-          vault.ignoredForSlotKeys = payload.key ? vault.ignoredForSlotKeys.filter((key2) => key2 !== payload.key) : [];
+          vault.ignoredForSlotKeys = payload.key ? vault.ignoredForSlotKeys.filter((key) => key !== payload.key) : [];
           break;
         case "mark_break":
           if (!payload.key)
@@ -166636,8 +166670,8 @@ async function handleAppearanceFieldRefresh(payload, userId) {
       refreshField: field
     });
     if (!completed) {
-      const latest2 = await getState(payload.chatId, userId);
-      throw new Error(latest2.continuityVault.appearanceSidecar.lastError || "Appearance Sidecar is disabled or Appearance Memory strength is Off.");
+      const latest = await getState(payload.chatId, userId);
+      throw new Error(latest.continuityVault.appearanceSidecar.lastError || "Appearance Sidecar is disabled or Appearance Memory strength is Off.");
     }
     await sendState(userId, payload.chatId);
     const fieldResult = typeof completed === "object" ? completed : null;
@@ -166822,28 +166856,28 @@ function normalizeCustomSurfaceStudio(value) {
   const raw = cleanParameters(value);
   const definitions = { ...defaults.definitions };
   if (raw.definitions && typeof raw.definitions === "object") {
-    for (const [surfaceId, value2] of Object.entries(raw.definitions)) {
+    for (const [surfaceId, value] of Object.entries(raw.definitions)) {
       if (isRemovedSurfaceDefinition(surfaceId))
         continue;
-      const normalized2 = normalizeCustomSurfaceDefinition(surfaceId, value2);
-      if (!normalized2 || isRemovedSurfaceDefinition(normalized2.surfaceId, normalized2.baseSurfaceId))
+      const normalized = normalizeCustomSurfaceDefinition(surfaceId, value);
+      if (!normalized || isRemovedSurfaceDefinition(normalized.surfaceId, normalized.baseSurfaceId))
         continue;
-      const builtIn = defaults.definitions[normalized2.surfaceId];
+      const builtIn = defaults.definitions[normalized.surfaceId];
       if (builtIn) {
-        definitions[normalized2.surfaceId] = {
+        definitions[normalized.surfaceId] = {
           ...builtIn,
-          enabled: normalized2.enabled !== false,
-          promptEnabled: normalized2.promptEnabled !== false,
-          promptCategory: normalized2.promptCategory || builtIn.promptCategory,
-          promptModule: containsStalePromptTemplate(normalized2.promptModule) ? builtIn.promptModule : cleanString(normalized2.promptModule) || builtIn.promptModule,
-          shellMode: normalized2.shellMode || builtIn.shellMode,
-          hybridOwner: normalized2.hybridOwnerConfigured ? normalized2.hybridOwner : builtIn.hybridOwner,
-          hybridOwnerConfigured: normalized2.hybridOwnerConfigured === true,
-          defaultOpen: normalized2.defaultOpen,
-          updatedAt: Math.max(builtIn.updatedAt, normalized2.updatedAt || 0)
+          enabled: normalized.enabled !== false,
+          promptEnabled: normalized.promptEnabled !== false,
+          promptCategory: normalized.promptCategory || builtIn.promptCategory,
+          promptModule: containsStalePromptTemplate(normalized.promptModule) ? builtIn.promptModule : cleanString(normalized.promptModule) || builtIn.promptModule,
+          shellMode: normalized.shellMode || builtIn.shellMode,
+          hybridOwner: normalized.hybridOwnerConfigured ? normalized.hybridOwner : builtIn.hybridOwner,
+          hybridOwnerConfigured: normalized.hybridOwnerConfigured === true,
+          defaultOpen: normalized.defaultOpen,
+          updatedAt: Math.max(builtIn.updatedAt, normalized.updatedAt || 0)
         };
       } else
-        definitions[normalized2.surfaceId] = { ...normalized2, builtIn: false };
+        definitions[normalized.surfaceId] = { ...normalized, builtIn: false };
     }
   }
   const requestedActive = cleanParameters(raw.activePresetIds);
@@ -166861,8 +166895,8 @@ function normalizeCustomSurfaceStudio(value) {
   return {
     definitions,
     activePresetIds,
-    collectionPresets: Object.fromEntries(Object.entries(cleanParameters(raw.collectionPresets)).map(([presetId, value2]) => {
-      const row = cleanParameters(value2);
+    collectionPresets: Object.fromEntries(Object.entries(cleanParameters(raw.collectionPresets)).map(([presetId, value]) => {
+      const row = cleanParameters(value);
       return [presetId, {
         presetId,
         name: cleanString(row.name) || "Surface Collection",
@@ -167049,8 +167083,8 @@ function normalizeRecordMap(value) {
 function normalizeOpportunityMap(value) {
   const raw = normalizeRecordMap(value);
   const out = {};
-  for (const [id, value2] of Object.entries(raw)) {
-    const candidate = normalizeProseOpportunity(id, value2);
+  for (const [id, value] of Object.entries(raw)) {
+    const candidate = normalizeProseOpportunity(id, value);
     if (candidate)
       out[candidate.opportunityId] = candidate;
   }
@@ -167059,8 +167093,8 @@ function normalizeOpportunityMap(value) {
 function normalizeProsePlanMap(value) {
   const raw = normalizeRecordMap(value);
   const out = {};
-  for (const [id, value2] of Object.entries(raw)) {
-    const row = cleanParameters(value2);
+  for (const [id, value] of Object.entries(raw)) {
+    const row = cleanParameters(value);
     const planId = cleanString(row.planId) || id;
     const status = cleanString(row.status);
     out[planId] = {
@@ -167164,7 +167198,7 @@ function normalizeProseIllustratorSettings(value) {
     "story.framing.expressive-frame": ["432:3d535eb2"],
     "story.framing.character-only": ["673:95fdff36"]
   };
-  const isStockRetired = (id, value2) => supersededDefaults[id]?.includes(contentFingerprint(value2.replace(/\r\n/g, `
+  const isStockRetired = (id, value) => supersededDefaults[id]?.includes(contentFingerprint(value.replace(/\r\n/g, `
 `).trim())) === true;
   const migratedPromptRegistryIds = new Set;
   for (const id of Object.keys(DEFAULT_PROMPT_REGISTRY)) {
@@ -167280,14 +167314,14 @@ function normalizeProseIllustratorSettings(value) {
 function proseSettingsForChat(state, chatId) {
   const globalSettings = state.proseIllustrator.settings.__global__ || {};
   const current = state.proseIllustrator.settings[chatId] || {};
-  const normalized2 = normalizeProseIllustratorSettings({ ...defaultProseIllustratorSettings(), ...globalSettings, ...current });
-  if (normalized2.perspectiveMode === "solo-scene" && selectedCharacterOnlySubjects(normalized2).length === 0) {
+  const normalized = normalizeProseIllustratorSettings({ ...defaultProseIllustratorSettings(), ...globalSettings, ...current });
+  if (normalized.perspectiveMode === "solo-scene" && selectedCharacterOnlySubjects(normalized).length === 0) {
     const cached = cachedChatCharacterIdentity(chatId);
     if (cached?.name)
-      normalized2.characterOnlySubjects = cached.name;
+      normalized.characterOnlySubjects = cached.name;
   }
-  state.proseIllustrator.settings[chatId] = normalized2;
-  return normalized2;
+  state.proseIllustrator.settings[chatId] = normalized;
+  return normalized;
 }
 function normalizeProsePerspectiveMode(value) {
   const raw = cleanString(value);
@@ -167333,7 +167367,7 @@ function normalizeCustomSurfaceDefinition(surfaceId, value) {
     captionSupport: raw.captionSupport !== false,
     altTextSupport: raw.altTextSupport !== false,
     defaultCandidateCount: [1, 2, 4].includes(Number(raw.defaultCandidateCount)) ? Number(raw.defaultCandidateCount) : 1,
-    compatibleRegenerationIntents: stringList3(raw.compatibleRegenerationIntents).filter((id2) => REGENERATION_INTENTS.some((intent) => intent.id === id2)),
+    compatibleRegenerationIntents: stringList3(raw.compatibleRegenerationIntents).filter((id) => REGENERATION_INTENTS.some((intent) => intent.id === id)),
     declarativeLayoutFields: cleanParameters(raw.declarativeLayoutFields),
     validationRules: stringList3(raw.validationRules),
     sampleXml: sanitizeDeclarativeMarkup(cleanString(raw.sampleXml)),
@@ -167359,16 +167393,16 @@ function validateCustomSurfaceDefinitions(definitions) {
   const errors = {};
   const activeTargets = new Map;
   for (const definition of Object.values(definitions)) {
-    const list2 = validateCustomSurfaceDefinition(definition);
+    const list = validateCustomSurfaceDefinition(definition);
     if (definition.enabled) {
       const targetKey = `${definition.targetId}:${definition.baseSurfaceId}`;
       const existing = activeTargets.get(targetKey);
       if (existing && existing !== definition.surfaceId && definition.builtIn)
-        list2.push(`Duplicate built-in target preset also used by ${existing}.`);
+        list.push(`Duplicate built-in target preset also used by ${existing}.`);
       activeTargets.set(targetKey, definition.surfaceId);
     }
-    if (list2.length)
-      errors[definition.surfaceId] = list2;
+    if (list.length)
+      errors[definition.surfaceId] = list;
   }
   return errors;
 }
@@ -167396,12 +167430,12 @@ ${definition.sampleXml}`;
   return errors;
 }
 function sanitizeSurfaceId(value) {
-  const clean4 = cleanString(value).toLocaleLowerCase().replace(/[^a-z0-9._-]/g, "-").replace(/^-+|-+$/g, "");
-  return /^[a-z0-9][a-z0-9._-]{1,62}$/.test(clean4) ? clean4 : "";
+  const clean = cleanString(value).toLocaleLowerCase().replace(/[^a-z0-9._-]/g, "-").replace(/^-+|-+$/g, "");
+  return /^[a-z0-9][a-z0-9._-]{1,62}$/.test(clean) ? clean : "";
 }
 function sanitizeWrapperName(value) {
-  const clean4 = cleanString(value).replace(/[^A-Za-z0-9_-]/g, "");
-  return /^[A-Za-z][A-Za-z0-9_-]{0,62}$/.test(clean4) ? clean4 : "";
+  const clean = cleanString(value).replace(/[^A-Za-z0-9_-]/g, "");
+  return /^[A-Za-z][A-Za-z0-9_-]{0,62}$/.test(clean) ? clean : "";
 }
 function sanitizeDeclarativeMarkup(value) {
   return cleanString(value).replace(/<script[\s\S]*?<\/script>/gi, "").replace(/\son[a-z]+\s*=\s*(['"]).*?\1/gi, "").replace(/javascript:/gi, "");
@@ -167409,12 +167443,12 @@ function sanitizeDeclarativeMarkup(value) {
 function canonicalEditedSurfaceRoot(markup) {
   const source = String(markup || "").trim();
   const raw = /^<([A-Za-z][A-Za-z0-9_-]*)\b/i.exec(source)?.[1] || /^\[([A-Za-z][A-Za-z0-9_-]*)(?:\s+[^\]]*)?\]/i.exec(source)?.[1] || "";
-  const normalized2 = raw.toLocaleLowerCase().replace(/-/g, "_");
+  const normalized = raw.toLocaleLowerCase().replace(/-/g, "_");
   const spec = SHIPPED_SURFACE_SPECS.find((row) => {
     const aliases = [row.wrapper, ...row.normalization?.rootAliases || []];
-    return aliases.some((alias) => alias.toLocaleLowerCase().replace(/-/g, "_") === normalized2);
+    return aliases.some((alias) => alias.toLocaleLowerCase().replace(/-/g, "_") === normalized);
   });
-  return spec?.wrapper || normalized2;
+  return spec?.wrapper || normalized;
 }
 async function handleNativeSurfaceAction(payload, userId) {
   const message = await resolveMessage(payload.chatId, payload.messageId);
@@ -167458,14 +167492,14 @@ async function handleNativeSurfaceAction(payload, userId) {
       throw new Error("Relay could not locate that native surface request in the active swipe.");
     await patchSwipeContent(payload.chatId, message, swipeId, next);
     await mutateState(payload.chatId, userId, (state) => {
-      for (const record4 of Object.values(state.slots)) {
-        if (record4.chatId !== payload.chatId || record4.messageId !== payload.messageId)
+      for (const record of Object.values(state.slots)) {
+        if (record.chatId !== payload.chatId || record.messageId !== payload.messageId)
           continue;
-        if (requestId && record4.requestId !== requestId)
+        if (requestId && record.requestId !== requestId)
           continue;
-        record4.status = "cancelled";
-        record4.orphaned = true;
-        record4.updatedAt = Date.now();
+        record.status = "cancelled";
+        record.orphaned = true;
+        record.updatedAt = Date.now();
       }
       appendStateLog(state, {
         severity: "info",
@@ -167495,8 +167529,8 @@ function removeNativeSurfaceRequest(content, rootTag, requestId) {
     let next = content.replace(illustration, "");
     if (next !== content)
       return next;
-    const request2 = new RegExp(`<image_request\\b(?=[^>]*(?:id|request_id)=["']${escapedId}["'])[^>]*>[\\s\\S]*?<\\/image_request>`, "i");
-    next = content.replace(request2, "");
+    const request = new RegExp(`<image_request\\b(?=[^>]*(?:id|request_id)=["']${escapedId}["'])[^>]*>[\\s\\S]*?<\\/image_request>`, "i");
+    next = content.replace(request, "");
     if (next !== content)
       return next;
     const resolved = new RegExp(`(?:<!--[\\s\\S]*?${escapedId}[\\s\\S]*?-->)?\\s*<(?:img|scene_image)\\b[^>]*data-dgir-request-id=["']${escapedId}["'][^>]*>(?:[\\s\\S]*?<\\/(?:scene_image)>)?`, "i");
@@ -167524,8 +167558,8 @@ async function handleCustomSurfaceAction(payload, userId) {
   const configPatch = {};
   const simpleInjectionPreference = payload.action === "set_utility_settings" && !payload.utilityInjectionPosition && typeof payload.utilityTemplate !== "string" && typeof payload.utilityInjectionEnabled === "boolean";
   if (payload.action === "set_renderer_mode" || payload.action === "set_default_shell_mode" || payload.action === "set_color_mode" || simpleInjectionPreference) {
-    const currentConfig2 = await getConfig(userId);
-    const globalStudio = normalizeCustomSurfaceStudio(currentConfig2.globalSurfaceStudio || defaultCustomSurfaceStudio());
+    const currentConfig = await getConfig(userId);
+    const globalStudio = normalizeCustomSurfaceStudio(currentConfig.globalSurfaceStudio || defaultCustomSurfaceStudio());
     if (payload.action === "set_renderer_mode") {
       if (!payload.rendererMode || !["relay", "legacy-regex", "hybrid"].includes(payload.rendererMode))
         throw new Error("Renderer mode is invalid.");
@@ -167794,8 +167828,8 @@ var GENERIC_HUMAN_REMOVAL_NEGATIVES = new Set([
 function removeConflictingHumanNegatives(value) {
   const removed = [];
   const kept = value.split(",").map((part) => cleanString(part)).filter(Boolean).filter((term) => {
-    const normalized2 = term.toLocaleLowerCase().replace(/[.]+$/g, "").trim();
-    if (!GENERIC_HUMAN_REMOVAL_NEGATIVES.has(normalized2))
+    const normalized = term.toLocaleLowerCase().replace(/[.]+$/g, "").trim();
+    if (!GENERIC_HUMAN_REMOVAL_NEGATIVES.has(normalized))
       return true;
     removed.push(term);
     return false;
@@ -167893,18 +167927,18 @@ async function buildAuthoritativeVisualPrompt(job, slot, config, context, native
   const specialIntent = applySpecialImageIntent(finalized, job.intent, authoritativeSceneText(job));
   const contextualSexual = applyContextualSexualGuidance(specialIntent.prompt, "", authoritativeSceneText(job));
   const nativeNegative = firstString(nativeSettings?.customNegativePrompt, nativeSettings?.negativePrompt, config.nativeNegativePrompt);
-  const normalized2 = normalizeNegativePrompts({
+  const normalized = normalizeNegativePrompts({
     native: humanPolicy.allowHumanPrompt ? resolveSubjectNegativeMacros(nativeNegative, context.subjectNegativePrompt) : nativeNegative,
     request: job.originalNegativePrompt,
     subject: humanPolicy.allowHumanPrompt ? context.subjectNegativePrompt : "",
     parser: contextualSexual.negativePrompt,
     router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : "", config.additionalNegativePrompt].filter(Boolean).join(", ")
   });
-  const humanConflict = humanPolicy.allowHumanPrompt ? removeConflictingHumanNegatives(normalized2.negative) : { negative: normalized2.negative, removed: [] };
-  normalized2.negative = humanConflict.negative;
-  normalized2.pipeline.finalNormalizedNegativePrompt = humanConflict.negative;
+  const humanConflict = humanPolicy.allowHumanPrompt ? removeConflictingHumanNegatives(normalized.negative) : { negative: normalized.negative, removed: [] };
+  normalized.negative = humanConflict.negative;
+  normalized.pipeline.finalNormalizedNegativePrompt = humanConflict.negative;
   const pipeline = {
-    ...normalized2.pipeline,
+    ...normalized.pipeline,
     contextCaption: job.caption,
     rawNativeParserTemplate: context.rawTemplate,
     resolvedNativeParserInstructions: context.resolvedTemplate,
@@ -167964,7 +167998,7 @@ async function buildAuthoritativeVisualPrompt(job, slot, config, context, native
   };
   return {
     prompt: contextualSexual.prompt,
-    negativePrompt: normalized2.negative,
+    negativePrompt: normalized.negative,
     promptMode: "story_model_visual_prompt",
     promptPresetId: job.promptProfileId || config.nativePromptPresetId,
     parserUsed: false,
@@ -168090,10 +168124,10 @@ function explicitPeopleCount(value) {
   const numeric = /\b([1-9])\s*(?:people|persons|subjects|characters|men|women|boys|girls)\b/i.exec(value);
   if (numeric)
     return Number(numeric[1]);
-  const words2 = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+  const words = { one: 1, two: 2, three: 3, four: 4, five: 5 };
   const word = /\b(one|two|three|four|five)\s+(?:people|persons|subjects|characters|men|women|boys|girls)\b/i.exec(value);
   if (word)
-    return words2[word[1].toLocaleLowerCase()] || 0;
+    return words[word[1].toLocaleLowerCase()] || 0;
   if (/\bthird (?:person|subject|character|woman|man)\b/i.test(value))
     return 3;
   if (/\b(?:solo|single (?:person|subject|character))\b/i.test(value))
@@ -168144,21 +168178,21 @@ function modelPlacedSemanticViolations(authoritative, candidate, protectedSubjec
 }
 async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId, nativeSettings, highResMode = config.highResMode, forceSemanticRewrite = false) {
   if (job.promptSource === "visual_prompt" && job.originalSceneBrief.trim() && !forceSemanticRewrite) {
-    const context2 = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings);
+    const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings);
     if (!config.parserConnectionId)
-      return buildAuthoritativeVisualPrompt(job, slot, config, context2, nativeSettings, "Skipped \u2014 No Parser connection configured");
+      return buildAuthoritativeVisualPrompt(job, slot, config, context, nativeSettings, "Skipped \u2014 No Parser connection configured");
   }
   if (job.composedPositivePrompt?.trim()) {
     const locallyCompiledRelayPlan = job.prosePromptComposition?.rawOutput?.plannerVersion === RELAY_PLANNED_V2;
     const classification = classifyImageRequest(job);
     const profile = resolvePromptProfileDecision(job, config);
     const humanPolicy = targetHumanPolicy(job, classification);
-    const context2 = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings);
+    const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings);
     const authoritativeScene = authoritativeSceneText(job);
     const composedSexualEscalationRejected = hasUnrequestedExplicitEscalation(authoritativeScene, job.composedPositivePrompt);
     const safeComposedPrompt = composedSexualEscalationRejected ? job.originalSceneBrief : job.composedPositivePrompt;
     const profiled = applyPromptProfileToPositivePrompt(safeComposedPrompt, profile);
-    const shaped = shapeSceneLedIdentityPrompt(profiled.prompt, job, context2, humanPolicy.allowHumanPrompt);
+    const shaped = shapeSceneLedIdentityPrompt(profiled.prompt, job, context, humanPolicy.allowHumanPrompt);
     const identityCorrection = shaped.identityCorrection;
     const finalizedPositivePrompt = finalizeParsedPositivePrompt(shaped.prompt, classification, job);
     const specialIntent = applySpecialImageIntent(finalizedPositivePrompt, job.intent, authoritativeScene);
@@ -168179,7 +168213,7 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
     const negative = normalizeNegativePrompts({
       native: firstString(nativeSettings?.customNegativePrompt, nativeSettings?.negativePrompt, config.nativeNegativePrompt),
       request: job.originalNegativePrompt,
-      subject: humanPolicy.allowHumanPrompt ? context2.subjectNegativePrompt : "",
+      subject: humanPolicy.allowHumanPrompt ? context.subjectNegativePrompt : "",
       parser: job.composedNegativePrompt || "",
       router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : "", config.additionalNegativePrompt].filter(Boolean).join(", ")
     });
@@ -168189,11 +168223,11 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
     const pipeline = {
       ...negative.pipeline,
       contextCaption: job.caption,
-      activeNativeGenerationPromptTemplate: context2.activeNativeGenerationPromptTemplate,
+      activeNativeGenerationPromptTemplate: context.activeNativeGenerationPromptTemplate,
       activeNativePromptPresetId: cleanString(nativeSettings?.activePromptPresetId) || config.nativePromptPresetId || undefined,
-      nativeParserTemplateInherited: context2.nativeParserTemplateInherited,
+      nativeParserTemplateInherited: context.nativeParserTemplateInherited,
       parserInstructionSource: "relay-registry",
-      routerParserInstructions: context2.relayParserInstructions,
+      routerParserInstructions: context.relayParserInstructions,
       parserRequest: [],
       rawParserResponse: JSON.stringify(job.prosePromptComposition || {}),
       parsedPositivePrompt: positivePrompt,
@@ -168210,34 +168244,34 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
       specialIntentSuppressedFragments: specialIntent.suppressed,
       nativeIncludeCharacters: config.nativeIncludeCharacters,
       nativeIncludePersona: config.nativeIncludePersona,
-      effectiveIncludeCharacters: context2.effectiveIncludeCharacters,
-      effectiveIncludePersona: context2.effectiveIncludePersona,
-      characterContextSuppressed: !context2.effectiveIncludeCharacters,
-      personaContextSuppressed: !context2.effectiveIncludePersona,
+      effectiveIncludeCharacters: context.effectiveIncludeCharacters,
+      effectiveIncludePersona: context.effectiveIncludePersona,
+      characterContextSuppressed: !context.effectiveIncludeCharacters,
+      personaContextSuppressed: !context.effectiveIncludePersona,
       noHumanGuardrailsApplied: !humanPolicy.allowHumanPrompt,
       contextGatingReason: humanPolicy.allowHumanPrompt && requestHasVisibleFace(classification) ? "sidecar prompt composer supplied final person-facing prompt" : "sidecar prompt composer supplied final non-person prompt; portrait/person context suppressed",
       faceExpressionApplicable: humanPolicy.allowHumanPrompt && requestHasVisibleFace(classification),
-      visualCharacterPrompt: context2.characterContext,
-      visualPersonaPrompt: context2.personaContext,
-      visualSubjectPrompts: context2.visualSubjects,
-      subjectNegativePrompt: context2.subjectNegativePrompt,
-      sanitizedRecentContext: context2.sanitizedRecentContext,
+      visualCharacterPrompt: context.characterContext,
+      visualPersonaPrompt: context.personaContext,
+      visualSubjectPrompts: context.visualSubjects,
+      subjectNegativePrompt: context.subjectNegativePrompt,
+      sanitizedRecentContext: context.sanitizedRecentContext,
       rejectedParserNegativeAdditions: [],
       promptProfile: profiled.decision,
       regenerationIntent: job.regenerationIntent,
-      includedContinuityFacts: context2.projectedContinuityFacts,
-      rawContinuityFactCount: context2.includedContinuityFacts.length,
-      projectedContinuityFactCount: context2.projectedContinuityFacts.length,
-      projectedContinuityNegativePrompt: context2.projectedContinuityNegativePrompt,
-      continuityProjectionNotes: context2.projectedContinuityNotes,
-      excludedContinuityFacts: context2.excludedContinuityFacts,
-      attachedReferenceAssetIds: [...new Set([...job.prosePromptComposition?.referenceAssetIdsUsed || [], ...context2.attachedReferenceAssetIds])],
-      continuityConflicts: context2.continuityConflicts,
-      continuityStrength: context2.continuityStrength,
-      identityResolution: c5aIdentityResolution(job, context2, identityCorrection),
-      ...c5aPromptLengthMetrics(context2, identityCorrection, positivePrompt),
+      includedContinuityFacts: context.projectedContinuityFacts,
+      rawContinuityFactCount: context.includedContinuityFacts.length,
+      projectedContinuityFactCount: context.projectedContinuityFacts.length,
+      projectedContinuityNegativePrompt: context.projectedContinuityNegativePrompt,
+      continuityProjectionNotes: context.projectedContinuityNotes,
+      excludedContinuityFacts: context.excludedContinuityFacts,
+      attachedReferenceAssetIds: [...new Set([...job.prosePromptComposition?.referenceAssetIdsUsed || [], ...context.attachedReferenceAssetIds])],
+      continuityConflicts: context.continuityConflicts,
+      continuityStrength: context.continuityStrength,
+      identityResolution: c5aIdentityResolution(job, context, identityCorrection),
+      ...c5aPromptLengthMetrics(context, identityCorrection, positivePrompt),
       warnings: [
-        ...c5aIdentityWarnings(context2, identityCorrection.corrections),
+        ...c5aIdentityWarnings(context, identityCorrection.corrections),
         ...job.prosePromptComposition?.warnings?.map((message) => ({ code: "sidecar-composer-warning", message, sources: ["Sidecar prompt composer"] })) || [],
         ...cleanupWarnings,
         ...humanConflict.removed.length ? [{ code: "human-negative-conflict-repaired", message: `Removed generic human-suppression negatives from an explicit people scene: ${humanConflict.removed.join(", ")}`, sources: ["defensive prompt conflict check"] }] : []
@@ -168262,8 +168296,8 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
   } catch (error) {
     if (job.promptSource !== "visual_prompt")
       throw error;
-    const context2 = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings);
-    return buildAuthoritativeVisualPrompt(job, slot, config, context2, nativeSettings, "Skipped \u2014 Parser connection unavailable");
+    const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings);
+    return buildAuthoritativeVisualPrompt(job, slot, config, context, nativeSettings, "Skipped \u2014 Parser connection unavailable");
   }
   const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings);
   const instruction = parserInstruction(job, slot, config, highResMode);
@@ -168330,18 +168364,18 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
       const nativeNegative = humanPolicy.allowHumanPrompt ? resolveSubjectNegativeMacros(snapshotNativeNegative, context.subjectNegativePrompt) : snapshotNativeNegative;
       const subjectNegative = humanPolicy.allowHumanPrompt ? context.subjectNegativePrompt : "";
       const disciplined = disciplineParserNegativeAdditions(parsed.negativeAdditions, positivePrompt, context.classification, nativeNegative, job.originalNegativePrompt, subjectNegative);
-      const normalized2 = normalizeNegativePrompts({
+      const normalized = normalizeNegativePrompts({
         native: nativeNegative,
         request: job.originalNegativePrompt,
         subject: subjectNegative,
         parser: disciplined.negativeAdditions,
         router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : "", config.additionalNegativePrompt].filter(Boolean).join(", ")
       });
-      const humanConflict = humanPolicy.allowHumanPrompt ? removeConflictingHumanNegatives(normalized2.negative) : { negative: normalized2.negative, removed: [] };
-      normalized2.negative = humanConflict.negative;
-      normalized2.pipeline.finalNormalizedNegativePrompt = humanConflict.negative;
+      const humanConflict = humanPolicy.allowHumanPrompt ? removeConflictingHumanNegatives(normalized.negative) : { negative: normalized.negative, removed: [] };
+      normalized.negative = humanConflict.negative;
+      normalized.pipeline.finalNormalizedNegativePrompt = humanConflict.negative;
       const warningPipeline = {
-        ...normalized2.pipeline,
+        ...normalized.pipeline,
         contextCaption: job.caption,
         rawNativeParserTemplate: context.rawTemplate,
         resolvedNativeParserInstructions: context.resolvedTemplate,
@@ -168396,14 +168430,14 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
       const pipeline = {
         ...warningPipeline,
         warnings: [
-          ...normalized2.pipeline.warnings,
+          ...normalized.pipeline.warnings,
           ...c5aIdentityWarnings(context, identityCorrection.corrections),
           ...context.unresolvedMacros.map((macro) => ({ code: "unresolved-parser-macro", message: `${macro} could not be resolved from active context.`, sources: ["native parser template"] })),
           ...parsed.recoveryMethod ? [{ code: "parser-json-recovered", message: `Recovered a usable prompt from malformed parser output using ${parsed.recoveryMethod}.`, sources: ["parser output recovery"] }] : [],
           ...parsed.legacyNegativePrompt ? [{ code: "legacy-parser-negative", message: "Parser returned legacy negativePrompt; treated as candidate negative additions.", sources: ["parser output"] }] : [],
           ...disciplined.warnings,
           ...humanConflict.removed.length ? [{ code: "human-negative-conflict-repaired", message: `Removed generic human-suppression negatives from an explicit people scene: ${humanConflict.removed.join(", ")}`, sources: ["defensive prompt conflict check"] }] : [],
-          ...promptWarnings(positivePrompt, normalized2.negative, warningPipeline)
+          ...promptWarnings(positivePrompt, normalized.negative, warningPipeline)
         ],
         parserRequested: true,
         parserSucceeded: true,
@@ -168413,7 +168447,7 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
       };
       return {
         prompt: positivePrompt,
-        negativePrompt: normalized2.negative,
+        negativePrompt: normalized.negative,
         promptMode: `router_parser${config.nativePromptMode ? `:${config.nativePromptMode}` : ""}`,
         promptPresetId: config.nativePromptPresetId,
         parserUsed: true,
@@ -168466,10 +168500,10 @@ async function generateParserText(connection, config, messages, userId, chatId, 
     reasoning: { source: "off" },
     userId
   }, chatId, userId);
-  const text3 = extractText(result);
-  if (!text3.trim())
+  const text = extractText(result);
+  if (!text.trim())
     throw new Error("Parser returned an empty response.");
-  return text3;
+  return text;
 }
 function normalizedPromptFragment2(value) {
   return value.trim().replace(/[\s_]+/g, " ").replace(/[.,;:]+$/g, "").toLocaleLowerCase();
@@ -168479,12 +168513,12 @@ function mergePromptFragmentsUnique(...values) {
   const out = [];
   for (const value of values) {
     for (const fragment of cleanString(value).split(/[,\n]+/)) {
-      const clean4 = fragment.trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
-      const key2 = normalizedPromptFragment2(clean4);
-      if (!clean4 || !key2 || seen.has(key2))
+      const clean = fragment.trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
+      const key = normalizedPromptFragment2(clean);
+      if (!clean || !key || seen.has(key))
         continue;
-      seen.add(key2);
-      out.push(clean4);
+      seen.add(key);
+      out.push(clean);
     }
   }
   return out.join(", ");
@@ -168520,8 +168554,8 @@ var GENERIC_SUBJECT_ONLY_PROMPT_TOKENS = new Set([
 ]);
 function isMeaningfulAutomaticPrompt(prompt, baseTags = "") {
   const base = new Set(cleanString(baseTags).split(/[,\n]+/).map(normalizedPromptFragment2).filter(Boolean));
-  const fragments2 = cleanString(prompt).split(/[,\n.]+/).map(normalizedPromptFragment2).filter(Boolean);
-  const meaningful = fragments2.filter((fragment) => !base.has(fragment) && !GENERIC_SUBJECT_ONLY_PROMPT_TOKENS.has(fragment));
+  const fragments = cleanString(prompt).split(/[,\n.]+/).map(normalizedPromptFragment2).filter(Boolean);
+  const meaningful = fragments.filter((fragment) => !base.has(fragment) && !GENERIC_SUBJECT_ONLY_PROMPT_TOKENS.has(fragment));
   if (!meaningful.length)
     return false;
   const joined = meaningful.join(" ");
@@ -168568,8 +168602,8 @@ function applyRecipeToImagePlan(plan, recipe) {
   }
 }
 function removeProviderLoraParameters(parameters) {
-  for (const key2 of ["loras", "loraWeights", "lora_weights", "loraNames", "lora_names", "loras_json", "lora_strengths"])
-    delete parameters[key2];
+  for (const key of ["loras", "loraWeights", "lora_weights", "loraNames", "lora_names", "loras_json", "lora_strengths"])
+    delete parameters[key];
 }
 async function existingRelayImageClaim(chatId, imageId, userId) {
   const normalizedId = cleanString(imageId);
@@ -168577,13 +168611,13 @@ async function existingRelayImageClaim(chatId, imageId, userId) {
     return "";
   try {
     const state = await getState(chatId, userId);
-    for (const record4 of Object.values(state.slots)) {
-      if (cleanString(record4.imageId) === normalizedId)
-        return `slot ${record4.key}`;
-      if (cleanString(record4.pendingPlacement?.imageId) === normalizedId)
-        return `pending slot ${record4.key}`;
-      if ((record4.history || []).some((snapshot) => cleanString(snapshot.imageId) === normalizedId))
-        return `history for ${record4.key}`;
+    for (const record of Object.values(state.slots)) {
+      if (cleanString(record.imageId) === normalizedId)
+        return `slot ${record.key}`;
+      if (cleanString(record.pendingPlacement?.imageId) === normalizedId)
+        return `pending slot ${record.key}`;
+      if ((record.history || []).some((snapshot) => cleanString(snapshot.imageId) === normalizedId))
+        return `history for ${record.key}`;
     }
     const archived = Object.values(state.assetLibrary.assets || {}).find((asset) => cleanString(asset.imageId) === normalizedId);
     if (archived)
@@ -168867,7 +168901,7 @@ function nativeSnapshotFromConfig(config) {
     capturedAt: config.nativeSettingsCapturedAt || 0
   };
 }
-async function prepareImagePlan(config, job, record4, nativeSnapshot, userId, highResMode = config.highResMode) {
+async function prepareImagePlan(config, job, record, nativeSnapshot, userId, highResMode = config.highResMode) {
   const userPositivePromptPrefix = cleanString(config.proseIllustratorSettings.customPromptPrefix);
   const userNegativePromptPrefix = cleanString(config.proseIllustratorSettings.customNegativePrefix);
   const nativeLoraSnapshot = nativeSnapshot || nativeSnapshotFromConfig(config);
@@ -168875,40 +168909,40 @@ async function prepareImagePlan(config, job, record4, nativeSnapshot, userId, hi
     nativeSnapshot = undefined;
   else
     nativeSnapshot = nativeSnapshot || nativeSnapshotFromConfig(config);
-  if (!nativeSnapshot && hasStoredImageSettings(record4)) {
-    const connection2 = record4.imageConnectionId ? await getImageConnection(record4.imageConnectionId, userId) : null;
-    const storedBaseTagPlan = filterBaseTagsForTarget(record4.loraBaseTags || "", job, classifyImageRequest(job), highResMode);
-    const regenerationOverrides = buildSlotOverrides(job, record4.imageProvider || connection2?.provider || "");
-    const storedSlotOverrides = { ...cloneRecord(record4.slotOverrides), ...regenerationOverrides };
-    const storedFinalParameters = { ...cloneRecord(record4.finalImageParameters || record4.imageParameters), ...regenerationOverrides };
-    const plan2 = {
-      connection: connection2,
-      connectionId: record4.imageConnectionId ?? connection2?.id ?? null,
-      connectionName: record4.imageConnectionName || connection2?.name || record4.imageConnectionId || "",
-      provider: record4.imageProvider || connection2?.provider || "",
-      model: record4.imageModel || connection2?.model || "",
-      nativeImageSettings: cloneRecord(record4.nativeImageSettings),
-      nativeSettingsCapturedAt: record4.nativeSettingsCapturedAt,
-      connectionDefaultParameters: cloneRecord(record4.connectionDefaultParameters),
-      nativeActiveParameters: extractNativeParameters(record4.nativeImageSettings || {}),
+  if (!nativeSnapshot && hasStoredImageSettings(record)) {
+    const connection = record.imageConnectionId ? await getImageConnection(record.imageConnectionId, userId) : null;
+    const storedBaseTagPlan = filterBaseTagsForTarget(record.loraBaseTags || "", job, classifyImageRequest(job), highResMode);
+    const regenerationOverrides = buildSlotOverrides(job, record.imageProvider || connection?.provider || "");
+    const storedSlotOverrides = { ...cloneRecord(record.slotOverrides), ...regenerationOverrides };
+    const storedFinalParameters = { ...cloneRecord(record.finalImageParameters || record.imageParameters), ...regenerationOverrides };
+    const plan = {
+      connection,
+      connectionId: record.imageConnectionId ?? connection?.id ?? null,
+      connectionName: record.imageConnectionName || connection?.name || record.imageConnectionId || "",
+      provider: record.imageProvider || connection?.provider || "",
+      model: record.imageModel || connection?.model || "",
+      nativeImageSettings: cloneRecord(record.nativeImageSettings),
+      nativeSettingsCapturedAt: record.nativeSettingsCapturedAt,
+      connectionDefaultParameters: cloneRecord(record.connectionDefaultParameters),
+      nativeActiveParameters: extractNativeParameters(record.nativeImageSettings || {}),
       slotOverrides: storedSlotOverrides,
       finalParameters: storedFinalParameters,
       settingsSource: "stored",
-      nativeActiveLoraPreset: cloneNullableRecord(record4.nativeActiveLoraPreset),
-      effectiveAppliedLoraPreset: record4.effectiveAppliedLoraPreset ? { ...cloneRecord(record4.effectiveAppliedLoraPreset), base_tags: storedBaseTagPlan.effectiveBaseTags } : null,
-      effectiveLoras: normalizeLoraEntries(record4.effectiveAppliedLoraPreset?.loras),
-      loraBaseTags: record4.loraBaseTags || "",
+      nativeActiveLoraPreset: cloneNullableRecord(record.nativeActiveLoraPreset),
+      effectiveAppliedLoraPreset: record.effectiveAppliedLoraPreset ? { ...cloneRecord(record.effectiveAppliedLoraPreset), base_tags: storedBaseTagPlan.effectiveBaseTags } : null,
+      effectiveLoras: normalizeLoraEntries(record.effectiveAppliedLoraPreset?.loras),
+      loraBaseTags: record.loraBaseTags || "",
       effectiveBaseTags: storedBaseTagPlan.effectiveBaseTags,
       omittedBaseTags: storedBaseTagPlan.omitted,
       highResMode,
       highResRetainedBaseTags: storedBaseTagPlan.retainedForHighRes,
       highResPreservedFramingCues: storedBaseTagPlan.preservedFramingCues,
-      lorasSentToProvider: cloneValue(record4.lorasSentToProvider),
-      loraOmittedFields: [...record4.loraOmittedFields || []],
+      lorasSentToProvider: cloneValue(record.lorasSentToProvider),
+      loraOmittedFields: [...record.loraOmittedFields || []],
       userPositivePromptPrefix,
       userNegativePromptPrefix
     };
-    return plan2;
+    return plan;
   }
   const nativeSettings = nativeSnapshot?.settings || {};
   const connection = await resolveImageConnectionForPlan(config, nativeSnapshot, userId);
@@ -168924,8 +168958,8 @@ async function prepareImagePlan(config, job, record4, nativeSnapshot, userId, hi
   };
   const model = nativeSnapshot ? cleanString(nativeSettings.model) || cleanString(nativeSettings.checkpoint) || cleanString(finalParameters.model) || connection.model || "" : config.imageModel || connection.model || "";
   if (!nativeSnapshot || config.loraSource !== "native") {
-    for (const key2 of ["loraStack", "loras", "lora", "loraWeights", "lora_weights", "loraModelWeights", "loraClipWeights"])
-      delete finalParameters[key2];
+    for (const key of ["loraStack", "loras", "lora", "loraWeights", "lora_weights", "loraModelWeights", "loraClipWeights"])
+      delete finalParameters[key];
   }
   const activeRelayStack = config.relayLoraStacks.find((stack) => stack.id === config.activeRelayLoraStackId) || null;
   const legacyRelayLoras = normalizeLoraEntries(config.imageLoraStack);
@@ -168990,11 +169024,11 @@ function buildImageParameters(plan, prepared) {
   parameters.preserveImportedWorkflow = parameters.preserveImportedWorkflow ?? true;
   return parameters;
 }
-function hasStoredImageSettings(record4) {
-  return Boolean(record4.finalImageParameters || record4.imageParameters);
+function hasStoredImageSettings(record) {
+  return Boolean(record.finalImageParameters || record.imageParameters);
 }
 function dimensionsForAspect(value) {
-  const normalized2 = cleanString(value).replace(/\s+/g, "");
+  const normalized = cleanString(value).replace(/\s+/g, "");
   const map = {
     "1:1": [1024, 1024],
     "3:2": [1216, 832],
@@ -169006,8 +169040,8 @@ function dimensionsForAspect(value) {
     "16:9": [1344, 768],
     "9:16": [768, 1344]
   };
-  const dims = map[normalized2];
-  return dims ? { width: dims[0], height: dims[1], aspectRatio: normalized2 } : null;
+  const dims = map[normalized];
+  return dims ? { width: dims[0], height: dims[1], aspectRatio: normalized } : null;
 }
 function buildSlotOverrides(job, provider = "") {
   const overrides = {};
@@ -169023,7 +169057,7 @@ function buildSlotOverrides(job, provider = "") {
 }
 function extractNativeParameters(settings) {
   const base = cloneRecord(settings.parameters);
-  for (const key2 of [
+  for (const key of [
     "vae",
     "steps",
     "cfg",
@@ -169051,8 +169085,8 @@ function extractNativeParameters(settings) {
     "swarmui",
     "swarm"
   ]) {
-    if (settings[key2] !== undefined)
-      base[key2] = cloneValue(settings[key2]);
+    if (settings[key] !== undefined)
+      base[key] = cloneValue(settings[key]);
   }
   return base;
 }
@@ -169207,9 +169241,9 @@ function fallbackProviderBlockedFragments(pipeline) {
   for (const binding of pipeline.identityResolution?.bindings || []) {
     for (const value of [binding.prompt, ...binding.removedSceneFragments || []]) {
       for (const fragment of cleanString(value).split(/[,\n]+/)) {
-        const key2 = normalizedPromptFragment2(fragment);
-        if (key2)
-          blocked.add(key2);
+        const key = normalizedPromptFragment2(fragment);
+        if (key)
+          blocked.add(key);
       }
     }
   }
@@ -169219,15 +169253,15 @@ function sanitizeFallbackProviderAddition(value, blocked) {
   const kept = [];
   const removed = [];
   for (const fragment of cleanString(value).split(/[,\n]+/)) {
-    const clean4 = fragment.trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
-    if (!clean4)
+    const clean = fragment.trim().replace(/^[,;\s]+|[,;\s]+$/g, "");
+    if (!clean)
       continue;
-    const key2 = normalizedPromptFragment2(clean4);
-    const labeledIdentityDump = /^active\s+(?:character|persona)\s*\([^)]*\)\s*:/i.test(clean4);
-    if (labeledIdentityDump || blocked.has(key2))
-      removed.push(clean4);
+    const key = normalizedPromptFragment2(clean);
+    const labeledIdentityDump = /^active\s+(?:character|persona)\s*\([^)]*\)\s*:/i.test(clean);
+    if (labeledIdentityDump || blocked.has(key))
+      removed.push(clean);
     else
-      kept.push(clean4);
+      kept.push(clean);
   }
   return { prompt: mergePromptFragmentsUnique(kept.join(", ")), removed };
 }
@@ -169276,8 +169310,8 @@ function filterBaseTagsForTarget(baseTags, job, classification, highResMode = fa
   const retainedForHighRes = [];
   const omitted = [];
   for (const tag of tags) {
-    const normalized2 = normalizeBaseTag(tag);
-    const explicitlyRequested = authoritativeLower.includes(normalized2);
+    const normalized = normalizeBaseTag(tag);
+    const explicitlyRequested = authoritativeLower.includes(normalized);
     if (specialIntent && specialConflict.test(tag) && !explicitlyRequested) {
       omitted.push({ tag, group: "special-intent fidelity", reason: `${normalizeImageIntent(job.intent)} intent suppresses conflicting polished/editorial base styling` });
       continue;
@@ -169285,12 +169319,12 @@ function filterBaseTagsForTarget(baseTags, job, classification, highResMode = fa
     if (directSurface && !explicitlyRequested) {
       omitted.push({
         tag,
-        group: humanAppearance.has(normalized2) ? "human appearance" : "direct-surface fidelity",
+        group: humanAppearance.has(normalized) ? "human appearance" : "direct-surface fidelity",
         reason: `${classification} requests use the authoritative surface prompt without inherited LoRA base-tag styling unless that exact tag was explicitly requested`
       });
       continue;
     }
-    if (humanAppearance.has(normalized2) && !requestHasVisibleFace(classification)) {
+    if (humanAppearance.has(normalized) && !requestHasVisibleFace(classification)) {
       omitted.push({ tag, group: "human appearance", reason: "human appearance base tag conflicts with a non-face image request" });
       continue;
     }
@@ -169298,12 +169332,12 @@ function filterBaseTagsForTarget(baseTags, job, classification, highResMode = fa
       retained.push(tag);
       continue;
     }
-    if (qualityPolish.has(normalized2) && !highResMode) {
+    if (qualityPolish.has(normalized) && !highResMode) {
       omitted.push({ tag, group: "quality/polish", reason: "conflicts with the authoritative imperfect, distant, or evidentiary capture intent" });
       continue;
     }
-    if (qualityPolish.has(normalized2) && highResMode) {
-      const faceSpecific = normalized2 === "detailed face" || normalized2 === "detailed eyes";
+    if (qualityPolish.has(normalized) && highResMode) {
+      const faceSpecific = normalized === "detailed face" || normalized === "detailed eyes";
       const distantOrObstructed = framingCues.some((cue) => /distance|obstruction|surveillance/i.test(cue));
       if (faceSpecific && (!requestHasVisibleFace(classification) || distantOrObstructed)) {
         omitted.push({ tag, group: "quality/polish", reason: "face-detail emphasis would fight the preserved distant, obstructed, or non-face framing even in high-res mode" });
@@ -169313,8 +169347,8 @@ function filterBaseTagsForTarget(baseTags, job, classification, highResMode = fa
       retainedForHighRes.push(tag);
       continue;
     }
-    if (lightingComposition.has(normalized2)) {
-      if (highResMode && authoritativeLower.includes(normalized2)) {
+    if (lightingComposition.has(normalized)) {
+      if (highResMode && authoritativeLower.includes(normalized)) {
         retained.push(tag);
         retainedForHighRes.push(tag);
         continue;
@@ -169348,21 +169382,21 @@ function filterBaseTagsForTarget(baseTags, job, classification, highResMode = fa
   };
 }
 function detectPreservedFramingCues(job) {
-  const text3 = `${job.originalSceneBrief} ${job.caption || ""} ${job.alt || ""}`;
+  const text = `${job.originalSceneBrief} ${job.caption || ""} ${job.alt || ""}`;
   const cues = [];
-  if (/\b(from a distance|distant|far away|long shot|wide shot)\b/i.test(text3))
+  if (/\b(from a distance|distant|far away|long shot|wide shot)\b/i.test(text))
     cues.push("subject distance");
-  if (/\b(obstructed|obstruction|partially hidden|through (?:a |the )?(?:gate|fence|window)|behind (?:a |the )?(?:gate|fence|window))\b/i.test(text3))
+  if (/\b(obstructed|obstruction|partially hidden|through (?:a |the )?(?:gate|fence|window)|behind (?:a |the )?(?:gate|fence|window))\b/i.test(text))
     cues.push("visible obstruction");
-  if (/\b(off[- ]center|crooked|imperfect(?:ly)? framed|accidental framing)\b/i.test(text3))
+  if (/\b(off[- ]center|crooked|imperfect(?:ly)? framed|accidental framing)\b/i.test(text))
     cues.push("off-center imperfect framing");
-  if (/\b(handheld|phone[- ]camera|smartphone|anonymous[- ]phone|camera phone)\b/i.test(text3))
+  if (/\b(handheld|phone[- ]camera|smartphone|anonymous[- ]phone|camera phone)\b/i.test(text))
     cues.push("handheld phone-camera perspective");
-  if (/\b(grainy|mild grain|motion softness|motion blur|out[- ]of[- ]focus|soft focus|low[- ]resolution)\b/i.test(text3))
+  if (/\b(grainy|mild grain|motion softness|motion blur|out[- ]of[- ]focus|soft focus|low[- ]resolution)\b/i.test(text))
     cues.push("requested grain or focus softness");
-  if (/\b(evidence|surveillance|paparazzi|cctv|security camera|stalker|candid)\b/i.test(text3))
+  if (/\b(evidence|surveillance|paparazzi|cctv|security camera|stalker|candid)\b/i.test(text))
     cues.push("candid evidence or surveillance intent");
-  if (/\bselfie\b/i.test(text3))
+  if (/\bselfie\b/i.test(text))
     cues.push("believable selfie framing");
   return [...new Set(cues)];
 }
@@ -169503,9 +169537,9 @@ function cloneValue(value) {
 }
 function firstString(...values) {
   for (const value of values) {
-    const clean4 = cleanString(value);
-    if (clean4)
-      return clean4;
+    const clean = cleanString(value);
+    if (clean)
+      return clean;
   }
   return "";
 }
@@ -169518,14 +169552,14 @@ function requiresWorkflow(plan) {
   const metadata = plan.connection?.metadata;
   if (!metadata || typeof metadata !== "object")
     return false;
-  const record4 = metadata;
-  return record4.comfyui?.requires_workflow === true || record4.comfyui?.requiresWorkflow === true;
+  const record = metadata;
+  return record.comfyui?.requires_workflow === true || record.comfyui?.requiresWorkflow === true;
 }
 function readComfyConfig(metadata) {
   if (!metadata || typeof metadata !== "object")
     return null;
-  const record4 = metadata;
-  const comfy = record4.comfyui && typeof record4.comfyui === "object" ? record4.comfyui : record4.swarmui;
+  const record = metadata;
+  const comfy = record.comfyui && typeof record.comfyui === "object" ? record.comfyui : record.swarmui;
   if (!comfy || typeof comfy !== "object")
     return null;
   const workflow = comfy.workflow_api_json || comfy.workflow_json || comfy.workflow || null;
@@ -169581,15 +169615,17 @@ async function buildParserContext(job, messages, targetIndex, config, _userId, n
   const profileDecision = resolvePromptProfileDecision(job, config);
   const castRequirements = c5aCastRequirements(job.cast);
   const suppressIdentityContext = profileDecision.suppressedContext.some((item) => item.source.includes("character/persona"));
-  const characterApplicable = humanPolicy.allowHumanContext && (castRequirements.character || !job.cast && !suppressIdentityContext && requestDepictsCharacter(classification, job.originalSceneBrief));
+  const characterCandidate = humanPolicy.allowHumanContext && (castRequirements.character || !job.cast && !suppressIdentityContext && requestDepictsCharacter(classification, job.originalSceneBrief));
   const personaApplicable = humanPolicy.allowHumanContext && (castRequirements.persona || !job.cast && !suppressIdentityContext && requestDepictsPersona(classification, job.originalSceneBrief));
   const nativeIncludeCharacters = typeof nativeSettings?.includeCharacters === "boolean" ? nativeSettings.includeCharacters : config.nativeIncludeCharacters;
   const nativeIncludePersona = typeof nativeSettings?.includePersona === "boolean" ? nativeSettings.includePersona : config.nativeIncludePersona;
   const promptPresets = clonePromptPresets(nativeSettings?.promptPresets ?? config.nativePromptPresets);
   const [activeCharacter, activePersona] = await Promise.all([
-    characterApplicable ? readChatCharacterIdentity(job.chatId, _userId).catch(() => null) : Promise.resolve(null),
+    characterCandidate ? readChatCharacterIdentity(job.chatId, _userId).catch(() => null) : Promise.resolve(null),
     personaApplicable ? readCurrentHostPersona(_userId, job.chatId) : Promise.resolve(null)
   ]);
+  const characterOwnership = resolveActiveCharacterOwnership(job, classification, activeCharacter);
+  const characterApplicable = characterCandidate && characterOwnership.applies;
   const state = await getState(job.chatId, _userId);
   const [characterCard, personaCard, lorebookContext] = await Promise.all([
     characterApplicable ? readCharacterContext(job.chatId, _userId, job.originalSceneBrief) : Promise.resolve(""),
@@ -169669,11 +169705,11 @@ async function buildParserContext(job, messages, targetIndex, config, _userId, n
   ].filter(Boolean).map((value) => value.toLocaleLowerCase().replace(/[\s_-]+/g, "")));
   const independentlyMatchedNpcSubjects = matchedSubjects.filter((subject) => {
     const keys = [subject.id || "", subject.name || ""].map((value) => cleanString(value).toLocaleLowerCase().replace(/[\s_-]+/g, ""));
-    return !keys.some((key2) => key2 && activeSubjectKeys.has(key2));
+    return !keys.some((key) => key && activeSubjectKeys.has(key));
   });
   const visualSubjects = job.cast ? [...castSubjects, ...independentlyMatchedNpcSubjects].filter((subject, index, all) => {
-    const key2 = cleanString(subject.id || subject.name).toLocaleLowerCase().replace(/[\s_-]+/g, "");
-    return Boolean(key2) && all.findIndex((candidate) => cleanString(candidate.id || candidate.name).toLocaleLowerCase().replace(/[\s_-]+/g, "") === key2) === index;
+    const key = cleanString(subject.id || subject.name).toLocaleLowerCase().replace(/[\s_-]+/g, "");
+    return Boolean(key) && all.findIndex((candidate) => cleanString(candidate.id || candidate.name).toLocaleLowerCase().replace(/[\s_-]+/g, "") === key) === index;
   }) : matchedSubjects;
   const appliedIdentityBindingIds = identityBindings.filter((binding) => visualSubjects.some((subject) => {
     if (subject.kind !== binding.kind)
@@ -169693,8 +169729,10 @@ async function buildParserContext(job, messages, targetIndex, config, _userId, n
     gated.push("Character identity unresolved after native \u2192 Appearance Memory \u2192 Character card fallback");
   if (includePersona && !personaPrompt)
     gated.push("Persona identity unresolved after native \u2192 Appearance Memory \u2192 Persona card fallback");
-  if (config.includeCharacterInfo && !characterApplicable)
+  if (config.includeCharacterInfo && !characterCandidate)
     gated.push(`${classification} request uses environment or object context`);
+  if (characterCandidate && !characterOwnership.applies)
+    gated.push(characterOwnership.reason);
   if (config.includePersonaInfo && !personaApplicable)
     gated.push(`${classification} request uses non-persona context`);
   const gatingReason = visualSubjects.length ? `matched depicted subject preset${visualSubjects.length === 1 ? "" : "s"} by name: ${visualSubjects.map((subject) => subject.name).join(", ")}` : gated.join("; ") || "requested visual identity context is applicable";
@@ -169889,17 +169927,17 @@ function extractBalancedJsonObject(value) {
   return "";
 }
 function decodeLooseJsonString(value) {
-  const clean4 = value.trim();
-  if (!clean4)
+  const clean = value.trim();
+  if (!clean)
     return "";
   try {
-    return JSON.parse(`"${clean4.replace(/\r?\n/g, "\\n")}"`);
+    return JSON.parse(`"${clean.replace(/\r?\n/g, "\\n")}"`);
   } catch {}
-  return clean4.replace(/\\n/g, " ").replace(/\\r/g, " ").replace(/\\t/g, " ").replace(/\\"/g, '"').replace(/\\\\/g, "\\").trim();
+  return clean.replace(/\\n/g, " ").replace(/\\r/g, " ").replace(/\\t/g, " ").replace(/\\"/g, '"').replace(/\\\\/g, "\\").trim();
 }
 function extractLooseJsonStringField(value, keys) {
-  for (const key2 of keys) {
-    const escapedKey = escapeRegExp3(key2);
+  for (const key of keys) {
+    const escapedKey = escapeRegExp3(key);
     const quoted = new RegExp(`["']${escapedKey}["']\\s*:\\s*["']((?:\\\\.|[^"'\\\\])*)(?:["']|$)`, "is").exec(value);
     if (quoted?.[1])
       return decodeLooseJsonString(quoted[1]);
@@ -169913,26 +169951,26 @@ function extractLooseJsonStringField(value, keys) {
 function parsedPromptFields(parsed) {
   const nested = parsed.data && typeof parsed.data === "object" && !Array.isArray(parsed.data) ? parsed.data : parsed.result && typeof parsed.result === "object" && !Array.isArray(parsed.result) ? parsed.result : parsed;
   const promptKeys = ["prompt", "positivePrompt", "positive_prompt", "finalPrompt", "final_prompt", "text", "content"];
-  const prompt = promptKeys.map((key2) => typeof nested[key2] === "string" ? cleanString(nested[key2]) : "").find(Boolean) || "";
+  const prompt = promptKeys.map((key) => typeof nested[key] === "string" ? cleanString(nested[key]) : "").find(Boolean) || "";
   const hasLegacy = typeof nested.negativePrompt === "string" && typeof nested.negativeAdditions !== "string";
   const negativeAdditions = typeof nested.negativeAdditions === "string" ? cleanString(nested.negativeAdditions) : typeof nested.negative_prompt === "string" ? cleanString(nested.negative_prompt) : typeof nested.negativePrompt === "string" ? cleanString(nested.negativePrompt) : "";
   return prompt ? { prompt, negativeAdditions, legacyNegativePrompt: hasLegacy } : null;
 }
 function parsePromptJson(raw) {
-  const clean4 = stripParserCodeFences(raw);
-  if (!clean4)
+  const clean = stripParserCodeFences(raw);
+  if (!clean)
     throw new Error("Parser returned an empty response.");
-  const balanced = extractBalancedJsonObject(clean4);
+  const balanced = extractBalancedJsonObject(clean);
   if (balanced) {
     try {
       const parsed = parsedPromptFields(JSON.parse(balanced));
       if (parsed)
-        return { ...parsed, recoveryMethod: balanced === clean4 ? undefined : "balanced-json" };
+        return { ...parsed, recoveryMethod: balanced === clean ? undefined : "balanced-json" };
     } catch {}
   }
-  const firstBrace = clean4.indexOf("{");
+  const firstBrace = clean.indexOf("{");
   if (firstBrace >= 0) {
-    let repaired = clean4.slice(firstBrace).trim();
+    let repaired = clean.slice(firstBrace).trim();
     repaired = repaired.replace(/,\s*$/, "");
     const quoteCount = (repaired.match(/(?<!\\)"/g) || []).length;
     if (quoteCount % 2 === 1)
@@ -169947,17 +169985,17 @@ function parsePromptJson(raw) {
         return { ...parsed, recoveryMethod: "repaired-json" };
     } catch {}
   }
-  const prompt = extractLooseJsonStringField(clean4, ["prompt", "positivePrompt", "positive_prompt", "finalPrompt", "final_prompt"]);
-  const negativeAdditions = extractLooseJsonStringField(clean4, ["negativeAdditions", "negative_prompt", "negativePrompt"]);
+  const prompt = extractLooseJsonStringField(clean, ["prompt", "positivePrompt", "positive_prompt", "finalPrompt", "final_prompt"]);
+  const negativeAdditions = extractLooseJsonStringField(clean, ["negativeAdditions", "negative_prompt", "negativePrompt"]);
   if (prompt) {
     return {
       prompt,
       negativeAdditions,
-      legacyNegativePrompt: !/negativeAdditions/i.test(clean4) && /negativePrompt/i.test(clean4),
+      legacyNegativePrompt: !/negativeAdditions/i.test(clean) && /negativePrompt/i.test(clean),
       recoveryMethod: "field-salvage"
     };
   }
-  const plain = clean4.replace(/^Here(?:'s| is) (?:the )?(?:strict )?JSON:?/i, "").replace(/^Final (?:positive )?prompt:?/i, "").trim();
+  const plain = clean.replace(/^Here(?:'s| is) (?:the )?(?:strict )?JSON:?/i, "").replace(/^Final (?:positive )?prompt:?/i, "").trim();
   if (!/[{}]/.test(plain) && plain.length >= 24 && !/^(?:error|unable|cannot|sorry)\b/i.test(plain)) {
     return { prompt: plain, negativeAdditions: "", legacyNegativePrompt: false, recoveryMethod: "plain-text" };
   }
@@ -169983,18 +170021,18 @@ function buildParserFallbackPrompt(job, slot, config, context, nativeSettings, c
   const positivePrompt = contextualSexual.prompt;
   const snapshotNativeNegative = firstString(nativeSettings?.customNegativePrompt, nativeSettings?.negativePrompt, config.nativeNegativePrompt);
   const nativeNegative = humanPolicy.allowHumanPrompt ? resolveSubjectNegativeMacros(snapshotNativeNegative, context.subjectNegativePrompt) : snapshotNativeNegative;
-  const normalized2 = normalizeNegativePrompts({
+  const normalized = normalizeNegativePrompts({
     native: nativeNegative,
     request: job.originalNegativePrompt,
     subject: humanPolicy.allowHumanPrompt ? context.subjectNegativePrompt : "",
     parser: contextualSexual.negativePrompt,
     router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : "", config.additionalNegativePrompt].filter(Boolean).join(", ")
   });
-  const humanConflict = humanPolicy.allowHumanPrompt ? removeConflictingHumanNegatives(normalized2.negative) : { negative: normalized2.negative, removed: [] };
-  normalized2.negative = humanConflict.negative;
-  normalized2.pipeline.finalNormalizedNegativePrompt = humanConflict.negative;
+  const humanConflict = humanPolicy.allowHumanPrompt ? removeConflictingHumanNegatives(normalized.negative) : { negative: normalized.negative, removed: [] };
+  normalized.negative = humanConflict.negative;
+  normalized.pipeline.finalNormalizedNegativePrompt = humanConflict.negative;
   const pipeline = {
-    ...normalized2.pipeline,
+    ...normalized.pipeline,
     contextCaption: job.caption,
     rawNativeParserTemplate: context.rawTemplate,
     resolvedNativeParserInstructions: context.resolvedTemplate,
@@ -170049,7 +170087,7 @@ function buildParserFallbackPrompt(job, slot, config, context, nativeSettings, c
     identityResolution: c5aIdentityResolution(job, context, identityCorrection),
     ...c5aPromptLengthMetrics(context, identityCorrection, positivePrompt),
     warnings: [
-      ...normalized2.pipeline.warnings,
+      ...normalized.pipeline.warnings,
       ...c5aIdentityWarnings(context, identityCorrection.corrections),
       {
         code: "parser-fallback-used",
@@ -170058,12 +170096,12 @@ function buildParserFallbackPrompt(job, slot, config, context, nativeSettings, c
       },
       ...context.unresolvedMacros.map((macro) => ({ code: "unresolved-parser-macro", message: `${macro} could not be resolved from active context.`, sources: ["native parser template"] })),
       ...humanConflict.removed.length ? [{ code: "human-negative-conflict-repaired", message: `Removed generic human-suppression negatives from an explicit people scene: ${humanConflict.removed.join(", ")}`, sources: ["defensive prompt conflict check"] }] : [],
-      ...promptWarnings(positivePrompt, normalized2.negative, normalized2.pipeline)
+      ...promptWarnings(positivePrompt, normalized.negative, normalized.pipeline)
     ]
   };
   return {
     prompt: positivePrompt,
-    negativePrompt: normalized2.negative,
+    negativePrompt: normalized.negative,
     promptMode: `router_parser_fallback${config.nativePromptMode ? `:${config.nativePromptMode}` : ""}`,
     promptPresetId: config.nativePromptPresetId,
     parserUsed: true,
@@ -170135,55 +170173,55 @@ async function getConfig(userId) {
   return value;
 }
 async function mutateConfigAtomic(mutator, userId) {
-  const key2 = userConfigCacheKey(userId);
-  const previous = configMutationQueues.get(key2) || Promise.resolve();
+  const key = userConfigCacheKey(userId);
+  const previous = configMutationQueues.get(key) || Promise.resolve();
   let release = () => {};
   const pending = new Promise((resolve) => {
     release = resolve;
   });
   const queued = previous.then(() => pending);
-  configMutationQueues.set(key2, queued);
+  configMutationQueues.set(key, queued);
   await previous;
   try {
     const current = await getConfig(userId);
     const next = normalizeConfig(mutator(current));
     await spindle.userStorage.setJson(CONFIG_PATH, next, { indent: 2, userId });
-    configStorageHydratedScopes.add(key2);
-    configCache.set(key2, { value: next, cachedAt: Date.now() });
+    configStorageHydratedScopes.add(key);
+    configCache.set(key, { value: next, cachedAt: Date.now() });
     if (renderConfigurationFingerprint(current) !== renderConfigurationFingerprint(next)) {
       invalidateRenderCaches(undefined, userId);
     }
     return next;
   } finally {
     release();
-    if (configMutationQueues.get(key2) === queued)
-      configMutationQueues.delete(key2);
+    if (configMutationQueues.get(key) === queued)
+      configMutationQueues.delete(key);
   }
 }
 function sanitizeOrbCustomIconDataUrl(value) {
-  const text3 = cleanString(value);
-  if (!text3 || text3.length > 3000000)
+  const text = cleanString(value);
+  if (!text || text.length > 3000000)
     return "";
-  return /^data:image\/(?:png|jpe?g|webp|gif|svg\+xml);base64,[a-z0-9+/=\s]+$/i.test(text3) ? text3 : "";
+  return /^data:image\/(?:png|jpe?g|webp|gif|svg\+xml);base64,[a-z0-9+/=\s]+$/i.test(text) ? text : "";
 }
 function normalizeNarrativeUtilityOverrides(value) {
   if (!value || typeof value !== "object" || Array.isArray(value))
     return {};
   const allowed = new Set(narrativeUtilityNames());
-  const normalized2 = {};
+  const normalized = {};
   for (const [name, candidate] of Object.entries(value)) {
     if (!allowed.has(name) || !candidate || typeof candidate !== "object" || Array.isArray(candidate))
       continue;
-    const record4 = candidate;
-    if (typeof record4.content !== "string" || !record4.content.trim())
+    const record = candidate;
+    if (typeof record.content !== "string" || !record.content.trim())
       continue;
-    normalized2[name] = {
-      content: record4.content,
-      revision: Math.max(1, Math.floor(Number(record4.revision) || 1)),
-      updatedAt: Math.max(0, Number(record4.updatedAt) || 0)
+    normalized[name] = {
+      content: record.content,
+      revision: Math.max(1, Math.floor(Number(record.revision) || 1)),
+      updatedAt: Math.max(0, Number(record.updatedAt) || 0)
     };
   }
-  return normalized2;
+  return normalized;
 }
 function normalizeConfig(raw) {
   const legacy = raw;
@@ -170293,9 +170331,9 @@ function normalizeConfig(raw) {
   };
 }
 function normalizeOrbPosition(value, fallback) {
-  const record4 = cleanParameters(value);
-  const x = Number(record4.x);
-  const y = Number(record4.y);
+  const record = cleanParameters(value);
+  const x = Number(record.x);
+  const y = Number(record.y);
   return {
     x: Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : fallback.x,
     y: Number.isFinite(y) ? Math.max(0, Math.min(1, y)) : fallback.y
@@ -170377,8 +170415,8 @@ function normalizeBackgroundQueue(value) {
   const raw = cleanParameters(value);
   const itemsRaw = cleanParameters(raw.items);
   const items = {};
-  for (const [id, value2] of Object.entries(itemsRaw)) {
-    const row = cleanParameters(value2);
+  for (const [id, value] of Object.entries(itemsRaw)) {
+    const row = cleanParameters(value);
     const stage = cleanString(row.stage);
     if (!id || !stage)
       continue;
@@ -170407,8 +170445,8 @@ function normalizeBackgroundQueue(value) {
 function normalizeGalleryLinks(value) {
   const raw = cleanParameters(value);
   const out = {};
-  for (const [id, value2] of Object.entries(raw)) {
-    const row = cleanParameters(value2);
+  for (const [id, value] of Object.entries(raw)) {
+    const row = cleanParameters(value);
     const imageId = cleanString(row.imageId);
     const chatId = cleanString(row.chatId);
     const characterId = cleanString(row.characterId);
@@ -170576,19 +170614,19 @@ function streamEventType(event) {
 }
 function streamImageValue(value) {
   if (typeof value === "string") {
-    const text3 = value.trim();
-    return /^(?:data:image\/|blob:|https?:\/\/|\/)/i.test(text3) ? text3 : "";
+    const text = value.trim();
+    return /^(?:data:image\/|blob:|https?:\/\/|\/)/i.test(text) ? text : "";
   }
   if (!value || typeof value !== "object")
     return "";
-  const record4 = value;
-  for (const key2 of ["previewImageDataUrl", "imageDataUrl", "dataUrl", "imageUrl", "url", "src"]) {
-    const found = streamImageValue(record4[key2]);
+  const record = value;
+  for (const key of ["previewImageDataUrl", "imageDataUrl", "dataUrl", "imageUrl", "url", "src"]) {
+    const found = streamImageValue(record[key]);
     if (found)
       return found;
   }
-  for (const key2 of ["preview", "image", "output", "result", "data", "payload"]) {
-    const found = streamImageValue(record4[key2]);
+  for (const key of ["preview", "image", "output", "result", "data", "payload"]) {
+    const found = streamImageValue(record[key]);
     if (found)
       return found;
   }
@@ -170650,6 +170688,8 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     abortPropagatedAt: 0,
     providerLaneReleasedAt: 0,
     providerLaneReleaseCount: 0,
+    providerLaneWaiterCountAtAcquire: 0,
+    providerLaneWaiterCountAtRelease: 0,
     terminalResolutionCount: 0,
     cleanupCount: 0
   });
@@ -170743,21 +170783,21 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     };
     const runStandardGeneration = async () => {
       startProviderSpend("standard");
-      let providerSettled2 = false;
-      let providerOperation2;
+      let providerSettled = false;
+      let providerOperation;
       try {
-        providerOperation2 = Promise.resolve(api.generate(standardInput));
+        providerOperation = Promise.resolve(api.generate(standardInput));
       } catch (error) {
-        providerOperation2 = Promise.reject(error);
+        providerOperation = Promise.reject(error);
       }
-      providerOperation2.then(() => {
-        providerSettled2 = true;
+      providerOperation.then(() => {
+        providerSettled = true;
       }, () => {
-        providerSettled2 = true;
+        providerSettled = true;
       });
       startProviderLifecycleReporting();
       try {
-        const result2 = await withImageGenerationDeadline(() => providerOperation2, controller, timeoutMs);
+        const result = await withImageGenerationDeadline(() => providerOperation, controller, timeoutMs);
         const completedAt = Date.now();
         diagnostic.providerTransportCompletedAt ||= completedAt;
         diagnostic.providerPayloadReceivedAt ||= completedAt;
@@ -170765,11 +170805,11 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
         await settleProviderLifecycleReporting();
         assertDestinationAvailable();
         reportProviderCompleted();
-        return result2;
+        return result;
       } catch (error) {
         diagnostic.providerInvocationRejectedAt ||= Date.now();
-        if (!providerSettled2 && laneLease && (controller.signal.aborted || error instanceof ImageGenerationTimeoutError || isAbortError(error))) {
-          releaseAbortedImageGenerationLane(laneLease, providerOperation2, controller.signal.reason || error);
+        if (!providerSettled && laneLease && (controller.signal.aborted || error instanceof ImageGenerationTimeoutError || isAbortError(error))) {
+          releaseAbortedImageGenerationLane(laneLease, providerOperation, controller.signal.reason || error);
           laneLease = null;
         }
         throw error;
@@ -170790,16 +170830,16 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     if (!canStream || !api.generateStream) {
       if (controller.signal.aborted)
         throw abortError();
-      const result2 = await runStandardGeneration();
+      const result = await runStandardGeneration();
       if (controller.signal.aborted)
         throw abortError();
-      const finalPreview = streamImageValue(result2);
+      const finalPreview = streamImageValue(result);
       if (finalPreview)
         sendImageStreamEvent(userId, context, { event: "preview", previewImageDataUrl: finalPreview, streaming: false, statusText: "Final preview ready." });
       sendImageStreamEvent(userId, context, { event: "done", streaming: false, statusText: "Generation complete." });
       assertDestinationAvailable();
       resolveTerminal("success");
-      return result2;
+      return result;
     }
     let result = null;
     startProviderSpend("stream");
@@ -170911,9 +170951,9 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
       throw timeoutError;
     }
     if (diagnostic.providerDispatchCount === 0) {
-      const message2 = error instanceof Error ? error.message : String(error);
+      const message = error instanceof Error ? error.message : String(error);
       resolveTerminal("preflight-error");
-      sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Generation could not start.", error: message2 });
+      sendImageStreamEvent(userId, context, { event: "error", streaming: false, statusText: "Generation could not start.", error: message });
       throw error;
     }
     if (isAbortError(error) || controller.signal.aborted) {
@@ -170934,7 +170974,46 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     diagnostic.completedAt = diagnostic.completedAt || Date.now();
     if (!diagnostic.terminalState)
       resolveTerminal(diagnostic.providerDispatchCount ? "error" : "preflight-error");
+    const laneState = inspectImageGenerationLaneDiagnostics(userId);
+    diagnostic.providerLaneStateSnapshot = laneState ? {
+      active: laneState.active,
+      draining: laneState.draining,
+      activeGenerationId: laneState.activeGenerationId,
+      waiterCount: laneState.waiterCount,
+      laneResetCount: laneState.laneResetCount,
+      capturedAt: Date.now()
+    } : { active: false, draining: false, waiterCount: 0, capturedAt: Date.now() };
+    try {
+      await context.onAttemptDiagnosticFinalized?.(cloneValue(diagnostic));
+    } catch (error) {
+      spindle.log.warn(`[ReverieRelay:provider_diagnostic_persistence_failure] ${context.generationId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
+}
+function retainProviderAttemptDiagnostic(record, diagnostic) {
+  const snapshot = cloneValue(diagnostic);
+  const attempt = currentAttempt(record);
+  if (attempt)
+    attempt.providerAttemptDiagnostic = snapshot;
+  const existing = record.diagnostic;
+  record.diagnostic = {
+    slotKey: record.key,
+    generatedAt: Date.now(),
+    proven: {
+      ...existing?.proven || {},
+      originalRequestXml: record.originalRequestXml,
+      originalSceneBrief: record.originalSceneBrief,
+      requestId: record.requestId,
+      slot: record.slot,
+      target: record.target,
+      terminalState: diagnostic.terminalState || "pending",
+      failureReason: diagnostic.failure || ""
+    },
+    inheritedNative: existing?.inheritedNative || {},
+    relayInferred: { ...existing?.relayInferred || {}, providerAttempt: snapshot },
+    unavailable: existing?.unavailable || [],
+    summary: existing?.summary || `${record.target} / ${record.slot} | ${diagnostic.provider || "provider unavailable"} | ${diagnostic.terminalState || "pending"}`
+  };
 }
 async function streamProviderInfo(providerId, userId) {
   try {
@@ -170942,8 +171021,8 @@ async function streamProviderInfo(providerId, userId) {
     if (!api.getProviders)
       return;
     const providers = await api.getProviders(userId);
-    const normalized2 = cleanString(providerId).toLocaleLowerCase();
-    return providers.find((provider) => cleanString(provider.id).toLocaleLowerCase() === normalized2 || cleanString(provider.name).toLocaleLowerCase() === normalized2);
+    const normalized = cleanString(providerId).toLocaleLowerCase();
+    return providers.find((provider) => cleanString(provider.id).toLocaleLowerCase() === normalized || cleanString(provider.name).toLocaleLowerCase() === normalized);
   } catch (error) {
     spindle.log.warn(`[ReverieRelay:image_stream_provider] ${error instanceof Error ? error.message : String(error)}`);
     return;
@@ -171009,8 +171088,8 @@ function migrateState(raw) {
   const migrated = Number(base.schemaVersion) !== STATE_SCHEMA_VERSION;
   if (!state.continuityVault.chatId)
     state.continuityVault.chatId = firstString(Object.values(slots)[0]?.chatId);
-  for (const record4 of Object.values(state.slots))
-    migrateSlotRecord(record4);
+  for (const record of Object.values(state.slots))
+    migrateSlotRecord(record);
   reconstructCompletionStats(state);
   ensureDispatchLeases(state);
   updateQueueSafetySummary(state);
@@ -171018,9 +171097,9 @@ function migrateState(raw) {
     for (const candidate of batch.candidates || [])
       candidate.imageIntent = normalizeImageIntent(candidate.imageIntent);
   rebuildAssetLibraryAndVersionTrees(state);
-  for (const key2 of Object.keys(state.queueDirector.jobStatuses || {})) {
-    if (key2.startsWith("storyboard:"))
-      delete state.queueDirector.jobStatuses[key2];
+  for (const key of Object.keys(state.queueDirector.jobStatuses || {})) {
+    if (key.startsWith("storyboard:"))
+      delete state.queueDirector.jobStatuses[key];
   }
   if (migrated) {
     appendStateLog(state, {
@@ -171044,24 +171123,24 @@ async function exportQueueDispatchDiagnostic(chatId, userId) {
   const snapshot = nativeSnapshotFromConfig(config);
   const freshness = classifyNativeSettings(snapshot?.capturedAt);
   const now = Date.now();
-  const jobs = Object.values(state.slots).filter((record4) => ["queued", "awaiting-native-settings", "paused-backlog", "parsing", "provider-waiting", "generating", "placement-pending"].includes(record4.status)).map((record4) => {
-    const lease = state.dispatchLeases[canonicalDispatchKey(record4)];
+  const jobs = Object.values(state.slots).filter((record) => ["queued", "awaiting-native-settings", "paused-backlog", "parsing", "provider-waiting", "generating", "placement-pending"].includes(record.status)).map((record) => {
+    const lease = state.dispatchLeases[canonicalDispatchKey(record)];
     return {
-      dispatchKey: lease?.dispatchKey || canonicalDispatchKey(record4),
-      chatId: record4.chatId,
-      messageId: record4.messageId,
-      swipeId: record4.swipeId,
-      requestId: record4.requestId,
-      slot: record4.slot,
-      status: record4.status,
-      discoveredAt: record4.discoveredAt || record4.createdAt,
+      dispatchKey: lease?.dispatchKey || canonicalDispatchKey(record),
+      chatId: record.chatId,
+      messageId: record.messageId,
+      swipeId: record.swipeId,
+      requestId: record.requestId,
+      slot: record.slot,
+      status: record.status,
+      discoveredAt: record.discoveredAt || record.createdAt,
       dispatchEligibleAt: lease?.dispatchEligibleAt || 0,
       dispatchedAt: lease?.dispatchedAt || 0,
-      awaitingNativeSettingsMs: record4.status === "awaiting-native-settings" ? Math.max(0, now - (record4.queuedAt || record4.discoveredAt || record4.createdAt)) : 0,
+      awaitingNativeSettingsMs: record.status === "awaiting-native-settings" ? Math.max(0, now - (record.queuedAt || record.discoveredAt || record.createdAt)) : 0,
       settingsSource: lease?.settingsSource || freshness.source,
       settingsAgeMs: Number.isFinite(lease?.settingsAgeMs) ? lease.settingsAgeMs : freshness.ageMs,
       dispatchReason: lease?.dispatchReason || "",
-      timing: generationTimingForRecord(record4, now)
+      timing: generationTimingForRecord(record, now)
     };
   });
   spindle.sendToFrontend({
@@ -171104,15 +171183,15 @@ async function sendCompletedHistoryPage(chatId, cursor = 0, limit = COMPLETED_HI
   const state = await getState(chatId, userId);
   const safeCursor = Math.max(0, Number(cursor) || 0);
   const safeLimit = Math.max(1, Math.min(COMPLETED_HISTORY_PAGE_SIZE, Number(limit) || COMPLETED_HISTORY_PAGE_SIZE));
-  const rows2 = Object.values(state.completedArchive).sort((left, right) => right.completedAt - left.completedAt);
+  const rows = Object.values(state.completedArchive).sort((left, right) => right.completedAt - left.completedAt);
   spindle.sendToFrontend({
     type: "completed_history_page",
     chatId,
     cursor: safeCursor,
     limit: safeLimit,
-    rows: rows2.slice(safeCursor, safeCursor + safeLimit),
-    nextCursor: safeCursor + safeLimit < rows2.length ? safeCursor + safeLimit : null,
-    total: rows2.length,
+    rows: rows.slice(safeCursor, safeCursor + safeLimit),
+    nextCursor: safeCursor + safeLimit < rows.length ? safeCursor + safeLimit : null,
+    total: rows.length,
     completedLifetime: state.stats.completedTotal
   }, userId);
 }
@@ -171139,7 +171218,7 @@ function normalizeRelayChatStats(value) {
     completedTotal: Math.max(0, Number(raw.completedTotal) || 0),
     failedTotal: Math.max(0, Number(raw.failedTotal) || 0),
     cancelledTotal: Math.max(0, Number(raw.cancelledTotal) || 0),
-    completedByTarget: Object.fromEntries(Object.entries(cleanParameters(raw.completedByTarget)).map(([key2, count]) => [key2, Math.max(0, Number(count) || 0)])),
+    completedByTarget: Object.fromEntries(Object.entries(cleanParameters(raw.completedByTarget)).map(([key, count]) => [key, Math.max(0, Number(count) || 0)])),
     updatedAt: Math.max(0, Number(raw.updatedAt) || 0)
   };
 }
@@ -171334,76 +171413,76 @@ function normalizeQueueSafety(value) {
   };
 }
 function reconstructCompletionStats(state) {
-  const completed = Object.values(state.slots).filter((record4) => record4.status === "completed" && Boolean(record4.imageUrl || record4.imageId));
-  for (const record4 of completed) {
-    if (state.countedCompletedKeys[record4.key])
+  const completed = Object.values(state.slots).filter((record) => record.status === "completed" && Boolean(record.imageUrl || record.imageId));
+  for (const record of completed) {
+    if (state.countedCompletedKeys[record.key])
       continue;
-    state.countedCompletedKeys[record4.key] = record4.completedAt || record4.updatedAt || Date.now();
+    state.countedCompletedKeys[record.key] = record.completedAt || record.updatedAt || Date.now();
     state.stats.completedTotal += 1;
     state.stats.generatedTotal = Math.max(state.stats.generatedTotal, state.stats.completedTotal);
-    state.stats.completedByTarget[record4.target] = (state.stats.completedByTarget[record4.target] || 0) + 1;
-    state.stats.updatedAt = Math.max(state.stats.updatedAt, record4.completedAt || record4.updatedAt || 0);
+    state.stats.completedByTarget[record.target] = (state.stats.completedByTarget[record.target] || 0) + 1;
+    state.stats.updatedAt = Math.max(state.stats.updatedAt, record.completedAt || record.updatedAt || 0);
   }
   state.stats.discoveredTotal = Math.max(state.stats.discoveredTotal, Object.keys(state.slots).length, Object.keys(state.countedCompletedKeys).length);
   state.stats.completedTotal = Math.max(state.stats.completedTotal, Object.keys(state.countedCompletedKeys).length);
 }
 function ensureDispatchLeases(state) {
-  for (const record4 of Object.values(state.slots)) {
-    const dispatchKey = canonicalDispatchKey(record4);
+  for (const record of Object.values(state.slots)) {
+    const dispatchKey = canonicalDispatchKey(record);
     if (state.dispatchLeases[dispatchKey])
       continue;
     state.dispatchLeases[dispatchKey] = {
       dispatchKey,
-      attemptId: record4.attemptNumber ? `${dispatchKey}:legacy-${record4.attemptNumber}` : "",
-      status: record4.status === "completed" ? "completed" : record4.status === "placement-repair-needed" ? "placement-repair-needed" : record4.status === "failed" ? "failed" : record4.status === "cancelled" ? "cancelled" : record4.status === "paused-backlog" ? "paused-backlog" : record4.status === "awaiting-native-settings" ? "awaiting-native-settings" : "discovered",
-      discoveredAt: record4.discoveredAt || record4.createdAt || Date.now(),
-      queuedAt: record4.queuedAt,
-      dispatchedAt: record4.generationStartedAt,
-      completedAt: record4.completedAt
+      attemptId: record.attemptNumber ? `${dispatchKey}:legacy-${record.attemptNumber}` : "",
+      status: record.status === "completed" ? "completed" : record.status === "placement-repair-needed" ? "placement-repair-needed" : record.status === "failed" ? "failed" : record.status === "cancelled" ? "cancelled" : record.status === "paused-backlog" ? "paused-backlog" : record.status === "awaiting-native-settings" ? "awaiting-native-settings" : "discovered",
+      discoveredAt: record.discoveredAt || record.createdAt || Date.now(),
+      queuedAt: record.queuedAt,
+      dispatchedAt: record.generationStartedAt,
+      completedAt: record.completedAt
     };
   }
 }
-function migrateSlotRecord(record4) {
-  const now = record4.updatedAt || record4.createdAt || Date.now();
-  record4.imageIntent = normalizeImageIntent(record4.imageIntent);
-  record4.discoveredAt ||= record4.createdAt || now;
-  record4.registeredAt ||= record4.createdAt || now;
-  if (!record4.recoverySource)
-    record4.queuedAt ||= record4.createdAt || now;
-  record4.attempts ||= [];
-  record4.history ||= [];
-  if (record4.targetApp === "prose") {
-    record4.proseImageAlignment = ["left", "center", "right"].includes(cleanString(record4.proseImageAlignment)) ? record4.proseImageAlignment : "center";
-    record4.proseImageSize = ["small", "medium", "large", "full"].includes(cleanString(record4.proseImageSize)) ? record4.proseImageSize : "medium";
+function migrateSlotRecord(record) {
+  const now = record.updatedAt || record.createdAt || Date.now();
+  record.imageIntent = normalizeImageIntent(record.imageIntent);
+  record.discoveredAt ||= record.createdAt || now;
+  record.registeredAt ||= record.createdAt || now;
+  if (!record.recoverySource)
+    record.queuedAt ||= record.createdAt || now;
+  record.attempts ||= [];
+  record.history ||= [];
+  if (record.targetApp === "prose") {
+    record.proseImageAlignment = ["left", "center", "right"].includes(cleanString(record.proseImageAlignment)) ? record.proseImageAlignment : "center";
+    record.proseImageSize = ["small", "medium", "large", "full"].includes(cleanString(record.proseImageSize)) ? record.proseImageSize : "medium";
   }
-  record4.history = record4.history.map((version) => ({ ...version, imageIntent: normalizeImageIntent(version.imageIntent ?? record4.imageIntent), promptPipeline: version.promptPipeline ? { ...version.promptPipeline, imageIntent: normalizeImageIntent(version.promptPipeline.imageIntent ?? version.imageIntent ?? record4.imageIntent) } : version.promptPipeline }));
-  if (record4.status !== "completed" || record4.originalSceneBrief) {
-    record4.promptPipeline ||= emptyPromptPipeline(record4);
-    record4.promptPipeline.imageIntent = normalizeImageIntent(record4.promptPipeline.imageIntent ?? record4.imageIntent);
+  record.history = record.history.map((version) => ({ ...version, imageIntent: normalizeImageIntent(version.imageIntent ?? record.imageIntent), promptPipeline: version.promptPipeline ? { ...version.promptPipeline, imageIntent: normalizeImageIntent(version.promptPipeline.imageIntent ?? version.imageIntent ?? record.imageIntent) } : version.promptPipeline }));
+  if (record.status !== "completed" || record.originalSceneBrief) {
+    record.promptPipeline ||= emptyPromptPipeline(record);
+    record.promptPipeline.imageIntent = normalizeImageIntent(record.promptPipeline.imageIntent ?? record.imageIntent);
   }
-  if (record4.recoverySource && !record4.recoveryCompleteness) {
-    record4.recoveryCompleteness = record4.recoverySource === "unresolved-request" ? "full" : "marker-only";
+  if (record.recoverySource && !record.recoveryCompleteness) {
+    record.recoveryCompleteness = record.recoverySource === "unresolved-request" ? "full" : "marker-only";
   }
-  if (record4.recoveryCompleteness === "marker-only" && !record4.missingRecoveryFields) {
-    record4.missingRecoveryFields = ["originalSceneBrief", "originalRequestXml", "resolvedPrompt", "generationSettings", "parserOutput", "attempts", "history"];
+  if (record.recoveryCompleteness === "marker-only" && !record.missingRecoveryFields) {
+    record.missingRecoveryFields = ["originalSceneBrief", "originalRequestXml", "resolvedPrompt", "generationSettings", "parserOutput", "attempts", "history"];
   }
-  if (record4.status === "completed")
-    record4.completedAt ||= record4.updatedAt || now;
-  if (record4.status === "failed")
-    record4.failedAt ||= record4.updatedAt || now;
-  const lastProcessingAt = Math.max(record4.generationStartedAt || 0, record4.parsingStartedAt || 0, record4.queuedAt || 0, record4.updatedAt || 0);
+  if (record.status === "completed")
+    record.completedAt ||= record.updatedAt || now;
+  if (record.status === "failed")
+    record.failedAt ||= record.updatedAt || now;
+  const lastProcessingAt = Math.max(record.generationStartedAt || 0, record.parsingStartedAt || 0, record.queuedAt || 0, record.updatedAt || 0);
   const processingAge = Date.now() - lastProcessingAt;
   const persistedBeforeThisRuntime = lastProcessingAt > 0 && lastProcessingAt < BACKEND_STARTED_AT;
-  const activeInThisRuntime = relayProcessingKeys.has(record4.key) || isRecordJobActive(record4);
-  if ((record4.status === "parsing" || record4.status === "provider-waiting" || record4.status === "generating") && !activeInThisRuntime && (persistedBeforeThisRuntime || processingAge > 90000)) {
-    record4.status = canReparseRecord(record4) ? "recovered-pending" : "failed";
-    record4.error = "Recovered after the app closed or generation state became stale. Reparse or generate this slot again.";
-    record4.updatedAt = Date.now();
-    finishAttempt(record4, "cancelled", record4.updatedAt, "Recovered stale processing state after restart.");
-  } else if ((record4.status === "queued" || record4.status === "awaiting-native-settings") && !activeInThisRuntime && processingAge > AUTO_DISPATCH_STALE_MS) {
-    record4.status = "paused-backlog";
-    record4.error = undefined;
-    record4.updatedAt = Date.now();
+  const activeInThisRuntime = relayProcessingKeys.has(record.key) || isRecordJobActive(record);
+  if ((record.status === "parsing" || record.status === "provider-waiting" || record.status === "generating") && !activeInThisRuntime && (persistedBeforeThisRuntime || processingAge > 90000)) {
+    record.status = canReparseRecord(record) ? "recovered-pending" : "failed";
+    record.error = "Recovered after the app closed or generation state became stale. Reparse or generate this slot again.";
+    record.updatedAt = Date.now();
+    finishAttempt(record, "cancelled", record.updatedAt, "Recovered stale processing state after restart.");
+  } else if ((record.status === "queued" || record.status === "awaiting-native-settings") && !activeInThisRuntime && processingAge > AUTO_DISPATCH_STALE_MS) {
+    record.status = "paused-backlog";
+    record.error = undefined;
+    record.updatedAt = Date.now();
   }
 }
 function defaultQueueDirector() {
@@ -171414,7 +171493,7 @@ function normalizeQueueDirector(value) {
   return {
     pausedAfterCurrent: raw.pausedAfterCurrent === true,
     concurrencyLimit: clampInt2(raw.concurrencyLimit, 1, 4, 2),
-    selectedKeys: Array.isArray(raw.selectedKeys) ? raw.selectedKeys.map((key2) => String(key2)).filter(Boolean) : [],
+    selectedKeys: Array.isArray(raw.selectedKeys) ? raw.selectedKeys.map((key) => String(key)).filter(Boolean) : [],
     jobStatuses: cleanParameters(raw.jobStatuses)
   };
 }
@@ -171426,9 +171505,9 @@ function normalizeAssetLibrary(value) {
   const assets = {};
   if (raw.assets && typeof raw.assets === "object") {
     for (const [assetId, asset] of Object.entries(raw.assets)) {
-      const normalized2 = normalizeAssetReference(assetId, asset);
-      if (normalized2)
-        assets[normalized2.assetId] = normalized2;
+      const normalized = normalizeAssetReference(assetId, asset);
+      if (normalized)
+        assets[normalized.assetId] = normalized;
     }
   }
   const compareRaw = cleanParameters(raw.compare);
@@ -171548,40 +171627,40 @@ function rebuildAssetLibraryAndVersionTrees(state) {
     nextLibrary.updatedAt = Math.max(nextLibrary.updatedAt, asset.updatedAt || asset.sourceDeletedAt);
   }
   const nextTrees = {};
-  for (const record4 of Object.values(state.slots)) {
-    rebuildSlotAssetsAndTree(record4, nextLibrary, nextTrees, preserved);
+  for (const record of Object.values(state.slots)) {
+    rebuildSlotAssetsAndTree(record, nextLibrary, nextTrees, preserved);
   }
   state.assetLibrary = nextLibrary;
   state.versionTrees = nextTrees;
 }
-function rebuildSlotAssetsAndTree(record4, library, trees, preserved) {
+function rebuildSlotAssetsAndTree(record, library, trees, preserved) {
   const versions = [];
-  for (const snapshot of [...record4.history || []].reverse())
+  for (const snapshot of [...record.history || []].reverse())
     versions.push({ snapshot, source: "history", current: false });
-  const current = snapshotFromRecord(record4, record4.updatedAt || Date.now());
+  const current = snapshotFromRecord(record, record.updatedAt || Date.now());
   if (current)
     versions.push({ snapshot: current, source: "current-slot", current: true });
   if (!versions.length)
     return;
   let parentVersionId;
   let rootVersionId = "";
-  const treeId = versionTreeIdForSlot(record4.key);
+  const treeId = versionTreeIdForSlot(record.key);
   const tree = {
     treeId,
-    chatId: record4.chatId,
-    slotKey: record4.key,
+    chatId: record.chatId,
+    slotKey: record.key,
     rootVersionId: "",
     currentVersionId: undefined,
     nodes: {},
-    updatedAt: record4.updatedAt || Date.now()
+    updatedAt: record.updatedAt || Date.now()
   };
   for (const item of versions) {
-    const asset = assetFromSnapshot(record4, item.snapshot, item.source, preserved);
+    const asset = assetFromSnapshot(record, item.snapshot, item.source, preserved);
     if (!asset)
       continue;
     if (item.current)
-      asset.lastUsedAt = record4.updatedAt || Date.now();
-    const versionId = versionIdForSnapshot(record4.key, item.snapshot);
+      asset.lastUsedAt = record.updatedAt || Date.now();
+    const versionId = versionIdForSnapshot(record.key, item.snapshot);
     if (!rootVersionId)
       rootVersionId = versionId;
     asset.versionId = versionId;
@@ -171597,8 +171676,8 @@ function rebuildSlotAssetsAndTree(record4, library, trees, preserved) {
       branchLabel: branchLabelForSnapshot(item.snapshot),
       generationIntent: item.snapshot.regenerationIntent,
       promptProfile: item.snapshot.promptProfile,
-      sourceRequestId: record4.requestId,
-      sourceSlotId: record4.key,
+      sourceRequestId: record.requestId,
+      sourceSlotId: record.key,
       createdAt: item.snapshot.generatedAt || asset.createdAt,
       state: item.current ? "selected" : item.snapshot.imageUrl ? "committed" : "unavailable",
       diagnostic: item.snapshot.diagnostic
@@ -171609,57 +171688,57 @@ function rebuildSlotAssetsAndTree(record4, library, trees, preserved) {
     parentVersionId = versionId;
     if (item.current) {
       tree.currentVersionId = versionId;
-      record4.assetId = asset.assetId;
-      record4.currentVersionId = versionId;
-      record4.rootVersionId = rootVersionId;
-      record4.versionTreeId = treeId;
+      record.assetId = asset.assetId;
+      record.currentVersionId = versionId;
+      record.rootVersionId = rootVersionId;
+      record.versionTreeId = treeId;
     }
   }
   tree.rootVersionId = rootVersionId;
   if (tree.rootVersionId)
     trees[treeId] = tree;
 }
-function assetFromSnapshot(record4, snapshot, source, preserved) {
+function assetFromSnapshot(record, snapshot, source, preserved) {
   if (!snapshot.imageUrl && !snapshot.imageId)
     return null;
   const assetId = assetIdForImage(snapshot.imageId, snapshot.imageUrl);
   const prior = preserved[assetId];
-  const createdAt = snapshot.generatedAt || record4.completedAt || record4.updatedAt || Date.now();
-  const characterOwner = singleCharacterOwnerName(`${record4.originalSceneBrief} ${snapshot.resolvedPositivePrompt}`);
+  const createdAt = snapshot.generatedAt || record.completedAt || record.updatedAt || Date.now();
+  const characterOwner = singleCharacterOwnerName(`${record.originalSceneBrief} ${snapshot.resolvedPositivePrompt}`);
   return {
     assetId,
     imageId: snapshot.imageId || imageIdFromUrl2(snapshot.imageUrl),
     imageUrl: snapshot.imageUrl || "",
-    status: record4.imageAvailability === "missing" || !snapshot.imageUrl ? "unavailable" : "available",
+    status: record.imageAvailability === "missing" || !snapshot.imageUrl ? "unavailable" : "available",
     favorite: prior?.favorite === true,
     visualReference: prior?.visualReference === true,
     tags: prior?.tags ? [...prior.tags] : [],
-    caption: record4.caption || "",
-    alt: record4.alt || "",
+    caption: record.caption || "",
+    alt: record.alt || "",
     characterNames: characterOwner ? [characterOwner] : [],
-    locationNames: extractLocationHints(`${record4.originalSceneBrief} ${snapshot.resolvedPositivePrompt}`),
-    promptProfileId: snapshot.promptProfile?.selectedProfileId || record4.selectedPromptProfileId || snapshot.promptPresetId || undefined,
-    target: record4.target,
-    targetApp: record4.targetApp,
-    chatId: record4.chatId,
-    messageId: record4.messageId,
-    swipeId: record4.swipeId,
-    requestId: record4.requestId,
-    slot: record4.slot,
+    locationNames: extractLocationHints(`${record.originalSceneBrief} ${snapshot.resolvedPositivePrompt}`),
+    promptProfileId: snapshot.promptProfile?.selectedProfileId || record.selectedPromptProfileId || snapshot.promptPresetId || undefined,
+    target: record.target,
+    targetApp: record.targetApp,
+    chatId: record.chatId,
+    messageId: record.messageId,
+    swipeId: record.swipeId,
+    requestId: record.requestId,
+    slot: record.slot,
     versionId: snapshot.versionId,
     rootVersionId: snapshot.rootVersionId,
     source,
     createdAt,
     updatedAt: Math.max(createdAt, Number(prior?.updatedAt) || 0),
     lastUsedAt: prior?.lastUsedAt,
-    originalSceneBrief: record4.originalSceneBrief,
+    originalSceneBrief: record.originalSceneBrief,
     resolvedPositivePrompt: snapshot.resolvedPositivePrompt || "",
     resolvedNegativePrompt: snapshot.resolvedNegativePrompt || "",
     metadata: {
       provider: snapshot.imageProvider,
       connection: snapshot.imageConnectionName,
       model: snapshot.imageModel,
-      target: record4.target,
+      target: record.target,
       promptProfile: snapshot.promptProfile,
       regenerationIntent: snapshot.regenerationIntent,
       generationParameters: snapshot.finalImageParameters,
@@ -171669,33 +171748,33 @@ function assetFromSnapshot(record4, snapshot, source, preserved) {
     }
   };
 }
-function commitSlotAssetVersion(state, record4, result, previousSnapshot, now) {
-  const treeId = versionTreeIdForSlot(record4.key);
+function commitSlotAssetVersion(state, record, result, previousSnapshot, now) {
+  const treeId = versionTreeIdForSlot(record.key);
   let tree = state.versionTrees[treeId];
   if (!tree) {
     const seedLibrary = emptyAssetLibrary();
     const seedTrees = {};
-    rebuildSlotAssetsAndTree(record4, seedLibrary, seedTrees, state.assetLibrary.assets);
+    rebuildSlotAssetsAndTree(record, seedLibrary, seedTrees, state.assetLibrary.assets);
     tree = seedTrees[treeId] || {
       treeId,
-      chatId: record4.chatId,
-      slotKey: record4.key,
+      chatId: record.chatId,
+      slotKey: record.key,
       rootVersionId: "",
       currentVersionId: undefined,
       nodes: {},
       updatedAt: now
     };
     state.versionTrees[treeId] = tree;
-    for (const asset2 of Object.values(seedLibrary.assets))
-      state.assetLibrary.assets[asset2.assetId] = asset2;
+    for (const asset of Object.values(seedLibrary.assets))
+      state.assetLibrary.assets[asset.assetId] = asset;
   }
-  const asset = assetFromSnapshot(record4, result, "current-slot", state.assetLibrary.assets);
+  const asset = assetFromSnapshot(record, result, "current-slot", state.assetLibrary.assets);
   if (!asset)
     return;
-  const previousVersionId = previousSnapshot?.versionId || record4.currentVersionId || tree.currentVersionId;
-  const rootVersionId = tree.rootVersionId || previousSnapshot?.rootVersionId || previousVersionId || versionIdForSnapshot(record4.key, result);
+  const previousVersionId = previousSnapshot?.versionId || record.currentVersionId || tree.currentVersionId;
+  const rootVersionId = tree.rootVersionId || previousSnapshot?.rootVersionId || previousVersionId || versionIdForSnapshot(record.key, result);
   const parentVersionId = result.regenerationIntent?.id === "full-reimagining" && tree.rootVersionId ? tree.rootVersionId : previousVersionId;
-  const versionId = versionIdForSnapshot(record4.key, result);
+  const versionId = versionIdForSnapshot(record.key, result);
   asset.versionId = versionId;
   asset.rootVersionId = rootVersionId;
   asset.lastUsedAt = now;
@@ -171718,8 +171797,8 @@ function commitSlotAssetVersion(state, record4, result, previousSnapshot, now) {
     branchLabel: branchLabelForSnapshot(result),
     generationIntent: result.regenerationIntent,
     promptProfile: result.promptProfile,
-    sourceRequestId: record4.requestId,
-    sourceSlotId: record4.key,
+    sourceRequestId: record.requestId,
+    sourceSlotId: record.key,
     createdAt: now,
     state: "selected",
     diagnostic: result.diagnostic
@@ -171727,17 +171806,17 @@ function commitSlotAssetVersion(state, record4, result, previousSnapshot, now) {
   tree.rootVersionId = rootVersionId;
   tree.currentVersionId = versionId;
   tree.updatedAt = now;
-  record4.assetId = asset.assetId;
-  record4.currentVersionId = versionId;
-  record4.rootVersionId = rootVersionId;
-  record4.versionTreeId = treeId;
+  record.assetId = asset.assetId;
+  record.currentVersionId = versionId;
+  record.rootVersionId = rootVersionId;
+  record.versionTreeId = treeId;
   result.assetId = asset.assetId;
   result.versionId = versionId;
   result.parentVersionId = parentVersionId;
   result.rootVersionId = rootVersionId;
   result.branchLabel = tree.nodes[versionId].branchLabel;
-  if (record4.proseIllustrationId && state.proseIllustrator.records[record4.proseIllustrationId]) {
-    const proseRecord = state.proseIllustrator.records[record4.proseIllustrationId];
+  if (record.proseIllustrationId && state.proseIllustrator.records[record.proseIllustrationId]) {
+    const proseRecord = state.proseIllustrator.records[record.proseIllustrationId];
     proseRecord.status = "completed";
     proseRecord.completedAt = now;
     proseRecord.imageId = result.imageId;
@@ -171757,12 +171836,12 @@ function commitSlotAssetVersion(state, record4, result, previousSnapshot, now) {
       }
     }
   }
-  updateContinuityFromAcceptedAsset(state, record4, result, now);
+  updateContinuityFromAcceptedAsset(state, record, result, now);
 }
-function markRestoredVersion(state, record4, snapshot, now) {
-  const treeId = record4.versionTreeId || versionTreeIdForSlot(record4.key);
+function markRestoredVersion(state, record, snapshot, now) {
+  const treeId = record.versionTreeId || versionTreeIdForSlot(record.key);
   const tree = state.versionTrees[treeId];
-  const versionId = snapshot.versionId || versionIdForSnapshot(record4.key, snapshot);
+  const versionId = snapshot.versionId || versionIdForSnapshot(record.key, snapshot);
   const assetId = snapshot.assetId || assetIdForImage(snapshot.imageId, snapshot.imageUrl);
   if (tree) {
     for (const node of Object.values(tree.nodes)) {
@@ -171780,20 +171859,20 @@ function markRestoredVersion(state, record4, snapshot, now) {
     asset.updatedAt = now;
     state.assetLibrary.updatedAt = now;
   }
-  record4.assetId = assetId;
-  record4.currentVersionId = versionId;
-  record4.rootVersionId = snapshot.rootVersionId || tree?.rootVersionId || versionId;
-  record4.versionTreeId = treeId;
+  record.assetId = assetId;
+  record.currentVersionId = versionId;
+  record.rootVersionId = snapshot.rootVersionId || tree?.rootVersionId || versionId;
+  record.versionTreeId = treeId;
 }
 function assetIdForImage(imageId, imageUrl) {
   const stable = cleanString(imageId) || imageIdFromUrl2(cleanString(imageUrl)) || cleanString(imageUrl) || "unknown";
   return `asset-${contentFingerprint(stable).slice(0, 18)}`;
 }
-function versionTreeIdForSlot(key2) {
-  return `tree-${contentFingerprint(key2).slice(0, 18)}`;
+function versionTreeIdForSlot(key) {
+  return `tree-${contentFingerprint(key).slice(0, 18)}`;
 }
-function versionIdForSnapshot(key2, snapshot) {
-  return `version-${contentFingerprint(`${key2}:${snapshot.imageId || ""}:${snapshot.imageUrl || ""}:${snapshot.generatedAt || 0}`).slice(0, 22)}`;
+function versionIdForSnapshot(key, snapshot) {
+  return `version-${contentFingerprint(`${key}:${snapshot.imageId || ""}:${snapshot.imageUrl || ""}:${snapshot.generatedAt || 0}`).slice(0, 22)}`;
 }
 function branchLabelForSnapshot(snapshot) {
   if (snapshot.regenerationIntent?.label)
@@ -171809,8 +171888,8 @@ function branchLabelForSnapshot(snapshot) {
   return "Original";
 }
 function imageIdFromUrl2(value) {
-  const clean4 = cleanString(value);
-  const match = clean4.match(/(?:results|images|image-gen)\/([^/?#"\s]+)/i);
+  const clean = cleanString(value);
+  const match = clean.match(/(?:results|images|image-gen)\/([^/?#"\s]+)/i);
   return match ? decodeURIComponent(match[1]) : "";
 }
 function stringList3(value) {
@@ -171819,8 +171898,8 @@ function stringList3(value) {
   return [...new Set(value.map((item) => cleanString(item)).filter(Boolean))];
 }
 function extractNamedEntities(value) {
-  const text3 = cleanString(value);
-  const matches = text3.match(/\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?\b/g) || [];
+  const text = cleanString(value);
+  const matches = text.match(/\b[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})?\b/g) || [];
   const ignored = new Set(["Twitter", "Instagram", "Kakao", "Smartphone", "Reverie", "Relay", "ImageGen"]);
   return [...new Set(matches.filter((name) => !ignored.has(name)).slice(0, 12))];
 }
@@ -171833,7 +171912,7 @@ function singleCharacterOwnerName(value) {
   return names.length === 1 ? names[0] : "";
 }
 function extractLocationHints(value) {
-  const text3 = cleanString(value);
+  const text = cleanString(value);
   const hints = [];
   const patterns = [
     /\b(?:at|in|inside|outside|near|beside)\s+(?:the\s+)?([a-z][a-z\s-]{2,40}?)(?:[,.;]|$)/gi,
@@ -171841,7 +171920,7 @@ function extractLocationHints(value) {
   ];
   for (const pattern of patterns) {
     let match;
-    while ((match = pattern.exec(text3)) !== null)
+    while ((match = pattern.exec(text)) !== null)
       hints.push(titleCase2(cleanString(match[1])));
   }
   return [...new Set(hints.filter(Boolean).slice(0, 12))];
@@ -171853,30 +171932,30 @@ function isLikelyGeneticCharacterName(value) {
   const name = cleanString(value);
   if (!name || NON_CHARACTER_ENTITY_RE.test(name))
     return false;
-  const words2 = name.split(/\s+/).filter(Boolean);
-  if (words2.length > 3)
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length > 3)
     return false;
-  if (words2.some((word) => word.length < 2 || NON_CHARACTER_ENTITY_RE.test(word)))
+  if (words.some((word) => word.length < 2 || NON_CHARACTER_ENTITY_RE.test(word)))
     return false;
-  if (/^(?:A|An|The|This|That|These|Those|Young|Old|Medium|Close|Wide|Long|Short)$/i.test(words2[0]))
+  if (/^(?:A|An|The|This|That|These|Those|Young|Old|Medium|Close|Wide|Long|Short)$/i.test(words[0]))
     return false;
   return /^[A-Z][A-Za-z'-]*(?:\s+[A-Z][A-Za-z'-]*){0,2}$/.test(name);
 }
-function geneticEntityNamesFromAsset(record4, result) {
-  const pipeline = result.promptPipeline || record4.promptPipeline;
+function geneticEntityNamesFromAsset(record, result) {
+  const pipeline = result.promptPipeline || record.promptPipeline;
   const visualSubjects = pipeline?.visualSubjectPrompts?.map((subject) => subject.name) || [];
-  const proseSubjects = record4.prosePromptComposition?.namedSubjects || [];
-  const textSubjects = extractCharacterCandidates(`${record4.originalSceneBrief} ${result.resolvedPositivePrompt || ""}`);
+  const proseSubjects = record.prosePromptComposition?.namedSubjects || [];
+  const textSubjects = extractCharacterCandidates(`${record.originalSceneBrief} ${result.resolvedPositivePrompt || ""}`);
   return [...new Set([...visualSubjects, ...proseSubjects, ...textSubjects].map((name) => cleanString(name)).filter(isLikelyGeneticCharacterName))].slice(0, 6);
 }
 function extractAppearanceSuggestionValues(source, entityName, allEntityNames) {
-  const text3 = cleanString(source).replace(/\s+/g, " ");
-  if (!text3 || !entityName)
+  const text = cleanString(source).replace(/\s+/g, " ");
+  if (!text || !entityName)
     return [];
-  let scope = text3;
-  const entityIndex = text3.toLocaleLowerCase().indexOf(entityName.toLocaleLowerCase());
+  let scope = text;
+  const entityIndex = text.toLocaleLowerCase().indexOf(entityName.toLocaleLowerCase());
   if (entityIndex >= 0) {
-    const remainder = text3.slice(entityIndex);
+    const remainder = text.slice(entityIndex);
     let end = remainder.length;
     for (const otherName of allEntityNames.filter((name) => name.toLocaleLowerCase() !== entityName.toLocaleLowerCase())) {
       const otherIndex = remainder.toLocaleLowerCase().indexOf(otherName.toLocaleLowerCase(), entityName.length);
@@ -171906,21 +171985,21 @@ function sanitizeAppearanceSuggestionClause(value) {
   return cleanString(value).replace(/^(?:physically|appearance|character appearance)\s*[:\-]?\s*/i, "").replace(/\s{2,}/g, " ");
 }
 function looksLikeWholePrompt(value) {
-  const text3 = cleanString(value).toLocaleLowerCase();
+  const text = cleanString(value).toLocaleLowerCase();
   if (value.length > 280)
     return true;
   const promptMarkers = ["shot", "camera", "lighting", "composition", "background", "office", "school", "gate", "building"];
-  return promptMarkers.filter((marker) => text3.includes(marker)).length >= 2;
+  return promptMarkers.filter((marker) => text.includes(marker)).length >= 2;
 }
-function updateContinuityFromAcceptedAsset(state, record4, result, now) {
+function updateContinuityFromAcceptedAsset(state, record, result, now) {
   const vault = state.continuityVault;
   if (!vault || vault.strength === "off")
     return;
-  const assetId = record4.assetId || assetIdForImage(result.imageId, result.imageUrl);
-  const pipeline = result.promptPipeline || record4.promptPipeline;
+  const assetId = record.assetId || assetIdForImage(result.imageId, result.imageUrl);
+  const pipeline = result.promptPipeline || record.promptPipeline;
   const trustedSubjects = [
     ...(pipeline?.visualSubjectPrompts || []).map((subject) => subject.name),
-    ...record4.prosePromptComposition?.namedSubjects || []
+    ...record.prosePromptComposition?.namedSubjects || []
   ].map(cleanString).filter(isValidCanonicalCharacterName);
   for (const subjectName of [...new Set(trustedSubjects)]) {
     try {
@@ -171931,20 +172010,20 @@ function updateContinuityFromAcceptedAsset(state, record4, result, now) {
       }, now);
     } catch {}
   }
-  const entityNames = geneticEntityNamesFromAsset(record4, result);
+  const entityNames = geneticEntityNamesFromAsset(record, result);
   for (const entityName of entityNames) {
-    const values = extractAppearanceSuggestionValues(result.resolvedPositivePrompt || record4.resolvedPositivePrompt || "", entityName, entityNames);
+    const values = extractAppearanceSuggestionValues(result.resolvedPositivePrompt || record.resolvedPositivePrompt || "", entityName, entityNames);
     for (const value of values) {
       suggestionFromGeneratedPrompt(vault, {
         subjectName: entityName,
         value,
-        chatId: record4.chatId,
-        messageId: record4.messageId,
-        swipeId: record4.swipeId,
-        requestId: record4.requestId,
-        slot: record4.slot,
+        chatId: record.chatId,
+        messageId: record.messageId,
+        swipeId: record.swipeId,
+        requestId: record.requestId,
+        slot: record.slot,
         assetId,
-        versionId: record4.currentVersionId
+        versionId: record.currentVersionId
       }, now);
     }
   }
@@ -171952,8 +172031,8 @@ function updateContinuityFromAcceptedAsset(state, record4, result, now) {
 }
 function selectContinuityForJob(state, job, _classification, resolvedSubjectNames = []) {
   const vault = state.continuityVault || emptyContinuityVault(job.chatId);
-  const key2 = slotKey({ ...job, slot: job.slots[0] || "image" });
-  if (vault.strength === "off" || vault.ignoredForSlotKeys.includes(key2)) {
+  const key = slotKey({ ...job, slot: job.slots[0] || "image" });
+  if (vault.strength === "off" || vault.ignoredForSlotKeys.includes(key)) {
     return {
       included: [],
       projectedIncluded: [],
@@ -172024,46 +172103,46 @@ function completedDiagnosticPath(chatId, archiveId) {
   const archiveKey = safeStorageSegment(archiveId);
   return `completed-history/${chatKey}/diagnostics/${archiveKey}.json`;
 }
-function completedRecordHasHeavyData(record4) {
-  return Boolean(record4.promptPipeline || record4.diagnostic || record4.parserOutput || record4.finalImageRequest || record4.finalImageParameters || record4.nativeImageSettings || record4.excludedContinuityFacts?.length || record4.includedContinuityFacts?.length || record4.pendingPlacement || record4.history?.length || record4.attempts?.length);
+function completedRecordHasHeavyData(record) {
+  return Boolean(record.promptPipeline || record.diagnostic || record.parserOutput || record.finalImageRequest || record.finalImageParameters || record.nativeImageSettings || record.excludedContinuityFacts?.length || record.includedContinuityFacts?.length || record.pendingPlacement || record.history?.length || record.attempts?.length);
 }
 async function ensureCompletedStateCompacted(chatId, userId) {
   const before = await getState(chatId, userId);
-  const completedBefore = Object.values(before.slots).filter((record4) => record4.status === "completed" && Boolean(record4.imageUrl || record4.imageId));
-  const needsCompaction = completedBefore.length > RECENT_COMPLETED_HOT_LIMIT || completedBefore.some(completedRecordHasHeavyData) || completedBefore.some((record4) => !before.completedArchive[record4.key]) || before.logs.length > HOT_LOG_LIMIT;
+  const completedBefore = Object.values(before.slots).filter((record) => record.status === "completed" && Boolean(record.imageUrl || record.imageId));
+  const needsCompaction = completedBefore.length > RECENT_COMPLETED_HOT_LIMIT || completedBefore.some(completedRecordHasHeavyData) || completedBefore.some((record) => !before.completedArchive[record.key]) || before.logs.length > HOT_LOG_LIMIT;
   if (!needsCompaction)
     return;
   await mutateState(chatId, userId, async (state) => {
     const oldBytes = serializedBytes({ records: Object.values(state.slots), logs: state.logs });
-    const completed = Object.values(state.slots).filter((record4) => record4.status === "completed" && Boolean(record4.imageUrl || record4.imageId)).sort((left, right) => (right.completedAt || right.updatedAt) - (left.completedAt || left.updatedAt));
+    const completed = Object.values(state.slots).filter((record) => record.status === "completed" && Boolean(record.imageUrl || record.imageId)).sort((left, right) => (right.completedAt || right.updatedAt) - (left.completedAt || left.updatedAt));
     await spindle.userStorage.mkdir("completed-history", userId).catch(() => {
       return;
     });
-    for (const record4 of completed) {
-      const compact = compactCompletedRecord(record4);
-      const existing = state.completedArchive[record4.key];
-      if (!existing?.diagnosticArchivedAt && completedRecordHasHeavyData(record4)) {
+    for (const record of completed) {
+      const compact = compactCompletedRecord(record);
+      const existing = state.completedArchive[record.key];
+      if (!existing?.diagnosticArchivedAt && completedRecordHasHeavyData(record)) {
         await spindle.userStorage.setJson(completedDiagnosticPath(chatId, compact.diagnosticArchiveId), {
           schemaVersion: 1,
           archivedAt: Date.now(),
-          record: record4
+          record
         }, { indent: 2, userId });
-        compact.diagnosticArchiveId = compact.diagnosticArchiveId || completedArchiveId(record4);
+        compact.diagnosticArchiveId = compact.diagnosticArchiveId || completedArchiveId(record);
       }
-      state.completedArchive[record4.key] = {
+      state.completedArchive[record.key] = {
         ...existing,
         ...compact,
-        historyVersionIds: (record4.history || []).map((version) => version.versionId).filter((id) => Boolean(id)),
-        diagnosticArchivedAt: existing?.diagnosticArchivedAt || (completedRecordHasHeavyData(record4) ? Date.now() : undefined)
+        historyVersionIds: (record.history || []).map((version) => version.versionId).filter((id) => Boolean(id)),
+        diagnosticArchivedAt: existing?.diagnosticArchivedAt || (completedRecordHasHeavyData(record) ? Date.now() : undefined)
       };
     }
     const hot = completed.slice(0, RECENT_COMPLETED_HOT_LIMIT);
-    const hotKeys = new Set(hot.map((record4) => record4.key));
-    for (const record4 of completed) {
-      if (hotKeys.has(record4.key))
-        state.slots[record4.key] = stripCompletedRecord(record4);
+    const hotKeys = new Set(hot.map((record) => record.key));
+    for (const record of completed) {
+      if (hotKeys.has(record.key))
+        state.slots[record.key] = stripCompletedRecord(record);
       else
-        delete state.slots[record4.key];
+        delete state.slots[record.key];
     }
     state.recentCompleted = hot.map(compactCompletedRecord);
     trimLogs(state);
@@ -172234,7 +172313,7 @@ async function sendState(userId, chatId) {
     serializationMs: Math.max(0, Date.now() - serializationStartedAt),
     recordsSent: records.length,
     completedLifetime: state.stats.completedTotal,
-    hotCompleted: records.filter((record4) => record4.status === "completed").length
+    hotCompleted: records.filter((record) => record.status === "completed").length
   };
   lastStateDispatchMetrics.set(`${userId || "__default__"}:${chatId || "__none__"}`, message.performance);
   lastBackendResponseAt = Date.now();
@@ -172245,21 +172324,21 @@ var parserConnectionListCache = new Map;
 var imageConnectionListCache = new Map;
 var imageProviderListCache = new Map;
 async function cachedList(cache, userId, loader) {
-  const key2 = userConfigCacheKey(userId);
-  const current = cache.get(key2);
+  const key = userConfigCacheKey(userId);
+  const current = cache.get(key);
   if (current && Date.now() - current.cachedAt < CONNECTION_LIST_CACHE_TTL_MS)
     return current.value;
   if (current?.inFlight)
     return current.inFlight;
   const inFlight = loader().then((value) => {
-    cache.set(key2, { value, cachedAt: Date.now() });
+    cache.set(key, { value, cachedAt: Date.now() });
     return value;
   }).catch((error) => {
     if (current)
-      cache.set(key2, { value: current.value, cachedAt: current.cachedAt });
+      cache.set(key, { value: current.value, cachedAt: current.cachedAt });
     throw error;
   });
-  cache.set(key2, { value: current?.value || [], cachedAt: current?.cachedAt || 0, inFlight });
+  cache.set(key, { value: current?.value || [], cachedAt: current?.cachedAt || 0, inFlight });
   return inFlight;
 }
 async function getParserConnections(userId) {
@@ -172297,10 +172376,10 @@ async function getImageProviders(userId) {
 function extractProviderLoraCatalog(...sources) {
   const found = new Set;
   const add = (value) => {
-    const text3 = cleanString(value);
-    if (!text3 || !/(?:\.safetensors|\.ckpt|(?:^|[\\/])loras?[\\/])/i.test(text3))
+    const text = cleanString(value);
+    if (!text || !/(?:\.safetensors|\.ckpt|(?:^|[\\/])loras?[\\/])/i.test(text))
       return;
-    found.add(text3);
+    found.add(text);
   };
   const visitAssetList = (value) => {
     if (!Array.isArray(value))
@@ -172396,7 +172475,7 @@ async function discoverSwarmLoraCatalog(connection) {
 async function discoverProviderLoraCatalog(requestId, requestedConnectionId, userId) {
   try {
     const connections = await getImageConnections(userId);
-    const selectedId = cleanString(requestedConnectionId) || connections.find((connection2) => connection2.is_default)?.id || connections[0]?.id || "";
+    const selectedId = cleanString(requestedConnectionId) || connections.find((connection) => connection.is_default)?.id || connections[0]?.id || "";
     if (!selectedId)
       throw new Error("Select an ImageGen connection before browsing LoRAs.");
     const connection = await spindle.imageGen.getConnection(selectedId, userId);
@@ -172413,27 +172492,27 @@ async function discoverProviderLoraCatalog(requestId, requestedConnectionId, use
     spindle.sendToFrontend({ type: "lora_catalog_result", requestId, connectionId: cleanString(requestedConnectionId), status: "failed", items: [], error: error instanceof Error ? error.message : String(error) }, userId);
   }
 }
-async function getRecordByKey(key2, userId) {
-  const chatId = key2.split(":")[0];
+async function getRecordByKey(key, userId) {
+  const chatId = key.split(":")[0];
   let state = await getState(chatId, userId);
-  let record4 = state.slots[key2];
-  if (!record4)
+  let record = state.slots[key];
+  if (!record)
     throw new Error("Slot not found.");
-  const archiveId = record4.diagnosticArchiveId || state.completedArchive[key2]?.diagnosticArchiveId;
-  if (record4.status === "completed" && archiveId && !canReparseRecord(record4) && !canRegenerateRecord(record4)) {
+  const archiveId = record.diagnosticArchiveId || state.completedArchive[key]?.diagnosticArchiveId;
+  if (record.status === "completed" && archiveId && !canReparseRecord(record) && !canRegenerateRecord(record)) {
     const archived = (await readCompletedDiagnostic(chatId, archiveId, userId))?.record;
-    if (archived?.key === key2 && archived.chatId === chatId && archived.status === "completed" && (archived.imageUrl || archived.imageId)) {
+    if (archived?.key === key && archived.chatId === chatId && archived.status === "completed" && (archived.imageUrl || archived.imageId)) {
       await mutateState(chatId, userId, (next) => {
-        const current = next.slots[key2];
+        const current = next.slots[key];
         if (current?.status === "completed" && current.imageUrl === archived.imageUrl && current.imageId === archived.imageId) {
-          next.slots[key2] = { ...archived, diagnosticArchiveId: archiveId };
+          next.slots[key] = { ...archived, diagnosticArchiveId: archiveId };
         }
       });
       state = await getState(chatId, userId);
-      record4 = state.slots[key2];
+      record = state.slots[key];
     }
   }
-  return { chatId, state, record: record4 };
+  return { chatId, state, record };
 }
 async function resolveMessage(chatId, messageId) {
   const messages = await spindle.chat.getMessages(chatId);
@@ -172517,94 +172596,94 @@ async function patchSwipeContent(chatId, message, swipeId, content) {
     setTimeout(() => extensionMessageMutations.delete(mutationKey), 250);
   }
 }
-function applyGeneration(state, record4, result, now) {
-  const snapshot = snapshotFromRecord(record4, now);
+function applyGeneration(state, record, result, now) {
+  const snapshot = snapshotFromRecord(record, now);
   if (snapshot)
-    record4.history.unshift(snapshot);
-  record4.status = "completed";
-  record4.pendingPlacement = undefined;
-  record4.previewPending = false;
-  record4.placementFailure = undefined;
-  record4.error = undefined;
-  record4.errorToastKey = undefined;
-  record4.imageId = result.imageId;
-  record4.imageUrl = result.imageUrl;
-  record4.imageWidth = result.imageWidth;
-  record4.imageHeight = result.imageHeight;
-  record4.aspectRatio = result.aspectRatio;
-  record4.resolvedPositivePrompt = result.resolvedPositivePrompt;
-  record4.resolvedNegativePrompt = result.resolvedNegativePrompt;
-  record4.promptMode = result.promptMode;
-  record4.promptPresetId = result.promptPresetId;
-  record4.parserUsed = result.parserUsed;
-  record4.parserOutput = result.parserOutput;
-  record4.parserConnectionId = result.parserConnectionId;
-  record4.parserModel = result.parserModel;
-  record4.parserParameters = result.parserParameters;
-  record4.promptPipeline = result.promptPipeline;
-  record4.imageConnectionId = result.imageConnectionId;
-  record4.imageConnectionName = result.imageConnectionName;
-  record4.imageProvider = result.imageProvider;
-  record4.imageModel = result.imageModel;
-  record4.imageParameters = result.imageParameters;
-  record4.nativeImageSettings = result.nativeImageSettings;
-  record4.nativeSettingsCapturedAt = result.nativeSettingsCapturedAt;
-  record4.connectionDefaultParameters = result.connectionDefaultParameters;
-  record4.slotOverrides = result.slotOverrides;
-  record4.finalImageParameters = result.finalImageParameters;
-  record4.finalImageRequest = result.finalImageRequest;
-  record4.finalImageSettingsSource = result.finalImageSettingsSource;
-  record4.nativeActiveLoraPreset = result.nativeActiveLoraPreset;
-  record4.effectiveAppliedLoraPreset = result.effectiveAppliedLoraPreset;
-  record4.lorasSentToProvider = result.lorasSentToProvider;
-  record4.loraBaseTags = result.loraBaseTags;
-  record4.baseTagsAddedToPrompt = result.baseTagsAddedToPrompt;
-  record4.omittedBaseTags = result.omittedBaseTags;
-  record4.highResMode = result.highResMode;
-  record4.highResRetainedBaseTags = result.highResRetainedBaseTags;
-  record4.highResPreservedFramingCues = result.highResPreservedFramingCues;
-  record4.loraOmittedFields = result.loraOmittedFields;
-  record4.promptProfile = result.promptProfile;
-  record4.selectedPromptProfileId = result.promptProfile?.selectedProfileId;
-  record4.regenerationIntent = result.regenerationIntent;
-  record4.diagnostic = result.diagnostic;
-  record4.includedContinuityFacts = result.includedContinuityFacts;
-  record4.excludedContinuityFacts = result.excludedContinuityFacts;
-  record4.continuityStrength = result.continuityStrength;
-  record4.galleryLinkStatus = result.galleryLinkStatus;
-  record4.galleryItemId = result.galleryItemId;
-  record4.galleryLinkError = result.galleryLinkError;
-  record4.galleryLinkedAt = result.galleryLinkedAt || record4.galleryLinkedAt;
-  record4.imagePersistedAt = result.imagePersistedAt || record4.imagePersistedAt;
-  record4.attemptNumber = result.attemptNumber;
-  record4.triggerType = result.triggerType;
-  record4.updatedAt = now;
-  record4.completedAt = now;
-  record4.placementCompletedAt = now;
-  if (!state.countedCompletedKeys[record4.key]) {
-    state.countedCompletedKeys[record4.key] = now;
+    record.history.unshift(snapshot);
+  record.status = "completed";
+  record.pendingPlacement = undefined;
+  record.previewPending = false;
+  record.placementFailure = undefined;
+  record.error = undefined;
+  record.errorToastKey = undefined;
+  record.imageId = result.imageId;
+  record.imageUrl = result.imageUrl;
+  record.imageWidth = result.imageWidth;
+  record.imageHeight = result.imageHeight;
+  record.aspectRatio = result.aspectRatio;
+  record.resolvedPositivePrompt = result.resolvedPositivePrompt;
+  record.resolvedNegativePrompt = result.resolvedNegativePrompt;
+  record.promptMode = result.promptMode;
+  record.promptPresetId = result.promptPresetId;
+  record.parserUsed = result.parserUsed;
+  record.parserOutput = result.parserOutput;
+  record.parserConnectionId = result.parserConnectionId;
+  record.parserModel = result.parserModel;
+  record.parserParameters = result.parserParameters;
+  record.promptPipeline = result.promptPipeline;
+  record.imageConnectionId = result.imageConnectionId;
+  record.imageConnectionName = result.imageConnectionName;
+  record.imageProvider = result.imageProvider;
+  record.imageModel = result.imageModel;
+  record.imageParameters = result.imageParameters;
+  record.nativeImageSettings = result.nativeImageSettings;
+  record.nativeSettingsCapturedAt = result.nativeSettingsCapturedAt;
+  record.connectionDefaultParameters = result.connectionDefaultParameters;
+  record.slotOverrides = result.slotOverrides;
+  record.finalImageParameters = result.finalImageParameters;
+  record.finalImageRequest = result.finalImageRequest;
+  record.finalImageSettingsSource = result.finalImageSettingsSource;
+  record.nativeActiveLoraPreset = result.nativeActiveLoraPreset;
+  record.effectiveAppliedLoraPreset = result.effectiveAppliedLoraPreset;
+  record.lorasSentToProvider = result.lorasSentToProvider;
+  record.loraBaseTags = result.loraBaseTags;
+  record.baseTagsAddedToPrompt = result.baseTagsAddedToPrompt;
+  record.omittedBaseTags = result.omittedBaseTags;
+  record.highResMode = result.highResMode;
+  record.highResRetainedBaseTags = result.highResRetainedBaseTags;
+  record.highResPreservedFramingCues = result.highResPreservedFramingCues;
+  record.loraOmittedFields = result.loraOmittedFields;
+  record.promptProfile = result.promptProfile;
+  record.selectedPromptProfileId = result.promptProfile?.selectedProfileId;
+  record.regenerationIntent = result.regenerationIntent;
+  record.diagnostic = result.diagnostic;
+  record.includedContinuityFacts = result.includedContinuityFacts;
+  record.excludedContinuityFacts = result.excludedContinuityFacts;
+  record.continuityStrength = result.continuityStrength;
+  record.galleryLinkStatus = result.galleryLinkStatus;
+  record.galleryItemId = result.galleryItemId;
+  record.galleryLinkError = result.galleryLinkError;
+  record.galleryLinkedAt = result.galleryLinkedAt || record.galleryLinkedAt;
+  record.imagePersistedAt = result.imagePersistedAt || record.imagePersistedAt;
+  record.attemptNumber = result.attemptNumber;
+  record.triggerType = result.triggerType;
+  record.updatedAt = now;
+  record.completedAt = now;
+  record.placementCompletedAt = now;
+  if (!state.countedCompletedKeys[record.key]) {
+    state.countedCompletedKeys[record.key] = now;
     state.stats.completedTotal += 1;
     state.stats.generatedTotal += 1;
-    state.stats.completedByTarget[record4.target] = (state.stats.completedByTarget[record4.target] || 0) + 1;
+    state.stats.completedByTarget[record.target] = (state.stats.completedByTarget[record.target] || 0) + 1;
     state.stats.updatedAt = now;
   }
-  const dispatchKey = canonicalDispatchKey(record4);
+  const dispatchKey = canonicalDispatchKey(record);
   const lease = state.dispatchLeases[dispatchKey];
   if (lease)
     Object.assign(lease, { status: "completed", completedAt: now });
-  if (record4.recoveryCompleteness === "marker-only") {
-    record4.recoveryCompleteness = "partial";
-    record4.missingRecoveryFields = ["originalSceneBrief", "originalRequestXml"].filter((field) => field === "originalSceneBrief" ? !record4.originalSceneBrief : !record4.originalRequestXml);
+  if (record.recoveryCompleteness === "marker-only") {
+    record.recoveryCompleteness = "partial";
+    record.missingRecoveryFields = ["originalSceneBrief", "originalRequestXml"].filter((field) => field === "originalSceneBrief" ? !record.originalSceneBrief : !record.originalRequestXml);
   }
-  commitSlotAssetVersion(state, record4, result, snapshot, now);
-  finishAttempt(record4, "completed", now);
-  if (record4.diagnostic)
-    record4.diagnostic.relayInferred.timing = generationTimingForRecord(record4, now);
+  commitSlotAssetVersion(state, record, result, snapshot, now);
+  finishAttempt(record, "completed", now);
+  if (record.diagnostic)
+    record.diagnostic.relayInferred.timing = generationTimingForRecord(record, now);
   updateQueueSafetySummary(state, now);
 }
 async function withPlacementMutationLock(job, action) {
-  const key2 = `${job.chatId}:${job.messageId}:${job.swipeId}`;
-  const previous = placementMutationQueues.get(key2) || Promise.resolve();
+  const key = `${job.chatId}:${job.messageId}:${job.swipeId}`;
+  const previous = placementMutationQueues.get(key) || Promise.resolve();
   let release = () => {
     return;
   };
@@ -172612,20 +172691,20 @@ async function withPlacementMutationLock(job, action) {
     release = resolve;
   });
   const queued = previous.then(() => current);
-  placementMutationQueues.set(key2, queued);
+  placementMutationQueues.set(key, queued);
   await previous;
   try {
     return await action();
   } finally {
     release();
-    if (placementMutationQueues.get(key2) === queued)
-      placementMutationQueues.delete(key2);
+    if (placementMutationQueues.get(key) === queued)
+      placementMutationQueues.delete(key);
   }
 }
 function compactAssetLibraryForState(library) {
   const pinned = new Set([library.compare?.leftAssetId, library.compare?.rightAssetId].filter((id) => Boolean(id)));
-  const rows2 = Object.values(library.assets || {}).sort((left, right) => right.updatedAt - left.updatedAt);
-  const selected = rows2.filter((asset, index) => index < RECENT_COMPLETED_HOT_LIMIT || asset.favorite || asset.visualReference || pinned.has(asset.assetId));
+  const rows = Object.values(library.assets || {}).sort((left, right) => right.updatedAt - left.updatedAt);
+  const selected = rows.filter((asset, index) => index < RECENT_COMPLETED_HOT_LIMIT || asset.favorite || asset.visualReference || pinned.has(asset.assetId));
   return {
     ...library,
     assets: Object.fromEntries(selected.map((asset) => [asset.assetId, {
@@ -172637,86 +172716,86 @@ function compactAssetLibraryForState(library) {
     }]))
   };
 }
-function snapshotFromRecord(record4, now) {
-  if (!record4.imageUrl)
+function snapshotFromRecord(record, now) {
+  if (!record.imageUrl)
     return null;
   return {
-    imageId: record4.imageId || "",
-    imageUrl: record4.imageUrl,
-    imageWidth: record4.imageWidth,
-    imageHeight: record4.imageHeight,
-    aspectRatio: record4.aspectRatio,
-    resolvedPositivePrompt: record4.resolvedPositivePrompt || "",
-    resolvedNegativePrompt: record4.resolvedNegativePrompt || "",
-    promptMode: record4.promptMode || "",
-    promptPresetId: record4.promptPresetId ?? null,
-    parserUsed: record4.parserUsed,
-    parserOutput: record4.parserOutput,
-    parserConnectionId: record4.parserConnectionId ?? null,
-    parserModel: record4.parserModel,
-    parserParameters: record4.parserParameters,
-    promptPipeline: record4.promptPipeline,
-    imageConnectionId: record4.imageConnectionId ?? null,
-    imageConnectionName: record4.imageConnectionName,
-    imageProvider: record4.imageProvider,
-    imageModel: record4.imageModel,
-    imageParameters: record4.imageParameters,
-    nativeImageSettings: record4.nativeImageSettings,
-    nativeSettingsCapturedAt: record4.nativeSettingsCapturedAt,
-    connectionDefaultParameters: record4.connectionDefaultParameters,
-    slotOverrides: record4.slotOverrides,
-    finalImageParameters: record4.finalImageParameters,
-    finalImageRequest: record4.finalImageRequest,
-    finalImageSettingsSource: record4.finalImageSettingsSource,
-    nativeActiveLoraPreset: record4.nativeActiveLoraPreset,
-    effectiveAppliedLoraPreset: record4.effectiveAppliedLoraPreset,
-    lorasSentToProvider: record4.lorasSentToProvider,
-    loraBaseTags: record4.loraBaseTags,
-    baseTagsAddedToPrompt: record4.baseTagsAddedToPrompt,
-    omittedBaseTags: record4.omittedBaseTags,
-    highResMode: record4.highResMode,
-    highResRetainedBaseTags: record4.highResRetainedBaseTags,
-    highResPreservedFramingCues: record4.highResPreservedFramingCues,
-    loraOmittedFields: record4.loraOmittedFields,
-    promptProfile: record4.promptProfile,
-    regenerationIntent: record4.regenerationIntent,
-    diagnostic: record4.diagnostic,
-    includedContinuityFacts: record4.includedContinuityFacts,
-    excludedContinuityFacts: record4.excludedContinuityFacts,
-    continuityStrength: record4.continuityStrength,
-    assetId: record4.assetId,
-    versionId: record4.currentVersionId,
-    rootVersionId: record4.rootVersionId,
-    attemptNumber: record4.attemptNumber,
-    triggerType: record4.triggerType,
-    generatedAt: record4.updatedAt || now
+    imageId: record.imageId || "",
+    imageUrl: record.imageUrl,
+    imageWidth: record.imageWidth,
+    imageHeight: record.imageHeight,
+    aspectRatio: record.aspectRatio,
+    resolvedPositivePrompt: record.resolvedPositivePrompt || "",
+    resolvedNegativePrompt: record.resolvedNegativePrompt || "",
+    promptMode: record.promptMode || "",
+    promptPresetId: record.promptPresetId ?? null,
+    parserUsed: record.parserUsed,
+    parserOutput: record.parserOutput,
+    parserConnectionId: record.parserConnectionId ?? null,
+    parserModel: record.parserModel,
+    parserParameters: record.parserParameters,
+    promptPipeline: record.promptPipeline,
+    imageConnectionId: record.imageConnectionId ?? null,
+    imageConnectionName: record.imageConnectionName,
+    imageProvider: record.imageProvider,
+    imageModel: record.imageModel,
+    imageParameters: record.imageParameters,
+    nativeImageSettings: record.nativeImageSettings,
+    nativeSettingsCapturedAt: record.nativeSettingsCapturedAt,
+    connectionDefaultParameters: record.connectionDefaultParameters,
+    slotOverrides: record.slotOverrides,
+    finalImageParameters: record.finalImageParameters,
+    finalImageRequest: record.finalImageRequest,
+    finalImageSettingsSource: record.finalImageSettingsSource,
+    nativeActiveLoraPreset: record.nativeActiveLoraPreset,
+    effectiveAppliedLoraPreset: record.effectiveAppliedLoraPreset,
+    lorasSentToProvider: record.lorasSentToProvider,
+    loraBaseTags: record.loraBaseTags,
+    baseTagsAddedToPrompt: record.baseTagsAddedToPrompt,
+    omittedBaseTags: record.omittedBaseTags,
+    highResMode: record.highResMode,
+    highResRetainedBaseTags: record.highResRetainedBaseTags,
+    highResPreservedFramingCues: record.highResPreservedFramingCues,
+    loraOmittedFields: record.loraOmittedFields,
+    promptProfile: record.promptProfile,
+    regenerationIntent: record.regenerationIntent,
+    diagnostic: record.diagnostic,
+    includedContinuityFacts: record.includedContinuityFacts,
+    excludedContinuityFacts: record.excludedContinuityFacts,
+    continuityStrength: record.continuityStrength,
+    assetId: record.assetId,
+    versionId: record.currentVersionId,
+    rootVersionId: record.rootVersionId,
+    attemptNumber: record.attemptNumber,
+    triggerType: record.triggerType,
+    generatedAt: record.updatedAt || now
   };
 }
 function markJobStatus(state, job, status, triggerType) {
   const now = Date.now();
   for (const slot of job.slots) {
-    const record4 = state.slots[slotKey({ ...job, slot })];
-    if (!record4 || record4.status === "completed" && status === "queued")
+    const record = state.slots[slotKey({ ...job, slot })];
+    if (!record || record.status === "completed" && status === "queued")
       continue;
     if (status === "parsing") {
-      record4.attemptNumber = (record4.attemptNumber || 0) + 1;
-      record4.error = undefined;
-      record4.errorToastKey = undefined;
-      record4.triggerType = triggerType;
-      record4.lastAttemptAt = now;
-      record4.parsingStartedAt = now;
-      record4.preparationStartedAt = now;
+      record.attemptNumber = (record.attemptNumber || 0) + 1;
+      record.error = undefined;
+      record.errorToastKey = undefined;
+      record.triggerType = triggerType;
+      record.lastAttemptAt = now;
+      record.parsingStartedAt = now;
+      record.preparationStartedAt = now;
       if (triggerType === "retry")
-        record4.lastRetriedAt = now;
+        record.lastRetriedAt = now;
       if (triggerType === "reparse")
-        record4.lastReparsedAt = now;
+        record.lastReparsedAt = now;
       if (triggerType === "regenerate-same-settings" || triggerType === "regenerate-current-settings" || triggerType === "intent-regeneration")
-        record4.lastRegeneratedAt = now;
+        record.lastRegeneratedAt = now;
       if (triggerType === "edited-prompt")
-        record4.lastEditedAt = now;
-      record4.attempts ||= [];
-      record4.attempts.push({
-        attemptNumber: record4.attemptNumber,
+        record.lastEditedAt = now;
+      record.attempts ||= [];
+      record.attempts.push({
+        attemptNumber: record.attemptNumber,
         triggerType: triggerType || "initial",
         startedAt: now,
         parsingStartedAt: now,
@@ -172725,46 +172804,46 @@ function markJobStatus(state, job, status, triggerType) {
         error: null
       });
     }
-    record4.status = status;
-    record4.updatedAt = now;
+    record.status = status;
+    record.updatedAt = now;
   }
 }
-function markSlotStatus(record4, status) {
-  record4.status = status;
+function markSlotStatus(record, status) {
+  record.status = status;
   const now = Date.now();
-  record4.updatedAt = now;
+  record.updatedAt = now;
   if (status === "generating") {
-    record4.generationStartedAt = now;
-    const attempt = currentAttempt(record4);
+    record.generationStartedAt = now;
+    const attempt = currentAttempt(record);
     if (attempt) {
       attempt.generationStartedAt = now;
       attempt.stage = "image-generation";
     }
   }
 }
-function currentAttempt(record4) {
-  return record4.attempts?.[record4.attempts.length - 1];
+function currentAttempt(record) {
+  return record.attempts?.[record.attempts.length - 1];
 }
-function generationTimingForRecord(record4, now = Date.now()) {
-  const queuedAt = record4.queuedAt || 0;
-  const parsingStartedAt = record4.parsingStartedAt || record4.preparationStartedAt || 0;
-  const preparationStartedAt = record4.preparationStartedAt || parsingStartedAt;
-  const preparationCompletedAt = record4.preparationCompletedAt || 0;
-  const providerWaitStartedAt = record4.providerWaitStartedAt || preparationCompletedAt;
-  const parsingCompletedAt = record4.parsingCompletedAt || preparationCompletedAt;
-  const providerStartedAt = record4.providerRequestSentAt || record4.providerStartedAt || record4.generationStartedAt || 0;
-  const providerCompletedAt = record4.providerResultReceivedAt || record4.providerCompletedAt || 0;
-  const imagePersistedAt = record4.imagePersistedAt || 0;
-  const galleryLinkedAt = record4.galleryLinkedAt || 0;
-  const placementLockAcquiredAt = record4.placementLockAcquiredAt || 0;
-  const messageRereadAt = record4.messageRereadAt || 0;
-  const markerReplacementStartedAt = record4.markerReplacementStartedAt || 0;
-  const markerReplacementCommittedAt = record4.markerReplacementCommittedAt || 0;
-  const visualSettlementStartedAt = record4.visualSettlementStartedAt || 0;
-  const visualSettlementCompletedAt = record4.visualSettlementCompletedAt || 0;
-  const placementStartedAt = record4.placementStartedAt || 0;
-  const placementCompletedAt = record4.placementCompletedAt || record4.completedAt || 0;
-  const end = record4.completedAt || now;
+function generationTimingForRecord(record, now = Date.now()) {
+  const queuedAt = record.queuedAt || 0;
+  const parsingStartedAt = record.parsingStartedAt || record.preparationStartedAt || 0;
+  const preparationStartedAt = record.preparationStartedAt || parsingStartedAt;
+  const preparationCompletedAt = record.preparationCompletedAt || 0;
+  const providerWaitStartedAt = record.providerWaitStartedAt || preparationCompletedAt;
+  const parsingCompletedAt = record.parsingCompletedAt || preparationCompletedAt;
+  const providerStartedAt = record.providerRequestSentAt || record.providerStartedAt || record.generationStartedAt || 0;
+  const providerCompletedAt = record.providerResultReceivedAt || record.providerCompletedAt || 0;
+  const imagePersistedAt = record.imagePersistedAt || 0;
+  const galleryLinkedAt = record.galleryLinkedAt || 0;
+  const placementLockAcquiredAt = record.placementLockAcquiredAt || 0;
+  const messageRereadAt = record.messageRereadAt || 0;
+  const markerReplacementStartedAt = record.markerReplacementStartedAt || 0;
+  const markerReplacementCommittedAt = record.markerReplacementCommittedAt || 0;
+  const visualSettlementStartedAt = record.visualSettlementStartedAt || 0;
+  const visualSettlementCompletedAt = record.visualSettlementCompletedAt || 0;
+  const placementStartedAt = record.placementStartedAt || 0;
+  const placementCompletedAt = record.placementCompletedAt || record.completedAt || 0;
+  const end = record.completedAt || now;
   const elapsed = (start, finish) => start && finish ? Math.max(0, finish - start) : 0;
   return {
     queuedAt,
@@ -172787,7 +172866,7 @@ function generationTimingForRecord(record4, now = Date.now()) {
     visualSettlementCompletedAt,
     placementStartedAt,
     placementCompletedAt,
-    completedAt: record4.completedAt || 0,
+    completedAt: record.completedAt || 0,
     dispatchQueueWaitMs: elapsed(queuedAt, preparationStartedAt),
     preparationMs: elapsed(preparationStartedAt, preparationCompletedAt),
     providerWaitMs: elapsed(providerWaitStartedAt, providerStartedAt),
@@ -172802,8 +172881,8 @@ function generationTimingForRecord(record4, now = Date.now()) {
     totalMs: elapsed(queuedAt, end)
   };
 }
-function finishAttempt(record4, stage, now, error) {
-  const attempt = currentAttempt(record4);
+function finishAttempt(record, stage, now, error) {
+  const attempt = currentAttempt(record);
   if (!attempt)
     return;
   attempt.stage = stage;
@@ -172814,69 +172893,69 @@ function finishAttempt(record4, stage, now, error) {
     attempt.failedAt = now;
   if (stage === "cancelled")
     attempt.cancelledAt = now;
-  const timing = generationTimingForRecord(record4, now);
+  const timing = generationTimingForRecord(record, now);
   Object.assign(attempt, timing);
   attempt.durationMs = timing.providerExecutionMs;
 }
-function resolvedPromptFromRecord(record4, config) {
-  if (!record4.resolvedPositivePrompt)
+function resolvedPromptFromRecord(record, config) {
+  if (!record.resolvedPositivePrompt)
     throw new Error("No stored resolved prompt.");
   return {
-    prompt: record4.resolvedPositivePrompt,
-    negativePrompt: record4.resolvedNegativePrompt || "",
-    promptMode: record4.promptMode || "stored",
-    promptPresetId: record4.promptPresetId ?? config.nativePromptPresetId,
+    prompt: record.resolvedPositivePrompt,
+    negativePrompt: record.resolvedNegativePrompt || "",
+    promptMode: record.promptMode || "stored",
+    promptPresetId: record.promptPresetId ?? config.nativePromptPresetId,
     parserUsed: false,
-    parserOutput: record4.parserOutput || "",
-    parserConnectionId: record4.parserConnectionId ?? config.parserConnectionId,
-    parserModel: record4.parserModel ?? effectiveParserModel(config),
-    parserParameters: record4.parserParameters ?? config.parserParameters,
-    promptPipeline: record4.promptPipeline || emptyPromptPipeline(record4)
+    parserOutput: record.parserOutput || "",
+    parserConnectionId: record.parserConnectionId ?? config.parserConnectionId,
+    parserModel: record.parserModel ?? effectiveParserModel(config),
+    parserParameters: record.parserParameters ?? config.parserParameters,
+    promptPipeline: record.promptPipeline || emptyPromptPipeline(record)
   };
 }
-function stampImagePlan(record4, plan) {
-  record4.imageConnectionId = plan.connectionId;
-  record4.imageConnectionName = plan.connectionName;
-  record4.imageProvider = plan.provider;
-  record4.imageModel = plan.model;
-  record4.imageParameters = plan.finalParameters;
-  record4.nativeImageSettings = plan.nativeImageSettings;
-  record4.nativeSettingsCapturedAt = plan.nativeSettingsCapturedAt;
-  record4.connectionDefaultParameters = plan.connectionDefaultParameters;
-  record4.slotOverrides = plan.slotOverrides;
-  record4.finalImageParameters = plan.finalParameters;
-  record4.finalImageSettingsSource = plan.settingsSource;
-  record4.nativeActiveLoraPreset = plan.nativeActiveLoraPreset;
-  record4.effectiveAppliedLoraPreset = plan.effectiveAppliedLoraPreset;
-  record4.lorasSentToProvider = plan.lorasSentToProvider;
-  record4.loraBaseTags = plan.loraBaseTags;
-  record4.baseTagsAddedToPrompt = plan.effectiveBaseTags;
-  record4.omittedBaseTags = plan.omittedBaseTags;
-  record4.highResMode = plan.highResMode;
-  record4.highResRetainedBaseTags = plan.highResRetainedBaseTags;
-  record4.highResPreservedFramingCues = plan.highResPreservedFramingCues;
-  record4.loraOmittedFields = plan.loraOmittedFields;
-  record4.updatedAt = Date.now();
+function stampImagePlan(record, plan) {
+  record.imageConnectionId = plan.connectionId;
+  record.imageConnectionName = plan.connectionName;
+  record.imageProvider = plan.provider;
+  record.imageModel = plan.model;
+  record.imageParameters = plan.finalParameters;
+  record.nativeImageSettings = plan.nativeImageSettings;
+  record.nativeSettingsCapturedAt = plan.nativeSettingsCapturedAt;
+  record.connectionDefaultParameters = plan.connectionDefaultParameters;
+  record.slotOverrides = plan.slotOverrides;
+  record.finalImageParameters = plan.finalParameters;
+  record.finalImageSettingsSource = plan.settingsSource;
+  record.nativeActiveLoraPreset = plan.nativeActiveLoraPreset;
+  record.effectiveAppliedLoraPreset = plan.effectiveAppliedLoraPreset;
+  record.lorasSentToProvider = plan.lorasSentToProvider;
+  record.loraBaseTags = plan.loraBaseTags;
+  record.baseTagsAddedToPrompt = plan.effectiveBaseTags;
+  record.omittedBaseTags = plan.omittedBaseTags;
+  record.highResMode = plan.highResMode;
+  record.highResRetainedBaseTags = plan.highResRetainedBaseTags;
+  record.highResPreservedFramingCues = plan.highResPreservedFramingCues;
+  record.loraOmittedFields = plan.loraOmittedFields;
+  record.updatedAt = Date.now();
 }
 async function sendSlotErrors(job, message, userId) {
   const state = await getState(job.chatId, userId);
-  const first2 = state.slots[slotKey({ ...job, slot: job.slots[0] })];
+  const first = state.slots[slotKey({ ...job, slot: job.slots[0] })];
   spindle.sendToFrontend({
     type: "error",
     source: "job_failed",
-    key: first2?.key,
-    attemptNumber: first2?.attemptNumber || 0,
+    key: first?.key,
+    attemptNumber: first?.attemptNumber || 0,
     message: job.slots.length > 1 ? `${job.slots.length} image slots failed during generation. Open Reverie Relay Logs for details.` : message
   }, userId);
 }
 function logSlotSummary(config, state, chatId) {
-  const groups = Object.values(state.slots).map((record4) => ({
-    messageId: record4.messageId,
-    swipeId: record4.swipeId,
-    requestId: record4.requestId,
-    slot: record4.slot,
-    status: record4.status,
-    target: record4.target
+  const groups = Object.values(state.slots).map((record) => ({
+    messageId: record.messageId,
+    swipeId: record.swipeId,
+    requestId: record.requestId,
+    slot: record.slot,
+    status: record.status,
+    target: record.target
   })).sort((a, b) => `${a.messageId}:${a.swipeId}:${a.requestId}:${a.slot}`.localeCompare(`${b.messageId}:${b.swipeId}:${b.requestId}:${b.slot}`));
   logStage(config, "slot_summary", {
     chatId,
@@ -172885,60 +172964,60 @@ function logSlotSummary(config, state, chatId) {
     truncated: groups.length > 80
   });
 }
-function isProcessing(record4) {
-  return isSlotLifecycleActive(record4.status);
+function isProcessing(record) {
+  return isSlotLifecycleActive(record.status);
 }
-function canReparseRecord(record4) {
-  return Boolean(record4.originalSceneBrief.trim() && record4.originalRequestXml.trim());
+function canReparseRecord(record) {
+  return Boolean(record.originalSceneBrief.trim() && record.originalRequestXml.trim());
 }
-function canRegenerateRecord(record4) {
-  return Boolean(record4.resolvedPositivePrompt?.trim());
+function canRegenerateRecord(record) {
+  return Boolean(record.resolvedPositivePrompt?.trim());
 }
-function jobFromRecord(record4) {
+function jobFromRecord(record) {
   return {
-    chatId: record4.chatId,
-    messageId: record4.messageId,
-    swipeId: record4.swipeId,
-    requestId: record4.requestId,
-    target: record4.target,
-    intent: normalizeImageIntent(record4.imageIntent),
-    count: record4.count,
-    slots: [record4.slot],
-    alt: record4.alt,
-    caption: record4.caption,
-    time: record4.time,
-    aspect: record4.requestAspect,
-    originalSceneBrief: record4.originalSceneBrief,
-    originalNegativePrompt: record4.originalNegativePrompt,
-    originalRequestXml: record4.originalRequestXml,
-    cast: record4.cast,
-    promptSource: record4.promptSource,
-    promptProfileId: record4.temporaryPromptProfileId || record4.selectedPromptProfileId,
-    regenerationIntent: record4.regenerationIntent,
-    composedPositivePrompt: record4.composedPositivePrompt,
-    composedNegativePrompt: record4.composedNegativePrompt,
-    prosePromptComposition: record4.prosePromptComposition,
-    proseIllustrationId: record4.proseIllustrationId,
-    prosePlanId: record4.prosePlanId,
-    proseAnchor: record4.proseAnchor,
-    synthetic: record4.proseSynthetic
+    chatId: record.chatId,
+    messageId: record.messageId,
+    swipeId: record.swipeId,
+    requestId: record.requestId,
+    target: record.target,
+    intent: normalizeImageIntent(record.imageIntent),
+    count: record.count,
+    slots: [record.slot],
+    alt: record.alt,
+    caption: record.caption,
+    time: record.time,
+    aspect: record.requestAspect,
+    originalSceneBrief: record.originalSceneBrief,
+    originalNegativePrompt: record.originalNegativePrompt,
+    originalRequestXml: record.originalRequestXml,
+    cast: record.cast,
+    promptSource: record.promptSource,
+    promptProfileId: record.temporaryPromptProfileId || record.selectedPromptProfileId,
+    regenerationIntent: record.regenerationIntent,
+    composedPositivePrompt: record.composedPositivePrompt,
+    composedNegativePrompt: record.composedNegativePrompt,
+    prosePromptComposition: record.prosePromptComposition,
+    proseIllustrationId: record.proseIllustrationId,
+    prosePlanId: record.prosePlanId,
+    proseAnchor: record.proseAnchor,
+    synthetic: record.proseSynthetic
   };
 }
 function groupFailedRetryJobs(records) {
   const grouped = new Map;
-  for (const record4 of records) {
-    const key2 = record4.target === "instagram.carousel" ? `${record4.chatId}:${record4.messageId}:${record4.swipeId}:${record4.requestId}` : record4.key;
-    const list2 = grouped.get(key2) || [];
-    list2.push(record4);
-    grouped.set(key2, list2);
+  for (const record of records) {
+    const key = record.target === "instagram.carousel" ? `${record.chatId}:${record.messageId}:${record.swipeId}:${record.requestId}` : record.key;
+    const list = grouped.get(key) || [];
+    list.push(record);
+    grouped.set(key, list);
   }
-  return Array.from(grouped.values()).map((list2) => {
-    const first2 = list2[0];
-    if (first2.target !== "instagram.carousel")
-      return jobFromRecord(first2);
-    const count = Math.max(first2.count || list2.length, list2.length, 1);
+  return Array.from(grouped.values()).map((list) => {
+    const first = list[0];
+    if (first.target !== "instagram.carousel")
+      return jobFromRecord(first);
+    const count = Math.max(first.count || list.length, list.length, 1);
     return {
-      ...jobFromRecord(first2),
+      ...jobFromRecord(first),
       count,
       slots: Array.from({ length: count }, (_value, index) => `slide-${index + 1}`)
     };
@@ -172950,11 +173029,11 @@ function retryJobHasCurrentImage(state, job) {
 async function validateRetryJobsBeforeAttempt(jobs, state, config, userId) {
   const seen = new Set;
   for (const job of jobs) {
-    const record4 = state.slots[slotKey({ ...job, slot: job.slots[0] })];
-    if (!record4)
+    const record = state.slots[slotKey({ ...job, slot: job.slots[0] })];
+    if (!record)
       continue;
     try {
-      const plan = await prepareImagePlan(config, job, record4, undefined, userId, record4.highResMode ?? config.highResMode);
+      const plan = await prepareImagePlan(config, job, record, undefined, userId, record.highResMode ?? config.highResMode);
       const planKey = `${plan.connectionId || ""}:${plan.provider}:${plan.model}:${JSON.stringify(plan.finalParameters.workflow ?? null)}`;
       if (seen.has(planKey))
         continue;
@@ -173151,9 +173230,9 @@ function aspectRatioEquivalent(left, right, tolerance = 0.035) {
     const match = cleanString(value).match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
     if (!match)
       return null;
-    const a2 = Number(match[1]);
-    const b2 = Number(match[2]);
-    return a2 > 0 && b2 > 0 ? a2 / b2 : null;
+    const a = Number(match[1]);
+    const b = Number(match[2]);
+    return a > 0 && b > 0 ? a / b : null;
   };
   const a = parse(left);
   const b = parse(right);
@@ -173220,7 +173299,7 @@ function classifyImageRequest(job) {
   const namedSubjects = (composition?.namedSubjects || []).map(cleanString).filter(Boolean);
   const peoplePolicy = composition?.peoplePolicy || "allowed";
   const authoritative = `${job.originalSceneBrief} ${job.caption || ""} ${job.alt || ""}`;
-  const text3 = authoritative.toLocaleLowerCase();
+  const text = authoritative.toLocaleLowerCase();
   const explicitNoHumans = hasExplicitNoHumanIntent(job) || peoplePolicy === "forbidden";
   if (explicitNoHumans) {
     const noHumanText = authoritative.toLocaleLowerCase();
@@ -173244,11 +173323,11 @@ function classifyImageRequest(job) {
     return "group photo";
   if (job.cast === "char" || job.cast === "user")
     return /\b(?:portrait|headshot|profile)\b/i.test(authoritative) ? "character portrait" : "person-focused candid";
-  if (/\b(screenshot|screen capture|article screenshot|news article|webpage|interface|ui|text conversation|chat interface)\b/.test(text3))
+  if (/\b(screenshot|screen capture|article screenshot|news article|webpage|interface|ui|text conversation|chat interface)\b/.test(text))
     return "screenshot/article/ui";
-  if (/\b(document|receipt|letter|article|newspaper article|paper form|form scan)\b/.test(text3))
+  if (/\b(document|receipt|letter|article|newspaper article|paper form|form scan)\b/.test(text))
     return "document";
-  if (/\b(meme|reaction image|captioned image)\b/.test(text3))
+  if (/\b(meme|reaction image|captioned image)\b/.test(text))
     return "meme";
   const explicitNamedPerson = namedSubjects.some((name) => namedEntityPosition(authoritative, name) >= 0) || /\b(?:photo|picture|candid|portrait|selfie) of [A-Z][a-z]+\b/.test(authoritative) || /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+(?:wearing|smiling|standing|walking|sitting|entering|looking|holding|lying|hovering|braced|kissing|embracing|sprawling|sprawls)\b/.test(authoritative);
   const explicitPerson = /\b(selfie|person|people|woman|man|girl|boy|teen|staff member|performer|dancer|singer|actor|face|expression|candid of|couple|duo|embrace|kissing)\b/i.test(authoritative) || explicitNamedPerson;
@@ -173262,25 +173341,25 @@ function classifyImageRequest(job) {
     return "group photo";
   if (job.target === "prose.illustration" && explicitPerson)
     return /\b(two|three|couple|duo|people|together|embrace|kissing)\b/i.test(authoritative) ? "group photo" : "person-focused candid";
-  if (/\b(food|meal|dish|cake|coffee|drink|lunch|dinner|breakfast)\b/.test(text3))
+  if (/\b(food|meal|dish|cake|coffee|drink|lunch|dinner|breakfast)\b/.test(text))
     return "food";
-  const explicitObject = /\b(object|device|phone|package|sign|prop|tool|equipment|table|chair|marker|tape|surface|close-up|closeup)\b/.test(text3);
-  const explicitEvidenceIntent = /\b(evidence|proof|inspection|failing|failure|misses?|not catching)\b/.test(text3);
+  const explicitObject = /\b(object|device|phone|package|sign|prop|tool|equipment|table|chair|marker|tape|surface|close-up|closeup)\b/.test(text);
+  const explicitEvidenceIntent = /\b(evidence|proof|inspection|failing|failure|misses?|not catching)\b/.test(text);
   if (explicitObject && !explicitPerson && !explicitEvidenceIntent)
     return "object photo";
-  if (/\b(evidence|proof|damage|broken|failing|failure|misses?|not catching|inspection|marker|close-up of|closeup of)\b/.test(text3))
+  if (/\b(evidence|proof|damage|broken|failing|failure|misses?|not catching|inspection|marker|close-up of|closeup of)\b/.test(text))
     return "evidence photo";
-  if (/\b(group|team|crowd|friends|everyone|people together|two people|three people|couple|duo|embrace|kissing)\b/.test(text3))
+  if (/\b(group|team|crowd|friends|everyone|people together|two people|three people|couple|duo|embrace|kissing)\b/.test(text))
     return "group photo";
-  if (/\b(portrait|headshot|profile photo|character[ -]profile|character sheet)\b/.test(text3))
+  if (/\b(portrait|headshot|profile photo|character[ -]profile|character sheet)\b/.test(text))
     return "character portrait";
   if (explicitObject && !explicitPerson)
     return "object photo";
   if (explicitPerson)
     return /\b(two|three|couple|duo|people|together|embrace|kissing)\b/i.test(authoritative) ? "group photo" : "person-focused candid";
-  if (/\b(room|studio|interior|office|kitchen|bedroom|hallway|venue|building|location|floor|stage|cafe|restaurant|lounge|classroom)\b/.test(text3))
+  if (/\b(room|studio|interior|office|kitchen|bedroom|hallway|venue|building|location|floor|stage|cafe|restaurant|lounge|classroom)\b/.test(text))
     return "location/interior";
-  if (/\b(landscape|mountain|forest|beach|sky|sunset|scenery|outdoor vista|cityscape)\b/.test(text3))
+  if (/\b(landscape|mountain|forest|beach|sky|sunset|scenery|outdoor vista|cityscape)\b/.test(text))
     return "scenery";
   if (explicitObject)
     return "object photo";
@@ -173290,13 +173369,13 @@ function requestHasVisibleFace(classification) {
   return classification === "character portrait" || classification === "person-focused candid" || classification === "group photo" || classification === "narrative-scene" || classification === "selfie";
 }
 function targetHumanPolicy(job, classification = classifyImageRequest(job)) {
-  const text3 = `${job.originalSceneBrief} ${job.caption || ""} ${job.alt || ""}`;
+  const text = `${job.originalSceneBrief} ${job.caption || ""} ${job.alt || ""}`;
   const castRequirements = c5aCastRequirements(job.cast);
   const castRequiresIdentity = castRequirements.character || castRequirements.persona;
   const explicitNoHumans = hasExplicitNoHumanIntent(job) || job.prosePromptComposition?.peoplePolicy === "forbidden";
-  const explicitHumanPresence = job.cast === "char" || job.cast === "user" || job.cast === "char+user" || /\b(person|people|woman|man|girl|boy|teen|character|face|portrait|selfie|hand|hands|held|holding|someone|body|legs|feet|dancer|performer|couple|duo|embrace|kissing)\b/i.test(text3);
-  const compositionPeople = !explicitNoHumans && explicitHumanPresence && (Math.max(0, Number(job.prosePromptComposition?.expectedPeopleCount || 0)) > 0 || (job.prosePromptComposition?.namedSubjects || []).some((name) => namedEntityPosition(text3, cleanString(name)) >= 0));
-  const explicitHeldObject = /\b(?:phone|object|device|camera|paper|document)\s+(?:being\s+)?(?:held|held by|in hand|in someone's hand)|\bholding\s+(?:a\s+)?(?:phone|object|device|camera|paper|document)\b/i.test(text3);
+  const explicitHumanPresence = job.cast === "char" || job.cast === "user" || job.cast === "char+user" || /\b(person|people|woman|man|girl|boy|teen|character|face|portrait|selfie|hand|hands|held|holding|someone|body|legs|feet|dancer|performer|couple|duo|embrace|kissing)\b/i.test(text);
+  const compositionPeople = !explicitNoHumans && explicitHumanPresence && (Math.max(0, Number(job.prosePromptComposition?.expectedPeopleCount || 0)) > 0 || (job.prosePromptComposition?.namedSubjects || []).some((name) => namedEntityPosition(text, cleanString(name)) >= 0));
+  const explicitHeldObject = /\b(?:phone|object|device|camera|paper|document)\s+(?:being\s+)?(?:held|held by|in hand|in someone's hand)|\bholding\s+(?:a\s+)?(?:phone|object|device|camera|paper|document)\b/i.test(text);
   const targetClass = classification === "group photo" ? "group" : classification === "narrative-scene" ? job.cast === "char+user" || Number(job.prosePromptComposition?.expectedPeopleCount || 0) > 1 ? "group" : "character" : requestHasVisibleFace(classification) ? "character" : classification === "location/interior" || classification === "scenery" ? "location" : classification === "document" ? "document" : classification === "screenshot/article/ui" ? "screenshot/article/ui" : "object";
   const allowHumanPrompt = !explicitNoHumans && (compositionPeople || targetClass === "character" || targetClass === "group" || explicitHeldObject || targetClass === "object" && explicitHumanPresence && classification !== "screenshot/article/ui");
   const commonNoHumanGuardrails = "people, person, human, face, portrait, eyes, expression, hands, body, legs, feet, shoes, dancer, occupant, character, woman, man, girl, boy, someone holding the object, phone mockup, over-the-shoulder view, reflected face";
@@ -173454,8 +173533,8 @@ function resolvePromptProfileDecision(job, config) {
   };
 }
 function autoPromptProfileId(job, classification) {
-  const text3 = `${job.originalSceneBrief} ${job.caption || ""} ${job.alt || ""}`;
-  if (/\bselfie\b/i.test(text3))
+  const text = `${job.originalSceneBrief} ${job.caption || ""} ${job.alt || ""}`;
+  if (/\bselfie\b/i.test(text))
     return "selfie";
   if (classification === "narrative-scene")
     return "cinematic-scene";
@@ -173465,7 +173544,7 @@ function autoPromptProfileId(job, classification) {
     return "object-prop";
   if (classification === "location/interior" || classification === "scenery")
     return "environment-location";
-  if (classification === "evidence photo" || /\b(surveillance|cctv|evidence|anonymous[- ]phone|stalker|paparazzi)\b/i.test(text3))
+  if (classification === "evidence photo" || /\b(surveillance|cctv|evidence|anonymous[- ]phone|stalker|paparazzi)\b/i.test(text))
     return "evidence-surveillance";
   if (classification === "character portrait")
     return "character-portrait";
@@ -173539,6 +173618,34 @@ function requestDepictsCharacter(classification, brief) {
     return false;
   return !/\b(my selfie|selfie of me|the user|persona selfie|my face)\b/i.test(brief);
 }
+function normalizeIdentityOwner(value) {
+  return cleanString(value).toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+function explicitPortraitSubjectName(job) {
+  const authoritative = `${job.originalSceneBrief} ${job.caption || ""} ${job.alt || ""}`;
+  const titledName = String.raw`(?:Lady|Lord|King|Queen|Prince|Princess|Elder|Duke|Duchess|Sir|Dame|Dr\.?|Mr\.?|Ms\.?|Miss|Mrs\.?)\s+[\p{Lu}][\p{L}'-]+(?:\s+[\p{Lu}][\p{L}'-]+)?`;
+  const bareName = String.raw`[\p{Lu}][\p{L}'-]+(?:\s+[\p{Lu}][\p{L}'-]+){1,2}`;
+  const match = new RegExp(String.raw`\b(?:portrait|headshot|profile(?:\s+(?:photo|image))?|character\s+(?:portrait|profile|sheet))\s+of\s+(?:an?\s+)?(${titledName}|${bareName})\b`, "iu").exec(authoritative);
+  return cleanString(match?.[1]);
+}
+function resolveActiveCharacterOwnership(job, classification, activeCharacter) {
+  if (job.cast === "char" || job.cast === "char+user")
+    return { applies: true, explicitSubject: "", reason: "explicit cast owns active Character identity" };
+  if (job.cast)
+    return { applies: false, explicitSubject: "", reason: `cast=${job.cast} does not request active Character identity` };
+  const explicitSubject = explicitPortraitSubjectName(job);
+  if (!job.target.startsWith("custom.") || classification !== "character portrait" || !explicitSubject) {
+    return { applies: true, explicitSubject, reason: "no distinct single-subject custom portrait owner was declared" };
+  }
+  const ownerKey = normalizeIdentityOwner(explicitSubject);
+  const activeKeys = [activeCharacter?.id, activeCharacter?.name, ...activeCharacter?.aliases || []].map(normalizeIdentityOwner).filter(Boolean);
+  const ownedByActiveCharacter = Boolean(ownerKey && activeKeys.includes(ownerKey));
+  return {
+    applies: ownedByActiveCharacter,
+    explicitSubject,
+    reason: ownedByActiveCharacter ? `named portrait subject ${explicitSubject} matches the active Character` : `named portrait subject ${explicitSubject} is scene-owned and does not match the active Character`
+  };
+}
 function requestDepictsPersona(classification, brief) {
   return requestHasVisibleFace(classification) && /\b(selfie|myself|\bme\b|the user|persona|my face|my outfit)\b/i.test(brief);
 }
@@ -173586,8 +173693,8 @@ function sanitizeRecentVisualContext(value) {
     return "";
   if (/\b(OOC|integration test|debug export|motive ledger|router logs?|regex|stylesheet|developer handoff)\b/i.test(value))
     return "";
-  const clean4 = value.replace(/```[\s\S]*?```/g, " ").replace(/<style\b[\s\S]*?<\/style>/gi, " ").replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<(?:image_request|reverie-illustration)\b[\s\S]*?<\/(?:image_request|reverie-illustration)>/gi, " ").replace(/<!--\s*(?:reverie-relay|dreamglass):image(?:-error)?[\s\S]*?-->/gi, " ").replace(/<(?:tw_media|ig_media|ig_slide|s_img|k_img|image_request_error)\b[\s\S]*?<\/(?:tw_media|ig_media|ig_slide|s_img|k_img|image_request_error)>/gi, " ").replace(/\{[\s\S]{120,}?\}/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-  return compact(clean4, 700);
+  const clean = value.replace(/```[\s\S]*?```/g, " ").replace(/<style\b[\s\S]*?<\/style>/gi, " ").replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<(?:image_request|reverie-illustration)\b[\s\S]*?<\/(?:image_request|reverie-illustration)>/gi, " ").replace(/<!--\s*(?:reverie-relay|dreamglass):image(?:-error)?[\s\S]*?-->/gi, " ").replace(/<(?:tw_media|ig_media|ig_slide|s_img|k_img|image_request_error)\b[\s\S]*?<\/(?:tw_media|ig_media|ig_slide|s_img|k_img|image_request_error)>/gi, " ").replace(/\{[\s\S]{120,}?\}/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return compact(clean, 700);
 }
 function resolveNamedVisualSubjects(sceneBrief, presets) {
   const matches = [];
@@ -173649,8 +173756,8 @@ function enforceVisualSubjectIdentity(prompt, subjects, sceneFirst = false) {
   const normalizedScene = normalizedPromptFragment2(body);
   const identity = subjects.map((subject) => {
     const deduped = sanitizeSubjectIdentityPrompt(subject.prompt).split(/[,;\n]+/).map((fragment) => fragment.trim()).filter(Boolean).filter((fragment) => {
-      const normalized2 = normalizedPromptFragment2(fragment);
-      return normalized2 && !normalizedScene.includes(normalized2);
+      const normalized = normalizedPromptFragment2(fragment);
+      return normalized && !normalizedScene.includes(normalized);
     }).join(", ");
     return deduped ? `${subjectScope(subject)} ${subject.name}: ${deduped}` : "";
   }).filter(Boolean).join("; ");
@@ -173727,8 +173834,8 @@ function isUnrelatedArtifact(value) {
 function contextRelevanceScore(value, sceneBrief, subjects) {
   const lower = value.toLocaleLowerCase();
   let score = subjects.reduce((total, subject) => total + (lower.includes(subject.name.toLocaleLowerCase()) ? 8 : 0), 0);
-  const stop2 = new Set(["about", "after", "again", "anonymous", "before", "candid", "entering", "focus", "grainy", "image", "photo", "slightly", "taken", "through", "where", "while", "with"]);
-  const keywords = [...new Set((sceneBrief.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || []).filter((word) => word.length >= 4 && !stop2.has(word)))];
+  const stop = new Set(["about", "after", "again", "anonymous", "before", "candid", "entering", "focus", "grainy", "image", "photo", "slightly", "taken", "through", "where", "while", "with"]);
+  const keywords = [...new Set((sceneBrief.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || []).filter((word) => word.length >= 4 && !stop.has(word)))];
   score += keywords.reduce((total, word) => total + (lower.includes(word) ? 1 : 0), 0);
   if (/\b(wearing|outfit|uniform|hair|eyes|school|gates?|location|lighting|clothing)\b/i.test(value))
     score += 1;
@@ -173741,19 +173848,19 @@ function effectiveParserModel(config) {
   return config.parserModel || "";
 }
 function extractText(result) {
-  const readContent = (value2, depth = 0) => {
-    if (depth > 6 || value2 == null)
+  const readContent = (value, depth = 0) => {
+    if (depth > 6 || value == null)
       return "";
-    if (typeof value2 === "string")
-      return value2;
-    if (Array.isArray(value2))
-      return value2.map((item) => readContent(item, depth + 1)).filter(Boolean).join(`
+    if (typeof value === "string")
+      return value;
+    if (Array.isArray(value))
+      return value.map((item) => readContent(item, depth + 1)).filter(Boolean).join(`
 `);
-    if (typeof value2 !== "object")
+    if (typeof value !== "object")
       return "";
-    const row = value2;
-    for (const key2 of ["text", "output_text", "content", "parts"]) {
-      const resolved = readContent(row[key2], depth + 1);
+    const row = value;
+    for (const key of ["text", "output_text", "content", "parts"]) {
+      const resolved = readContent(row[key], depth + 1);
       if (resolved.trim())
         return resolved;
     }
@@ -173779,9 +173886,9 @@ function extractText(result) {
     Array.isArray(value.choices) ? value.choices[0]?.text : null
   ];
   for (const candidate of candidates) {
-    const text3 = readContent(candidate);
-    if (text3.trim())
-      return text3;
+    const text = readContent(candidate);
+    if (text.trim())
+      return text;
   }
   return "";
 }
@@ -173792,8 +173899,8 @@ function escapeRegExp3(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function cleanNullableString(value) {
-  const clean4 = cleanString(value);
-  return clean4 || null;
+  const clean = cleanString(value);
+  return clean || null;
 }
 function cleanParameters(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -173802,15 +173909,15 @@ function clampInt2(value, min, max, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.min(max, Math.max(min, Math.round(parsed))) : fallback;
 }
-function emptyPromptPipeline(record4) {
+function emptyPromptPipeline(record) {
   return {
-    contextCaption: record4?.caption,
+    contextCaption: record?.caption,
     nativeNegativePrompt: "",
-    requestNegativePrompt: record4?.originalNegativePrompt || "",
+    requestNegativePrompt: record?.originalNegativePrompt || "",
     parserNegativeAdditions: "",
     additionalRouterNegativePrompt: "",
-    rawMergedNegativePrompt: record4?.resolvedNegativePrompt || "",
-    finalNormalizedNegativePrompt: record4?.resolvedNegativePrompt || "",
+    rawMergedNegativePrompt: record?.resolvedNegativePrompt || "",
+    finalNormalizedNegativePrompt: record?.resolvedNegativePrompt || "",
     removedNegativeDuplicates: [],
     unresolvedMacros: [],
     warnings: []
@@ -173836,18 +173943,18 @@ function normalizeNegativePrompts(sources) {
       const term = rawTerm.trim();
       if (!term)
         continue;
-      const normalized2 = term.toLocaleLowerCase();
-      const existing = seen.get(normalized2);
+      const normalized = term.toLocaleLowerCase();
+      const existing = seen.get(normalized);
       if (existing) {
         if (!existing.sources.includes(source))
           existing.sources.push(source);
-        const duplicate = removed.get(normalized2) || { term: existing.term, sources: [...existing.sources] };
+        const duplicate = removed.get(normalized) || { term: existing.term, sources: [...existing.sources] };
         if (!duplicate.sources.includes(source))
           duplicate.sources.push(source);
-        removed.set(normalized2, duplicate);
+        removed.set(normalized, duplicate);
         continue;
       }
-      seen.set(normalized2, { term, sources: [source] });
+      seen.set(normalized, { term, sources: [source] });
     }
   }
   const duplicates = [...removed.values()];
@@ -173882,9 +173989,9 @@ function disciplineParserNegativeAdditions(additions, positivePrompt, classifica
     const term = raw.trim();
     if (!term)
       continue;
-    const normalized2 = term.toLocaleLowerCase();
+    const normalized = term.toLocaleLowerCase();
     let reason = "";
-    if (covered.has(normalized2))
+    if (covered.has(normalized))
       reason = "already covered by native or request negatives";
     else if (!requestHasVisibleFace(classification) && /\b(smile|smiling|makeup|face|facial|expression|static pose|posed portrait)\b/i.test(term))
       reason = `not applicable to ${classification}`;
@@ -173906,26 +174013,26 @@ function disciplineParserNegativeAdditions(additions, positivePrompt, classifica
   };
 }
 function disciplineParsedPositivePrompt(prompt, classification, job) {
-  let clean4 = prompt;
+  let clean = prompt;
   if (!requestHasVisibleFace(classification)) {
     for (const pattern of [...PORTRAIT_POSITIVE_PATTERNS, ...NON_PERSON_POSITIVE_PATTERNS]) {
-      clean4 = clean4.replace(pattern, " ");
+      clean = clean.replace(pattern, " ");
     }
-    clean4 = clean4.replace(/\b(?:face\s*)?expression(?:\s*tags?)?\s*:\s*(?:none|n\/a|not applicable)\b\s*,?/gi, " ");
+    clean = clean.replace(/\b(?:face\s*)?expression(?:\s*tags?)?\s*:\s*(?:none|n\/a|not applicable)\b\s*,?/gi, " ");
   }
   const requested = `${job.originalSceneBrief} ${job.caption || ""}`.toLocaleLowerCase();
   const generic = /^(?:realistic|4k(?: photography)?(?: style)?|professional photography)$/i;
-  clean4 = clean4.split(",").map((part) => part.trim()).filter((part) => part && (!generic.test(part) || requested.includes(part.toLocaleLowerCase()))).join(", ");
-  return clean4.replace(/\s+/g, " ").replace(/^,\s*|,\s*$/g, "").trim();
+  clean = clean.split(",").map((part) => part.trim()).filter((part) => part && (!generic.test(part) || requested.includes(part.toLocaleLowerCase()))).join(", ");
+  return clean.replace(/\s+/g, " ").replace(/^,\s*|,\s*$/g, "").trim();
 }
 function enforceDirectSurfaceFraming(prompt, classification) {
-  let clean4 = prompt.replace(/\bno\s+unless explicitly requested\b/gi, " ").replace(/\s+/g, " ").replace(/,\s*,/g, ",").replace(/^\s*[,;:\x97-]+|[,;:\x97-]+\s*$/g, "").trim();
-  const fragments2 = classification === "screenshot/article/ui" ? ["direct flat 2D screen capture", "edge-to-edge interface content", "orthographic front-on view", "screen content only", "crisp readable UI layout"] : classification === "document" ? ["document fills most of the frame", "top-down or near-top-down close-up", "page-centered composition", "minimal surrounding surface"] : [];
-  if (!fragments2.length)
-    return clean4;
-  const normalized2 = clean4.toLocaleLowerCase();
-  const missing = fragments2.filter((fragment) => !normalized2.includes(fragment.toLocaleLowerCase()));
-  return [clean4, ...missing].filter(Boolean).join(", ");
+  let clean = prompt.replace(/\bno\s+unless explicitly requested\b/gi, " ").replace(/\s+/g, " ").replace(/,\s*,/g, ",").replace(/^\s*[,;:\x97-]+|[,;:\x97-]+\s*$/g, "").trim();
+  const fragments = classification === "screenshot/article/ui" ? ["direct flat 2D screen capture", "edge-to-edge interface content", "orthographic front-on view", "screen content only", "crisp readable UI layout"] : classification === "document" ? ["document fills most of the frame", "top-down or near-top-down close-up", "page-centered composition", "minimal surrounding surface"] : [];
+  if (!fragments.length)
+    return clean;
+  const normalized = clean.toLocaleLowerCase();
+  const missing = fragments.filter((fragment) => !normalized.includes(fragment.toLocaleLowerCase()));
+  return [clean, ...missing].filter(Boolean).join(", ");
 }
 function directPromptConflictReason(prompt, negativeTerm, classification) {
   const positive = prompt.toLocaleLowerCase();
@@ -173969,7 +174076,7 @@ function promptWarnings(prompt, negative, pipeline) {
   return warnings;
 }
 function negativeTermSources(term, pipeline) {
-  const normalized2 = term.trim().toLocaleLowerCase();
+  const normalized = term.trim().toLocaleLowerCase();
   const sources = [
     ["native negative", pipeline.nativeNegativePrompt],
     ["request negative", pipeline.requestNegativePrompt],
@@ -173977,11 +174084,11 @@ function negativeTermSources(term, pipeline) {
     ["parser negative additions", pipeline.parserNegativeAdditions],
     ["Relay additional negative", pipeline.additionalRouterNegativePrompt]
   ];
-  return sources.filter(([, value]) => value.split(",").some((candidate) => candidate.trim().toLocaleLowerCase() === normalized2)).map(([label]) => label);
+  return sources.filter(([, value]) => value.split(",").some((candidate) => candidate.trim().toLocaleLowerCase() === normalized)).map(([label]) => label);
 }
 function compact(value, max) {
-  const clean4 = value.replace(/\s+/g, " ").trim();
-  return clean4.length > max ? `${clean4.slice(0, max)}...` : clean4;
+  const clean = value.replace(/\s+/g, " ").trim();
+  return clean.length > max ? `${clean.slice(0, max)}...` : clean;
 }
 function logStage(config, stage, details, level = "info") {
   if (!config.debugLogging && level !== "error")
@@ -174000,13 +174107,13 @@ function logStage(config, stage, details, level = "info") {
     spindle.log.info(message);
 }
 spindle.log.info(`Reverie Relay backend loaded - v${EXTENSION_VERSION} / ${BUILD_ID}`);
-function pendingRequestMarkup(record4) {
-  const original = cleanString(record4.originalRequestXml);
+function pendingRequestMarkup(record) {
+  const original = cleanString(record.originalRequestXml);
   if (original && /<(?:image_request|reverie-illustration)\b/i.test(original))
     return original;
   if (original && /<scene_image\b[^>]*\bpending(?:=|\s|>)/i.test(original))
     return original;
-  return renderReconstructedRequest(record4, record4.originalSceneBrief || record4.alt || "Reverie Relay image slot.", record4.originalNegativePrompt || "", record4.requestAspect);
+  return renderReconstructedRequest(record, record.originalSceneBrief || record.alt || "Reverie Relay image slot.", record.originalNegativePrompt || "", record.requestAspect);
 }
 function uniqueMarkupRanges(ranges) {
   const sorted = ranges.filter((range) => Number.isFinite(range.start) && Number.isFinite(range.end) && range.end > range.start).sort((left, right) => left.start - right.start || right.end - left.end);
@@ -174021,8 +174128,8 @@ function uniqueMarkupRanges(ranges) {
   }
   return result;
 }
-function requestMarkupRange(content, record4) {
-  const original = cleanString(record4.originalRequestXml);
+function requestMarkupRange(content, record) {
+  const original = cleanString(record.originalRequestXml);
   if (!original)
     return null;
   const start = content.indexOf(original);
@@ -174030,25 +174137,25 @@ function requestMarkupRange(content, record4) {
 }
 async function handleBulkChatMediaAction(payload, userId) {
   const before = await getState(payload.chatId, userId);
-  const selected = Object.values(before.slots).filter((record4) => record4.chatId === payload.chatId && (payload.lane === "illustrations" ? record4.target === "prose.illustration" : record4.target !== "prose.illustration"));
+  const selected = Object.values(before.slots).filter((record) => record.chatId === payload.chatId && (payload.lane === "illustrations" ? record.target === "prose.illustration" : record.target !== "prose.illustration"));
   if (!selected.length) {
     await sendState(userId, payload.chatId);
     spindle.sendToFrontend({ type: "relay_notice", level: "info", message: payload.lane === "illustrations" ? "No illustrations were found in this chat." : "No surface slot images were found in this chat." }, userId);
     return;
   }
-  for (const record4 of selected.filter(isRecordJobActive))
-    cancelledJobs.add(jobCancellationKey(record4));
+  for (const record of selected.filter(isRecordJobActive))
+    cancelledJobs.add(jobCancellationKey(record));
   const requestGroups = new Map;
-  for (const record4 of selected) {
-    const key2 = `${record4.messageId}:${record4.swipeId}:${record4.requestId}:${record4.target}`;
-    const rows2 = requestGroups.get(key2) || [];
-    rows2.push(record4);
-    requestGroups.set(key2, rows2);
+  for (const record of selected) {
+    const key = `${record.messageId}:${record.swipeId}:${record.requestId}:${record.target}`;
+    const rows = requestGroups.get(key) || [];
+    rows.push(record);
+    requestGroups.set(key, rows);
   }
   const messageCache = new Map;
   let messageEdits = 0;
-  for (const rows2 of requestGroups.values()) {
-    const representative = rows2[0];
+  for (const rows of requestGroups.values()) {
+    const representative = rows[0];
     let message = messageCache.get(representative.messageId);
     if (message === undefined) {
       message = await resolveMessage(payload.chatId, representative.messageId);
@@ -174057,8 +174164,8 @@ async function handleBulkChatMediaAction(payload, userId) {
     if (!message)
       continue;
     const content = getSwipeContent(message, representative.swipeId);
-    const ownedRanges = uniqueMarkupRanges(rows2.flatMap((record4) => [findSlotMarkupRange(content, record4), findErrorMarkupRange(content, record4)].filter((range) => Boolean(range))));
-    const unresolvedRanges = payload.mode === "remove-images-and-slots" ? uniqueMarkupRanges(rows2.map((record4) => requestMarkupRange(content, record4)).filter((range) => Boolean(range))) : [];
+    const ownedRanges = uniqueMarkupRanges(rows.flatMap((record) => [findSlotMarkupRange(content, record), findErrorMarkupRange(content, record)].filter((range) => Boolean(range))));
+    const unresolvedRanges = payload.mode === "remove-images-and-slots" ? uniqueMarkupRanges(rows.map((record) => requestMarkupRange(content, record)).filter((range) => Boolean(range))) : [];
     const ranges = uniqueMarkupRanges([...ownedRanges, ...unresolvedRanges]);
     if (!ranges.length)
       continue;
@@ -174076,10 +174183,10 @@ async function handleBulkChatMediaAction(payload, userId) {
     messageCache.set(representative.messageId, message);
     messageEdits += 1;
   }
-  const selectedKeys = new Set(selected.map((record4) => record4.key));
-  const selectedRequestKeys = new Set(selected.map((record4) => `${record4.messageId}:${record4.swipeId}:${record4.requestId}`));
+  const selectedKeys = new Set(selected.map((record) => record.key));
+  const selectedRequestKeys = new Set(selected.map((record) => `${record.messageId}:${record.swipeId}:${record.requestId}`));
   await mutateState(payload.chatId, userId, (state) => {
-    const liveSelected = Object.values(state.slots).filter((record4) => selectedKeys.has(record4.key));
+    const liveSelected = Object.values(state.slots).filter((record) => selectedKeys.has(record.key));
     const now = Date.now();
     if (payload.mode === "remove-images-and-slots") {
       removeSlotRecords(state, liveSelected);
@@ -174092,25 +174199,25 @@ async function handleBulkChatMediaAction(payload, userId) {
           delete state.proseIllustrator.plans[illustration.planId];
       }
     } else {
-      for (const record4 of liveSelected) {
-        record4.status = "recovered-pending";
-        record4.imageId = undefined;
-        record4.imageUrl = undefined;
-        record4.imageWidth = null;
-        record4.imageHeight = null;
-        record4.aspectRatio = undefined;
-        record4.error = undefined;
-        record4.failedAt = undefined;
-        record4.completedAt = undefined;
-        record4.cancelledAt = undefined;
-        record4.pendingPlacement = undefined;
-        record4.previewPending = false;
-        record4.placementFailure = undefined;
-        record4.imageAvailability = "unchecked";
-        record4.imageAvailabilityCheckedAt = undefined;
-        record4.recoveredAt = now;
-        record4.recoverySource = "unresolved-request";
-        record4.updatedAt = now;
+      for (const record of liveSelected) {
+        record.status = "recovered-pending";
+        record.imageId = undefined;
+        record.imageUrl = undefined;
+        record.imageWidth = null;
+        record.imageHeight = null;
+        record.aspectRatio = undefined;
+        record.error = undefined;
+        record.failedAt = undefined;
+        record.completedAt = undefined;
+        record.cancelledAt = undefined;
+        record.pendingPlacement = undefined;
+        record.previewPending = false;
+        record.placementFailure = undefined;
+        record.imageAvailability = "unchecked";
+        record.imageAvailabilityCheckedAt = undefined;
+        record.recoveredAt = now;
+        record.recoverySource = "unresolved-request";
+        record.updatedAt = now;
       }
       for (const illustration of Object.values(state.proseIllustrator.records || {})) {
         if (!selectedRequestKeys.has(`${illustration.anchor.messageId}:${illustration.anchor.swipeId}:${illustration.requestId}`) && !selectedKeys.has(illustration.slotKey))
@@ -174151,19 +174258,19 @@ async function handleBulkChatMediaAction(payload, userId) {
 async function handleRemoveSlotImage(payload, userId) {
   const chatId = payload.chatId;
   const state = await getState(chatId, userId);
-  const record4 = state.slots[payload.key];
-  if (!record4)
+  const record = state.slots[payload.key];
+  if (!record)
     throw new Error("Slot not found.");
-  const message = await resolveMessage(chatId, record4.messageId);
+  const message = await resolveMessage(chatId, record.messageId);
   if (!message)
     throw new Error("Message not found.");
-  const content = getSwipeContent(message, record4.swipeId);
-  const next = removeSlotMarkup(content, record4);
+  const content = getSwipeContent(message, record.swipeId);
+  const next = removeSlotMarkup(content, record);
   if (next === null)
     throw new Error("Could not find slot markup in message.");
-  await patchSwipeContent(chatId, message, record4.swipeId, next ?? undefined);
-  await mutateState(chatId, userId, (state2) => {
-    const slot = state2.slots[payload.key];
+  await patchSwipeContent(chatId, message, record.swipeId, next ?? undefined);
+  await mutateState(chatId, userId, (state) => {
+    const slot = state.slots[payload.key];
     if (slot) {
       slot.imageUrl = undefined;
       slot.imageId = undefined;
@@ -174173,129 +174280,132 @@ async function handleRemoveSlotImage(payload, userId) {
   await sendState(userId, chatId);
 }
 export {
-  withPlacementMutationLock,
-  targetHumanPolicy,
-  targetFramingInstruction,
-  stageStaleChatCleanupRegressionFixture,
-  shouldScanCompletedGeneration,
-  setConfig,
-  selectCompletedRequestContent,
-  sanitizeVisualPreset,
-  sanitizeSubjectIdentityPrompt,
-  sanitizeRecentVisualContext,
-  sanitizeCurrentOutfitMemory,
-  safeStorageSegment,
-  runWithConcurrency,
-  runAppearanceSidecar,
-  revalidateChatDestination,
-  resolveVisualPromptMacros,
-  resolveSubjectNegativeMacros,
-  resolveSidecarPromptMessages,
-  resolvePromptProfileDecision,
-  resolvePersonaPovContext,
-  resolveNativeLoraPlan,
-  resolveNamedVisualSubjects,
-  resolveIllustratorStoryPrompt,
-  resolveAutomaticSurfaceInjectionEnabled,
-  resolveAppearanceSidecarRouting,
-  resetStuckImageWorker,
-  requiresWorkflow,
-  requestsVisibleDeviceHardware,
-  requestHasVisibleFace,
-  replaceCharacterMacro,
-  repairSelfieDeviceContamination,
-  removeConflictingHumanNegatives,
-  relayMediaPersistencePatch,
-  registerDirectHostAppearanceSources,
-  proseAnalysisText,
-  placementIsPresent,
-  placementBatchKey,
-  parseSlotPrompt,
-  parseSafeSurfaceImageRequests,
-  parsePromptJson,
-  normalizedVisualFactsFromContext,
-  normalizedSurfaceStudioSnapshot,
-  normalizedSurfaceDefinitionIds,
-  normalizeRelaySurfaceContracts,
-  normalizeRelayLoraStacks,
-  normalizeProseIllustratorSettings,
-  normalizeImageGenerationStreamEvent,
-  modelPlacedSemanticViolations,
-  migrateRelayStateSnapshot,
-  markInitialPlacementVisualUnavailable,
-  markInitialPlacementVisualStarted,
-  markInitialPlacementVisualSettled,
-  markChatDestinationAvailable,
-  isolateRelayParserInstructions,
-  isUnresolvedCharacterMacro,
-  isExplicitAdultScene,
-  isEligibleProseContent,
-  isChatNotFoundError,
-  invalidateRenderOutputForMessage,
-  inspectProviderImageFreshness,
-  inspectProviderAttemptDiagnostics,
-  inspectImageGenerationLaneDiagnostics,
-  inspectChatRuntimeWork,
-  inspectChatDestinationDiagnostic,
-  inspectChatDestinationCacheSize,
-  initialPlacementBatchCommitGate,
-  imageWorkerRecoveryState,
-  hasUnsettledVisiblePlacement,
-  hasUnrequestedExplicitEscalation,
-  hasExplicitNoHumanIntent,
-  getConfig,
-  generationTimingForRecord,
-  generateWithOptionalStream,
-  generateParserText,
-  followedNativeParserConfig,
-  finalizeParsedPositivePrompt,
-  filterBaseTagsForTarget,
-  extractText,
-  extractProviderLoraCatalog,
-  ensureInterceptorRegistered,
-  enforceVisualSubjectIdentity,
-  enforceDirectSurfaceFraming,
-  effectiveGenerationProfile,
-  disciplineParserNegativeAdditions,
-  disciplineParsedPositivePrompt,
-  dimensionsForAspect,
-  detectPreservedFramingCues,
-  detectHumanPromptContamination,
-  defaultProseIllustratorSettings,
-  contextualizeSexualParserInstructions,
-  composePromptForOpportunity,
-  composeInitialPlacementBatchContent,
-  completedDiagnosticPath,
-  cleanupStaleChatWork,
-  classifyImageRequest,
-  claimProviderImageResult,
-  canonicalEditedMessage,
-  buildResolvedNarrativeUtilityPrompt,
-  buildProsePromptComposerMessages,
-  buildProsePlannerMessages,
-  buildProseOpportunityMessages,
-  buildIllustratorRuntimeDirective,
-  buildFullCompleteDryRunReport,
-  buildEnabledSurfaceUtility,
-  autoPromptProfileId,
-  assembleProviderPrompts,
-  assemblePreparedProviderPrompts,
-  aspectRatioEquivalent,
-  applySurfaceCategoryPromptEnabled,
-  applySpecialImageIntent,
-  applyRelaySettingsPatchToConfig,
-  applyPromptProfileToPositivePrompt,
-  applyLorasToProviderParameters,
-  acquirePromptPreparationWorker,
-  abortImageStreamsForChat,
-  abortImageStream,
-  SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS,
-  REGENERATION_INTENTS,
-  ImageGenerationWorkerResetError,
-  ImageGenerationLaneWaitTimeoutError,
-  IMAGE_GENERATION_TIMEOUT_MS,
-  IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS,
-  IMAGE_GENERATION_DRAIN_TIMEOUT_MS,
+  BUILT_IN_PROMPT_PROFILES,
   ILLUSTRATOR_RUNTIME_CACHE_POLICY,
-  BUILT_IN_PROMPT_PROFILES
+  IMAGE_GENERATION_DRAIN_TIMEOUT_MS,
+  IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS,
+  IMAGE_GENERATION_TIMEOUT_MS,
+  ImageGenerationLaneWaitTimeoutError,
+  ImageGenerationWorkerResetError,
+  REGENERATION_INTENTS,
+  SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS,
+  abortImageStream,
+  abortImageStreamsForChat,
+  acquirePromptPreparationWorker,
+  applyLorasToProviderParameters,
+  applyPromptProfileToPositivePrompt,
+  applyRelaySettingsPatchToConfig,
+  applySpecialImageIntent,
+  applySurfaceCategoryPromptEnabled,
+  aspectRatioEquivalent,
+  assemblePreparedProviderPrompts,
+  assembleProviderPrompts,
+  autoPromptProfileId,
+  buildEnabledSurfaceUtility,
+  buildFullCompleteDryRunReport,
+  buildIllustratorRuntimeDirective,
+  buildProseOpportunityMessages,
+  buildProsePlannerMessages,
+  buildProsePromptComposerMessages,
+  buildResolvedNarrativeUtilityPrompt,
+  canonicalEditedMessage,
+  claimProviderImageResult,
+  classifyImageRequest,
+  cleanupStaleChatWork,
+  completedDiagnosticPath,
+  composeInitialPlacementBatchContent,
+  composePromptForOpportunity,
+  contextualizeSexualParserInstructions,
+  defaultProseIllustratorSettings,
+  detectHumanPromptContamination,
+  detectPreservedFramingCues,
+  dimensionsForAspect,
+  disciplineParsedPositivePrompt,
+  disciplineParserNegativeAdditions,
+  effectiveGenerationProfile,
+  enforceDirectSurfaceFraming,
+  enforceVisualSubjectIdentity,
+  ensureInterceptorRegistered,
+  explicitPortraitSubjectName,
+  extractProviderLoraCatalog,
+  extractText,
+  filterBaseTagsForTarget,
+  finalizeParsedPositivePrompt,
+  followedNativeParserConfig,
+  generateParserText,
+  generateWithOptionalStream,
+  generationTimingForRecord,
+  getConfig,
+  hasExplicitNoHumanIntent,
+  hasUnrequestedExplicitEscalation,
+  hasUnsettledVisiblePlacement,
+  imageWorkerRecoveryState,
+  initialPlacementBatchCommitGate,
+  inspectChatDestinationCacheSize,
+  inspectChatDestinationDiagnostic,
+  inspectChatRuntimeWork,
+  inspectImageGenerationLaneDiagnostics,
+  inspectProviderAttemptDiagnostics,
+  inspectProviderImageFreshness,
+  invalidateRenderOutputForMessage,
+  isChatNotFoundError,
+  isEligibleProseContent,
+  isExplicitAdultScene,
+  isUnresolvedCharacterMacro,
+  isolateRelayParserInstructions,
+  markChatDestinationAvailable,
+  markInitialPlacementVisualSettled,
+  markInitialPlacementVisualStarted,
+  markInitialPlacementVisualUnavailable,
+  migrateRelayStateSnapshot,
+  modelPlacedSemanticViolations,
+  normalizeImageGenerationStreamEvent,
+  normalizeProseIllustratorSettings,
+  normalizeRelayLoraStacks,
+  normalizeRelaySurfaceContracts,
+  normalizedSurfaceDefinitionIds,
+  normalizedSurfaceStudioSnapshot,
+  normalizedVisualFactsFromContext,
+  parsePromptJson,
+  parseSafeSurfaceImageRequests,
+  parseSlotPrompt,
+  placementBatchKey,
+  placementIsPresent,
+  proseAnalysisText,
+  registerDirectHostAppearanceSources,
+  relayMediaPersistencePatch,
+  removeConflictingHumanNegatives,
+  repairSelfieDeviceContamination,
+  replaceCharacterMacro,
+  requestHasVisibleFace,
+  requestsVisibleDeviceHardware,
+  requiresWorkflow,
+  resetStuckImageWorker,
+  resolveActiveCharacterOwnership,
+  resolveAppearanceSidecarRouting,
+  resolveAutomaticSurfaceInjectionEnabled,
+  resolveIllustratorStoryPrompt,
+  resolveNamedVisualSubjects,
+  resolveNativeLoraPlan,
+  resolvePersonaPovContext,
+  resolvePromptProfileDecision,
+  resolveSidecarPromptMessages,
+  resolveSubjectNegativeMacros,
+  resolveVisualPromptMacros,
+  retainProviderAttemptDiagnostic,
+  revalidateChatDestination,
+  runAppearanceSidecar,
+  runWithConcurrency,
+  safeStorageSegment,
+  sanitizeCurrentOutfitMemory,
+  sanitizeRecentVisualContext,
+  sanitizeSubjectIdentityPrompt,
+  sanitizeVisualPreset,
+  selectCompletedRequestContent,
+  setConfig,
+  shouldScanCompletedGeneration,
+  stageStaleChatCleanupRegressionFixture,
+  targetFramingInstruction,
+  targetHumanPolicy,
+  withPlacementMutationLock
 };

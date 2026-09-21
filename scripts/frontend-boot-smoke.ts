@@ -64,8 +64,14 @@ class FakeElement {
   contains(node: unknown): boolean { return node === this || this.children.some(child => child.contains(node)) }
   matches(): boolean { return false }
   closest(): null { return null }
-  querySelector(): null { return null }
-  querySelectorAll(): FakeElement[] { return [] }
+  querySelector(selector: string): FakeElement | null { return this.querySelectorAll(selector)[0] || null }
+  querySelectorAll(selector: string): FakeElement[] {
+    if (selector !== '.dg-relay-orb') return []
+    return this.children.flatMap(child => [
+      ...(String(child.className).split(/\s+/).includes('dg-relay-orb') ? [child] : []),
+      ...child.querySelectorAll(selector),
+    ])
+  }
   setAttribute(): void {}
   removeAttribute(): void {}
   addEventListener(name: string, handler: () => void): void { this.listeners.set(name, [...(this.listeners.get(name) || []), handler]) }
@@ -94,8 +100,8 @@ const documentMock = {
   createDocumentFragment: () => new FakeElement(),
   addEventListener: () => {},
   removeEventListener: () => {},
-  querySelector: () => null,
-  querySelectorAll: () => [],
+  querySelector: (selector: string) => body.querySelector(selector),
+  querySelectorAll: (selector: string) => body.querySelectorAll(selector),
 }
 const localStorageValues = new Map<string, string>()
 const windowMock = Object.assign(globalThis, {
@@ -139,6 +145,7 @@ const inputRegistrations: any[] = []
 const backendPayloads: unknown[] = []
 const eventSubscriptions: string[] = []
 const tagInterceptors: string[] = []
+let activeTagInterceptors = 0
 let backendHandler: ((payload: unknown) => void) | null = null
 let drawerActivations = 0
 let drawerDestroyed = false
@@ -187,7 +194,16 @@ const ctx: any = {
     },
   },
   messages: {
-    registerTagInterceptor: ({ tagName }: any) => { tagInterceptors.push(tagName); return () => {} },
+    registerTagInterceptor: ({ tagName }: any) => {
+      tagInterceptors.push(tagName)
+      activeTagInterceptors += 1
+      let active = true
+      return () => {
+        if (!active) return
+        active = false
+        activeTagInterceptors -= 1
+      }
+    },
   },
   getActiveChat: () => ({ chatId: 'boot-chat', characterId: 'boot-character' }),
   sendToBackend: (payload: unknown) => { backendPayloads.push(payload) },
@@ -217,7 +233,7 @@ inputRegistrations.find(entry => entry.options.id === 'open-reverie-relay').acti
 inputRegistrations.find(entry => entry.options.id === 'open-reverie-surfaces').action.trigger()
 assert(drawerActivations === 2, 'both input-bar actions must activate the owning Relay drawer tab')
 
-backendHandler!({
+const bootState = {
   type: 'state',
   chatId: 'boot-chat',
   records: [],
@@ -235,13 +251,34 @@ backendHandler!({
   assetLibrary: null, versionTrees: [], continuityVault: null, customSurfaces: null,
   proseIllustrator: null, backgroundQueue: null, galleryLinks: [], lastDryRun: null,
   lastGenerationBlockers: [], schemaVersion: 34, revision: 1, build: null,
-})
+}
+backendHandler!(bootState)
 assert(body.children.some(child => child.className.includes('dg-relay-orb')), 'Orb bootstrap must be reachable after the accepted config and chat state arrive')
 
 for (let tick = 0; tick < 8; tick += 1) await Promise.resolve()
 assert(backendPayloads.some((payload: any) => payload?.type === 'list_state' && payload.chatId === 'boot-chat'), 'frontend setup must begin backend state synchronization')
 cleanup()
 assert(drawerDestroyed && stylesRemoved === 2, 'frontend cleanup must retire registered host resources')
+
+// Separate bundled realms share a document but not globalThis. Simulate that
+// split by hiding the first realm's global disposer: the document owner must
+// still retire the old orb and interceptors before the replacement mounts.
+const cleanupRealmA = frontendModule.setup(ctx)
+backendHandler!(bootState)
+assert(body.querySelectorAll('.dg-relay-orb').length === 1, 'first document realm must mount exactly one orb')
+const realmAInterceptorCount = activeTagInterceptors
+delete (globalThis as any).__REVERIE_RELAY_FRONTEND_DISPOSE__
+const cleanupRealmB = frontendModule.setup(ctx)
+backendHandler!(bootState)
+assert(body.querySelectorAll('.dg-relay-orb').length === 1, 'replacement document realm must evict the stale orb before mounting')
+assert(activeTagInterceptors === realmAInterceptorCount, 'replacement document realm must not stack lifecycle interceptors')
+const replacementOrb = body.querySelector('.dg-relay-orb')
+assert(replacementOrb && (replacementOrb.listeners.get('click') || []).length === 1, 'the surviving orb must have exactly one click handler')
+cleanupRealmA()
+assert(body.querySelectorAll('.dg-relay-orb').length === 1, 'stale realm cleanup must not remove the replacement orb')
+cleanupRealmB()
+assert(body.querySelectorAll('.dg-relay-orb').length === 0, 'replacement realm cleanup must remove its orb')
+assert(activeTagInterceptors === 0, 'document realm cleanup must release every lifecycle interceptor')
 
 // Real bundled UI handlers: controls must work outside a chat and paint the
 // selection before any backend state echo (including a stale echo).

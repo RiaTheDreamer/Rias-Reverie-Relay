@@ -53,6 +53,33 @@ const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url)
 assert(!backendSource.includes('Mirrored native ImageGen prompt mode:'), 'native generation mode must not enter Relay parser behavior payload')
 assert(!backendSource.includes('Mirrored native ImageGen prompt preset id:'), 'native generation preset id must remain diagnostic-only')
 
+// A named custom portrait owns its own subject. With no explicit cast, the
+// active chat character must not donate identity or Appearance context merely
+// because the request was classified as a character portrait.
+const sorinPortrait = {
+  target: 'custom.artifact-media',
+  originalSceneBrief: 'A formal painted portrait of Lady Min Sorin in ceremonial court attire.',
+  caption: 'Lady Min Sorin',
+  alt: 'Portrait of Lady Min Sorin',
+}
+const activeTaejun = { id: 'taejun', name: 'Taejun', aliases: ['Lee Taejun'] }
+assert.equal(backend.explicitPortraitSubjectName(sorinPortrait), 'Lady Min Sorin')
+const sorinOwnership = backend.resolveActiveCharacterOwnership(sorinPortrait, 'character portrait', activeTaejun)
+assert.equal(sorinOwnership.applies, false)
+assert.equal(sorinOwnership.explicitSubject, 'Lady Min Sorin')
+assert.match(sorinOwnership.reason, /scene-owned and does not match the active Character/)
+const sorinFinalPrompt = [
+  backend.resolveActiveCharacterOwnership(sorinPortrait, 'character portrait', activeTaejun).applies
+    ? 'Taejun, dark wavy hair, active-character Appearance context'
+    : '',
+  sorinPortrait.originalSceneBrief,
+].filter(Boolean).join('; ')
+assert.match(sorinFinalPrompt, /Lady Min Sorin/)
+assert.doesNotMatch(sorinFinalPrompt, /Taejun|dark wavy hair|active-character Appearance context/)
+assert.equal(backend.resolveActiveCharacterOwnership({ ...sorinPortrait, cast: 'char' }, 'character portrait', activeTaejun).applies, true)
+assert.equal(backend.resolveActiveCharacterOwnership({ ...sorinPortrait, cast: 'char+user' }, 'character portrait', activeTaejun).applies, true)
+assert.equal(backend.resolveActiveCharacterOwnership({ ...sorinPortrait, cast: 'user' }, 'character portrait', activeTaejun).applies, false)
+
 // Semantic equivalents and descriptive aliases are legal. These are the two
 // exact post-9f7e337 live rewrites which were falsely rejected.
 const alarmSource = '2people, wide shot volcanic greenhouse terrace, male subject standing tall beside dark brass acoustic pipe, female subject seated on wooden bench, clutching slate-blue robe tightly, looking up in alert apprehension'

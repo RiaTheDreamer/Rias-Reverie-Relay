@@ -316,11 +316,13 @@ export function normalizePlotSparksMediaMarkup(markup: string): string {
     if (/<image_request\b/i.test(media)) return full
     const sceneBriefs = media.match(/<scene_brief\b[^>]*>[\s\S]*?<\/scene_brief\s*>/gi) || []
     const wrongClosers = media.match(/<\/image_request\s*>/gi) || []
-    if (sceneBriefs.length !== 1 || wrongClosers.length !== 1 || /<\/reverie-illustration\s*>/i.test(media)) return full
-    const repaired = media
+    if (sceneBriefs.length !== 1 || wrongClosers.length > 1 || /<\/reverie-illustration\s*>/i.test(media)) return full
+    let repaired = media
       .replace(/<scene_brief\b[^>]*>/i, '<visual_prompt>')
       .replace(/<\/scene_brief\s*>/i, '</visual_prompt>')
-      .replace(/<\/image_request\s*>/i, '</reverie-illustration>')
+    repaired = wrongClosers.length === 1
+      ? repaired.replace(/<\/image_request\s*>/i, '</reverie-illustration>')
+      : `${repaired.trimEnd()}</reverie-illustration>`
     return `[Media]${repaired}[/Media]`
   })
 }

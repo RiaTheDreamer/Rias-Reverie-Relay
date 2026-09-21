@@ -1093,6 +1093,7 @@ export type AttemptHistoryEntry = {
   visualSettlementMs?: number
   stage: 'queued' | 'parser' | 'image-generation' | 'placement-pending' | 'placement-repair-needed' | 'completed' | 'failed' | 'cancelled'
   error?: string | null
+  providerAttemptDiagnostic?: Record<string, unknown>
 }
 
 export type PromptWarning = {

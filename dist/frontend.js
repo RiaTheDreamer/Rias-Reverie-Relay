@@ -3451,8 +3451,8 @@ function grammarFor(spec) {
   const mediaLike = [...known].filter((tag) => /(?:^|_)(?:media|image|photo|avatar|cover|artwork|feed|frame|attachment|portrait)$/i.test(tag) || ["photo", "image", "artwork", "portrait"].includes(tag));
   for (const tag of mediaLike)
     children.set(tag, [...new Set([...children.get(tag) || [], "image_request", "image_request_error", "img"])]);
-  for (const rows2 of children.values())
-    for (const tag of rows2)
+  for (const rows of children.values())
+    for (const tag of rows)
       known.add(tag);
   for (const fields of attrFields.values())
     for (const field of fields)
@@ -3887,12 +3887,12 @@ function normalizeInstagramProfileSurface(root) {
   const avatarChildren = avatar ? avatar.children : [];
   let tagged = directChild(root, "igp_tagged");
   for (const post of descendantsByTag(root, "igp_post")) {
-    const attrs2 = surfaceXmlAttributes(post.attrs);
+    const attrs = surfaceXmlAttributes(post.attrs);
     post.attrs = [
-      ` id="${surfaceAttrValue(kakaoKnown(attrs2.id || attrs2.slot) || "post")}"`,
-      ` owner="${surfaceAttrValue(kakaoKnown(attrs2.owner || handle) || "@profile")}"`,
-      ` likes="${surfaceAttrValue(kakaoKnown(attrs2.likes) || "0")}"`,
-      ` time="${surfaceAttrValue(kakaoKnown(attrs2.time) || "now")}"`
+      ` id="${surfaceAttrValue(kakaoKnown(attrs.id || attrs.slot) || "post")}"`,
+      ` owner="${surfaceAttrValue(kakaoKnown(attrs.owner || handle) || "@profile")}"`,
+      ` likes="${surfaceAttrValue(kakaoKnown(attrs.likes) || "0")}"`,
+      ` time="${surfaceAttrValue(kakaoKnown(attrs.time) || "now")}"`
     ].join("");
     const mediaChildren = post.children.filter((child) => typeof child !== "string" && ["image_request", "image_request_error", "img"].includes(child.tag));
     post.children = post.children.filter((child) => !(typeof child !== "string" && ["image_request", "image_request_error", "img"].includes(child.tag)));
@@ -4120,7 +4120,7 @@ function normalizeSurfaceBlock(input, spec) {
     }
     let redirectedParent = null;
     if (isClosing) {
-      const index = stack.map((node2) => node2.tag).lastIndexOf(tag);
+      const index = stack.map((node) => node.tag).lastIndexOf(tag);
       if (index < 0) {
         error ||= `Unmatched closing tag </${sourceTag}>.`;
         continue;
@@ -4140,14 +4140,14 @@ function normalizeSurfaceBlock(input, spec) {
       }
       const allowedHere = (parent) => (grammar.children.get(parent) || []).includes(tag) || Boolean(metadataFieldForChild(grammar, parent, tag)) || parent === spec.wrapper && (spec.normalization?.allowedChildren || []).includes(tag) || tag === "image_request" && parent === "portrait";
       if (!allowedHere(stack.at(-1).tag)) {
-        const ancestor = stack.map((node2) => node2.tag).findLastIndex(allowedHere);
+        const ancestor = stack.map((node) => node.tag).findLastIndex(allowedHere);
         if (ancestor >= 0) {
           if (xmlChildren(stack[ancestor]).some((child) => child.tag === tag) && !["s_recv", "s_sent", "image_request", "tw_post"].includes(tag))
             error ||= `<${tag}> cannot appear inside <${stack.at(-1).tag}>; its destination already exists.`;
           stack.splice(ancestor + 1);
         } else {
           const imageRequestChild = ["scene_brief", "prompt", "negative_prompt", "negative", "context_caption"].includes(tag);
-          const imageRequestDestinations = imageRequestChild ? descendantsByTag(stack.at(-1), "image_request").filter((node2) => !xmlChildren(node2).some((child) => child.tag === tag)) : [];
+          const imageRequestDestinations = imageRequestChild ? descendantsByTag(stack.at(-1), "image_request").filter((node) => !xmlChildren(node).some((child) => child.tag === tag)) : [];
           if (imageRequestDestinations.length === 1)
             redirectedParent = imageRequestDestinations[0];
           else if (imageRequestDestinations.length > 1)
@@ -4370,8 +4370,8 @@ function summarizeRelayHealth(checks) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.6";
-var BUILD_ID = "20260920-0.2.8.6";
+var EXTENSION_VERSION = "0.2.8.6.1";
+var BUILD_ID = "20260921-0.2.8.6.1";
 
 // src/orbIconData.ts
 var ORB_IMAGE_DESIGNS = [
@@ -4466,9 +4466,9 @@ function parseBracketDocument(source) {
       if (attrs) {
         if (stack.at(-1)?.name === name)
           stack.pop();
-        const node2 = { name, attrs, dialect: Object.keys(attrs).length ? "legacy-attribute-drift" : "canonical-child-fields", children: [] };
-        stack.at(-1).children.push(node2);
-        stack.push(node2);
+        const node = { name, attrs, dialect: Object.keys(attrs).length ? "legacy-attribute-drift" : "canonical-child-fields", children: [] };
+        stack.at(-1).children.push(node);
+        stack.push(node);
         continue;
       }
       if (stack.length === 1 && documentNode.children.every((child) => typeof child === "string" && !child.trim())) {
@@ -4483,7 +4483,7 @@ function parseBracketDocument(source) {
     if (!closing && stack.at(-1)?.name === name)
       stack.pop();
     if (closing) {
-      const openIndex = stack.map((node2) => node2.name).lastIndexOf(name);
+      const openIndex = stack.map((node) => node.name).lastIndexOf(name);
       if (openIndex <= 0) {
         diagnostics.push(`Unmatched closing bracket [/${rawName}].`);
         continue;
@@ -134217,10 +134217,10 @@ function renderR45SurfaceAuthority(markup, presentation, color, messageId) {
     const figcaption = caption ? `<figcaption>${caption}</figcaption>` : "";
     return `<figure class="html-safe-wrap kk-image" data-reverie-r45-lifecycle-media="kakao">${body}${figcaption}</figure>`;
   });
-  output = output.replace(/<k_img\b([^>]*)>\s*(<img\b[^>]*>)\s*<\/k_img>/gi, (_full, attrs, image2) => {
+  output = output.replace(/<k_img\b([^>]*)>\s*(<img\b[^>]*>)\s*<\/k_img>/gi, (_full, attrs, image) => {
     if (/\bcaption\s*=/.test(attrs))
-      return `<k_img${attrs}>${image2}</k_img>`;
-    return `<k_img caption="">${image2}</k_img>`;
+      return `<k_img${attrs}>${image}</k_img>`;
+    return `<k_img caption="">${image}</k_img>`;
   });
   const macro = safeMessageId(messageId);
   for (const script of r45LegacyXmlSurfaceAuthorityScripts(presentation, color)) {
@@ -134470,23 +134470,23 @@ function resolvedParityRequestMarkup(attrs, records) {
 }
 function hydrateParityRequests(markup, baseSurfaceId, context, options = {}) {
   let content = String(markup || "").replace(/\[image_request\]([\s\S]*?)\[\/image_request\]/gi, (full) => {
-    const request2 = parseImageRequests(full)[0];
-    if (!request2)
+    const request = parseImageRequests(full)[0];
+    if (!request)
       return full;
     const attrs = [
-      ["id", request2.id],
-      ["target", request2.target],
-      ["slot", request2.slot],
-      ["aspect", request2.aspect],
-      ["alt", request2.alt],
-      ["count", request2.count > 1 ? String(request2.count) : ""],
-      ["intent", request2.intent !== "auto" ? request2.intent : ""],
-      ["cast", request2.cast],
-      ["time", request2.time]
+      ["id", request.id],
+      ["target", request.target],
+      ["slot", request.slot],
+      ["aspect", request.aspect],
+      ["alt", request.alt],
+      ["count", request.count > 1 ? String(request.count) : ""],
+      ["intent", request.intent !== "auto" ? request.intent : ""],
+      ["cast", request.cast],
+      ["time", request.time]
     ].filter((entry) => Boolean(entry[1])).map(([name, value]) => ` ${name}="${escapeAttr(value)}"`).join("");
-    const caption = request2.caption ? `<context_caption>${escapeHtml(request2.caption)}</context_caption>` : "";
-    const negative = request2.negative ? `<negative>${escapeHtml(request2.negative)}</negative>` : "";
-    return `<image_request${attrs}><scene_brief>${escapeHtml(request2.prompt)}</scene_brief>${caption}${negative}</image_request>`;
+    const caption = request.caption ? `<context_caption>${escapeHtml(request.caption)}</context_caption>` : "";
+    const negative = request.negative ? `<negative>${escapeHtml(request.negative)}</negative>` : "";
+    return `<image_request${attrs}><scene_brief>${escapeHtml(request.prompt)}</scene_brief>${caption}${negative}</image_request>`;
   });
   content = content.replace(/<image_request\b([^>]*)>([\s\S]*?)<\/image_request>/gi, (full, rawAttrs, body) => {
     const attrs = parseAttrs2(rawAttrs);
@@ -134599,8 +134599,8 @@ function surfaceStreamIslandKey(messageId, swipeId, surfaceId, ordinal = 0) {
 var reviewedSurfaceDiagnostics = new Map;
 var reviewedSurfacePipelineDiagnostics = new Map;
 function recordSurfacePipelineDiagnostic(surfaceId, stage, detail) {
-  const rows2 = [...reviewedSurfacePipelineDiagnostics.get(surfaceId) || [], `${stage}: ${detail}`].slice(-24);
-  reviewedSurfacePipelineDiagnostics.set(surfaceId, rows2);
+  const rows = [...reviewedSurfacePipelineDiagnostics.get(surfaceId) || [], `${stage}: ${detail}`].slice(-24);
+  reviewedSurfacePipelineDiagnostics.set(surfaceId, rows);
   while (reviewedSurfacePipelineDiagnostics.size > 128)
     reviewedSurfacePipelineDiagnostics.delete(reviewedSurfacePipelineDiagnostics.keys().next().value);
 }
@@ -134921,8 +134921,8 @@ function normalizeSmartphoneBody(body) {
   normalized = normalized.replace(/<contact\b([^>]*)\/>/gi, (_m, rawAttrs) => {
     const a = parseAttrs2(rawAttrs);
     warnings.push("self-closing contact → paired contact");
-    const rows2 = [a.name || "", a.status || "", a.avatar || ""].filter(Boolean);
-    return `<contact>${rows2.map((row) => escapeHtml(row)).join("<br>")}</contact>`;
+    const rows = [a.name || "", a.status || "", a.avatar || ""].filter(Boolean);
+    return `<contact>${rows.map((row) => escapeHtml(row)).join("<br>")}</contact>`;
   });
   normalized = normalized.replace(/<k_msg\b([^>]*)>([\s\S]*?)<\/k_msg>/gi, (_m, rawAttrs, content) => {
     const a = parseAttrs2(rawAttrs);
@@ -134962,17 +134962,17 @@ function renderSmartphone(attrs, body, preset, context) {
   return shell("smartphone", attrs.sender ? `${attrs.sender}'s phone` : "Smartphone", "Private thread", inner, preset, context, "rrn-compact");
 }
 function renderInlineChat(attrs, body, preset, context) {
-  const rows2 = [];
+  const rows = [];
   const tokenRe = /<(message|s_recv|s_sent)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
   let match;
   while ((match = tokenRe.exec(body)) !== null) {
     const tag = match[1].toLowerCase();
     const a = parseAttrs2(match[2] || "");
     const sent = tag === "s_sent" || a.side === "right" || a.side === "sent" || a.sender === "self";
-    rows2.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"><div class="rrn-copy"><div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(match[3])}</div>${a.time ? `<div class="rrn-meta"><time>${escapeHtml(a.time)}</time></div>` : ""}</div></div>`);
+    rows.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"><div class="rrn-copy"><div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(match[3])}</div>${a.time ? `<div class="rrn-meta"><time>${escapeHtml(a.time)}</time></div>` : ""}</div></div>`);
   }
   const media = renderAnyMedia(body, context, "inline-chat");
-  const fallback = rows2.length ? rows2.join("") : sanitizeParagraphs(removeMediaMarkup(body));
+  const fallback = rows.length ? rows.join("") : sanitizeParagraphs(removeMediaMarkup(body));
   return shell("inline-chat", attrs.header || attrs.sender || "Inline Chat", "Compact conversation", `<div class="rrn-card">${fallback || '<div class="rrn-sub">No visible messages</div>'}${media}</div>`, preset, context);
 }
 function renderInstagram(attrs, body, preset, context) {
@@ -134995,8 +134995,8 @@ function renderInstagram(attrs, body, preset, context) {
   return shell("instagram", `@${attrs.user || "instagram"}`, attrs.loc || "Visual post", inner, preset, context);
 }
 function renderInstagramMedia(body, context) {
-  const request2 = firstTagMatch(body, "image_request");
-  if (request2)
+  const request = firstTagMatch(body, "image_request");
+  if (request)
     return renderAnyMedia(body, context, "instagram");
   const container = firstTagMatch(body, "ig_media");
   const source = container?.body || body;
@@ -135080,7 +135080,7 @@ function renderKakao(attrs, body, preset, context) {
     const a = parseAttrs2(row.attrs);
     return `<span class="rrn-chip">${escapeHtml(a.avatar || initial(a.name || "K"))} ${escapeHtml(a.name || "")}</span>`;
   }).join("");
-  const rows2 = [];
+  const rows = [];
   const tokenRe = /<(k_msg|k_date|k_system|k_unread)\b([^>]*)>([\s\S]*?)<\/\1>|<(k_typing|k_part|k_react)\b([^>]*)\/?\s*>/gi;
   let match;
   while ((match = tokenRe.exec(messages)) !== null) {
@@ -135104,15 +135104,15 @@ function renderKakao(attrs, body, preset, context) {
         const fa = parseAttrs2(file.attrs);
         return `<div class="rrn-file"><span>▧</span><div><b>${escapeHtml(fa.name || "Attachment")}</b><div class="rrn-sub">${escapeHtml(fa.type || "")}${fa.size ? ` · ${escapeHtml(fa.size)}` : ""}</div>${stripMarkup(file.body) ? `<div>${sanitizeInline(file.body)}</div>` : ""}</div></div>`;
       })() : "";
-      rows2.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"${colorAttr}>${sent ? "" : `<span class="rrn-avatar">${escapeHtml(a.avatar || initial(a.sender || "K"))}</span>`}<div class="rrn-copy"><div class="rrn-meta">${sent ? "" : `<b>${escapeHtml(a.sender || "")}</b>`}<time>${escapeHtml(a.time || "")}</time>${a.read ? `<span>${escapeHtml(a.read)}</span>` : ""}</div>${replyMarkup}<div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(clean)}</div>${renderAnyMedia(value, context, "kakao")}${fileMarkup}${reactions ? `<div class="rrn-reactions">${reactions}</div>` : ""}</div></div>`);
+      rows.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"${colorAttr}>${sent ? "" : `<span class="rrn-avatar">${escapeHtml(a.avatar || initial(a.sender || "K"))}</span>`}<div class="rrn-copy"><div class="rrn-meta">${sent ? "" : `<b>${escapeHtml(a.sender || "")}</b>`}<time>${escapeHtml(a.time || "")}</time>${a.read ? `<span>${escapeHtml(a.read)}</span>` : ""}</div>${replyMarkup}<div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(clean)}</div>${renderAnyMedia(value, context, "kakao")}${fileMarkup}${reactions ? `<div class="rrn-reactions">${reactions}</div>` : ""}</div></div>`);
     } else if (tag === "k_date" || tag === "k_unread")
-      rows2.push(`<div class="rrn-sub" style="text-align:center;padding:8px">${sanitizeInline(value)}</div>`);
+      rows.push(`<div class="rrn-sub" style="text-align:center;padding:8px">${sanitizeInline(value)}</div>`);
     else if (tag === "k_system")
-      rows2.push(`<div class="rrn-chip" style="margin:6px auto;display:flex;width:max-content">${sanitizeInline(value)}</div>`);
+      rows.push(`<div class="rrn-chip" style="margin:6px auto;display:flex;width:max-content">${sanitizeInline(value)}</div>`);
     else if (tag === "k_typing")
-      rows2.push(`<div class="rrn-sub">${escapeHtml(a.names || "")} is typing…</div>`);
+      rows.push(`<div class="rrn-sub">${escapeHtml(a.names || "")} is typing…</div>`);
   }
-  return shell("kakao", attrs.title || "KakaoTalk", `${attrs.date || ""} · ${attrs.time || ""}`, `<div class="rrn-kakao-head"><div class="rrn-copy"><div class="rrn-meta">${chips}</div></div>${attrs.unread && attrs.unread !== "0" ? `<span class="rrn-chip">${escapeHtml(attrs.unread)} unread</span>` : ""}</div><div class="rrn-card">${rows2.join("")}</div>`, preset, context);
+  return shell("kakao", attrs.title || "KakaoTalk", `${attrs.date || ""} · ${attrs.time || ""}`, `<div class="rrn-kakao-head"><div class="rrn-copy"><div class="rrn-meta">${chips}</div></div>${attrs.unread && attrs.unread !== "0" ? `<span class="rrn-chip">${escapeHtml(attrs.unread)} unread</span>` : ""}</div><div class="rrn-card">${rows.join("")}</div>`, preset, context);
 }
 function renderImageSurface(baseSurfaceId, rootTag, attrs, body, preset, context) {
   const labels = {
@@ -135170,44 +135170,44 @@ function renderCharacterProfile(body, preset, context) {
   return `<div class="rrn-native-island">${NATIVE_SURFACE_CSS}${CHARACTER_PROFILE_CSS}${rendered}${safePresetCss(preset)}</div>`;
 }
 function renderMessageChildren(body, context, baseSurfaceId) {
-  const rows2 = [];
+  const rows = [];
   const re = /<(s_recv|s_sent|s_img|image_request|image_request_error)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
   let match;
   while ((match = re.exec(body)) !== null) {
     const tag = match[1].toLowerCase();
     const full = match[0];
     if (tag === "image_request" || tag === "image_request_error" || tag === "s_img") {
-      rows2.push(renderAnyMedia(full, context, baseSurfaceId));
+      rows.push(renderAnyMedia(full, context, baseSurfaceId));
       continue;
     }
     const sent = tag === "s_sent";
     const attrs = parseAttrs2(match[2]);
-    rows2.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"><div class="rrn-copy"><div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(match[3])}</div><div class="rrn-meta"><time>${escapeHtml(attrs.time || "")}</time></div></div></div>`);
+    rows.push(`<div class="rrn-message ${sent ? "is-sent" : ""}"><div class="rrn-copy"><div class="rrn-bubble ${sent ? "is-sent" : ""}">${sanitizeInline(match[3])}</div><div class="rrn-meta"><time>${escapeHtml(attrs.time || "")}</time></div></div></div>`);
   }
-  return rows2.join("");
+  return rows.join("");
 }
 function renderAnyMedia(body, context, baseSurfaceId) {
-  const request2 = firstTagMatch(body, "image_request");
-  if (request2) {
-    const attrs = parseAttrs2(request2.attrs);
-    return renderRequestCard({ title: "Media requested", brief: firstTagText2(request2.body, "scene_brief") || firstTagText2(request2.body, "prompt") || stripMarkup(request2.body), requestId: attrs.id || attrs.request_id || "", aspect: attrs.aspect || "16:9", rootTag: "image_request", baseSurfaceId, preset: undefined, context }, true);
+  const request = firstTagMatch(body, "image_request");
+  if (request) {
+    const attrs = parseAttrs2(request.attrs);
+    return renderRequestCard({ title: "Media requested", brief: firstTagText2(request.body, "scene_brief") || firstTagText2(request.body, "prompt") || stripMarkup(request.body), requestId: attrs.id || attrs.request_id || "", aspect: attrs.aspect || "16:9", rootTag: "image_request", baseSurfaceId, preset: undefined, context }, true);
   }
   const error = firstTagMatch(body, "image_request_error");
   if (error) {
     const attrs = parseAttrs2(error.attrs);
     return renderRequestCard({ title: "Generation failed", brief: stripMarkup(error.body) || "Relay could not generate this media.", requestId: attrs.id || "", aspect: attrs.aspect || "16:9", rootTag: "image_request_error", baseSurfaceId, preset: undefined, context, failed: true }, true);
   }
-  const image2 = extractImage(body);
-  if (!image2)
+  const image = extractImage(body);
+  if (!image)
     return "";
   const relayAttrs = [
-    image2.key ? ` data-dgir-key="${escapeAttr(image2.key)}"` : "",
-    image2.requestId ? ` data-dgir-request-id="${escapeAttr(image2.requestId)}"` : "",
-    image2.slot ? ` data-dgir-slot="${escapeAttr(image2.slot)}"` : "",
-    image2.imageId ? ` data-dgir-image-id="${escapeAttr(image2.imageId)}"` : ""
+    image.key ? ` data-dgir-key="${escapeAttr(image.key)}"` : "",
+    image.requestId ? ` data-dgir-request-id="${escapeAttr(image.requestId)}"` : "",
+    image.slot ? ` data-dgir-slot="${escapeAttr(image.slot)}"` : "",
+    image.imageId ? ` data-dgir-image-id="${escapeAttr(image.imageId)}"` : ""
   ].join("");
-  const aspect = image2.aspect || "16:9";
-  return `<figure class="rrn-media" data-aspect="${escapeAttr(aspect)}" style="--reverie-media-aspect:${escapeAttr(cssAspectRatio(aspect, "16:9"))}"><img src="${escapeAttr(image2.src)}" alt="${escapeAttr(image2.alt || "Reverie media")}" data-rrn-request-id="${escapeAttr(image2.requestId)}"${relayAttrs}>${image2.caption ? `<figcaption class="rrn-caption">${sanitizeInline(image2.caption)}</figcaption>` : ""}</figure>`;
+  const aspect = image.aspect || "16:9";
+  return `<figure class="rrn-media" data-aspect="${escapeAttr(aspect)}" style="--reverie-media-aspect:${escapeAttr(cssAspectRatio(aspect, "16:9"))}"><img src="${escapeAttr(image.src)}" alt="${escapeAttr(image.alt || "Reverie media")}" data-rrn-request-id="${escapeAttr(image.requestId)}"${relayAttrs}>${image.caption ? `<figcaption class="rrn-caption">${sanitizeInline(image.caption)}</figcaption>` : ""}</figure>`;
 }
 function extractImage(body) {
   const img = /<img\b([^>]*)>/i.exec(body);
@@ -135235,9 +135235,9 @@ function cssAspectRatio(value, fallback = "1:1") {
   const height = Math.max(0.1, Number(match[2]));
   return `${width} / ${height}`;
 }
-function stableMediaSlotAttrs(aspect, state, empty2) {
+function stableMediaSlotAttrs(aspect, state, empty) {
   const ratio = cssAspectRatio(aspect || "1:1");
-  return ` class="rrl-media-slot" data-aspect="${escapeAttr(aspect || "1:1")}" data-rrn-media-state="${escapeAttr(state)}" data-rrn-media-empty="${empty2 ? "true" : "false"}" style="--reverie-media-aspect:${escapeAttr(ratio)}"`;
+  return ` class="rrl-media-slot" data-aspect="${escapeAttr(aspect || "1:1")}" data-rrn-media-state="${escapeAttr(state)}" data-rrn-media-empty="${empty ? "true" : "false"}" style="--reverie-media-aspect:${escapeAttr(ratio)}"`;
 }
 function renderGenerationPlaceholderEffect(effect) {
   if (effect === "spinner")
@@ -135248,12 +135248,12 @@ function renderGenerationPlaceholderEffect(effect) {
     return `<span class="rr-regex-particles" aria-hidden="true">${"<i></i>".repeat(24)}</span>`;
   return "";
 }
-function stableLifecycleMediaSlot(aspect, state, title, inner = "", empty2 = true, effect) {
+function stableLifecycleMediaSlot(aspect, state, title, inner = "", empty = true, effect) {
   const alt = escapeAttr(title || "Reverie media");
   const fallbackImage = inner ? "" : `<img class="rrl-slot-image" alt="${alt}" hidden>`;
   const normalizedEffect = effect || "none";
   const placeholder = effect === undefined ? "" : `<div class="rrl-media-skeleton rrl-generation-placeholder" data-rr-placeholder-effect="${escapeAttr(normalizedEffect)}" aria-hidden="true">${renderGenerationPlaceholderEffect(normalizedEffect)}</div>`;
-  return `<div${stableMediaSlotAttrs(aspect, state, empty2)}>${inner}${fallbackImage}<div class="rrl-preview" hidden><img class="rrl-preview-image" alt=""></div>${placeholder}</div>`;
+  return `<div${stableMediaSlotAttrs(aspect, state, empty)}>${inner}${fallbackImage}<div class="rrl-preview" hidden><img class="rrl-preview-image" alt=""></div>${placeholder}</div>`;
 }
 function renderRequestCard(input, bare = false) {
   const record = currentRequestRecord({ context: input.context, requestId: input.requestId });
@@ -135419,13 +135419,13 @@ function removeMediaMarkup(body) {
   return value;
 }
 function firstSceneBrief(body) {
-  const request2 = firstTagMatch(body, "image_request");
-  return request2 ? firstTagText2(request2.body, "scene_brief") || firstTagText2(request2.body, "prompt") || stripMarkup(request2.body) : "";
+  const request = firstTagMatch(body, "image_request");
+  return request ? firstTagText2(request.body, "scene_brief") || firstTagText2(request.body, "prompt") || stripMarkup(request.body) : "";
 }
 function firstRequestId(body) {
-  const request2 = firstTagMatch(body, "image_request");
-  if (request2) {
-    const attrs = parseAttrs2(request2.attrs);
+  const request = firstTagMatch(body, "image_request");
+  if (request) {
+    const attrs = parseAttrs2(request.attrs);
     return attrs.id || attrs.request_id || "";
   }
   const img = /<img\b([^>]*)>/i.exec(body);
@@ -135434,8 +135434,8 @@ function firstRequestId(body) {
   return "";
 }
 function firstRequestAspect(body) {
-  const request2 = firstTagMatch(body, "image_request");
-  return request2 ? parseAttrs2(request2.attrs).aspect || "" : "";
+  const request = firstTagMatch(body, "image_request");
+  return request ? parseAttrs2(request.attrs).aspect || "" : "";
 }
 function sanitizeParagraphs(value) {
   const paragraphs = allTagMatches(value, "p");
@@ -136218,12 +136218,12 @@ function frontendSurfaceFallback() {
   };
 }
 async function settlePlacementVisualLifecycle(options) {
-  const { image: image2, isCurrent, reducedMotion, onSettled } = options;
-  if (!image2.complete) {
+  const { image, isCurrent, reducedMotion, onSettled } = options;
+  if (!image.complete) {
     const loaded = await new Promise((resolve) => {
       const cleanup = () => {
-        image2.removeEventListener("load", onLoad);
-        image2.removeEventListener("error", onError);
+        image.removeEventListener("load", onLoad);
+        image.removeEventListener("error", onError);
       };
       const onLoad = () => {
         cleanup();
@@ -136233,47 +136233,47 @@ async function settlePlacementVisualLifecycle(options) {
         cleanup();
         resolve(false);
       };
-      image2.addEventListener("load", onLoad, { once: true });
-      image2.addEventListener("error", onError, { once: true });
+      image.addEventListener("load", onLoad, { once: true });
+      image.addEventListener("error", onError, { once: true });
     });
     if (!loaded)
       return "failed";
   }
-  if (image2.naturalWidth <= 0 || !isCurrent())
+  if (image.naturalWidth <= 0 || !isCurrent())
     return isCurrent() ? "failed" : "stale";
   try {
-    await image2.decode?.();
+    await image.decode?.();
   } catch {}
   if (!isCurrent())
     return "stale";
-  image2.classList.remove("rrl-final-reveal");
+  image.classList.remove("rrl-final-reveal");
   if (reducedMotion) {
     onSettled();
     return "settled";
   }
   const animationFinished = new Promise((resolve) => {
     const cleanup = () => {
-      image2.removeEventListener("animationend", onAnimationEnd);
-      image2.removeEventListener("animationcancel", onAnimationCancel);
+      image.removeEventListener("animationend", onAnimationEnd);
+      image.removeEventListener("animationcancel", onAnimationCancel);
     };
     const onAnimationEnd = (event) => {
-      if (event.target !== image2)
+      if (event.target !== image)
         return;
       cleanup();
       resolve(true);
     };
     const onAnimationCancel = (event) => {
-      if (event.target !== image2)
+      if (event.target !== image)
         return;
       cleanup();
       resolve(false);
     };
-    image2.addEventListener("animationend", onAnimationEnd);
-    image2.addEventListener("animationcancel", onAnimationCancel);
+    image.addEventListener("animationend", onAnimationEnd);
+    image.addEventListener("animationcancel", onAnimationCancel);
   });
-  image2.classList.add("rrl-final-reveal");
+  image.classList.add("rrl-final-reveal");
   const finished = await animationFinished;
-  image2.classList.remove("rrl-final-reveal");
+  image.classList.remove("rrl-final-reveal");
   if (!finished || !isCurrent())
     return "stale";
   onSettled();
@@ -136281,10 +136281,13 @@ async function settlePlacementVisualLifecycle(options) {
 }
 function setup(ctx) {
   const runtimeHost = globalThis;
+  const documentHost = document;
+  const documentRuntimeOwnerId = `relay-document-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   runtimeHost.__REVERIE_RELAY_FRONTEND_DISPOSE__?.();
+  documentHost.__REVERIE_RELAY_DOCUMENT_RUNTIME__?.dispose();
   let disposed = false;
-  const lifecycle2 = new RelayRuntimeLifecycle(runtimeHost.__REVERIE_RELAY_HEALTH__);
-  const health = lifecycle2.health;
+  const lifecycle = new RelayRuntimeLifecycle(runtimeHost.__REVERIE_RELAY_HEALTH__);
+  const health = lifecycle.health;
   runtimeHost.__REVERIE_RELAY_HEALTH__ = health;
   console.info(`Reverie Relay frontend loaded - v${EXTENSION_VERSION} / ${BUILD_ID}`);
   let records = [];
@@ -137175,7 +137178,7 @@ function setup(ctx) {
     tab.activate();
     renderPanel();
   });
-  const unsubBackend = lifecycle2.track(lifecycle2.track(ctx.onBackendMessage((payload) => {
+  const unsubBackend = lifecycle.track(lifecycle.track(ctx.onBackendMessage((payload) => {
     const message = payload;
     if (message.type === "state") {
       if (!message.chatId || message.chatId === activeChatId) {
@@ -137380,10 +137383,10 @@ ${message.prompt}`;
         return;
       if (message.event === "started") {
         completedPreviewGenerations.delete(message.generationId);
-        lifecycle2.beginPreview(message.generationId);
+        lifecycle.beginPreview(message.generationId);
       }
       if (terminal) {
-        lifecycle2.endPreview(message.generationId);
+        lifecycle.endPreview(message.generationId);
         completedPreviewGenerations.add(message.generationId);
         while (completedPreviewGenerations.size > 200)
           completedPreviewGenerations.delete(completedPreviewGenerations.values().next().value);
@@ -137474,8 +137477,8 @@ ${message.prompt}`;
     if (message.type === "self_test_result") {
       selfTest = { checks: message.checks, buildMatch: message.buildMatch };
       renderPanel();
-      const health2 = summarizeRelayHealth(message.checks);
-      showToast(health2 === "pass" ? "success" : health2 === "warn" ? "warning" : "error", health2 === "pass" ? "Relay Health Check passed." : health2 === "warn" ? "Relay Health Check completed with warnings." : "Relay Health Check found a core failure.");
+      const health = summarizeRelayHealth(message.checks);
+      showToast(health === "pass" ? "success" : health === "warn" ? "warning" : "error", health === "pass" ? "Relay Health Check passed." : health === "warn" ? "Relay Health Check completed with warnings." : "Relay Health Check found a core failure.");
       return;
     }
     if (message.type === "rescan_result") {
@@ -137626,17 +137629,17 @@ ${message.prompt}`;
       syncActiveChat();
     }, 0);
   };
-  const unsubChat = lifecycle2.track(ctx.events.on("CHAT_SWITCHED", (event) => {
+  const unsubChat = lifecycle.track(ctx.events.on("CHAT_SWITCHED", (event) => {
     switchActiveChat(event.chatId ?? null);
   }), "subscription");
-  const unsubChatChanged = lifecycle2.track(ctx.events.on("CHAT_CHANGED", () => {
+  const unsubChatChanged = lifecycle.track(ctx.events.on("CHAT_CHANGED", () => {
     scheduleActiveChatSync();
   }), "subscription");
-  const unsubEdit = lifecycle2.track(ctx.events.on("MESSAGE_EDITED", (event) => {
+  const unsubEdit = lifecycle.track(ctx.events.on("MESSAGE_EDITED", (event) => {
     if (event.chatId === activeChatId)
       refreshState(false);
   }), "subscription");
-  lifecycle2.track(ctx.events.on("CHARACTER_MESSAGE_RENDERED", (event) => {
+  lifecycle.track(ctx.events.on("CHARACTER_MESSAGE_RENDERED", (event) => {
     const chatId = String(event?.chatId ?? event?.chat_id ?? "").trim();
     const messageId = String(event?.messageId ?? event?.message_id ?? event?.message?.id ?? "").trim();
     if (!messageId || chatId && chatId !== activeChatId)
@@ -137653,22 +137656,22 @@ ${message.prompt}`;
     }
     const root = messageId ? ctx.dom.findMessageElement(messageId) : null;
     if (root) {
-      for (const image2 of deepQueryAll(root, relayImageSelector)) {
-        delete image2.dataset.dgirKey;
-        delete image2.dataset.dgirImageId;
-        delete image2.dataset.dgirRequestId;
-        delete image2.dataset.dgirSlot;
-        delete image2.dataset.dgirSwipeId;
+      for (const image of deepQueryAll(root, relayImageSelector)) {
+        delete image.dataset.dgirKey;
+        delete image.dataset.dgirImageId;
+        delete image.dataset.dgirRequestId;
+        delete image.dataset.dgirSlot;
+        delete image.dataset.dgirSwipeId;
       }
     }
   };
-  const unsubSwipe = lifecycle2.track(ctx.events.on("MESSAGE_SWIPED", (event) => {
+  const unsubSwipe = lifecycle.track(ctx.events.on("MESSAGE_SWIPED", (event) => {
     if (event.chatId === activeChatId) {
       rememberActiveSwipe(event);
       refreshState(false);
     }
   }), "subscription");
-  const unsubSwipeEdited = lifecycle2.track(ctx.events.on("SWIPE_EDITED", (event) => {
+  const unsubSwipeEdited = lifecycle.track(ctx.events.on("SWIPE_EDITED", (event) => {
     if (event.chatId === activeChatId) {
       rememberActiveSwipe(event);
       refreshState(false);
@@ -137685,32 +137688,32 @@ ${message.prompt}`;
     };
     return records.find((record) => swipeVisible(record) && urlMatches(normalized, record.imageUrl || "")) || records.find((record) => urlMatches(normalized, record.imageUrl || "")) || records.find((record) => swipeVisible(record) && urlMatches(normalized, record.pendingPlacement?.imageUrl || "")) || records.find((record) => swipeVisible(record) && record.history?.some((version) => urlMatches(normalized, version.imageUrl || ""))) || null;
   };
-  const recordForImage = (image2) => {
-    if (!image2)
+  const recordForImage = (image) => {
+    if (!image)
       return null;
-    const currentUrl = image2.currentSrc || image2.src || "";
+    const currentUrl = image.currentSrc || image.src || "";
     const byCurrentUrl = recordForImageUrl(currentUrl);
     if (byCurrentUrl)
       return byCurrentUrl;
-    const datasetSwipeText = image2.dataset.dgirSwipeId || "";
+    const datasetSwipeText = image.dataset.dgirSwipeId || "";
     const datasetSwipe = datasetSwipeText ? Number(datasetSwipeText) : Number.NaN;
     const swipeMatches = (record) => !Number.isFinite(datasetSwipe) || record.swipeId === datasetSwipe;
-    const key = image2.dataset.dgirKey || "";
+    const key = image.dataset.dgirKey || "";
     if (key) {
       const keyed = recordByKey.get(key);
       if (keyed && swipeMatches(keyed))
         return keyed;
     }
-    const imageId = image2.dataset.dgirImageId || "";
+    const imageId = image.dataset.dgirImageId || "";
     if (imageId) {
       const byImage = records.find((record) => swipeMatches(record) && (record.imageId === imageId || record.pendingPlacement?.imageId === imageId || record.history?.some((version) => version.imageId === imageId)));
       if (byImage)
         return byImage;
     }
-    const requestId = image2.dataset.dgirRequestId || "";
-    const slot = image2.dataset.dgirSlot || "";
+    const requestId = image.dataset.dgirRequestId || "";
+    const slot = image.dataset.dgirSlot || "";
     if (requestId) {
-      const activeSwipe = activeSwipeByMessage.get(image2.dataset.dgirMessageId || "");
+      const activeSwipe = activeSwipeByMessage.get(image.dataset.dgirMessageId || "");
       const byRequest = records.find((record) => record.requestId === requestId && (!slot || record.slot === slot) && (activeSwipe === undefined || record.swipeId === activeSwipe) && swipeMatches(record));
       if (byRequest)
         return byRequest;
@@ -137723,13 +137726,13 @@ ${message.prompt}`;
     const pathAction = path.find((node) => node instanceof HTMLElement && node.matches("[data-dgir-overflow]"));
     const pathImage = path.find((node) => node instanceof HTMLImageElement && node.matches(relayImageSelector));
     const actionButton = pathAction || target?.closest("[data-dgir-overflow]");
-    const image2 = pathImage || target?.closest(relayImageSelector);
-    const record = actionButton?.dataset.dgirKey ? recordByKey.get(actionButton.dataset.dgirKey) || null : recordForImage(image2);
+    const image = pathImage || target?.closest(relayImageSelector);
+    const record = actionButton?.dataset.dgirKey ? recordByKey.get(actionButton.dataset.dgirKey) || null : recordForImage(image);
     if (!record)
       return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (image2 && longPressTriggeredKey === record.key) {
+    if (image && longPressTriggeredKey === record.key) {
       longPressTriggeredKey = "";
       return;
     }
@@ -137742,22 +137745,22 @@ ${message.prompt}`;
     if (event.defaultPrevented || event.button !== 0)
       return;
     const path = typeof event.composedPath === "function" ? event.composedPath() : [];
-    const image2 = path.find((node) => node instanceof HTMLImageElement);
-    if (!image2)
+    const image = path.find((node) => node instanceof HTMLImageElement);
+    if (!image)
       return;
     const insideShadowRoot = path.some((node) => typeof ShadowRoot !== "undefined" && node instanceof ShadowRoot);
     if (!insideShadowRoot)
       return;
-    const interactiveAncestor = path.find((node) => node instanceof HTMLElement && node !== image2 && node.matches('button, input, textarea, select, [role="button"], [data-action]'));
+    const interactiveAncestor = path.find((node) => node instanceof HTMLElement && node !== image && node.matches('button, input, textarea, select, [role="button"], [data-action]'));
     if (interactiveAncestor)
       return;
-    const src = image2.currentSrc || image2.src;
+    const src = image.currentSrc || image.src;
     if (!src)
       return;
-    const record = recordForImage(image2) || recordForImageUrl(src);
+    const record = recordForImage(image) || recordForImageUrl(src);
     event.preventDefault();
     event.stopImmediatePropagation();
-    openImageUrl(src, image2.alt?.trim() || "Artifact Image", record?.imageId || image2.dataset.dgirImageId, record);
+    openImageUrl(src, image.alt?.trim() || "Artifact Image", record?.imageId || image.dataset.dgirImageId, record);
   };
   function submitRepairPlacement(record, options = {}) {
     const showError = (message) => {
@@ -137950,7 +137953,7 @@ ${message.prompt}`;
       fetchNativeSettingsSnapshot(true).then((snapshot) => ctx.sendToBackend({
         type: "full_complete_dry_run",
         chatId: activeChatId,
-        runtimeHealth: lifecycle2.snapshot(),
+        runtimeHealth: lifecycle.snapshot(),
         nativeImageSettings: snapshot?.settings,
         nativeSettingsCapturedAt: snapshot?.capturedAt
       }));
@@ -138000,8 +138003,8 @@ ${message.prompt}`;
   const onContext = (event) => {
     const target = event.target;
     const editableSurface = target?.closest("[data-rrn-editable-surface]");
-    const image2 = target?.closest(relayImageSelector);
-    const record = recordForImage(image2);
+    const image = target?.closest(relayImageSelector);
+    const record = recordForImage(image);
     if (record) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -138016,8 +138019,8 @@ ${message.prompt}`;
   };
   const onPointerDown = (event) => {
     const target = event.target;
-    const image2 = target?.closest(relayImageSelector);
-    const record = recordForImage(image2);
+    const image = target?.closest(relayImageSelector);
+    const record = recordForImage(image);
     const editableSurface = target?.closest("[data-rrn-editable-surface]");
     if (!record && editableSurface && event.pointerType !== "mouse" && !target?.closest("button, input, textarea, select, a")) {
       event.stopPropagation();
@@ -138035,7 +138038,7 @@ ${message.prompt}`;
     longPressKey = record.key;
     clearTimeout(longPressTimer);
     longPressTimer = window.setTimeout(() => {
-      const current = recordByKey.get(longPressKey) || recordForImage(image2);
+      const current = recordByKey.get(longPressKey) || recordForImage(image);
       if (current) {
         longPressTriggeredKey = current.key;
         openActionMenu(current, event.clientX, event.clientY);
@@ -138057,18 +138060,18 @@ ${message.prompt}`;
   document.addEventListener("pointerdown", onPointerDown, true);
   document.addEventListener("pointerup", clearLongPress, true);
   document.addEventListener("pointercancel", clearLongPress, true);
-  lifecycle2.track(() => document.removeEventListener("click", onNativeSurfaceActionClick, true), "listener");
-  lifecycle2.track(() => document.removeEventListener("click", onClick, true), "listener");
-  lifecycle2.track(() => document.removeEventListener("click", onRegexArtifactImageClick, true), "listener");
-  lifecycle2.track(() => document.removeEventListener("contextmenu", onContext, true), "listener");
-  lifecycle2.track(() => document.removeEventListener("pointerdown", onPointerDown, true), "listener");
-  lifecycle2.track(() => document.removeEventListener("pointerup", clearLongPress, true), "listener");
-  lifecycle2.track(() => document.removeEventListener("pointercancel", clearLongPress, true), "listener");
+  lifecycle.track(() => document.removeEventListener("click", onNativeSurfaceActionClick, true), "listener");
+  lifecycle.track(() => document.removeEventListener("click", onClick, true), "listener");
+  lifecycle.track(() => document.removeEventListener("click", onRegexArtifactImageClick, true), "listener");
+  lifecycle.track(() => document.removeEventListener("contextmenu", onContext, true), "listener");
+  lifecycle.track(() => document.removeEventListener("pointerdown", onPointerDown, true), "listener");
+  lifecycle.track(() => document.removeEventListener("pointerup", clearLongPress, true), "listener");
+  lifecycle.track(() => document.removeEventListener("pointercancel", clearLongPress, true), "listener");
   const stopMediaObserver = observeRelayMediaMounts(document.body, () => {
     scheduleBindInlineImages();
     scheduleActiveChatSync();
   });
-  lifecycle2.track(stopMediaObserver, "observer");
+  lifecycle.track(stopMediaObserver, "observer");
   sendFrontendSession(true);
   refreshState(false);
   renderPanel();
@@ -138085,7 +138088,7 @@ ${message.prompt}`;
     }
     if (!force && nativeSettingsFetchInFlight)
       return nativeSettingsFetchInFlight;
-    const request2 = (async () => {
+    const request = (async () => {
       try {
         const response = await fetch("/api/v1/settings/imageGeneration", { headers: { Accept: "application/json" } });
         if (!response.ok)
@@ -138104,8 +138107,8 @@ ${message.prompt}`;
         nativeSettingsFetchInFlight = null;
       }
     })();
-    nativeSettingsFetchInFlight = request2;
-    return request2;
+    nativeSettingsFetchInFlight = request;
+    return request;
   }
   async function enrichNativeVisualPrompts(settings) {
     const characterId = ctx.getActiveChat().characterId;
@@ -138453,9 +138456,9 @@ ${message.prompt}`;
   const revealedFinalImageByRecord = new Map;
   const startedPlacementVisuals = new Map;
   const acknowledgedPlacementVisuals = new Map;
-  function revealFinalImageWhenReady(card, image2, expectedUrl, record, update) {
+  function revealFinalImageWhenReady(card, image, expectedUrl, record, update) {
     const expectedRecordKey = record.key;
-    const isCurrentFinalImage = () => card.isConnected && image2.isConnected && card.contains(image2) && card.dataset.rrnRecordKey === expectedRecordKey && mediaCardUpdates.get(card) === update && urlMatches(image2.currentSrc || image2.src, expectedUrl);
+    const isCurrentFinalImage = () => card.isConnected && image.isConnected && card.contains(image) && card.dataset.rrnRecordKey === expectedRecordKey && mediaCardUpdates.get(card) === update && urlMatches(image.currentSrc || image.src, expectedUrl);
     const isCurrentPendingPlacement = () => {
       const current = recordByKey.get(expectedRecordKey);
       const pending = current?.pendingPlacement;
@@ -138495,7 +138498,7 @@ ${message.prompt}`;
       ctx.sendToBackend({ type: "placement_visual_settled", ...visualMessage });
     };
     settlePlacementVisualLifecycle({
-      image: image2,
+      image,
       isCurrent: isCurrentFinalImage,
       reducedMotion: Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches),
       onSettled
@@ -138518,8 +138521,8 @@ ${message.prompt}`;
         continue;
       const wrap = launcher.parentElement;
       const toggle = launcher.querySelector(".rrcp-launch-toggle");
-      const shell2 = wrap ? Array.from(wrap.children).find((child) => child.classList.contains("rrcp-shell")) : undefined;
-      if (!wrap || !shell2)
+      const shell = wrap ? Array.from(wrap.children).find((child) => child.classList.contains("rrcp-shell")) : undefined;
+      if (!wrap || !shell)
         continue;
       boundNarrativeControls.add(launcher);
       launcher.tabIndex = 0;
@@ -138532,7 +138535,7 @@ ${message.prompt}`;
           toggle.checked = open;
         wrap.dataset.rrcpOpen = open ? "true" : "false";
         launcher.setAttribute("aria-expanded", open ? "true" : "false");
-        shell2.style.setProperty("display", open ? "block" : "none", "important");
+        shell.style.setProperty("display", open ? "block" : "none", "important");
       };
       launcher.addEventListener("click", activate);
       launcher.addEventListener("keydown", (event) => {
@@ -138718,28 +138721,28 @@ ${message.prompt}`;
         const actions = card.querySelector(".rrl-actions");
         if (actions) {
           const desired = needsPlacementRepair ? [["repair-placement", "Repair / Reinsert"], ["reparse", "Reparse"], ["rescan", "Rescan"]] : canonicalFailure ? [["regenerate", "Regenerate"], ["reparse", "Reparse"], ["rescan", "Rescan"]] : [];
-          const signature2 = desired.map(([action]) => action).join("|");
-          if (actions.dataset.rrlActionSet !== signature2) {
+          const signature = desired.map(([action]) => action).join("|");
+          if (actions.dataset.rrlActionSet !== signature) {
             const source = actions.querySelector("button");
             const surfaceId = source?.dataset.rrnSurfaceId || "";
             const rootTag = source?.dataset.rrnRootTag || "";
             const buttons = desired.map(([action, label]) => {
-              const button2 = document.createElement("button");
-              button2.type = "button";
-              button2.dataset.rrnAction = action;
-              button2.dataset.rrnChatId = record.chatId;
-              button2.dataset.rrnMessageId = record.messageId;
-              button2.dataset.rrnSwipeId = String(record.swipeId);
-              button2.dataset.rrnRequestId = record.requestId;
+              const button = document.createElement("button");
+              button.type = "button";
+              button.dataset.rrnAction = action;
+              button.dataset.rrnChatId = record.chatId;
+              button.dataset.rrnMessageId = record.messageId;
+              button.dataset.rrnSwipeId = String(record.swipeId);
+              button.dataset.rrnRequestId = record.requestId;
               if (surfaceId)
-                button2.dataset.rrnSurfaceId = surfaceId;
+                button.dataset.rrnSurfaceId = surfaceId;
               if (rootTag)
-                button2.dataset.rrnRootTag = rootTag;
-              button2.textContent = label;
-              return button2;
+                button.dataset.rrnRootTag = rootTag;
+              button.textContent = label;
+              return button;
             });
             actions.replaceChildren(...buttons);
-            actions.dataset.rrlActionSet = signature2;
+            actions.dataset.rrlActionSet = signature;
           }
           for (const actionButton of Array.from(actions.querySelectorAll("button[data-rrn-action]"))) {
             if (actionButton.dataset.rrlDirectBound === "true")
@@ -138778,34 +138781,34 @@ ${message.prompt}`;
       if (activeSwipe !== undefined && record.swipeId !== activeSwipe)
         continue;
       const allMessageImages = deepQueryAll(root, "img");
-      const urlImages = allMessageImages.filter((image2) => urlMatches(image2.currentSrc || image2.src, visualImageUrl));
-      const stableImages = stableSelector ? deepQueryAll(root, stableSelector).filter((image2) => {
-        const imageSwipeText = image2.dataset.dgirSwipeId || "";
+      const urlImages = allMessageImages.filter((image) => urlMatches(image.currentSrc || image.src, visualImageUrl));
+      const stableImages = stableSelector ? deepQueryAll(root, stableSelector).filter((image) => {
+        const imageSwipeText = image.dataset.dgirSwipeId || "";
         const imageSwipe = imageSwipeText ? Number(imageSwipeText) : Number.NaN;
-        return (!Number.isFinite(imageSwipe) || imageSwipe === record.swipeId) && (!image2.src || urlMatches(image2.currentSrc || image2.src, visualImageUrl));
+        return (!Number.isFinite(imageSwipe) || imageSwipe === record.swipeId) && (!image.src || urlMatches(image.currentSrc || image.src, visualImageUrl));
       }) : [];
       const images = urlImages.length > 0 ? urlImages : stableImages;
-      const authoredImages = images.filter((image2) => !image2.closest("[data-rrn-native-request]"));
+      const authoredImages = images.filter((image) => !image.closest("[data-rrn-native-request]"));
       if (authoredImages.length) {
         for (const card of deepQueryAll(root, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`)) {
           card.remove();
         }
       }
       cleanLegacyIllustrationControls(root);
-      for (const image2 of authoredImages.length ? authoredImages : images) {
-        image2.dataset.dgirKey = record.key;
-        image2.dataset.dgirRequestId = record.requestId;
-        image2.dataset.dgirSlot = record.slot;
-        image2.dataset.dgirImageId = visualImageId;
-        image2.dataset.dgirApp = record.targetApp;
-        image2.dataset.dgirMessageId = record.messageId;
-        image2.dataset.dgirSwipeId = String(record.swipeId);
-        image2.dataset.dgirBound = "true";
-        image2.title = "Open image";
-        if (image2.dataset.dgirLightboxBound !== "true") {
-          image2.dataset.dgirLightboxBound = "true";
-          image2.addEventListener("click", (event) => {
-            const current = recordForImage(image2) || recordByKey.get(image2.dataset.dgirKey || "") || record;
+      for (const image of authoredImages.length ? authoredImages : images) {
+        image.dataset.dgirKey = record.key;
+        image.dataset.dgirRequestId = record.requestId;
+        image.dataset.dgirSlot = record.slot;
+        image.dataset.dgirImageId = visualImageId;
+        image.dataset.dgirApp = record.targetApp;
+        image.dataset.dgirMessageId = record.messageId;
+        image.dataset.dgirSwipeId = String(record.swipeId);
+        image.dataset.dgirBound = "true";
+        image.title = "Open image";
+        if (image.dataset.dgirLightboxBound !== "true") {
+          image.dataset.dgirLightboxBound = "true";
+          image.addEventListener("click", (event) => {
+            const current = recordForImage(image) || recordByKey.get(image.dataset.dgirKey || "") || record;
             if (!current)
               return;
             event.preventDefault();
@@ -138826,7 +138829,7 @@ ${message.prompt}`;
     const images = deepQueryAll(root, "img");
     const missing = expected.filter((record) => {
       const expectedUrl = record.pendingPlacement?.imageUrl || record.imageUrl || "";
-      return !images.some((image2) => urlMatches(image2.currentSrc || image2.src, expectedUrl));
+      return !images.some((image) => urlMatches(image.currentSrc || image.src, expectedUrl));
     });
     if (hadMountedContent && root.childNodes.length === 0)
       console.warn("[Reverie Relay] Render reconciliation found an emptied message root.", { messageId });
@@ -138927,7 +138930,7 @@ ${message.prompt}`;
     openQuickStartOverview();
   }
   function renderPanel() {
-    lifecycle2.activateView(activeTab);
+    lifecycle.activateView(activeTab);
     const focused = document.activeElement;
     const editing = focused instanceof HTMLElement && tab.root.contains(focused) && focused.matches('input, textarea, [contenteditable="true"]');
     if (editing) {
@@ -139070,13 +139073,16 @@ ${message.prompt}`;
       relayOrbCleanup?.();
       relayOrbCleanup = null;
       relayOrb = null;
-      lifecycle2.setOrbMounted(false);
+      lifecycle.setOrbMounted(false);
       return;
     }
     if (!relayOrb) {
+      for (const stale of Array.from(document.querySelectorAll(".dg-relay-orb")))
+        stale.remove();
       const orb = document.createElement("button");
       orb.type = "button";
       orb.className = "dg-relay-orb";
+      orb.dataset.reverieRelayOrbOwner = documentRuntimeOwnerId;
       orb.innerHTML = '<span class="dg-relay-orb-mark" aria-hidden="true">R&sup3;</span><span class="dg-relay-orb-icon" aria-hidden="true"></span><span class="dg-relay-orb-badge" hidden></span><span class="dg-relay-orb-status" aria-live="polite"></span>';
       orb.setAttribute("aria-label", "Reparse and regenerate image slots in the latest message");
       orb.title = "Relay Orb: generate replacement candidates";
@@ -139145,7 +139151,7 @@ ${message.prompt}`;
         relayOrbIsDragging = false;
         orb.classList.remove("dg-relay-orb-dragging");
       };
-      const onClick2 = (event) => {
+      const onClick = (event) => {
         if (moved || relayOrbLongPressTriggered) {
           event.preventDefault();
           event.stopImmediatePropagation();
@@ -139155,7 +139161,7 @@ ${message.prompt}`;
         }
         scanFromOrb();
       };
-      const onContext2 = (event) => {
+      const onContext = (event) => {
         event.preventDefault();
         event.stopImmediatePropagation();
         cancelHold();
@@ -139180,13 +139186,13 @@ ${message.prompt}`;
       orb.addEventListener("pointermove", onMove);
       orb.addEventListener("pointerup", onUp);
       orb.addEventListener("pointercancel", onUp);
-      orb.addEventListener("click", onClick2);
-      orb.addEventListener("contextmenu", onContext2);
+      orb.addEventListener("click", onClick);
+      orb.addEventListener("contextmenu", onContext);
       orb.addEventListener("keydown", onKeyDown);
       window.addEventListener("resize", onResize);
       document.body.appendChild(orb);
       relayOrb = orb;
-      lifecycle2.setOrbMounted(true);
+      lifecycle.setOrbMounted(true);
       relayOrbCleanup = () => {
         relayOrbIsDragging = false;
         cancelHold();
@@ -139194,11 +139200,12 @@ ${message.prompt}`;
         orb.removeEventListener("pointermove", onMove);
         orb.removeEventListener("pointerup", onUp);
         orb.removeEventListener("pointercancel", onUp);
-        orb.removeEventListener("click", onClick2);
-        orb.removeEventListener("contextmenu", onContext2);
+        orb.removeEventListener("click", onClick);
+        orb.removeEventListener("contextmenu", onContext);
         orb.removeEventListener("keydown", onKeyDown);
         window.removeEventListener("resize", onResize);
-        orb.remove();
+        if (orb.dataset.reverieRelayOrbOwner === documentRuntimeOwnerId)
+          orb.remove();
       };
     }
     const busy = candidateBatches.some((batch) => batch.chatId === activeChatId && batch.status === "processing") || records.some((record) => isProcessing(record));
@@ -139353,12 +139360,12 @@ ${message.prompt}`;
     });
   }
   function toastActionButton(label, title, action) {
-    const button2 = document.createElement("button");
-    button2.type = "button";
-    button2.textContent = label;
-    button2.title = title;
-    button2.addEventListener("click", action);
-    return button2;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.title = title;
+    button.addEventListener("click", action);
+    return button;
   }
   function applyOrbPosition() {
     if (!relayOrb)
@@ -139558,7 +139565,7 @@ ${message.prompt}`;
         next.appendChild(nextImg);
       const nextLabel = document.createElement("div");
       nextLabel.className = "dg-relay-candidate-label";
-      nextLabel.textContent = candidate.status === "ready" ? "Candidate image" : titleCase2(candidate.status);
+      nextLabel.textContent = candidate.status === "ready" ? "Candidate image" : titleCase(candidate.status);
       next.appendChild(nextLabel);
       if (stream?.statusText && ["preflight", "parsing", "provider-waiting", "generating"].includes(candidate.status)) {
         const streamStatus = document.createElement("div");
@@ -139648,10 +139655,10 @@ ${candidate.error}` : ""}`;
     if (queueSafety.pausedBacklog && activeChatId) {
       const backlog = document.createElement("div");
       backlog.className = "dg-card dg-warning-card";
-      const copy2 = document.createElement("div");
-      copy2.className = "dg-copy";
+      const copy = document.createElement("div");
+      copy.className = "dg-copy";
       const ageMinutes = Math.max(1, Math.round(queueSafety.oldestPendingAgeMs / 60000));
-      copy2.textContent = `Pending from earlier session: ${queueSafety.uniquePendingJobs}
+      copy.textContent = `Pending from earlier session: ${queueSafety.uniquePendingJobs}
 Oldest: ${ageMinutes}m
 Relay will not generate these without approval.`;
       const actions = document.createElement("div");
@@ -139661,7 +139668,7 @@ Relay will not generate these without approval.`;
         slotFilter = "all";
         renderPanel();
       }, false, "subtle"), button("Generate Pending", () => activeChatId && ctx.sendToBackend({ type: "queue_action", chatId: activeChatId, action: "generate_pending" }), false, "primary"), button("Discard Pending", () => activeChatId && ctx.sendToBackend({ type: "queue_action", chatId: activeChatId, action: "discard_pending" }), false, "danger"), button("Export Queue Diagnostic", () => activeChatId && ctx.sendToBackend({ type: "export_queue_diagnostic", chatId: activeChatId }), false, "subtle"));
-      backlog.append(copy2, actions);
+      backlog.append(copy, actions);
       head.appendChild(backlog);
     }
     return head;
@@ -139683,8 +139690,8 @@ Relay will not generate these without approval.`;
     return section === "illustrator" ? "illustrator" : section === "surfaces" ? "surface-library" : section === "memory" ? "genetics" : section === "archive" ? "history" : section === "settings" ? "settings" : "slots";
   }
   function renderTabs() {
-    const shell2 = document.createElement("nav");
-    shell2.className = "dg-suite-navigation";
+    const shell = document.createElement("nav");
+    shell.className = "dg-suite-navigation";
     const primary = document.createElement("div");
     primary.className = "dg-suite-primary";
     const currentSection = suiteSectionForTab(activeTab);
@@ -139716,7 +139723,7 @@ Relay will not generate these without approval.`;
       });
       primary.appendChild(btn);
     }
-    shell2.appendChild(primary);
+    shell.appendChild(primary);
     const secondaryMap = {
       relay: [["slots", "Slots"]],
       illustrator: [["illustrator", "Illustrations"], ["recipes", "Profiles"]],
@@ -139741,13 +139748,13 @@ Relay will not generate these without approval.`;
       });
       secondary.appendChild(btn);
     }
-    shell2.appendChild(secondary);
-    return shell2;
+    shell.appendChild(secondary);
+    return shell;
   }
   function renderRecordList(list, emptyText) {
     const box = document.createElement("div");
     if (list.length === 0) {
-      box.appendChild(empty2(emptyText));
+      box.appendChild(empty(emptyText));
       if (activeTab === "slots" && activeChatId)
         box.appendChild(button(rescanInProgress ? "Scanning..." : "Rescan Chat", rescanChat, rescanInProgress, "subtle"));
     } else
@@ -139755,7 +139762,7 @@ Relay will not generate these without approval.`;
         box.appendChild(renderRecord(record));
     return box;
   }
-  function escapeHtml2(value) {
+  function escapeHtml(value) {
     return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] || character);
   }
   function formatEta(seconds) {
@@ -139784,7 +139791,7 @@ Relay will not generate these without approval.`;
         renderPanel();
       }, false, "primary"));
     } else if (activeQueue) {
-      title.textContent = `Working: ${activeQueue.statusText || titleCase2(activeQueue.stage)}`;
+      title.textContent = `Working: ${activeQueue.statusText || titleCase(activeQueue.stage)}`;
       copy.textContent = activeQueue.etaSeconds ? `Relay is handling this in the background. Estimated time remaining: ${formatEta(activeQueue.etaSeconds)}.` : "Relay is handling this in the background. You can keep using the chat.";
       actions.append(button("Abort All", () => activeChatId && ctx.sendToBackend({ type: "queue_action", chatId: activeChatId, action: "abort_all" }), !activeChatId, "danger"));
     } else if (failed) {
@@ -139825,15 +139832,15 @@ Relay will not generate these without approval.`;
     wrapper.append(panelSection("Generation Recipes", documentFragment(intro, actions)));
     const list = document.createElement("div");
     if (!recipes.length)
-      list.appendChild(empty2("No profiles yet. Create one for Relay surfaces or the Illustrator."));
+      list.appendChild(empty("No profiles yet. Create one for Relay surfaces or the Illustrator."));
     for (const recipe of recipes) {
       const card = document.createElement("div");
       card.className = `dg-slot-card${config?.activeGenerationRecipeId === recipe.id ? " is-active" : ""}`;
       const heading = document.createElement("div");
       heading.className = "dg-slot-top";
       const title = document.createElement("div");
-      title.innerHTML = `<strong>${escapeHtml2(recipe.name)}</strong><div class="dg-slot-meta">${escapeHtml2(recipe.description || "No description")}<br>${escapeHtml2(titleCase2(recipe.scope))} · ${escapeHtml2(recipe.model || "connection default")} · ${escapeHtml2(recipe.aspectRatio || "native")} · ${recipe.loraStack.length} LoRA${recipe.loraStack.length === 1 ? "" : "s"}</div>`;
-      heading.append(title, chip(config?.activeGenerationRecipeId === recipe.id ? "Active" : titleCase2(recipe.scope), config?.activeGenerationRecipeId === recipe.id ? "completed" : ""));
+      title.innerHTML = `<strong>${escapeHtml(recipe.name)}</strong><div class="dg-slot-meta">${escapeHtml(recipe.description || "No description")}<br>${escapeHtml(titleCase(recipe.scope))} · ${escapeHtml(recipe.model || "connection default")} · ${escapeHtml(recipe.aspectRatio || "native")} · ${recipe.loraStack.length} LoRA${recipe.loraStack.length === 1 ? "" : "s"}</div>`;
+      heading.append(title, chip(config?.activeGenerationRecipeId === recipe.id ? "Active" : titleCase(recipe.scope), config?.activeGenerationRecipeId === recipe.id ? "completed" : ""));
       const recipeActions = document.createElement("div");
       recipeActions.className = "dg-actions";
       recipeActions.append(button("Apply", () => applyGenerationRecipe(recipe), false, config?.activeGenerationRecipeId === recipe.id ? "subtle" : "primary"), button("Edit", () => openGenerationRecipeEditor(recipe), false, "subtle"), button("Duplicate", () => duplicateGenerationRecipe(recipe), false, "subtle"), button("Delete", () => deleteGenerationRecipe(recipe), false, "danger"));
@@ -140123,10 +140130,10 @@ Relay will not generate these without approval.`;
       const missingActions = document.createElement("div");
       missingActions.className = "dg-actions";
       missingActions.append(button("Copy Preset Prompt", () => void copyText(REVERIE_ILLUSTRATION_PROTOCOL, "Full Model-Placed preset prompt copied"), false, "primary"), button("Use Relay-Planned Once", () => {
-        const request2 = modelPlacedMissingRequest;
-        if (!request2)
+        const request = modelPlacedMissingRequest;
+        if (!request)
           return;
-        sendProseAction({ action: "relay_plan_once", messageId: request2.messageId });
+        sendProseAction({ action: "relay_plan_once", messageId: request.messageId });
         modelPlacedMissingRequest = null;
         renderPanel();
       }, !currentProseSettings().plannerConnectionId, "subtle"), button("Inspect Runtime", () => modelPlacedMissingRequest && openTextModal("Resolved Illustrator Runtime", modelPlacedMissingRequest.runtimeDirective || "Runtime directive unavailable."), false, "subtle"), button("Dismiss", () => {
@@ -140173,7 +140180,7 @@ Relay will not generate these without approval.`;
     card.className = "dg-slot-card";
     const title = document.createElement("div");
     title.className = "dg-history-title";
-    title.textContent = `${plan?.title || "Inline Illustration"} / ${titleCase2(record.status)}`;
+    title.textContent = `${plan?.title || "Inline Illustration"} / ${titleCase(record.status)}`;
     const meta = document.createElement("div");
     meta.className = "dg-slot-meta";
     meta.textContent = `${record.requestId}
@@ -140237,10 +140244,10 @@ ${record.imageId || record.error || "No image yet"}`;
     modal.root.classList.add("dg-router-panel", "dg-modal-host");
     const body = document.createElement("div");
     body.className = "dg-modal-body";
-    const image2 = document.createElement("img");
-    image2.className = "dg-lightbox-img";
-    image2.src = imageUrl;
-    image2.alt = titleText;
+    const image = document.createElement("img");
+    image.className = "dg-lightbox-img";
+    image.src = imageUrl;
+    image.alt = titleText;
     const actions = document.createElement("div");
     actions.className = "dg-actions";
     if (record) {
@@ -140300,14 +140307,14 @@ ${record.imageId || record.error || "No image yet"}`;
           showActionError(error instanceof Error ? error.message : String(error));
         }
       }, isSlotActionBusy(record) || !canReparse(record), "subtle"), button("Details", () => openMetadata(record), false, "subtle"), button("Remove From Message", () => confirmRemoveImageFromMessage(record, () => modal.dismiss()), isSlotActionBusy(record), "danger"));
-      body.append(image2, actionError, actions);
+      body.append(image, actionError, actions);
     }
     actions.append(button("Copy Image URL", () => copyText(imageUrl, "Image URL copied."), false, "subtle"), button("Copy Image ID", () => copyText(imageId || record?.imageId || "", "Image ID copied."), !(imageId || record?.imageId), "subtle"));
     if (!record) {
       const note = document.createElement("div");
       note.className = "dg-recovery-note";
       note.textContent = "Relay could open this artifact image, but the source slot is not available in the active chat state, so Regenerate and Reparse are unavailable.";
-      body.append(image2, note, actions);
+      body.append(image, note, actions);
     }
     modal.root.appendChild(body);
   }
@@ -140398,10 +140405,10 @@ ${record.imageId || record.error || "No image yet"}`;
     essentials.append(selectField("Appearance Sidecar Source", settings.useGlobalAppearanceSidecar !== false ? "global" : "override", [["global", "Use Global Sidecar"], ["override", "Use Illustrator Override"]], (value) => patchProseSettings({ useGlobalAppearanceSidecar: value === "global" })));
     if (settings.useGlobalAppearanceSidecar === false) {
       essentials.append(selectField("Appearance Sidecar Connection", settings.appearanceSidecarConnectionId || "", [["", "Use Global Connection"], ...parserConnections.map((connection) => [connection.id, `${connection.name} / ${connection.model}`])], (value) => {
-        const globalConnectionId2 = config?.appearanceSidecarConnectionId || config?.parserConnectionId || "";
+        const globalConnectionId = config?.appearanceSidecarConnectionId || config?.parserConnectionId || "";
         patchProseSettings({
           appearanceSidecarConnectionId: value || null,
-          appearanceSidecarModel: compatibleSidecarModel(settings.appearanceSidecarModel, value || globalConnectionId2)
+          appearanceSidecarModel: compatibleSidecarModel(settings.appearanceSidecarModel, value || globalConnectionId)
         });
       }));
       const globalConnectionId = config?.appearanceSidecarConnectionId || config?.parserConnectionId || null;
@@ -140503,12 +140510,12 @@ ${record.imageId || record.error || "No image yet"}`;
       if (event.target === backdrop)
         dismiss();
     };
-    const cleanup2 = () => {
+    const cleanup = () => {
       document.removeEventListener("keydown", keydown);
       backdrop?.removeEventListener("click", backdropClick);
     };
     const dismiss = () => {
-      cleanup2();
+      cleanup();
       modal.dismiss();
     };
     close.addEventListener("click", dismiss);
@@ -140665,7 +140672,7 @@ ${record.imageId || record.error || "No image yet"}`;
         list.appendChild(card);
       }
       if (!filtered.length)
-        list.appendChild(empty2("No prompts match these filters."));
+        list.appendChild(empty("No prompts match these filters."));
     };
     search.addEventListener("input", () => {
       query = search.value;
@@ -140766,7 +140773,7 @@ Mode: ${overrideModel ? "Override" : "Inherited from connection"}${models.length
 Model enumeration unavailable; Relay can only show models exposed by configured connections.`}`;
       const modelField = document.createElement("div");
       modelField.className = "dg-field";
-      const modelLabel2 = fieldLabel("Sidecar model override", "Optionally chooses a different model from the selected Sidecar connection. Leave it inherited to follow that connection automatically.");
+      const modelLabel = fieldLabel("Sidecar model override", "Optionally chooses a different model from the selected Sidecar connection. Leave it inherited to follow that connection automatically.");
       const modelSelect = document.createElement("select");
       modelSelect.className = "dg-select";
       const inherit = document.createElement("option");
@@ -140792,7 +140799,7 @@ Model enumeration unavailable; Relay can only show models exposed by configured 
         ctx.sendToBackend({ type: "list_state", chatId: activeChatId });
         showToast("info", "Refreshing parser connections and exposed models.");
       }, false, "subtle"));
-      modelField.append(modelLabel2, modelActions);
+      modelField.append(modelLabel, modelActions);
       dynamic.append(mode, modelField);
     };
     paint();
@@ -141009,7 +141016,7 @@ Model enumeration unavailable; Relay can only show models exposed by configured 
     banner.textContent = report.simulationOnly ? "Simulation only. Relay ran the planning pipeline but did not generate, queue, insert, or link an image." : "No image was generated. This is the exact request Relay would send after resolution.";
     const summary = document.createElement("div");
     summary.className = "dg-meta-grid";
-    const rows2 = [
+    const rows = [
       ["Origin", report.origin],
       ["Connection", `${report.connectionName || report.connectionId || "Missing"}${report.provider ? ` · ${report.provider}` : ""}`],
       ["Model", report.model || "Missing"],
@@ -141019,7 +141026,7 @@ Model enumeration unavailable; Relay can only show models exposed by configured 
       ["Gallery destination", report.galleryDestination],
       ...report.telemetry ? [["Model calls", String(report.telemetry.modelCalls)], ["Estimated input tokens", String(report.telemetry.estimatedInputTokens)], ["Image generation calls", "0"]] : []
     ];
-    for (const [labelText, value] of rows2) {
+    for (const [labelText, value] of rows) {
       const label = document.createElement("div");
       label.className = "dg-meta-label";
       label.textContent = labelText;
@@ -141151,7 +141158,7 @@ Next action: ${blocker.action}` : ""}`;
       box.appendChild(compare);
     const filtered = assets.filter(matchesAssetFilters);
     if (!filtered.length)
-      box.appendChild(empty2(assets.length ? "No assets match the current filters." : "No generated Relay assets are indexed yet."));
+      box.appendChild(empty(assets.length ? "No assets match the current filters." : "No generated Relay assets are indexed yet."));
     else {
       const list = document.createElement("div");
       list.className = "dg-history-track";
@@ -141180,15 +141187,15 @@ Next action: ${blocker.action}` : ""}`;
   function renderAssetCard(asset, compact = false) {
     const card = document.createElement("article");
     card.className = `dg-asset-card${compact ? " dg-asset-card-compact" : ""}${asset.sourceDeletedAt ? " is-archived" : ""}`;
-    const image2 = asset.imageUrl && asset.status === "available" ? document.createElement("img") : document.createElement("div");
-    image2.className = image2 instanceof HTMLImageElement ? "dg-asset-card-thumb" : "dg-asset-card-thumb dg-thumb-empty";
-    if (image2 instanceof HTMLImageElement) {
-      image2.src = asset.imageUrl;
-      image2.alt = asset.alt || asset.caption || asset.slot;
+    const image = asset.imageUrl && asset.status === "available" ? document.createElement("img") : document.createElement("div");
+    image.className = image instanceof HTMLImageElement ? "dg-asset-card-thumb" : "dg-asset-card-thumb dg-thumb-empty";
+    if (image instanceof HTMLImageElement) {
+      image.src = asset.imageUrl;
+      image.alt = asset.alt || asset.caption || asset.slot;
     } else
-      image2.textContent = asset.status === "available" ? "No preview" : titleCase2(asset.status);
-    image2.title = asset.imageUrl ? "Open image" : "Image unavailable";
-    image2.addEventListener("click", () => openAssetImage(asset));
+      image.textContent = asset.status === "available" ? "No preview" : titleCase(asset.status);
+    image.title = asset.imageUrl ? "Open image" : "Image unavailable";
+    image.addEventListener("click", () => openAssetImage(asset));
     const main = document.createElement("div");
     main.className = "dg-asset-card-main";
     const title = document.createElement("div");
@@ -141196,19 +141203,19 @@ Next action: ${blocker.action}` : ""}`;
     title.textContent = `${asset.favorite ? "★ " : ""}${asset.caption || asset.alt || briefAssetTitle(asset)}`;
     const meta = document.createElement("div");
     meta.className = "dg-asset-card-meta";
-    meta.textContent = `${new Date(asset.createdAt).toLocaleString()} · Chat ${asset.chatId} · ${asset.characterNames.join(", ") || "No character"} · ${titleCase2(asset.target)} · ${titleCase2(String((asset.metadata || {}).surfaceId || asset.targetApp))} · ${asset.status}${asset.visualReference ? " · Reference" : ""}${asset.sourceDeletedAt ? ` · Retained after source deletion ${new Date(asset.sourceDeletedAt).toLocaleString()}` : ""}`;
+    meta.textContent = `${new Date(asset.createdAt).toLocaleString()} · Chat ${asset.chatId} · ${asset.characterNames.join(", ") || "No character"} · ${titleCase(asset.target)} · ${titleCase(String((asset.metadata || {}).surfaceId || asset.targetApp))} · ${asset.status}${asset.visualReference ? " · Reference" : ""}${asset.sourceDeletedAt ? ` · Retained after source deletion ${new Date(asset.sourceDeletedAt).toLocaleString()}` : ""}`;
     const prompt = document.createElement("div");
     prompt.className = "dg-asset-card-summary";
     prompt.textContent = asset.originalSceneBrief || asset.resolvedPositivePrompt || "No scene summary available.";
     const chips = document.createElement("div");
     chips.className = "dg-chip-row dg-asset-card-chips";
-    for (const text of [titleCase2(asset.target), ...asset.characterNames.slice(0, 2), ...asset.locationNames.slice(0, 1)]) {
+    for (const text of [titleCase(asset.target), ...asset.characterNames.slice(0, 2), ...asset.locationNames.slice(0, 1)]) {
       if (!text)
         continue;
-      const chip2 = document.createElement("span");
-      chip2.className = "dg-chip";
-      chip2.textContent = text;
-      chips.appendChild(chip2);
+      const chip = document.createElement("span");
+      chip.className = "dg-chip";
+      chip.textContent = text;
+      chips.appendChild(chip);
     }
     const actions = document.createElement("div");
     actions.className = "dg-actions dg-asset-card-actions";
@@ -141224,7 +141231,7 @@ Next action: ${blocker.action}` : ""}`;
     }, false, "subtle", "More asset actions");
     actions.appendChild(moreButton);
     main.append(title, meta, prompt, chips, actions);
-    card.append(image2, main);
+    card.append(image, main);
     return card;
   }
   function briefAssetTitle(asset) {
@@ -141245,7 +141252,7 @@ Next action: ${blocker.action}` : ""}`;
         showToast("info", "Select another asset to compare.");
       }
     };
-    const rows2 = [
+    const rows = [
       ["Restore Original", () => restoreOriginalAsset(asset), !originalReuseSlot(asset)],
       ["Use in Slot…", () => openAssetDestinationPicker(asset), !compatibleReuseSlots(asset).length],
       [asset.visualReference ? "Clear Visual Reference" : "Mark as Visual Reference", () => sendAssetAction(asset.assetId, asset.visualReference ? "clear_reference" : "mark_reference"), false],
@@ -141256,7 +141263,7 @@ Next action: ${blocker.action}` : ""}`;
       ["Copy Prompt", () => void copyText(asset.resolvedPositivePrompt, "Prompt copied"), !asset.resolvedPositivePrompt],
       ["Copy Asset JSON", () => void copyText(JSON.stringify(asset, null, 2), "Asset JSON copied"), false]
     ];
-    for (const [label, handler, disabled] of rows2) {
+    for (const [label, handler, disabled] of rows) {
       const item = document.createElement("button");
       item.type = "button";
       item.textContent = label;
@@ -141343,11 +141350,11 @@ Next action: ${blocker.action}` : ""}`;
       summary.className = "dg-history-prompt";
       summary.textContent = record.originalSceneBrief || record.caption || record.alt || "No scene summary";
       if (record.imageUrl) {
-        const image2 = document.createElement("img");
-        image2.className = "dg-history-thumb";
-        image2.src = record.imageUrl;
-        image2.alt = record.alt || record.slot;
-        row.appendChild(image2);
+        const image = document.createElement("img");
+        image.className = "dg-history-thumb";
+        image.src = record.imageUrl;
+        image.alt = record.alt || record.slot;
+        row.appendChild(image);
       }
       const use = button("Use Here", () => {
         if (!activeChatId)
@@ -141410,7 +141417,7 @@ Next action: ${blocker.action}` : ""}`;
     controls.className = "dg-actions";
     const activeStrength = config?.vaultStrength || continuityVault.strength;
     for (const strength of ["off", "low", "medium", "strong"]) {
-      controls.appendChild(button(strength === activeStrength ? `${titleCase2(strength)} Active` : titleCase2(strength), () => {
+      controls.appendChild(button(strength === activeStrength ? `${titleCase(strength)} Active` : titleCase(strength), () => {
         patchConfig({ vaultStrength: strength });
       }, false, strength === activeStrength ? "primary" : "subtle"));
     }
@@ -141425,13 +141432,13 @@ Next action: ${blocker.action}` : ""}`;
     summary.textContent = `One character, one editable Appearance Memory with Stable Appearance and Current Outfit. The configured Appearance Sidecar maintains it automatically from the conversation and available host context; every field remains editable. Characters: ${characters.length}. Memories: ${Object.keys(sheets).length}.`;
     box.appendChild(summary);
     if (!characters.length) {
-      box.appendChild(empty2("No appearance entries yet. Relay will maintain confirmed continuity automatically; you can also add an entry manually."));
+      box.appendChild(empty("No appearance entries yet. Relay will maintain confirmed continuity automatically; you can also add an entry manually."));
       return box;
     }
     const characterRail = document.createElement("div");
     characterRail.className = "dg-vault-character-grid";
-    for (const character2 of characters)
-      characterRail.appendChild(renderVaultCharacterCard(character2));
+    for (const character of characters)
+      characterRail.appendChild(renderVaultCharacterCard(character));
     box.appendChild(characterRail);
     const character = continuityVault.characters[vaultSelectedCharacterId];
     if (!character)
@@ -141597,10 +141604,10 @@ Next action: ${blocker.action}` : ""}`;
         appearanceSaveWatchdogs.delete(operationId);
         saveButton.disabled = false;
         saveButton.textContent = "Retry Save";
-        const inline2 = document.querySelector(`[data-appearance-save-status="${CSS.escape(character.canonicalCharacterId)}"]`);
-        if (inline2) {
-          inline2.className = "dg-appearance-action-status is-unknown";
-          inline2.textContent = `Save timed out — verify/retry · operation ${operationId}`;
+        const inline = document.querySelector(`[data-appearance-save-status="${CSS.escape(character.canonicalCharacterId)}"]`);
+        if (inline) {
+          inline.className = "dg-appearance-action-status is-unknown";
+          inline.textContent = `Save timed out — verify/retry · operation ${operationId}`;
         }
       }, 15000);
       appearanceSaveWatchdogs.set(operationId, watchdog);
@@ -141818,7 +141825,7 @@ Next action: ${blocker.action}` : ""}`;
         "Media Archive preserves completed images, versions, and metadata even when a source message is deleted. Active jobs and dead slots are cleaned up without discarding the finished asset."
       ]]
     ];
-    for (const [headingText, rows2] of sections) {
+    for (const [headingText, rows] of sections) {
       const wrap = document.createElement("div");
       wrap.className = "dg-slot-card";
       const heading = document.createElement("div");
@@ -141826,7 +141833,7 @@ Next action: ${blocker.action}` : ""}`;
       heading.textContent = headingText;
       const list = document.createElement("div");
       list.className = "dg-manual-list";
-      for (const row of rows2) {
+      for (const row of rows) {
         const item = document.createElement("div");
         item.textContent = row;
         list.appendChild(item);
@@ -141863,7 +141870,7 @@ Next action: ${blocker.action}` : ""}`;
     return mode === "sparkling" ? "sparkle-button" : mode === "plain" ? "plain-button" : "inline";
   }
   function removeAppearanceMemoryOptimistically(characterId, removeCharacter) {
-    const withoutCharacter = (rows2) => Object.fromEntries(Object.entries(rows2).filter(([, row]) => row.canonicalCharacterId !== characterId));
+    const withoutCharacter = (rows) => Object.fromEntries(Object.entries(rows).filter(([, row]) => row.canonicalCharacterId !== characterId));
     continuityVault = {
       ...continuityVault,
       ...removeCharacter ? { characters: Object.fromEntries(Object.entries(continuityVault.characters).filter(([id]) => id !== characterId)) } : {},
@@ -141981,16 +141988,16 @@ Next action: ${blocker.action}` : ""}`;
   }
   function activeSurfacePromptDefinitions() {
     const seen = new Set;
-    const rows2 = [];
+    const rows = [];
     for (const definition of Object.values(customSurfaces.definitions || {})) {
       const selectedId = customSurfaces.activePresetIds?.[definition.baseSurfaceId];
       const selected = selectedId && customSurfaces.definitions[selectedId]?.baseSurfaceId === definition.baseSurfaceId ? customSurfaces.definitions[selectedId] : Object.values(customSurfaces.definitions).find((candidate) => candidate.baseSurfaceId === definition.baseSurfaceId && candidate.builtIn) || definition;
       if (!selected || selected.baseSurfaceId === "prose-illustration" || seen.has(selected.baseSurfaceId))
         continue;
       seen.add(selected.baseSurfaceId);
-      rows2.push(selected);
+      rows.push(selected);
     }
-    return rows2.sort((a, b) => a.promptCategory.localeCompare(b.promptCategory) || a.displayName.localeCompare(b.displayName));
+    return rows.sort((a, b) => a.promptCategory.localeCompare(b.promptCategory) || a.displayName.localeCompare(b.displayName));
   }
   function buildUtilityPreview() {
     const enabled = activeSurfacePromptDefinitions().filter((definition) => definition.promptEnabled);
@@ -142011,10 +142018,10 @@ Next action: ${blocker.action}` : ""}`;
       return;
     enqueueRelaySettingsPatch({ kind: "surface-preferences", rendererMode });
   }
-  function setSurfacePresentationPreference(defaultShellMode2) {
-    if (customSurfaces.defaultShellMode === defaultShellMode2)
+  function setSurfacePresentationPreference(defaultShellMode) {
+    if (customSurfaces.defaultShellMode === defaultShellMode)
       return;
-    enqueueRelaySettingsPatch({ kind: "surface-preferences", defaultShellMode: defaultShellMode2 });
+    enqueueRelaySettingsPatch({ kind: "surface-preferences", defaultShellMode });
   }
   function setSurfaceColorPreference(colorMode) {
     if (customSurfaces.colorMode === colorMode)
@@ -142142,9 +142149,9 @@ Next action: ${blocker.action}` : ""}`;
     const grouped = new Map;
     for (const definition of activeSurfacePromptDefinitions()) {
       const category = definition.promptCategory || "custom";
-      const rows2 = grouped.get(category) || [];
-      rows2.push(definition);
-      grouped.set(category, rows2);
+      const rows = grouped.get(category) || [];
+      rows.push(definition);
+      grouped.set(category, rows);
     }
     const categoryOrder = ["social-messaging", "photography-keepsakes", "covers-promotion", "evidence-editorial", "narrative-visuals", "custom"];
     for (const category of categoryOrder) {
@@ -142173,7 +142180,7 @@ Next action: ${blocker.action}` : ""}`;
     if (config)
       box.appendChild(panelSection("Narrative Utilities", renderNarrativeUtilityCategory(config)));
     else
-      box.appendChild(panelSection("Narrative Utilities", empty2("Narrative Utility controls are loading.")));
+      box.appendChild(panelSection("Narrative Utilities", empty("Narrative Utility controls are loading.")));
     return box;
   }
   function renderSurfacePresets() {
@@ -142194,11 +142201,11 @@ Next action: ${blocker.action}` : ""}`;
       ctx.sendToBackend({ type: "custom_surface_action", chatId: activeChatId, action: "save_collection", presetName: name, surfaceIds: enabledIds });
     }, !activeChatId || enabledIds.length === 0, "primary"));
     box.appendChild(panelSection("Global Surface Presets", documentFragment(actions)));
-    const rows2 = document.createElement("div");
-    rows2.className = "dg-card-grid";
+    const rows = document.createElement("div");
+    rows.className = "dg-card-grid";
     const presets = Object.values(customSurfaces.collectionPresets || {}).sort((a, b) => a.name.localeCompare(b.name));
     if (!presets.length)
-      rows2.appendChild(empty2("No saved Surface presets yet. Save the enabled Library collection to create one."));
+      rows.appendChild(empty("No saved Surface presets yet. Save the enabled Library collection to create one."));
     for (const preset of presets) {
       const card = document.createElement("div");
       card.className = "dg-card";
@@ -142221,12 +142228,12 @@ Next action: ${blocker.action}` : ""}`;
         ctx.sendToBackend({ type: "custom_surface_action", chatId: activeChatId || undefined, action: "delete_collection", presetId: preset.presetId });
       }, false, "danger"));
       card.append(title, detail, cardActions);
-      rows2.appendChild(card);
+      rows.appendChild(card);
     }
     const bindingActions = document.createElement("div");
     bindingActions.className = "dg-actions";
     bindingActions.append(button("Use Global Default", () => activeChatId && ctx.sendToBackend({ type: "custom_surface_action", chatId: activeChatId, action: "unbind_collection" }), !activeChatId, "subtle"));
-    box.append(panelSection("Saved Collections", rows2), panelSection("Current Chat Binding", bindingActions));
+    box.append(panelSection("Saved Collections", rows), panelSection("Current Chat Binding", bindingActions));
     return box;
   }
   function renderNarrativeUtilityInjectionEditor() {
@@ -142234,11 +142241,11 @@ Next action: ${blocker.action}` : ""}`;
     const wrap = document.createElement("div");
     wrap.className = "dg-stack";
     if (!narrativeUtilityRegistry.length) {
-      wrap.appendChild(empty2("Loading the Narrative Utility injection registry…"));
+      wrap.appendChild(empty("Loading the Narrative Utility injection registry…"));
       return wrap;
     }
-    const rows2 = document.createElement("div");
-    rows2.className = "dg-card-grid";
+    const rows = document.createElement("div");
+    rows.className = "dg-card-grid";
     for (const record of narrativeUtilityRegistry) {
       const card = document.createElement("div");
       card.className = `dg-card${record.enabled ? " is-enabled" : ""}`;
@@ -142249,12 +142256,12 @@ Next action: ${blocker.action}` : ""}`;
       const actions = document.createElement("div");
       actions.className = "dg-actions";
       actions.append(button(record.enabled ? "Disable" : "Enable", () => {
-        const selected2 = new Set(config?.narrativeDlcUtilityNames || []);
+        const selected = new Set(config?.narrativeDlcUtilityNames || []);
         if (record.enabled)
-          selected2.delete(record.id);
+          selected.delete(record.id);
         else
-          selected2.add(record.id);
-        enqueueRelaySettingsPatch({ kind: "narrative-enabled", enabledNames: NARRATIVE_DLC_UTILITY_NAMES.filter((name) => selected2.has(name)) });
+          selected.add(record.id);
+        enqueueRelaySettingsPatch({ kind: "narrative-enabled", enabledNames: NARRATIVE_DLC_UTILITY_NAMES.filter((name) => selected.has(name)) });
       }, false, "subtle"), button("Edit", () => {
         narrativeUtilityEditorId = record.id;
         renderPanel();
@@ -142266,9 +142273,9 @@ Next action: ${blocker.action}` : ""}`;
         warning.textContent = record.warnings.join(" ");
         card.appendChild(warning);
       }
-      rows2.appendChild(card);
+      rows.appendChild(card);
     }
-    wrap.appendChild(rows2);
+    wrap.appendChild(rows);
     const selected = narrativeUtilityRegistry.find((record) => record.id === narrativeUtilityEditorId);
     if (selected) {
       const editor = document.createElement("div");
@@ -142318,7 +142325,7 @@ Next action: ${blocker.action}` : ""}`;
     const injectionStatus = document.createElement("div");
     injectionStatus.className = "dg-recovery-note";
     const injectedAt = customSurfaces.lastInjectionAt ? new Date(customSurfaces.lastInjectionAt).toLocaleString() : "Never";
-    injectionStatus.innerHTML = `<strong>Last Injection</strong><br>${escapeHtml2(customSurfaces.lastInjectionSummary || "No Relay prompt injection has been recorded yet.")}<br>Source: ${escapeHtml2(customSurfaces.lastInjectionSource || "none")} · Position: ${escapeHtml2(customSurfaces.lastInjectionPosition || "none")} · Time: ${escapeHtml2(injectedAt)}<br>Modules: ${escapeHtml2((customSurfaces.lastInjectedModuleIds || []).join(", ") || "none")}`;
+    injectionStatus.innerHTML = `<strong>Last Injection</strong><br>${escapeHtml(customSurfaces.lastInjectionSummary || "No Relay prompt injection has been recorded yet.")}<br>Source: ${escapeHtml(customSurfaces.lastInjectionSource || "none")} · Position: ${escapeHtml(customSurfaces.lastInjectionPosition || "none")} · Time: ${escapeHtml(injectedAt)}<br>Modules: ${escapeHtml((customSurfaces.lastInjectedModuleIds || []).join(", ") || "none")}`;
     box.appendChild(panelSection("Injection Status", injectionStatus));
     const settings = document.createElement("div");
     settings.className = "dg-settings-grid";
@@ -142450,7 +142457,7 @@ Next action: ${blocker.action}` : ""}`;
     title.textContent = definition.displayName;
     const meta = document.createElement("span");
     meta.className = "dg-surface-meta";
-    meta.textContent = `${definition.presetName} · ${titleCase2(definition.shellMode)} · [${definition.canonicalOuterWrapper}]`;
+    meta.textContent = `${definition.presetName} · ${titleCase(definition.shellMode)} · [${definition.canonicalOuterWrapper}]`;
     const copy = document.createElement("p");
     copy.textContent = `${definition.targetId} · ${definition.supportedAspectRatios.join(" · ") || "structured surface"} · ${definition.density} · ${definition.mediaFit}`;
     const hybridOwnerControl = customSurfaces.rendererMode === "hybrid" ? selectField("Hybrid visual owner", hybridSurfaceOwner(definition), [["regex", "Regex"], ["relay", "Relay"]], (value) => setSurfaceHybridOwner(definition.surfaceId, value)) : null;
@@ -142517,14 +142524,14 @@ Next action: ${blocker.action}` : ""}`;
     const accent = creatorTextField("Custom accent", existing?.customAccent || "#c24b78", "Used only when Accent is set to Custom Accent.", "#c24b78");
     const aspects = creatorTextField("Supported aspect ratios", existing?.supportedAspectRatios?.join(", ") || "1:1, 4:3, 16:9", "Comma-separated image ratios allowed for this surface.", "1:1, 4:3, 16:9");
     const sample = modalTextareaWithHelp("Canonical Validation Fixture", existing?.sampleXml || "", "Relay’s complete canonical validation fixture. This internal compatibility form defines every required field; the Story Model receives an equivalent bracket-native example, with only image_request remaining XML.", false, "<my_surface>...</my_surface>");
-    const utility2 = modalTextareaWithHelp("Surface Utility / Model Instructions", existing?.promptModule || "", "These instructions are injected when this surface is enabled. Explain when to use it, viewpoint limits, required bracket fields, image-request ownership, and the exact bracket-native output format.", false, `[MY SURFACE — REVERIE RELAY UTILITY]
+    const utility = modalTextareaWithHelp("Surface Utility / Model Instructions", existing?.promptModule || "", "These instructions are injected when this surface is enabled. Explain when to use it, viewpoint limits, required bracket fields, image-request ownership, and the exact bracket-native output format.", false, `[MY SURFACE — REVERIE RELAY UTILITY]
 
 Use this surface when...
 
 OUTPUT FORMAT — EXACT
 [my_surface]...[/my_surface]`);
     const css = modalTextareaWithHelp("Advanced namespaced CSS", existing?.advancedCss || "", "Optional presentation-only CSS. Keep every selector namespaced to this surface. Scripts, event handlers, @import, and javascript: URLs are rejected.", false, ".my-surface { ... }");
-    const shell2 = selectField("Shell Mode", existing?.shellMode === "collapsible" ? "plain" : existing?.shellMode || "inline", [["inline", "Inline"], ["plain", "Button"], ["sparkling", "Sparkling Button"]], () => {});
+    const shell = selectField("Shell Mode", existing?.shellMode === "collapsible" ? "plain" : existing?.shellMode || "inline", [["inline", "Inline"], ["plain", "Button"], ["sparkling", "Sparkling Button"]], () => {});
     const density = selectField("Density", existing?.density || "comfortable", [["compact", "Compact"], ["comfortable", "Comfortable"], ["spacious", "Spacious"]], () => {});
     const fit = selectField("Media Fit", existing?.mediaFit || "contain", [["contain", "Contain"], ["cover", "Cover"]], () => {});
     const typography = selectField("Typography", existing?.typography || "mixed", [["system", "System"], ["editorial", "Editorial"], ["mono", "Mono"], ["mixed", "Mixed"]], () => {});
@@ -142590,7 +142597,7 @@ OUTPUT FORMAT — EXACT
 <content>Add the surface's required semantic text fields here.</content>
 </${tag}>`;
       const bracketFixture = bracketExampleFromXml(fixture);
-      setText(utility2, `[${name.toLocaleUpperCase()} — REVERIE RELAY UTILITY]
+      setText(utility, `[${name.toLocaleUpperCase()} — REVERIE RELAY UTILITY]
 
 Use this surface when it materially improves clarity or immersion.
 Do not use it when the same information is already clear in prose.
@@ -142616,14 +142623,14 @@ ${bracketFixture}`);
     }, false, "subtle");
     const basics = creatorSection("1 · Basics", "Name the surface and its visual preset. These are the labels people see.", display, preset, icon);
     const identifiers = creatorSection("2 · Technical Identifiers", "Relay can fill safe defaults for a brand-new Surface. The bracket root is model-facing; Relay keeps the validation fixture for compatibility and rendering.", recommendedIds, id, base, wrapper, target);
-    const modelContract = creatorSection("3 · Utility & Surface Contract", "The Utility teaches the Story Model when and how to author bracket-native output. The canonical fixture gives Relay a complete validation and preview example.", promptEnabled, promptCategory, utilityStarter, utility2, sample);
+    const modelContract = creatorSection("3 · Utility & Surface Contract", "The Utility teaches the Story Model when and how to author bracket-native output. The canonical fixture gives Relay a complete validation and preview example.", promptEnabled, promptCategory, utilityStarter, utility, sample);
     const presentationDetails = document.createElement("details");
     presentationDetails.className = "dg-creator-advanced";
     const presentationSummary = document.createElement("summary");
     presentationSummary.textContent = "4 · Presentation & Advanced Settings";
     const presentationBody = document.createElement("div");
     presentationBody.className = "dg-creator-advanced-body";
-    presentationBody.append(shell2, defaultOpen, launcher, density, width, fit, profile, peoplePolicy, accentMode, accent, typography, aspects, css, enabled);
+    presentationBody.append(shell, defaultOpen, launcher, density, width, fit, profile, peoplePolicy, accentMode, accent, typography, aspects, css, enabled);
     presentationDetails.append(presentationSummary, presentationBody);
     const actions = document.createElement("div");
     actions.className = "dg-actions dg-creator-actions";
@@ -142632,7 +142639,7 @@ ${bracketFixture}`);
       const baseSurfaceId = slugifySurfaceId(getText(base) || surfaceId);
       const canonicalOuterWrapper = getText(wrapper).replace(/[^A-Za-z0-9_-]/g, "");
       const targetId = getText(target) || `custom.${baseSurfaceId}`;
-      const promptModule = getText(utility2);
+      const promptModule = getText(utility);
       if (!surfaceId || !baseSurfaceId || !canonicalOuterWrapper || !targetId) {
         showToast("error", "Surface name, Surface ID, Base Surface ID, Bracket Surface Root, and Image Target are required.");
         return;
@@ -142646,7 +142653,7 @@ ${bracketFixture}`);
         baseSurfaceId,
         basedOnSurfaceId: existing?.basedOnSurfaceId,
         presetName: getText(preset) || "My Preset",
-        shellMode: getSelect(shell2).value,
+        shellMode: getSelect(shell).value,
         defaultOpen: getToggle(defaultOpen).checked,
         launcherLabel: getText(launcher) || getText(display),
         density: getSelect(density).value,
@@ -142656,7 +142663,7 @@ ${bracketFixture}`);
         customAccent: getText(accent) || "#c24b78",
         typography: getSelect(typography).value,
         advancedCss: getText(css),
-        displayName: getText(display) || titleCase2(baseSurfaceId),
+        displayName: getText(display) || titleCase(baseSurfaceId),
         icon: getText(icon) || "◇",
         targetId,
         canonicalOuterWrapper,
@@ -142672,7 +142679,7 @@ ${bracketFixture}`);
         defaultCandidateCount: existing?.defaultCandidateCount || 1,
         declarativeLayoutFields: existing?.declarativeLayoutFields || {},
         validationRules: existing?.validationRules || ["balanced-wrapper", "safe-static-markup", "stable-request-ownership"],
-        deterministicPreviewFixture: { title: getText(display) || titleCase2(baseSurfaceId), targetId },
+        deterministicPreviewFixture: { title: getText(display) || titleCase(baseSurfaceId), targetId },
         builtIn: false,
         enabled: getToggle(enabled).checked,
         promptEnabled: getToggle(promptEnabled).checked,
@@ -142747,8 +142754,8 @@ ${bracketFixture}`);
     }, { chatId: activeChatId || "preview", messageId: "preview-message" }).content;
     const actions = document.createElement("div");
     actions.className = "dg-actions";
-    const bracketExample2 = bracketExampleFromXml(definition.sampleXml);
-    actions.append(button("Copy Bracket Example", () => void copyText(bracketExample2, "Bracket example copied"), false, "subtle"), button("Copy Preset JSON", () => void copyText(JSON.stringify(definition, null, 2), "Surface preset JSON copied"), false, "subtle"));
+    const bracketExample = bracketExampleFromXml(definition.sampleXml);
+    actions.append(button("Copy Bracket Example", () => void copyText(bracketExample, "Bracket example copied"), false, "subtle"), button("Copy Preset JSON", () => void copyText(JSON.stringify(definition, null, 2), "Surface preset JSON copied"), false, "subtle"));
     const pre = document.createElement("pre");
     pre.className = "dg-pre";
     pre.textContent = JSON.stringify({ definition, errors: customSurfaces.validationErrors[definition.surfaceId] || [] }, null, 2);
@@ -142777,7 +142784,7 @@ ${bracketFixture}`);
       return "Current Swipe";
     if (value === "inactive")
       return "Inactive Swipes";
-    return titleCase2(value);
+    return titleCase(value);
   }
   function matchesSlotFilter(record, filter) {
     if (filter === "all")
@@ -142818,10 +142825,10 @@ ${bracketFixture}`);
     }), selectField("Character", allChatsCharacterFilter, [["all", "All Characters"], ...characters.map((value) => [value, value])], (value) => {
       allChatsCharacterFilter = value;
       drawResults();
-    }), selectField("Target", allChatsTargetFilter, [["all", "All Targets"], ...targets.map((value) => [value, titleCase2(value)])], (value) => {
+    }), selectField("Target", allChatsTargetFilter, [["all", "All Targets"], ...targets.map((value) => [value, titleCase(value)])], (value) => {
       allChatsTargetFilter = value;
       drawResults();
-    }), selectField("Surface", allChatsSurfaceFilter, [["all", "All Surfaces"], ...surfaces.map((value) => [value, titleCase2(value)])], (value) => {
+    }), selectField("Surface", allChatsSurfaceFilter, [["all", "All Surfaces"], ...surfaces.map((value) => [value, titleCase(value)])], (value) => {
       allChatsSurfaceFilter = value;
       drawResults();
     }), selectField("Date", allChatsDateFilter, [["all", "Any Date"], ["7d", "Last 7 Days"], ["30d", "Last 30 Days"], ["90d", "Last 90 Days"]], (value) => {
@@ -142839,7 +142846,7 @@ ${bracketFixture}`);
       note.textContent = `${filtered.length} of ${all.length} Relay-generated images from the host image catalog. Filters update this list immediately.`;
       results.replaceChildren(note);
       if (!filtered.length) {
-        results.appendChild(empty2("No Relay-generated images match these filters."));
+        results.appendChild(empty("No Relay-generated images match these filters."));
         return;
       }
       const list = document.createElement("div");
@@ -142923,7 +142930,7 @@ ${bracketFixture}`);
       note.append(strong, detail);
       box.appendChild(note);
       if (!archived.length)
-        box.appendChild(empty2("No retained images from deleted messages yet."));
+        box.appendChild(empty("No retained images from deleted messages yet."));
       else {
         const list = document.createElement("div");
         list.className = "dg-history-track";
@@ -142936,13 +142943,13 @@ ${bracketFixture}`);
     if (historySubTab === "illustrator-candidates") {
       const batches = candidateBatches.filter((item) => !activeChatId || item.chatId === activeChatId).sort((a, b) => b.updatedAt - a.updatedAt);
       if (!batches.length)
-        box.appendChild(empty2("No replacement candidate batches yet."));
+        box.appendChild(empty("No replacement candidate batches yet."));
       for (const batch of batches.slice(0, 30)) {
         const card = document.createElement("div");
         card.className = "dg-slot-card";
         const title = document.createElement("div");
         title.className = "dg-history-title";
-        title.textContent = `Candidate Batch / ${titleCase2(batch.status)}`;
+        title.textContent = `Candidate Batch / ${titleCase(batch.status)}`;
         const meta = document.createElement("div");
         meta.className = "dg-slot-meta";
         meta.textContent = `${batch.messageId} / swipe ${batch.swipeId}
@@ -142957,7 +142964,7 @@ ${batch.mode} / ${batch.candidates.length} candidates / ${new Date(batch.updated
     }
     const recordsForChat = Object.values(proseIllustrator.records || {}).filter((record) => !activeChatId || proseIllustrator.plans[record.planId]?.chatId === activeChatId).sort((a, b) => b.createdAt - a.createdAt);
     if (!recordsForChat.length)
-      box.appendChild(empty2("No inline prose illustrations yet."));
+      box.appendChild(empty("No inline prose illustrations yet."));
     for (const record of recordsForChat)
       box.appendChild(renderProseIllustrationRecord(record));
     return box;
@@ -142980,14 +142987,14 @@ ${batch.mode} / ${batch.candidates.length} candidates / ${new Date(batch.updated
         const item = document.createElement("div");
         item.className = "dg-history-item";
         const imageUrl = String(row.imageUrl || "");
-        const image2 = imageUrl ? document.createElement("img") : document.createElement("div");
-        image2.className = imageUrl ? "dg-history-thumb" : "dg-history-thumb dg-thumb-empty";
-        if (image2 instanceof HTMLImageElement) {
-          image2.src = imageUrl.includes("?") ? `${imageUrl}&size=sm` : `${imageUrl}?size=sm`;
-          image2.alt = String(row.requestId || "Relay image");
-          image2.loading = "lazy";
+        const image = imageUrl ? document.createElement("img") : document.createElement("div");
+        image.className = imageUrl ? "dg-history-thumb" : "dg-history-thumb dg-thumb-empty";
+        if (image instanceof HTMLImageElement) {
+          image.src = imageUrl.includes("?") ? `${imageUrl}&size=sm` : `${imageUrl}?size=sm`;
+          image.alt = String(row.requestId || "Relay image");
+          image.loading = "lazy";
         } else
-          image2.textContent = "Image";
+          image.textContent = "Image";
         const copy = document.createElement("div");
         copy.className = "dg-slot-meta";
         copy.textContent = `${String(row.requestId || "")} / ${String(row.slot || "")}
@@ -142998,7 +143005,7 @@ ${new Date(Number(row.completedAt) || 0).toLocaleString()}`;
           const archivedRecord = row;
           actions.append(button("Why Did Relay Do That?", () => requestCompletedRecord(archivedRecord, (loaded) => loaded && openPromptInspector(loaded)), false, "subtle"), button("Export Diagnostic", () => activeChatId && ctx.sendToBackend({ type: "completed_diagnostic", chatId: activeChatId, archiveId: String(row.diagnosticArchiveId) }), false, "subtle"));
         }
-        item.append(image2, copy, actions);
+        item.append(image, copy, actions);
         archivedTrack.appendChild(item);
       }
       box.append(archivedTitle, archivedTrack);
@@ -143026,7 +143033,7 @@ ${new Date(Number(row.completedAt) || 0).toLocaleString()}`;
     historyTitle.textContent = "Slot Version History";
     box.appendChild(historyTitle);
     if (items.length === 0) {
-      box.appendChild(empty2(historyFilter === "all" ? "No slot history yet." : `No ${filterLabel(historyFilter).toLocaleLowerCase()} history entries.`));
+      box.appendChild(empty(historyFilter === "all" ? "No slot history yet." : `No ${filterLabel(historyFilter).toLocaleLowerCase()} history entries.`));
       return box;
     }
     const groups = new Map;
@@ -143054,15 +143061,15 @@ ${new Date(Number(row.completedAt) || 0).toLocaleString()}`;
   function renderHistoryTimelineItem(record, version, historyIndex, timestamp) {
     const item = document.createElement("div");
     item.className = "dg-history-item";
-    const image2 = version.imageUrl ? document.createElement("img") : document.createElement("div");
-    image2.className = version.imageUrl ? "dg-history-thumb" : "dg-history-thumb dg-thumb-empty";
-    if (image2 instanceof HTMLImageElement) {
-      image2.src = version.imageUrl || "";
-      image2.alt = record.alt || record.slot;
+    const image = version.imageUrl ? document.createElement("img") : document.createElement("div");
+    image.className = version.imageUrl ? "dg-history-thumb" : "dg-history-thumb dg-thumb-empty";
+    if (image instanceof HTMLImageElement) {
+      image.src = version.imageUrl || "";
+      image.alt = record.alt || record.slot;
     } else
-      image2.textContent = record.status === "failed" ? "Recovered error" : "Image unavailable";
-    image2.title = version.imageUrl ? "Open image" : "Image unavailable";
-    image2.addEventListener("click", () => {
+      image.textContent = record.status === "failed" ? "Recovered error" : "Image unavailable";
+    image.title = version.imageUrl ? "Open image" : "Image unavailable";
+    image.addEventListener("click", () => {
       if (historyIndex === undefined)
         openLightbox(record);
       else
@@ -143097,7 +143104,7 @@ ${record.requestId} / ${provider} / ${model}${record.recoveredFromInactiveSwipe 
       actions.appendChild(button("Restore", () => ctx.sendToBackend({ type: "restore_history", chatId: record.chatId, key: record.key, historyIndex }), false, "primary"));
     actions.appendChild(button("Metadata", () => openMetadata(record, historyIndex === undefined ? undefined : version, historyIndex)));
     main.append(head, prompt, actions);
-    item.append(image2, main);
+    item.append(image, main);
     return item;
   }
   function historyDateLabel(timestamp) {
@@ -143161,14 +143168,14 @@ Slot state, messages, and image assets will remain.`, scope: `${logs.length} log
     tools.append(panelSection("Filters", filters), panelSection("Export and cleanup", actions));
     box.appendChild(tools);
     if (!visible.length) {
-      box.appendChild(empty2(logs.length ? "No logs match the current filters." : "No persistent Relay logs in this chat yet."));
+      box.appendChild(empty(logs.length ? "No logs match the current filters." : "No persistent Relay logs in this chat yet."));
       return box;
     }
     for (const entry of visible) {
       const row = document.createElement("details");
       row.className = `dg-log dg-log-${entry.severity}`;
       const summary = document.createElement("summary");
-      summary.textContent = `${new Date(entry.timestamp).toLocaleTimeString()} / ${titleCase2(entry.severity)} / ${entry.stage}${entry.message ? ` / ${entry.message}` : ""}`;
+      summary.textContent = `${new Date(entry.timestamp).toLocaleTimeString()} / ${titleCase(entry.severity)} / ${entry.stage}${entry.message ? ` / ${entry.message}` : ""}`;
       const meta = document.createElement("div");
       meta.className = "dg-log-meta";
       meta.textContent = [entry.requestId, entry.messageId, entry.target, entry.provider, entry.model].filter(Boolean).join(" / ");
@@ -143231,17 +143238,17 @@ Relay cannot prove that the previous host generation was cancelled.`,
     }
     const pipeline = document.createElement("div");
     pipeline.className = "dg-actions";
-    pipeline.append(button("Full Complete Dry Run", () => void fetchNativeSettingsSnapshot(true).then((snapshot) => ctx.sendToBackend({ type: "full_complete_dry_run", chatId: activeChatId, runtimeHealth: lifecycle2.snapshot(), nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt })), false, "primary", "Resolves the complete local pipeline without calling a story model or image provider."), button("Copy Last Full Dry Run", () => copyText(JSON.stringify(lastFullCompleteDryRun, null, 2), "Full Complete Dry Run copied."), !lastFullCompleteDryRun));
+    pipeline.append(button("Full Complete Dry Run", () => void fetchNativeSettingsSnapshot(true).then((snapshot) => ctx.sendToBackend({ type: "full_complete_dry_run", chatId: activeChatId, runtimeHealth: lifecycle.snapshot(), nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt })), false, "primary", "Resolves the complete local pipeline without calling a story model or image provider."), button("Copy Last Full Dry Run", () => copyText(JSON.stringify(lastFullCompleteDryRun, null, 2), "Full Complete Dry Run copied."), !lastFullCompleteDryRun));
     diagnostics.appendChild(panelSection("Full Pipeline", pipeline));
-    const cleanup2 = document.createElement("div");
-    cleanup2.className = "dg-actions";
-    cleanup2.append(cleanupButton("Clear Failed", "Clear Failed Slots?", `This removes retry state and metadata for failed slots in this chat.
+    const cleanup = document.createElement("div");
+    cleanup.className = "dg-actions";
+    cleanup.append(cleanupButton("Clear Failed", "Clear Failed Slots?", `This removes retry state and metadata for failed slots in this chat.
 Messages and generated image assets will remain.`, "clear_failed"), cleanupButton("Clear Completed from Relay History", "Clear Completed Relay History?", `This removes Relay history metadata for completed slots in this chat.
 Lifetime statistics, messages, and generated image assets remain.`, "clear_completed"), cleanupButton("Clear Orphaned", "Clear Orphaned Slots?", `This removes Relay records whose source markers can no longer be found.
 Messages and generated image assets will remain.`, "clear_orphaned"), cleanupButton("Clear Cancelled", "Clear Cancelled Slots?", `This removes cancelled Relay records from this chat.
 Messages and generated image assets will remain.`, "clear_cancelled"), cleanupButton("Clear All Relay State", "Clear All Relay State?", `This removes every Reverie Relay record for this chat.
 Generated image assets and message content will remain, but Relay history and metadata will be lost.`, "clear_all", true));
-    diagnostics.appendChild(panelSection("Danger Zone", cleanup2));
+    diagnostics.appendChild(panelSection("Danger Zone", cleanup));
     return panelSection("Diagnostics", diagnostics);
   }
   function logSelect(labelText, value, options, onChange) {
@@ -143253,7 +143260,7 @@ Generated image assets and message content will remain, but Relay history and me
     for (const optionValue of options) {
       const option = document.createElement("option");
       option.value = optionValue;
-      option.textContent = titleCase2(optionValue);
+      option.textContent = titleCase(optionValue);
       option.selected = optionValue === value;
       select.appendChild(option);
     }
@@ -143307,7 +143314,7 @@ Generated image assets and message content will remain, but Relay history and me
     wrap.className = "dg-field-stack";
     const stacks = current.relayLoraStacks || [];
     if (!stacks.length) {
-      wrap.append(empty2("No Relay LoRA stacks saved yet."), button("Create Stack", () => openRelayLoraStackManager(current), false, "primary"));
+      wrap.append(empty("No Relay LoRA stacks saved yet."), button("Create Stack", () => openRelayLoraStackManager(current), false, "primary"));
       return wrap;
     }
     const actions = document.createElement("div");
@@ -143398,15 +143405,15 @@ Generated image assets and message content will remain, but Relay history and me
         heading.textContent = "Provider LoRA Catalog";
         catalog.appendChild(heading);
         if (!connectionId) {
-          catalog.appendChild(empty2("Choose an ImageGen connection to browse its LoRAs."));
+          catalog.appendChild(empty("Choose an ImageGen connection to browse its LoRAs."));
           return;
         }
         if (loraCatalogState.requestId !== catalogRequestId || loraCatalogState.status === "loading") {
-          catalog.appendChild(empty2(`Loading LoRAs from ${connection?.name || connectionId}…`));
+          catalog.appendChild(empty(`Loading LoRAs from ${connection?.name || connectionId}…`));
           return;
         }
         if (loraCatalogState.status === "failed") {
-          catalog.append(empty2(loraCatalogState.error || "The provider catalog could not be loaded."), button("Retry Catalog", () => {
+          catalog.append(empty(loraCatalogState.error || "The provider catalog could not be loaded."), button("Retry Catalog", () => {
             loraCatalogState = { requestId: catalogRequestId, connectionId, status: "loading", items: [], error: "" };
             renderCatalog();
             loadProviderLoraCatalog(catalogRequestId, connectionId);
@@ -143414,7 +143421,7 @@ Generated image assets and message content will remain, but Relay history and me
           return;
         }
         if (!loraCatalogState.items.length) {
-          catalog.appendChild(empty2("This provider returned no discoverable LoRAs. Use the advanced filename fallback only when you know the exact provider path."));
+          catalog.appendChild(empty("This provider returned no discoverable LoRAs. Use the advanced filename fallback only when you know the exact provider path."));
           return;
         }
         const search = document.createElement("input");
@@ -143439,7 +143446,7 @@ Generated image assets and message content will remain, but Relay history and me
             results.appendChild(row);
           }
           if (!matches.length)
-            results.appendChild(empty2("No catalog LoRAs match that search."));
+            results.appendChild(empty("No catalog LoRAs match that search."));
         };
         search.addEventListener("input", drawResults);
         drawResults();
@@ -143457,8 +143464,8 @@ Generated image assets and message content will remain, but Relay history and me
       filename.placeholder = "Exact provider LoRA filename or path";
       manualRow.append(filename, button("Add Exact Filename", () => addLora(filename.value), false, "subtle"));
       manual.append(manualSummary, manualRow);
-      const rows2 = document.createElement("div");
-      rows2.className = "dg-lora-stack";
+      const rows = document.createElement("div");
+      rows.className = "dg-lora-stack";
       for (const [index, item] of draft.loras.entries()) {
         const row = document.createElement("div");
         row.className = "dg-lora-stack-row";
@@ -143480,10 +143487,10 @@ Generated image assets and message content will remain, but Relay history and me
           draft.loras.splice(index, 1);
           render();
         }, false, "danger"));
-        rows2.appendChild(row);
+        rows.appendChild(row);
       }
       if (!draft.loras.length)
-        rows2.appendChild(empty2("This stack has no LoRAs yet. Base/trigger tags may still be saved."));
+        rows.appendChild(empty("This stack has no LoRAs yet. Base/trigger tags may still be saved."));
       const footer = document.createElement("div");
       footer.className = "dg-actions";
       footer.append(button(existing ? "Save Stack" : "Create Stack", () => {
@@ -143504,7 +143511,7 @@ Generated image assets and message content will remain, but Relay history and me
         patchConfig({ relayLoraStacks: next, activeRelayLoraStackId: activeId, imageLoraStack: next.find((stack) => stack.id === activeId)?.loras || [] });
         dismiss();
       }, !existing, "danger"), button("Cancel", dismiss, false, "subtle"));
-      body.append(name, baseTags, catalog, manual, rows2, footer);
+      body.append(name, baseTags, catalog, manual, rows, footer);
     };
     loraCatalogState = { requestId: catalogRequestId, connectionId, status: connectionId ? "loading" : "failed", items: [], error: connectionId ? "" : "No ImageGen connection is available." };
     render();
@@ -143529,7 +143536,7 @@ Generated image assets and message content will remain, but Relay history and me
     const current = config;
     const box = document.createElement("div");
     if (!current) {
-      box.appendChild(empty2("Settings are loading."));
+      box.appendChild(empty("Settings are loading."));
       return box;
     }
     box.className = "dg-settings";
@@ -143764,13 +143771,13 @@ Generated image assets and message content will remain, but Relay history and me
     if (stream?.imageDataUrl && (isProcessing(record) || isRelaySlotProcessing(record))) {
       const wrapper = document.createElement("div");
       wrapper.className = "dg-thumb-empty dg-thumb-processing dg-thumb-streaming";
-      const image2 = document.createElement("img");
-      image2.src = stream.imageDataUrl;
-      image2.alt = `Live preview for ${record.slot}`;
+      const image = document.createElement("img");
+      image.src = stream.imageDataUrl;
+      image.alt = `Live preview for ${record.slot}`;
       const label = document.createElement("span");
       label.className = "dg-thumb-label";
       label.textContent = stream.statusText || "Generating preview...";
-      wrapper.append(image2, label);
+      wrapper.append(image, label);
       return wrapper;
     }
     if (!imageUrl) {
@@ -143778,11 +143785,11 @@ Generated image assets and message content will remain, but Relay history and me
       emptyThumb.className = `dg-thumb-empty ${isProcessing(record) ? "dg-thumb-processing" : record.status === "failed" ? "dg-thumb-failed" : ""}`;
       const label = document.createElement("span");
       label.className = "dg-thumb-label";
-      label.textContent = stream?.statusText || (record.status === "recovered-pending" ? "Ready to generate" : titleCase2(record.status));
+      label.textContent = stream?.statusText || (record.status === "recovered-pending" ? "Ready to generate" : titleCase(record.status));
       emptyThumb.appendChild(label);
       return emptyThumb;
     }
-    return empty2("Preview unavailable");
+    return empty("Preview unavailable");
   }
   function renderRecordMain(record) {
     const main = document.createElement("div");
@@ -143816,13 +143823,13 @@ Latest: ${new Date(latest).toLocaleString()}${duration !== undefined ? ` / ${(du
     chips.append(chip(providerLabel(record), record.imageProvider ? "completed" : ""), chip(modelLabel(record), ""), chip(`attempt ${record.attemptNumber || 0}`, ""), chip(modeLabel(record), record.highResMode ? "completed" : ""));
     const imageIntent = record.imageIntent || "auto";
     if (imageIntent !== "auto")
-      chips.append(chip(titleCase2(imageIntent.replace(/_/g, " ")), "completed"));
+      chips.append(chip(titleCase(imageIntent.replace(/_/g, " ")), "completed"));
     if (record.recoverySource)
-      chips.append(chip("Recovered", "recovered-pending"), chip(titleCase2(record.recoveryCompleteness || "partial"), ""));
+      chips.append(chip("Recovered", "recovered-pending"), chip(titleCase(record.recoveryCompleteness || "partial"), ""));
     if (record.recoveredFromInactiveSwipe)
       chips.append(chip("Inactive swipe", "recovered-pending"));
     if (record.galleryLinkStatus)
-      chips.append(chip(`Gallery ${titleCase2(record.galleryLinkStatus)}`, record.galleryLinkStatus === "linked" ? "completed" : record.galleryLinkStatus === "failed" ? "failed" : "processing"));
+      chips.append(chip(`Gallery ${titleCase(record.galleryLinkStatus)}`, record.galleryLinkStatus === "linked" ? "completed" : record.galleryLinkStatus === "failed" ? "failed" : "processing"));
     main.appendChild(chips);
     if (record.galleryLinkStatus === "failed") {
       const galleryError = document.createElement("div");
@@ -143836,7 +143843,7 @@ Latest: ${new Date(latest).toLocaleString()}${duration !== undefined ? ` / ${(du
       note.textContent = record.recoveryCompleteness === "reconstructed" ? "Reconstructed request. Edited from recovered alt text." : `${record.recoverySource === "resolved-marker" ? "Recovered from message marker." : "Recovered from error marker."} Original generation metadata is unavailable.`;
       main.appendChild(note);
     }
-    main.appendChild(renderActionButtons2(record));
+    main.appendChild(renderActionButtons(record));
     if (record.error) {
       const error = document.createElement("div");
       error.className = "dg-error";
@@ -143871,7 +143878,7 @@ The Relay slot and completed asset remain available in Media Archive.`,
       }
     });
   }
-  function renderActionButtons2(record, acceptedPopup) {
+  function renderActionButtons(record, acceptedPopup) {
     const wrapper = document.createElement("div");
     const actions = document.createElement("div");
     actions.className = "dg-actions dg-primary-actions";
@@ -144038,7 +144045,7 @@ The chat message and generated image asset will remain.`, scope: `${appLabel(rec
       img.alt = record.alt || record.slot;
       body.appendChild(img);
     }
-    body.append(renderLightboxDiagnostics(record, asset), renderActionButtons2(record, () => modal.dismiss()));
+    body.append(renderLightboxDiagnostics(record, asset), renderActionButtons(record, () => modal.dismiss()));
     modal.root.appendChild(body);
   }
   function openHistoryVersionImage(record, version, historyIndex) {
@@ -144187,9 +144194,9 @@ The chat message and generated image assets will remain.`, scope: `${appLabel(re
     };
   }
   function closeActionMenu() {
-    const cleanup2 = menuDismissCleanup;
+    const cleanup = menuDismissCleanup;
     menuDismissCleanup = null;
-    cleanup2?.();
+    cleanup?.();
     menuEl?.remove();
     menuEl = null;
     document.body.classList.remove("dg-relay-menu-open");
@@ -144474,7 +144481,7 @@ The chat message and generated image assets will remain.`, scope: `${appLabel(re
     };
     let generateButton;
     actions.append(button("Cancel", () => modal.dismiss(), false, "subtle"), generateButton = button("Generate Candidates", () => {
-      const selected = intents.find((intent2) => intent2.id === intentSelect.value) || intents[0];
+      const selected = intents.find((intent) => intent.id === intentSelect.value) || intents[0];
       const customText = custom.querySelector("textarea")?.value.trim() || "";
       const negativeText = negative.querySelector("textarea")?.value.trim() || "";
       if (selected.id === "custom" && !customText) {
@@ -144606,11 +144613,11 @@ Request ID: ${record.requestId}
 Slot: ${record.slot}
 Recovered alt text: ${record.alt || "Unavailable"}`;
     if (record.imageUrl) {
-      const image2 = document.createElement("img");
-      image2.className = "dg-lightbox-img";
-      image2.src = record.imageUrl;
-      image2.alt = record.alt || record.slot;
-      body.appendChild(image2);
+      const image = document.createElement("img");
+      image.className = "dg-lightbox-img";
+      image.src = record.imageUrl;
+      image.alt = record.alt || record.slot;
+      body.appendChild(image);
     }
     const inferred = document.createElement("div");
     inferred.className = "dg-recovery-note";
@@ -144681,11 +144688,11 @@ Recovered alt text: ${record.alt || "Unavailable"}`;
     modal.root.classList.add("dg-router-panel", "dg-modal-host", "dg-slot-preview-modal");
     const body = document.createElement("div");
     body.className = "dg-modal-body";
-    const image2 = document.createElement("img");
-    image2.className = "dg-lightbox-img";
-    image2.src = result.imageUrl;
-    image2.alt = record.alt || "Generated slot preview";
-    image2.style.aspectRatio = result.imageWidth && result.imageHeight ? `${result.imageWidth} / ${result.imageHeight}` : "auto";
+    const image = document.createElement("img");
+    image.className = "dg-lightbox-img";
+    image.src = result.imageUrl;
+    image.alt = record.alt || "Generated slot preview";
+    image.style.aspectRatio = result.imageWidth && result.imageHeight ? `${result.imageWidth} / ${result.imageHeight}` : "auto";
     const details = document.createElement("details");
     details.className = "dg-section";
     const summary = document.createElement("summary");
@@ -144760,7 +144767,7 @@ ${result.imageWidth || "?"}×${result.imageHeight || "?"} (${result.aspectRatio 
         }
       });
     }, false, "primary"));
-    body.append(image2, details, submissionError, actions);
+    body.append(image, details, submissionError, actions);
     modal.root.appendChild(body);
   }
   function openReparsePreview(record, prompt, negativePrompt, pipeline) {
@@ -144790,7 +144797,7 @@ ${pipeline.warnings.map((warning) => warning.message).join(`
     actions.className = "dg-actions";
     const unresolvedCarousel = record.target === "instagram.carousel" && !record.imageUrl;
     if (unresolvedCarousel)
-      body.appendChild(empty2("This carousel has not resolved yet. Preview generation is disabled; use Reparse Carousel so every original slide stays together."));
+      body.appendChild(empty("This carousel has not resolved yet. Preview generation is disabled; use Reparse Carousel so every original slide stays together."));
     actions.append(button("Cancel", () => {
       ctx.sendToBackend({ type: "preview_action", key: record.key, action: "cancelled" });
       modal.dismiss();
@@ -144811,7 +144818,7 @@ ${pipeline.warnings.map((warning) => warning.message).join(`
     const body = document.createElement("div");
     body.className = "dg-modal-body";
     if (record.history.length === 0) {
-      body.appendChild(empty2("No previous generations for this slot yet."));
+      body.appendChild(empty("No previous generations for this slot yet."));
     } else {
       record.history.forEach((entry, index) => {
         const card = document.createElement("div");
@@ -145212,7 +145219,7 @@ ${recovered} recovered / ${summary.imageUnavailable} unavailable / ${summary.exi
     }
     if (patch.kind === "narrative-enabled") {
       config = { ...config, narrativeDlcEnabled: patch.enabledNames.length > 0, narrativeDlcUtilityNames: [...patch.enabledNames] };
-      narrativeUtilityRegistry = narrativeUtilityRegistry.map((record2) => ({ ...record2, enabled: patch.enabledNames.includes(record2.id) }));
+      narrativeUtilityRegistry = narrativeUtilityRegistry.map((record) => ({ ...record, enabled: patch.enabledNames.includes(record.id) }));
       return;
     }
     if (patch.kind === "prompt-registry-override") {
@@ -145760,7 +145767,7 @@ ${recovered} recovered / ${summary.imageUnavailable} unavailable / ${summary.exi
       textarea.style.minHeight = "70px";
     return field;
   }
-  function button(label, onClick2, disabled = false, variant = "standard", tooltip = "") {
+  function button(label, onClick, disabled = false, variant = "standard", tooltip = "") {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `dg-btn ${variant !== "standard" ? `dg-btn-${variant}` : ""}`;
@@ -145768,7 +145775,7 @@ ${recovered} recovered / ${summary.imageUnavailable} unavailable / ${summary.exi
     btn.disabled = disabled;
     if (tooltip)
       btn.title = tooltip;
-    btn.addEventListener("click", onClick2);
+    btn.addEventListener("click", onClick);
     return btn;
   }
   function countBox(label, value, status) {
@@ -145794,7 +145801,7 @@ ${recovered} recovered / ${summary.imageUnavailable} unavailable / ${summary.exi
     el.title = text;
     return el;
   }
-  function empty2(text) {
+  function empty(text) {
     const div = document.createElement("div");
     div.className = "dg-router-empty";
     div.textContent = text;
@@ -145896,7 +145903,7 @@ Original prompt metadata unavailable`;
       return record.target.slice("custom.".length).replace(/-/g, " ");
     return record.slot.replace(/-/g, " ");
   }
-  function titleCase2(value) {
+  function titleCase(value) {
     return value.slice(0, 1).toUpperCase() + value.slice(1);
   }
   function drawerTabLabel(value) {
@@ -145906,7 +145913,7 @@ Original prompt metadata unavailable`;
       return "Recipes";
     if (value === "manual")
       return "Guide";
-    return titleCase2(value);
+    return titleCase(value);
   }
   function validDrawerTab(value) {
     if (value === "continuity")
@@ -145973,9 +145980,9 @@ Original prompt metadata unavailable`;
     sidecarNoticeEl?.remove();
     sidecarNoticeEl = null;
     confirmEl?.remove();
-    lifecycle2.dispose();
-    for (const cleanup2 of lifecycleInterceptorCleanups.splice(0))
-      cleanup2();
+    lifecycle.dispose();
+    for (const cleanup of lifecycleInterceptorCleanups.splice(0))
+      cleanup();
     for (const timer of lifecycleScanTimers.values())
       window.clearTimeout(timer);
     lifecycleScanTimers.clear();
@@ -145996,11 +146003,14 @@ Original prompt metadata unavailable`;
     ctx.dom.cleanup();
     if (runtimeHost.__REVERIE_RELAY_FRONTEND_DISPOSE__ === cleanup)
       delete runtimeHost.__REVERIE_RELAY_FRONTEND_DISPOSE__;
+    if (documentHost.__REVERIE_RELAY_DOCUMENT_RUNTIME__?.ownerId === documentRuntimeOwnerId)
+      delete documentHost.__REVERIE_RELAY_DOCUMENT_RUNTIME__;
   };
   runtimeHost.__REVERIE_RELAY_FRONTEND_DISPOSE__ = cleanup;
+  documentHost.__REVERIE_RELAY_DOCUMENT_RUNTIME__ = { ownerId: documentRuntimeOwnerId, dispose: cleanup };
   return cleanup;
 }
 export {
-  setup,
-  settlePlacementVisualLifecycle
+  settlePlacementVisualLifecycle,
+  setup
 };

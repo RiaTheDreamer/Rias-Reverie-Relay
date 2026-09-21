@@ -405,7 +405,12 @@ export function setup(ctx: SpindleFrontendContext) {
     __REVERIE_RELAY_FRONTEND_DISPOSE__?: () => void
     __REVERIE_RELAY_HEALTH__?: RelayRuntimeHealth
   }
+  const documentHost = document as Document & {
+    __REVERIE_RELAY_DOCUMENT_RUNTIME__?: { ownerId: string; dispose: () => void }
+  }
+  const documentRuntimeOwnerId = `relay-document-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   runtimeHost.__REVERIE_RELAY_FRONTEND_DISPOSE__?.()
+  documentHost.__REVERIE_RELAY_DOCUMENT_RUNTIME__?.dispose()
   let disposed = false
   const lifecycle = new RelayRuntimeLifecycle(runtimeHost.__REVERIE_RELAY_HEALTH__)
   const health = lifecycle.health
@@ -3213,9 +3218,15 @@ export function setup(ctx: SpindleFrontendContext) {
       return
     }
     if (!relayOrb) {
+      // Lumiverse can mount the same extension through separate JS realms that
+      // share one document. Retire any orphaned DOM owner before mounting this
+      // runtime's singleton; the document runtime handshake above owns full
+      // listener/interceptor teardown for cooperative prior instances.
+      for (const stale of Array.from(document.querySelectorAll<HTMLElement>('.dg-relay-orb'))) stale.remove()
       const orb = document.createElement('button')
       orb.type = 'button'
       orb.className = 'dg-relay-orb'
+      orb.dataset.reverieRelayOrbOwner = documentRuntimeOwnerId
       orb.innerHTML = '<span class="dg-relay-orb-mark" aria-hidden="true">R&sup3;</span><span class="dg-relay-orb-icon" aria-hidden="true"></span><span class="dg-relay-orb-badge" hidden></span><span class="dg-relay-orb-status" aria-live="polite"></span>'
       orb.setAttribute('aria-label', 'Reparse and regenerate image slots in the latest message')
       orb.title = 'Relay Orb: generate replacement candidates'
@@ -3327,7 +3338,7 @@ export function setup(ctx: SpindleFrontendContext) {
         orb.removeEventListener('contextmenu', onContext)
         orb.removeEventListener('keydown', onKeyDown)
         window.removeEventListener('resize', onResize)
-        orb.remove()
+        if (orb.dataset.reverieRelayOrbOwner === documentRuntimeOwnerId) orb.remove()
       }
     }
     const busy = candidateBatches.some(batch => batch.chatId === activeChatId && batch.status === 'processing') || records.some(record => isProcessing(record))
@@ -9939,7 +9950,9 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     removeStyle()
     ctx.dom.cleanup()
     if (runtimeHost.__REVERIE_RELAY_FRONTEND_DISPOSE__ === cleanup) delete runtimeHost.__REVERIE_RELAY_FRONTEND_DISPOSE__
+    if (documentHost.__REVERIE_RELAY_DOCUMENT_RUNTIME__?.ownerId === documentRuntimeOwnerId) delete documentHost.__REVERIE_RELAY_DOCUMENT_RUNTIME__
   }
   runtimeHost.__REVERIE_RELAY_FRONTEND_DISPOSE__ = cleanup
+  documentHost.__REVERIE_RELAY_DOCUMENT_RUNTIME__ = { ownerId: documentRuntimeOwnerId, dispose: cleanup }
   return cleanup
 }

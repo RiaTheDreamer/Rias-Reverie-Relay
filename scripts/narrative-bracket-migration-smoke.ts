@@ -1,4 +1,6 @@
+// @ts-nocheck -- executable release regression harness; Bun provides node:fs.
 import packageJson from '../package.json'
+import { readFileSync } from 'node:fs'
 import { buildNarrativeUtilityPrompt } from '../src/narrativeDlcRuntime'
 import {
   NARRATIVE_REGEX_VARIANTS,
@@ -8,6 +10,7 @@ import {
   normalizeNarrativeMarkupForRendering,
   renderNarrativeRegex,
 } from '../src/narrativeRegexAssets'
+import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 
 function assert(value: unknown, reason: string): asserts value {
   if (!value) throw new Error(reason)
@@ -129,6 +132,24 @@ const plotRendered = renderNarrativeRegex(plotSparks, 'sparkle-button', 'batch-d
 assert((plotRendered.match(/class="ch-media"/g) || []).length === 7, 'Plot Sparks did not preserve seven dedicated [Media] owners')
 assert((plotRendered.match(/<reverie-illustration\b/g) || []).length === 7, 'Plot Sparks XML illustrations left their [Media] owners')
 
+// Exact live regression: the model emitted one unambiguous illustration with
+// the legacy scene_brief child and omitted only its illustration closer. Repair
+// stays inside [Media], then the Narrative owner must consume the full shell.
+const missingIllustrationCloser = plotSparks
+  .replace('<visual_prompt>Grounded continuation 4.</visual_prompt></reverie-illustration>', '<scene_brief>Grounded continuation 4.</scene_brief>')
+const repairedMissingCloser = normalizeNarrativeMarkupForRendering(missingIllustrationCloser)
+assert(repairedMissingCloser.includes('<visual_prompt>Grounded continuation 4.</visual_prompt></reverie-illustration>'), 'unambiguous Plot Sparks Media did not repair its missing illustration closer')
+const missingCloserRendered = renderNarrativeRegex(missingIllustrationCloser, 'inline', 'live-plot-sparks-missing-closer')
+assert(missingCloserRendered.includes('class="ch-og') && !missingCloserRendered.includes('[Plot_Sparks]'), 'repaired Plot Sparks owner leaked its bracket shell')
+assert((missingCloserRendered.match(/class="ch-media"/g) || []).length === 7, 'repaired Plot Sparks lost a Media owner')
+const ambiguousMissingCloser = missingIllustrationCloser.replace('<reverie-illustration request="generate" slot="plot-4"', '<reverie-illustration request="generate" slot="extra"></reverie-illustration><reverie-illustration request="generate" slot="plot-4"')
+assert(normalizeNarrativeMarkupForRendering(ambiguousMissingCloser) === ambiguousMissingCloser, 'ambiguous Plot Sparks Media was guessed instead of failing closed')
+
+const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
+const narrativeOwnerIndex = backendSource.indexOf('renderNarrativeRegex(renderedContent')
+const nativeControlIndex = backendSource.indexOf('renderNativeSurfaceMarkup(renderedContent', narrativeOwnerIndex)
+assert(narrativeOwnerIndex >= 0 && nativeControlIndex > narrativeOwnerIndex, 'Narrative owners must render before XML controls become rrl-card runtime HTML')
+
 const currentElsewhere = fixtures['Off-Stage'].source
 const currentElsewhereBadCloser = currentElsewhere.replace('[[/else]]', '[/else]')
 const legacyElsewhere = `[[else security office]]
@@ -156,6 +177,37 @@ for (const variant of NARRATIVE_REGEX_VARIANTS) {
     assert(!rendered.includes('[[else security office]]') && !rendered.includes('Relay Surface needs repair'), `${variant}/${label}: recovered Off-Stage leaked or fell through to repair`)
   }
 }
+
+// Structurally faithful combined live response: inline XML, dossier, Parallel,
+// Off-Stage, another inline control, and the malformed Plot Sparks owner retain
+// response order through the real Narrative-then-native production sequence.
+const combinedLiveResponse = [
+  image('live-inline-before', '4:3'),
+  fixtures['Character Dossier'].source,
+  fixtures['Parallel Scene'].source,
+  currentElsewhere,
+  image('live-inline-after', '4:3'),
+  missingIllustrationCloser,
+].join('\n\n')
+const combinedNarrative = renderNarrativeRegex(combinedLiveResponse, 'inline', 'live-combined-response')
+const combinedRendered = renderNativeSurfaceMarkup(combinedNarrative, {
+  definitions: {}, activePresetIds: {}, collectionPresets: {}, rendererMode: 'relay', defaultShellMode: 'inline', colorMode: 'realistic',
+  utilityInjectionEnabled: true, utilityInjectionPosition: 'system-prefix', utilityTemplate: '', validationErrors: {},
+  lastInjectedModuleIds: [], lastInjectionAt: 0, lastInjectionSource: 'none', lastInjectionPosition: 'none', lastInjectionSummary: '', updatedAt: 0,
+} as any, { chatId: 'live-combined', messageId: 'live-combined-response', swipeId: 0, records: [] }).content
+const combinedOrder = [
+  combinedRendered.indexOf('live-inline-before'),
+  combinedRendered.indexOf('Lisa'),
+  combinedRendered.indexOf('Soobin waits.'),
+  combinedRendered.indexOf('A guard rewinds the recording.'),
+  combinedRendered.indexOf('live-inline-after'),
+  combinedRendered.indexOf('Branch 1.'),
+]
+assert(combinedOrder.every(index => index >= 0) && combinedOrder.every((index, position) => position === 0 || index > combinedOrder[position - 1]), `combined live response order changed: ${combinedOrder.join(', ')}`)
+assert(!/<(?:image_request|reverie-illustration)\b/i.test(combinedRendered), 'combined live response retained raw Relay image-control XML')
+assert(!/\[(?:Plot_Sparks|Spark|Media|PARALLEL\||parallel_entry|parallel_media)|\[\[else\s/i.test(combinedRendered), 'combined live response retained raw Narrative scaffold')
+assert(!/&lt;div\s+class=["']rrl-card/i.test(combinedRendered), 'runtime rrl-card HTML was escaped into visible chat text')
+assert((combinedRendered.match(/class="rrl-card/g) || []).length >= 14, 'combined live response did not render its image controls as runtime cards')
 
 const offStagePrompt = buildNarrativeUtilityPrompt(['Beyond the Frame']).content
 for (const forbidden of ['<else-media>', '<else-scene>', '<else-context>', '<visibility>', '<clock>', '<knowledge>', '<collision>']) {
@@ -238,6 +290,6 @@ assert(worldIsolated.includes('rr-scene-compass'), 'malformed World poisoned val
 assert(worldIsolated.includes('class="ch-og') && !worldIsolated.includes('[Plot_Sparks]'), 'malformed World poisoned valid Plot Sparks')
 
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
-assert(packageJson.version === '0.2.8.6', `version changed: ${packageJson.version}`)
+assert(packageJson.version === '0.2.8.6.1', `version changed: ${packageJson.version}`)
 
 console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} Utilities, ${renderCases} dedicated presentation renders, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone three-variant regression passed, malformed-sibling isolation passed, Stella absent.`)

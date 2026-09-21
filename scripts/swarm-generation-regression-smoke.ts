@@ -96,9 +96,45 @@ for (const id of ['lane-a', 'lane-b', 'lane-c', 'lane-d']) {
   assert.equal(diagnostic.swarmRequestId, `swarm-${id}`)
 }
 
-// A deterministic Swarm transport accepts the request, observes abort, and
-// then violates its contract by never yielding or settling. Relay's own
-// deadline must still terminate the exact slot and release the provider lane.
+// Production calls install no Relay wall-clock deadline. One active request
+// and its serialized waiter remain pending until the provider settles, then
+// complete in provider concurrency one.
+assert.equal(backend.IMAGE_GENERATION_TIMEOUT_MS, undefined)
+assert.equal(backend.IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS, undefined)
+let releaseProduction!: () => void
+let productionSecondSettled = false
+let relayWallClockTimers = 0
+const nativeSetTimeout = globalThis.setTimeout
+globalThis.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: any[]) => {
+  if (Number(timeout) >= 300_000) relayWallClockTimers += 1
+  return nativeSetTimeout(handler, timeout, ...args)
+}) as typeof setTimeout
+try {
+  imageApi.generateStream = async function* (input: any) {
+    if (input.prompt === 'production long request') {
+      yield { type: 'status', status: 'accepted' }
+      await new Promise<void>(resolve => { releaseProduction = resolve })
+    }
+    yield { type: 'done', result: { imageId: `image-${input.prompt}`, imageUrl: `/image-${input.prompt}` } }
+  }
+  const productionLong = backend.generateWithOptionalStream({ prompt: 'production long request' }, swarmPlan, 'swarm-production-timeoutless', context('production-long'))
+  while (!releaseProduction) await Promise.resolve()
+  const productionWaiter = backend.generateWithOptionalStream({ prompt: 'production lane waiter' }, swarmPlan, 'swarm-production-timeoutless', context('production-waiter'))
+    .finally(() => { productionSecondSettled = true })
+  await delay(15)
+  assert.equal(productionSecondSettled, false, 'serialized production waiter settled before its provider turn')
+  assert.equal(relayWallClockTimers, 0, 'production generation installed a Relay wall-clock timeout')
+  releaseProduction()
+  assert.equal((await productionLong).imageId, 'image-production long request')
+  assert.equal((await productionWaiter).imageId, 'image-production lane waiter')
+  assertExactlyOnce('production-long', 'success')
+  assertExactlyOnce('production-waiter', 'success')
+} finally {
+  globalThis.setTimeout = nativeSetTimeout
+}
+
+// An explicit short deadline exists only for this deterministic harness. It
+// exercises abort/cleanup behavior without restoring a production timeout.
 let timeoutAbortObserved = 0
 imageApi.generateStream = async function* (input: any) {
   if (input.prompt === 'accept then never settle') {
@@ -127,8 +163,37 @@ assertExactlyOnce('timeout-same-chat', 'success')
 assertExactlyOnce('timeout-fresh-chat', 'success')
 assert.equal(backend.inspectImageGenerationLaneDiagnostics('swarm-timeout'), null)
 
+// A fresh provider failure finalizes a real attempt snapshot and can be
+// retained on the slot before any success-only diagnostic path exists.
+let finalizedFailureDiagnostic: any = null
+imageApi.generateStream = async function* () {
+  yield { type: 'status', status: 'accepted', requestId: 'fresh-failure-provider-request' }
+  throw new Error('fresh provider failure evidence')
+}
+await assert.rejects(
+  backend.generateWithOptionalStream({ prompt: 'fresh provider failure' }, swarmPlan, 'swarm-failure', context('failure-a', {
+    onAttemptDiagnosticFinalized: (diagnostic: any) => { finalizedFailureDiagnostic = diagnostic },
+  })),
+  /fresh provider failure evidence/,
+)
+assert.equal(finalizedFailureDiagnostic.terminalState, 'error')
+assert.equal(finalizedFailureDiagnostic.providerDispatchCount, 1)
+assert.equal(finalizedFailureDiagnostic.providerLaneReleaseCount, 1)
+assert.match(finalizedFailureDiagnostic.failure, /fresh provider failure evidence/)
+const failedRecord: any = {
+  key: 'durable-failure', target: 'custom.artifact-media', slot: 'durable-failure', requestId: 'durable-failure',
+  originalRequestXml: '<image_request id="durable-failure"></image_request>', originalSceneBrief: 'Failed portrait.',
+  attempts: [{ attemptNumber: 1, triggerType: 'auto', startedAt: Date.now(), outcome: 'failed' }],
+}
+backend.retainProviderAttemptDiagnostic(failedRecord, finalizedFailureDiagnostic)
+const persistedFailure = JSON.parse(JSON.stringify(failedRecord))
+assert.equal(persistedFailure.attempts[0].providerAttemptDiagnostic.terminalState, 'error')
+assert.equal(persistedFailure.diagnostic.relayInferred.providerAttempt.providerDispatchCount, 1)
+assert.match(persistedFailure.diagnostic.proven.failureReason, /fresh provider failure evidence/)
+
 // Explicit user cancellation uses the same abort propagation and cleanup path.
 let userAbortObserved = 0
+let finalizedCancelDiagnostic: any = null
 const userController = new AbortController()
 imageApi.generateStream = async function* (input: any) {
   if (input.prompt === 'cancel me') {
@@ -140,7 +205,10 @@ imageApi.generateStream = async function* (input: any) {
   }
   yield { type: 'done', result: { imageId: 'after-cancel', imageUrl: '/after-cancel' } }
 }
-const cancelled = backend.generateWithOptionalStream({ prompt: 'cancel me' }, swarmPlan, 'swarm-cancel', context('cancel-a', { attemptSignal: userController.signal }), false, 500)
+const cancelled = backend.generateWithOptionalStream({ prompt: 'cancel me' }, swarmPlan, 'swarm-cancel', context('cancel-a', {
+  attemptSignal: userController.signal,
+  onAttemptDiagnosticFinalized: (diagnostic: any) => { finalizedCancelDiagnostic = diagnostic },
+}), false, 500)
 const afterCancel = backend.generateWithOptionalStream({ prompt: 'next request' }, swarmPlan, 'swarm-cancel', context('cancel-b'), false, 500)
 await delay(5)
 userController.abort('user cancelled')
@@ -149,6 +217,10 @@ assert.equal((await afterCancel).imageId, 'after-cancel')
 assert.equal(userAbortObserved, 1)
 const cancelDiagnostic = assertExactlyOnce('cancel-a', 'cancelled')
 assert(cancelDiagnostic.abortRequestedAt > 0 && cancelDiagnostic.abortPropagatedAt >= cancelDiagnostic.abortRequestedAt)
+assert.equal(finalizedCancelDiagnostic.providerLaneReleaseCount, 1)
+assert.equal(finalizedCancelDiagnostic.cleanupCount, 1)
+assert.equal(finalizedCancelDiagnostic.terminalState, 'cancelled')
+assert(finalizedCancelDiagnostic.providerLaneStateSnapshot && typeof finalizedCancelDiagnostic.providerLaneStateSnapshot.capturedAt === 'number')
 assertExactlyOnce('cancel-b', 'success')
 
 // A misbehaving stream returning late cannot emit a stale success or steal the
@@ -176,4 +248,4 @@ assertExactlyOnce('late-a', 'cancelled')
 assertExactlyOnce('late-b', 'success')
 
 assert.equal(logs.some(entry => entry.message.includes('image_stream_fallback')), false)
-console.log('Swarm generation regression smoke passed: abortable transport, exact correlation, concurrency one, timeout/cancel lane release, and stale-result rejection are enforced.')
+console.log('Swarm generation regression smoke passed: timeoutless production waiting, abortable transport, exact correlation, concurrency one, explicit-deadline/cancel lane release, durable diagnostics, and stale-result rejection are enforced.')

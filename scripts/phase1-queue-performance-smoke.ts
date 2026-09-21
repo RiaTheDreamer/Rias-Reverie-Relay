@@ -1,7 +1,7 @@
 // @ts-nocheck -- Deterministic Bun smoke harness; no host/provider calls.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { AUTO_RESUME_MAX_JOBS, NATIVE_SETTINGS_HARD_TTL_MS, NATIVE_SETTINGS_REFRESH_TIMEOUT_MS, NATIVE_SETTINGS_SOFT_TTL_MS, addNativeSettingsWaiters, canonicalDispatchKey, classifyBacklog, classifyNativeSettings, nativeSettingsWaiterCount, nativeSettingsWaiterCountsByChat, raceWithAbort, removeNativeSettingsWaiters } from '../src/queueSafety'
+import { AUTO_RESUME_MAX_JOBS, NATIVE_SETTINGS_HARD_TTL_MS, NATIVE_SETTINGS_REFRESH_TIMEOUT_MS, NATIVE_SETTINGS_SOFT_TTL_MS, addNativeSettingsWaiters, canonicalDispatchKey, classifyBacklog, classifyNativeSettings, nativeSettingsWaiterCount, nativeSettingsWaiterCountsByChat, partitionBacklogByOwnership, raceWithAbort, removeNativeSettingsWaiters } from '../src/queueSafety'
 import { HOT_LOG_LIMIT, RECENT_COMPLETED_HOT_LIMIT, compactCompletedRecord, serializedBytes, stripCompletedRecord } from '../src/completedState'
 import type { SlotRecord } from '../src/contracts'
 
@@ -39,6 +39,18 @@ assert.equal(new Set(incident.map(canonicalDispatchKey)).size, 88)
 
 assert.equal(classifyBacklog(Array.from({ length: 5 }, (_, index) => record(index, 0)), now).pause, false)
 assert.equal(classifyBacklog(Array.from({ length: AUTO_RESUME_MAX_JOBS + 1 }, (_, index) => record(index, 0)), now).reason, 'large')
+
+// A large current response can legitimately spend more than ten minutes behind
+// serialized sibling provider work. Explicit current-session ownership keeps
+// those records dispatchable while a true prior-session record still pauses.
+const longCurrentResponse = Array.from({ length: 9 }, (_, index) => record(index, 11))
+const priorSession = record(90, 30)
+const currentKeys = new Set(longCurrentResponse.map(canonicalDispatchKey))
+const ownership = partitionBacklogByOwnership([...longCurrentResponse, priorSession], currentKeys)
+assert.equal(ownership.currentSession.length, 9)
+assert.equal(ownership.priorSession.length, 1)
+assert.equal(classifyBacklog(ownership.priorSession, now).reason, 'stale')
+assert.equal(ownership.currentSession.every(item => currentKeys.has(canonicalDispatchKey(item))), true, 'current response siblings lost explicit session ownership')
 
 // One user-level Native settings refresh may satisfy multiple chats, but the
 // waiter registry must retain chat ownership until each chat is processed.
@@ -85,6 +97,8 @@ assert.match(backend, /nativeSettingsBrokers/)
 assert.match(backend, /broker\.refreshInFlight/)
 assert.match(backend, /handleNativeSettingsRefreshTimeout/)
 assert.match(backend, /for \(const \[chatId, registeredKeys\] of \[\.\.\.broker\.waiters\.entries\(\)\]\)/)
+assert.match(backend, /hasConnectedFrontendForChat\(chatId, userId\)/)
+assert.match(backend, /partitionBacklogByOwnership\(waiting, currentSessionKeys\)/)
 assert.doesNotMatch(backend, /broker\.waiters\.clear\(\)/)
 assert.match(backend, /cancelRelayDispatchScope/)
 assert.match(backend, /abortImageStreamsForChat\(payload\.chatId, userId\)/)

@@ -125,6 +125,7 @@ import {
   groupRecordsIntoJobs,
   nativeSettingsWaiterCount,
   nativeSettingsWaiterCountsByChat,
+  partitionBacklogByOwnership,
   raceWithAbort,
   removeNativeSettingsWaiters,
   throwIfAborted,
@@ -860,6 +861,7 @@ type ImageGenerationStreamContext = {
   onProviderWaiting?: () => void | Promise<void>
   onProviderStarted?: () => void | Promise<void>
   onProviderCompleted?: (completedAt: number) => void | Promise<void>
+  onAttemptDiagnosticFinalized?: (diagnostic: ProviderAttemptDiagnostic) => void | Promise<void>
 }
 
 export type ProviderAttemptDiagnostic = {
@@ -896,6 +898,9 @@ export type ProviderAttemptDiagnostic = {
   abortPropagatedAt: number
   providerLaneReleasedAt: number
   providerLaneReleaseCount: number
+  providerLaneWaiterCountAtAcquire: number
+  providerLaneWaiterCountAtRelease: number
+  providerLaneStateSnapshot?: Record<string, unknown>
   terminalState?: 'success' | 'error' | 'timeout' | 'cancelled' | 'preflight-error'
   terminalResolutionCount: number
   cleanupCount: number
@@ -1170,8 +1175,11 @@ function abortError(message = 'Generation cancelled by user.'): Error {
   return error
 }
 
-export const IMAGE_GENERATION_TIMEOUT_MS = 5 * 60_000
-export const IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS = 6 * 60_000
+// Production provider work has no Relay wall-clock deadline. These optional
+// values remain exported so deterministic regression harnesses can supply an
+// explicit deadline without changing the production invocation.
+export const IMAGE_GENERATION_TIMEOUT_MS: number | undefined = undefined
+export const IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS: number | undefined = undefined
 export const IMAGE_GENERATION_DRAIN_TIMEOUT_MS = 2 * 60_000
 export const SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS = 2 * 60_000
 
@@ -1236,24 +1244,25 @@ export class ImageGenerationWorkerResetError extends Error {
 async function withImageGenerationDeadline<T>(
   operation: () => Promise<T>,
   controller: AbortController,
-  timeoutMs = IMAGE_GENERATION_TIMEOUT_MS,
+  timeoutMs?: number,
 ): Promise<T> {
-  const boundedTimeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, Math.floor(timeoutMs)) : IMAGE_GENERATION_TIMEOUT_MS
   let timer: ReturnType<typeof setTimeout> | undefined
   let abortHandler: (() => void) | undefined
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      const error = new ImageGenerationTimeoutError(boundedTimeoutMs)
-      if (!controller.signal.aborted) controller.abort(error)
-      reject(error)
-    }, boundedTimeoutMs)
-  })
   const aborted = new Promise<never>((_, reject) => {
     if (controller.signal.aborted) { reject(abortError()); return }
     abortHandler = () => reject(abortError())
     controller.signal.addEventListener('abort', abortHandler, { once: true })
   })
   try {
+    if (!Number.isFinite(timeoutMs)) return await Promise.race([operation(), aborted])
+    const boundedTimeoutMs = Math.max(1, Math.floor(timeoutMs!))
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new ImageGenerationTimeoutError(boundedTimeoutMs)
+        if (!controller.signal.aborted) controller.abort(error)
+        reject(error)
+      }, boundedTimeoutMs)
+    })
     return await Promise.race([operation(), timeout, aborted])
   } finally {
     if (timer) clearTimeout(timer)
@@ -1280,7 +1289,10 @@ function grantImageGenerationLane(key: string, lane: ImageGenerationLane, contex
   if (lane.stuckVisibilityTimer) clearTimeout(lane.stuckVisibilityTimer)
   lane.stuckVisibilityTimer = undefined
   const diagnostic = providerAttemptFor(context)
-  if (diagnostic) diagnostic.providerLaneAcquiredAt ||= Date.now()
+  if (diagnostic) {
+    diagnostic.providerLaneAcquiredAt ||= Date.now()
+    diagnostic.providerLaneWaiterCountAtAcquire = lane.waiters.length
+  }
   emitImageWorkerRecoveryState(lane.userId)
   return { key, leaseId, context, providerId, release: () => releaseImageGenerationLane(key, leaseId) }
 }
@@ -1292,6 +1304,7 @@ function releaseImageGenerationLane(key: string, leaseId: string): void {
   if (diagnostic) {
     diagnostic.providerLaneReleasedAt ||= Date.now()
     diagnostic.providerLaneReleaseCount += 1
+    diagnostic.providerLaneWaiterCountAtRelease = lane.waiters.length
   }
   if (lane.drainWatchdog) clearTimeout(lane.drainWatchdog)
   if (lane.stuckVisibilityTimer) clearTimeout(lane.stuckVisibilityTimer)
@@ -1327,7 +1340,7 @@ function releaseAbortedImageGenerationLane(lease: ImageGenerationLaneLease, prov
   const message = reason instanceof Error ? reason.message : String(reason || 'Provider operation was cancelled.')
   spindle.log.warn(`[ReverieRelay:image_provider_aborted] ${lease.context.generationId}: ${message}; serialized lane released after abort propagation.`)
   // Some host transports settle late or violate their AbortSignal contract.
-  // Relay owns the lifecycle deadline, so late settlement is observed only for
+  // After explicit cancellation, late settlement is observed only for
   // diagnostics and can never retain the lane or publish a stale result.
   void providerOperation.then(
     () => spindle.log.info(`[ReverieRelay:image_provider_late_settlement] ${lease.context.generationId}: late result discarded.`),
@@ -1382,14 +1395,14 @@ async function acquireImageGenerationLane(
       })
     }, 20_000)
     ;(waiter.heartbeat as any).unref?.()
-    const waitTimeoutMs = Number.isFinite(context.laneWaitTimeoutMs)
-      ? Math.max(1, Math.floor(context.laneWaitTimeoutMs!))
-      : IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS
-    waiter.timeout = setTimeout(() => {
-      removeWaiter()
-      reject(new ImageGenerationLaneWaitTimeoutError(waitTimeoutMs))
-    }, waitTimeoutMs)
-    ;(waiter.timeout as any).unref?.()
+    if (Number.isFinite(context.laneWaitTimeoutMs)) {
+      const waitTimeoutMs = Math.max(1, Math.floor(context.laneWaitTimeoutMs!))
+      waiter.timeout = setTimeout(() => {
+        removeWaiter()
+        reject(new ImageGenerationLaneWaitTimeoutError(waitTimeoutMs))
+      }, waitTimeoutMs)
+      ;(waiter.timeout as any).unref?.()
+    }
     lane.waiters.push(waiter)
   })
 }
@@ -2717,19 +2730,22 @@ if (typeof registerMessageContentProcessor === 'function') {
       }
       let renderedContent = source
       let renderedCount = 0
-      if (nativeCandidate) {
-        const rendered = renderNativeSurfaceMarkup(renderedContent, snapshot.studio, renderContext)
-        renderedContent = rendered.content
-        renderedCount += rendered.renderedCount
-      }
       // Narrative Utilities are not part of the 46 built-in registry. Relay
       // executes their approved, bundled display transformations through this
       // isolated adapter in every renderer mode. This keeps a cold or stale
-      // Lumiverse Regex registry from exposing raw Narrative syntax.
+      // Lumiverse Regex registry from exposing raw Narrative syntax. Narrative
+      // owners must claim their bracket scaffold before native image controls
+      // become runtime HTML; otherwise strict owners see Relay's own rrl-card
+      // markup as author text and fail closed around it.
       if (narrativeCandidate && shouldRelayRenderNarrativeMarkup(source, renderContext.rendererMode)) {
         const narrativeRendered = renderNarrativeRegex(renderedContent, snapshot.narrativeVariant, context.messageId || 'narrative', { chatId: context.chatId, swipeId: renderSwipeId })
         if (narrativeRendered !== renderedContent) renderedCount += 1
         renderedContent = narrativeRendered
+      }
+      if (nativeCandidate) {
+        const rendered = renderNativeSurfaceMarkup(renderedContent, snapshot.studio, renderContext)
+        renderedContent = rendered.content
+        renderedCount += rendered.renderedCount
       }
       if (renderedCount < 1 || renderedContent === source) return
       const messageScope = String(context.messageId || '__new__')
@@ -5503,32 +5519,6 @@ async function resumeNativeSettingsWaiters(snapshot: NativeSettingsSnapshot, use
       continue
     }
     const now = Date.now()
-    const decision = classifyBacklog(waiting, now)
-    if (decision.pause) {
-      await mutateState(chatId, userId, next => {
-        for (const record of Object.values(next.slots)) {
-          if (record.status !== 'awaiting-native-settings' || !registeredKeys.has(canonicalDispatchKey(record))) continue
-          record.status = 'paused-backlog'
-          record.updatedAt = now
-          const lease = next.dispatchLeases[canonicalDispatchKey(record)]
-          if (lease) lease.status = 'paused-backlog'
-        }
-        updateQueueSafetySummary(next, now)
-        appendStateLog(next, {
-          severity: 'warning', stage: 'native-settings-broker', eventType: 'backlog_paused', chatId,
-          message: `Paused ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? '' : 's'} instead of auto-dispatching an earlier-session backlog.`,
-          details: decision,
-        })
-      })
-      removeNativeSettingsWaiters(broker.waiters, chatId, waiting.map(canonicalDispatchKey))
-      spindle.sendToFrontend({
-        type: 'relay_notice', level: 'warning',
-        message: `Reverie Relay found ${decision.uniqueJobs} pending image request${decision.uniqueJobs === 1 ? '' : 's'} from an earlier session. Review, generate, or discard them from Queue.`,
-      }, userId)
-      await sendState(userId, chatId)
-      continue
-    }
-
     const validJobs: RouterJob[] = []
     const supersededKeys = new Set<string>()
     for (const job of groupRecordsIntoJobs(waiting)) {
@@ -5543,6 +5533,36 @@ async function resumeNativeSettingsWaiters(snapshot: NativeSettingsSnapshot, use
       }
       validJobs.push(job)
     }
+    const connectedCurrentSession = hasConnectedFrontendForChat(chatId, userId)
+    const currentSessionKeys = connectedCurrentSession
+      ? new Set(validJobs.flatMap(dispatchKeysForJob))
+      : new Set<string>()
+    const ownership = partitionBacklogByOwnership(waiting, currentSessionKeys)
+    const decision = classifyBacklog(ownership.priorSession, now)
+    const priorSessionKeys = new Set(ownership.priorSession.map(canonicalDispatchKey).filter(key => !supersededKeys.has(key)))
+    if (decision.pause && priorSessionKeys.size) {
+      await mutateState(chatId, userId, next => {
+        for (const record of Object.values(next.slots)) {
+          const dispatchKey = canonicalDispatchKey(record)
+          if (record.status !== 'awaiting-native-settings' || !priorSessionKeys.has(dispatchKey)) continue
+          record.status = 'paused-backlog'
+          record.updatedAt = now
+          const lease = next.dispatchLeases[dispatchKey]
+          if (lease) lease.status = 'paused-backlog'
+        }
+        updateQueueSafetySummary(next, now)
+        appendStateLog(next, {
+          severity: 'warning', stage: 'native-settings-broker', eventType: 'backlog_paused', chatId,
+          message: `Paused ${priorSessionKeys.size} pending image request${priorSessionKeys.size === 1 ? '' : 's'} instead of auto-dispatching an earlier-session backlog.`,
+          details: { ...decision, connectedCurrentSession, currentSessionOwned: ownership.currentSession.length },
+        })
+      })
+      removeNativeSettingsWaiters(broker.waiters, chatId, priorSessionKeys)
+      spindle.sendToFrontend({
+        type: 'relay_notice', level: 'warning',
+        message: `Reverie Relay found ${priorSessionKeys.size} pending image request${priorSessionKeys.size === 1 ? '' : 's'} from an earlier session. Review, generate, or discard them from Queue.`,
+      }, userId)
+    }
     if (supersededKeys.size) await mutateState(chatId, userId, next => {
       for (const record of Object.values(next.slots)) {
         if (!supersededKeys.has(canonicalDispatchKey(record))) continue
@@ -5554,9 +5574,11 @@ async function resumeNativeSettingsWaiters(snapshot: NativeSettingsSnapshot, use
       updateQueueSafetySummary(next, now)
     })
     if (supersededKeys.size) await sendState(userId, chatId)
-    const processedKeys = new Set([...supersededKeys, ...validJobs.flatMap(dispatchKeysForJob)])
+    const dispatchableJobs = validJobs.filter(job => dispatchKeysForJob(job).some(key => !priorSessionKeys.has(key) || !decision.pause))
+    const processedKeys = new Set([...supersededKeys, ...priorSessionKeys, ...dispatchableJobs.flatMap(dispatchKeysForJob)])
     removeNativeSettingsWaiters(broker.waiters, chatId, processedKeys)
-    for (const job of validJobs) resumptions.push(dispatchRelayJob(job, {
+    if (supersededKeys.size || (decision.pause && priorSessionKeys.size)) await sendState(userId, chatId)
+    for (const job of dispatchableJobs) resumptions.push(dispatchRelayJob(job, {
       replaceExisting: false,
       reparse: true,
       triggerType: 'initial',
@@ -5564,7 +5586,7 @@ async function resumeNativeSettingsWaiters(snapshot: NativeSettingsSnapshot, use
       automaticDispatch: true,
       settingsSource: 'fresh-after-coalesced-refresh',
       settingsAgeMs: Math.max(0, Date.now() - snapshot.capturedAt),
-      dispatchReason: 'native-settings-restored-recent-small-backlog',
+      dispatchReason: connectedCurrentSession ? 'native-settings-restored-current-session' : 'native-settings-restored-recent-small-backlog',
     }, userId))
   }
   await Promise.all(resumptions)
@@ -6494,6 +6516,14 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
         requestId: job.requestId,
         addToGallery: config.galleryAutoLink,
         attemptSignal: options.signal,
+        onAttemptDiagnosticFinalized: async diagnostic => {
+          await mutateJobState(job, userId, state => {
+            const stored = state.slots[key]
+            if (!stored) return
+            retainProviderAttemptDiagnostic(stored, diagnostic)
+          })
+          scheduleStateBroadcast(userId, job.chatId)
+        },
         onProviderStarted: async () => {
           throwIfAborted(options.signal)
           await mutateJobState(job, userId, state => {
@@ -13882,15 +13912,17 @@ async function buildParserContext(
   const suppressIdentityContext = profileDecision.suppressedContext.some(item => item.source.includes('character/persona'))
   // Explicit cast always wins over profile suppression. A profile can shape the
   // photograph, but it cannot silently remove a requested active identity.
-  const characterApplicable = humanPolicy.allowHumanContext && (castRequirements.character || (!job.cast && !suppressIdentityContext && requestDepictsCharacter(classification, job.originalSceneBrief)))
+  const characterCandidate = humanPolicy.allowHumanContext && (castRequirements.character || (!job.cast && !suppressIdentityContext && requestDepictsCharacter(classification, job.originalSceneBrief)))
   const personaApplicable = humanPolicy.allowHumanContext && (castRequirements.persona || (!job.cast && !suppressIdentityContext && requestDepictsPersona(classification, job.originalSceneBrief)))
   const nativeIncludeCharacters = typeof nativeSettings?.includeCharacters === 'boolean' ? nativeSettings.includeCharacters : config.nativeIncludeCharacters
   const nativeIncludePersona = typeof nativeSettings?.includePersona === 'boolean' ? nativeSettings.includePersona : config.nativeIncludePersona
   const promptPresets = clonePromptPresets(nativeSettings?.promptPresets ?? config.nativePromptPresets)
   const [activeCharacter, activePersona] = await Promise.all([
-    characterApplicable ? readChatCharacterIdentity(job.chatId, _userId).catch(() => null) : Promise.resolve(null),
+    characterCandidate ? readChatCharacterIdentity(job.chatId, _userId).catch(() => null) : Promise.resolve(null),
     personaApplicable ? readCurrentHostPersona(_userId, job.chatId) : Promise.resolve(null),
   ])
+  const characterOwnership = resolveActiveCharacterOwnership(job, classification, activeCharacter)
+  const characterApplicable = characterCandidate && characterOwnership.applies
   const state = await getState(job.chatId, _userId)
   const [characterCard, personaCard, lorebookContext] = await Promise.all([
     characterApplicable ? readCharacterContext(job.chatId, _userId, job.originalSceneBrief) : Promise.resolve(''),
@@ -13997,7 +14029,8 @@ async function buildParserContext(
   const gated: string[] = []
   if (includeCharacter && !characterPrompt) gated.push('Character identity unresolved after native → Appearance Memory → Character card fallback')
   if (includePersona && !personaPrompt) gated.push('Persona identity unresolved after native → Appearance Memory → Persona card fallback')
-  if (config.includeCharacterInfo && !characterApplicable) gated.push(`${classification} request uses environment or object context`)
+  if (config.includeCharacterInfo && !characterCandidate) gated.push(`${classification} request uses environment or object context`)
+  if (characterCandidate && !characterOwnership.applies) gated.push(characterOwnership.reason)
   if (config.includePersonaInfo && !personaApplicable) gated.push(`${classification} request uses non-persona context`)
   const gatingReason = visualSubjects.length
     ? `matched depicted subject preset${visualSubjects.length === 1 ? '' : 's'} by name: ${visualSubjects.map(subject => subject.name).join(', ')}`
@@ -14976,7 +15009,7 @@ export async function generateWithOptionalStream(
   userId: string | undefined,
   context: ImageGenerationStreamContext,
   forceStandard = false,
-  timeoutMs = IMAGE_GENERATION_TIMEOUT_MS,
+  timeoutMs: number | undefined = IMAGE_GENERATION_TIMEOUT_MS,
 ): Promise<any> {
   const controller = new AbortController()
   const diagnostic = rememberProviderAttempt({
@@ -15010,6 +15043,8 @@ export async function generateWithOptionalStream(
     abortPropagatedAt: 0,
     providerLaneReleasedAt: 0,
     providerLaneReleaseCount: 0,
+    providerLaneWaiterCountAtAcquire: 0,
+    providerLaneWaiterCountAtRelease: 0,
     terminalResolutionCount: 0,
     cleanupCount: 0,
   })
@@ -15287,6 +15322,45 @@ export async function generateWithOptionalStream(
     diagnostic.cleanupCount += 1
     diagnostic.completedAt = diagnostic.completedAt || Date.now()
     if (!diagnostic.terminalState) resolveTerminal(diagnostic.providerDispatchCount ? 'error' : 'preflight-error')
+    const laneState = inspectImageGenerationLaneDiagnostics(userId)
+    diagnostic.providerLaneStateSnapshot = laneState ? {
+      active: laneState.active,
+      draining: laneState.draining,
+      activeGenerationId: laneState.activeGenerationId,
+      waiterCount: laneState.waiterCount,
+      laneResetCount: laneState.laneResetCount,
+      capturedAt: Date.now(),
+    } : { active: false, draining: false, waiterCount: 0, capturedAt: Date.now() }
+    try {
+      await context.onAttemptDiagnosticFinalized?.(cloneValue(diagnostic))
+    } catch (error) {
+      spindle.log.warn(`[ReverieRelay:provider_diagnostic_persistence_failure] ${context.generationId}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+}
+
+export function retainProviderAttemptDiagnostic(record: SlotRecord, diagnostic: ProviderAttemptDiagnostic): void {
+  const snapshot = cloneValue(diagnostic) as unknown as Record<string, unknown>
+  const attempt = currentAttempt(record)
+  if (attempt) attempt.providerAttemptDiagnostic = snapshot
+  const existing = record.diagnostic
+  record.diagnostic = {
+    slotKey: record.key,
+    generatedAt: Date.now(),
+    proven: {
+      ...(existing?.proven || {}),
+      originalRequestXml: record.originalRequestXml,
+      originalSceneBrief: record.originalSceneBrief,
+      requestId: record.requestId,
+      slot: record.slot,
+      target: record.target,
+      terminalState: diagnostic.terminalState || 'pending',
+      failureReason: diagnostic.failure || '',
+    },
+    inheritedNative: existing?.inheritedNative || {},
+    relayInferred: { ...(existing?.relayInferred || {}), providerAttempt: snapshot },
+    unavailable: existing?.unavailable || [],
+    summary: existing?.summary || `${record.target} / ${record.slot} | ${diagnostic.provider || 'provider unavailable'} | ${diagnostic.terminalState || 'pending'}`,
   }
 }
 
@@ -18022,6 +18096,41 @@ export function applyPromptProfileToPositivePrompt(prompt: string, decision: Pro
 function requestDepictsCharacter(classification: RequestClassification, brief: string): boolean {
   if (!requestHasVisibleFace(classification)) return false
   return !/\b(my selfie|selfie of me|the user|persona selfie|my face)\b/i.test(brief)
+}
+
+function normalizeIdentityOwner(value: unknown): string {
+  return cleanString(value).toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
+export function explicitPortraitSubjectName(job: Pick<RouterJob, 'originalSceneBrief' | 'caption' | 'alt'>): string {
+  const authoritative = `${job.originalSceneBrief} ${job.caption || ''} ${job.alt || ''}`
+  const titledName = String.raw`(?:Lady|Lord|King|Queen|Prince|Princess|Elder|Duke|Duchess|Sir|Dame|Dr\.?|Mr\.?|Ms\.?|Miss|Mrs\.?)\s+[\p{Lu}][\p{L}'-]+(?:\s+[\p{Lu}][\p{L}'-]+)?`
+  const bareName = String.raw`[\p{Lu}][\p{L}'-]+(?:\s+[\p{Lu}][\p{L}'-]+){1,2}`
+  const match = new RegExp(String.raw`\b(?:portrait|headshot|profile(?:\s+(?:photo|image))?|character\s+(?:portrait|profile|sheet))\s+of\s+(?:an?\s+)?(${titledName}|${bareName})\b`, 'iu').exec(authoritative)
+  return cleanString(match?.[1])
+}
+
+export function resolveActiveCharacterOwnership(
+  job: Pick<RouterJob, 'originalSceneBrief' | 'caption' | 'alt' | 'target' | 'cast'>,
+  classification: RequestClassification,
+  activeCharacter: { id: string; name: string; aliases?: string[] } | null,
+): { applies: boolean; explicitSubject: string; reason: string } {
+  if (job.cast === 'char' || job.cast === 'char+user') return { applies: true, explicitSubject: '', reason: 'explicit cast owns active Character identity' }
+  if (job.cast) return { applies: false, explicitSubject: '', reason: `cast=${job.cast} does not request active Character identity` }
+  const explicitSubject = explicitPortraitSubjectName(job)
+  if (!job.target.startsWith('custom.') || classification !== 'character portrait' || !explicitSubject) {
+    return { applies: true, explicitSubject, reason: 'no distinct single-subject custom portrait owner was declared' }
+  }
+  const ownerKey = normalizeIdentityOwner(explicitSubject)
+  const activeKeys = [activeCharacter?.id, activeCharacter?.name, ...(activeCharacter?.aliases || [])].map(normalizeIdentityOwner).filter(Boolean)
+  const ownedByActiveCharacter = Boolean(ownerKey && activeKeys.includes(ownerKey))
+  return {
+    applies: ownedByActiveCharacter,
+    explicitSubject,
+    reason: ownedByActiveCharacter
+      ? `named portrait subject ${explicitSubject} matches the active Character`
+      : `named portrait subject ${explicitSubject} is scene-owned and does not match the active Character`,
+  }
 }
 
 function requestDepictsPersona(classification: RequestClassification, brief: string): boolean {

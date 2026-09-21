@@ -84,6 +84,11 @@ export type BacklogDecision = {
   reason: 'ready' | 'stale' | 'large'
 }
 
+export type BacklogOwnershipPartition = {
+  currentSession: SlotRecord[]
+  priorSession: SlotRecord[]
+}
+
 export function canonicalDispatchKey(input: Pick<RouterJob, 'chatId' | 'messageId' | 'swipeId' | 'requestId'> & { slot: string }): string {
   return [input.chatId, input.messageId, input.swipeId, input.requestId, input.slot.trim().toLocaleLowerCase()].join(':')
 }
@@ -159,6 +164,22 @@ export function classifyBacklog(records: SlotRecord[], now = Date.now()): Backlo
     oldestPendingAgeMs,
     reason: stale ? 'stale' : large ? 'large' : 'ready',
   }
+}
+
+/**
+ * Wall-clock age is only a safety signal after runtime ownership has been
+ * established. Records still owned by the connected frontend and its active
+ * authored response remain dispatchable even when serialized siblings make
+ * that response take longer than the stale-backlog threshold.
+ */
+export function partitionBacklogByOwnership(records: SlotRecord[], currentSessionKeys: ReadonlySet<string>): BacklogOwnershipPartition {
+  const currentSession: SlotRecord[] = []
+  const priorSession: SlotRecord[] = []
+  for (const record of records) {
+    if (currentSessionKeys.has(canonicalDispatchKey(record))) currentSession.push(record)
+    else priorSession.push(record)
+  }
+  return { currentSession, priorSession }
 }
 
 export function throwIfAborted(signal?: AbortSignal): void {
