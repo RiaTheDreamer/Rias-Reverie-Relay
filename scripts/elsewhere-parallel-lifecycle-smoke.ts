@@ -82,8 +82,8 @@ for (const [label, source, ids] of [
 
   const generating = render(source, `${label}-generating`, ids.map(id => record(`${label}-generating`, id, 'generating')))
   assert(!generating.includes(label === 'Elsewhere' ? '[[else security office]]' : '[PARALLEL|'), `${label}: raw bracket shell survived rendering`)
-  assert.equal((generating.match(/data-rrn-live-status="generating"/g) || []).length, ids.length, `${label}: generating status did not remain request-scoped`)
-  assert.equal((generating.match(/rrl-generation-placeholder/g) || []).length, ids.length, `${label}: placeholder count did not match request count`)
+  assert.equal((generating.match(/<div class="rrl-card"[^>]*data-rrn-live-status="generating"/g) || []).length, ids.length, `${label}: generating status did not remain request-scoped`)
+  assert.equal((generating.match(/class="rrl-media-skeleton rrl-generation-placeholder"/g) || []).length, ids.length, `${label}: placeholder count did not match request count`)
   for (const id of ids) assert.equal((generating.match(new RegExp(`data-rrn-native-request="${id}"`, 'g')) || []).length, 1, `${label}/${id}: lifecycle owner was duplicated or lost`)
 }
 

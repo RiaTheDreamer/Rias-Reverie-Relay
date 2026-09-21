@@ -121,7 +121,7 @@ for (const key of vectors.map((_vector, index) => String.fromCharCode(97 + index
   assert(panel.includes(`data-rrn-native-request="plot-spark-${key}"`), `Plot Spark ${key} lost its exact lifecycle request owner`)
 }
 assert((fullyRendered.match(/data-rrn-native-request="plot-spark-[a-g]"/g) || []).length === 7, 'mixed production path did not preserve all seven Spark lifecycle requests')
-assert((fullyRendered.match(/rrl-generation-placeholder/g) || []).length === 7, 'Plot Sparks did not reserve all seven media footprints before provider completion')
+assert((fullyRendered.match(/class="rrl-media-skeleton rrl-generation-placeholder"/g) || []).length === 7, 'Plot Sparks did not reserve all seven media footprints before provider completion')
 assert((fullyRendered.match(/--reverie-media-aspect:16 \/ 9/g) || []).length === 7, 'Plot Sparks placeholders lost their measurable 16:9 footprints')
 
 // Closed-but-invalid siblings fail independently. One malformed owner cannot

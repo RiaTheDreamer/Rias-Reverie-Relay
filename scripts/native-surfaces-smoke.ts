@@ -139,6 +139,13 @@ for (const rendererMode of ['relay', 'legacy-regex', 'hybrid'] as const) for (co
       assert(!bracketRendered.content.includes('Relay Surface needs repair'), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}/${lifecycle}: canonical bracket fell into repair UI`)
       assert(!bracketRendered.content.includes(`[${definition.canonicalOuterWrapper}]`), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}/${lifecycle}: raw bracket root remained`)
       assert(!/<image_request\b/i.test(bracketRendered.content), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}/${lifecycle}: request was not hydrated in place`)
+      if (lifecycle === 'pending' && /<(?:image_request|reverie-illustration)\b/i.test(definition.sampleXml)) {
+        const firstStyle = bracketRendered.content.indexOf('data-reverie-lifecycle-style="release"')
+        const firstCard = bracketRendered.content.indexOf('data-reverie-lifecycle-card="true"')
+        assert(firstCard > 0, `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: pending Surface lost its Status Card`)
+        assert(firstStyle >= 0 && firstStyle < firstCard, `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: Status Card CSS was not mounted at the message root`)
+        assert((bracketRendered.content.match(/data-reverie-lifecycle-style="release"/g) || []).length === 1, `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: lifecycle CSS was duplicated`)
+      }
       bracketOwnershipCases += 1
     }
   }

@@ -99,9 +99,14 @@ const combinedIds = [
   ...plotVectors.map((_, index) => `combined-plot-${index + 1}`),
 ]
 assert(combinedIds.length === 15, 'combined first-render fixture inventory changed')
-assert((combinedRendered.match(/data-rrn-live-status="preparing"/g) || []).length === combinedIds.length, 'combined first render did not create one preparing Status Card per unresolved request')
+assert((combinedRendered.match(/<div class="rrl-card"[^>]*data-rrn-live-status="preparing"/g) || []).length === combinedIds.length, 'combined first render did not create one preparing Status Card per unresolved request')
 assert((combinedRendered.match(/class="rrl-main"/g) || []).length === combinedIds.length, 'combined first render lost shared Status Card chrome inside one or more Surface families')
 assert((combinedRendered.match(/class="rrl-media-skeleton rrl-generation-placeholder"/g) || []).length === combinedIds.length, 'combined first render did not reserve every unresolved Surface media footprint')
+const firstCombinedCard = combinedRendered.indexOf('data-reverie-lifecycle-card="true"')
+const combinedMessageScope = combinedRendered.slice(0, firstCombinedCard)
+assert(firstCombinedCard > 0, 'combined first render lost its first lifecycle card')
+assert((combinedRendered.match(/data-reverie-lifecycle-style="release"/g) || []).length === 1, 'combined first render must install lifecycle CSS exactly once at the message root')
+assert(combinedMessageScope.includes('.rrl-main .rrl-title') && combinedMessageScope.includes('.rrl-media-slot{'), 'combined first render left raw Waiting/Queued copy without scoped Status Card and reservation CSS')
 for (const id of combinedIds) assertStableSlot(combinedRendered, id, id.startsWith('combined-parallel') || id === 'combined-prose' ? '4:3' : '16:9', 'preparing')
 assert(combinedRendered.includes('Ordinary prose before every Surface.') && combinedRendered.includes('Ordinary prose after every Surface.'), 'combined first render lost prose surrounding the Surface reservations')
 assert(!/<(?:image_request|reverie-illustration)\b/i.test(combinedRendered), 'combined first render leaked raw image-control markup')

@@ -134335,6 +134335,13 @@ function lifecycleCardIsland(card) {
 function lifecycleCardShell(card) {
   return `<div class="rrl-island" data-reverie-lifecycle-card="true">${card}</div>`;
 }
+function lifecycleMessageStyles(content) {
+  if (!/(?:data-reverie-lifecycle-card|data-rrn-native-request)=/.test(content))
+    return content;
+  if (content.includes('data-reverie-lifecycle-style="release"'))
+    return content;
+  return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${content}`;
+}
 function lifecycleRuntimeCss() {
   return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}`.replace(/<style\b[^>]*>/gi, "").replace(/<\/style>/gi, "");
 }
@@ -134705,7 +134712,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
       recordSurfacePipelineDiagnostic(block.spec.id, "selected-renderer", `R4.5 bracket regex parity (${parityModeForSurface(block.spec.id, activePreset(studio, block.spec.id), renderContext)})`);
       recordSurfacePipelineDiagnostic(block.spec.id, "final", block.diagnostics.length ? "repair fallback" : "rendered");
     }
-    const hydrated = hydrateParityRequests(bracketNormalized.markup, "message", renderContext, { unresolved: "preserve" });
+    const hydrated = hydrateParityRequests(bracketNormalized.markup, "message", renderContext);
     input = decorateParityImages(renderRegexSurfaceParity(hydrated, parityModeForSurface("message", undefined, renderContext), renderContext.messageId || "bracket-surface", renderContext.colorMode || "realistic"), renderContext);
   }
   const normalizationFailures = [];
@@ -134858,7 +134865,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
     content = renderRegexSurfaceParity(content, parityModeForSurface("message", undefined, renderContext), renderContext.messageId || "message-surface", renderContext.colorMode || "realistic");
     content = preserveKakaoColorAttributes(content);
   }
-  return { content, renderedCount, renderedSurfaceIds };
+  return { content: lifecycleMessageStyles(content), renderedCount, renderedSurfaceIds };
 }
 function baseSurfaceIdForTarget(target) {
   if (target === "prose.illustration")

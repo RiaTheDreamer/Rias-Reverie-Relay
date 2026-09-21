@@ -89,6 +89,16 @@ function lifecycleCardShell(card: string): string {
   return `<div class="rrl-island" data-reverie-lifecycle-card="true">${card}</div>`
 }
 
+function lifecycleMessageStyles(content: string): string {
+  if (!/(?:data-reverie-lifecycle-card|data-rrn-native-request)=/.test(content)) return content
+  if (content.includes('data-reverie-lifecycle-style="release"')) return content
+  // Lumiverse can mount rendered message HTML in a scope that the extension's
+  // document-level stylesheet does not reach. Keep one copy at the message
+  // root, before every bounded Surface block, so nested Parallel/Plot Sparks
+  // parsers never have to capture the stylesheet with an individual card.
+  return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${content}`
+}
+
 export function lifecycleRuntimeCss(): string {
   return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}`
     .replace(/<style\b[^>]*>/gi, '')
@@ -647,7 +657,7 @@ export function renderNativeSurfaceMarkup(
       recordSurfacePipelineDiagnostic(block.spec.id, 'selected-renderer', `R4.5 bracket regex parity (${parityModeForSurface(block.spec.id, activePreset(studio, block.spec.id), renderContext)})`)
       recordSurfacePipelineDiagnostic(block.spec.id, 'final', block.diagnostics.length ? 'repair fallback' : 'rendered')
     }
-    const hydrated = hydrateParityRequests(bracketNormalized.markup, 'message', renderContext, { unresolved: 'preserve' })
+    const hydrated = hydrateParityRequests(bracketNormalized.markup, 'message', renderContext)
     input = decorateParityImages(renderRegexSurfaceParity(hydrated, parityModeForSurface('message', undefined, renderContext), renderContext.messageId || 'bracket-surface', renderContext.colorMode || 'realistic'), renderContext)
   }
   // One shared, conservative normalization pass runs before either the Relay
@@ -835,7 +845,7 @@ export function renderNativeSurfaceMarkup(
     )
     content = preserveKakaoColorAttributes(content)
   }
-  return { content, renderedCount, renderedSurfaceIds }
+  return { content: lifecycleMessageStyles(content), renderedCount, renderedSurfaceIds }
 }
 
 
@@ -875,7 +885,7 @@ export function renderLifecycleWidgetMarkup(
     failed,
   }, true)
   return {
-    content: lifecycleCardIsland(card),
+    content: lifecycleMessageStyles(lifecycleCardIsland(card)),
     renderedCount: 1,
     renderedSurfaceIds: [baseSurfaceId],
   }
@@ -948,7 +958,7 @@ export function renderLegacyLifecycleMarkup(
     }, true))
   })
 
-  return { content, renderedCount, renderedSurfaceIds }
+  return { content: lifecycleMessageStyles(content), renderedCount, renderedSurfaceIds }
 }
 
 function baseSurfaceIdForTarget(target: string): string {
