@@ -97,7 +97,8 @@ export const NARRATIVE_MEDIA_COMPATIBILITY_STYLE = `<style data-reverie-narrativ
 .ra66-card[data-archive-category="ITEM"] .ra66-archive-media>.reverie-artifact-media,.ra66-card[data-archive-category="ITEM"] .ra66-archive-media .reverie-artifact-media,.ra66-card[data-archive-category="ITEM"] .ra66-archive-media img{object-fit:contain!important}
 .ra66-card:not([data-archive-category="ITEM"]) .ra66-archive-media>.reverie-artifact-media,.ra66-card:not([data-archive-category="ITEM"]) .ra66-archive-media .reverie-artifact-media,.ra66-card:not([data-archive-category="ITEM"]) .ra66-archive-media img{object-fit:cover!important}
 .rrcp-wallpaper>.reverie-artifact-media,.rrcp-wallpaper .reverie-artifact-media,.rrcp-wallpaper img{position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;object-fit:cover!important;object-position:center!important}
-.r65-thread>.r65-media:not(:has(image_request,image_request_error,img,.reverie-artifact-media)){display:none!important}
+.r65-thread>.r65-media:not(:has(image_request,image_request_error,img,.reverie-artifact-media,.rrl-island,.rrl-media-slot,[data-reverie-lifecycle-card])){display:none!important}
+.dg-dramatic-media>.rrl-island,.r65-media>.rrl-island,.rv6-media>.rrl-island,.ru-media>.rrl-island,.ru-portrait>.rrl-island,.ru-secret-media>.rrl-island,.ru-thread-media>.rrl-island,.ra66-archive-media>.rrl-island,.rrcp-media>.rrl-island,.rrcp-photo-media>.rrl-island,.rrcp-wallpaper>.rrl-island{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important}
 .r65-parallel-context:not(:has(.r65-opt:not(:empty))){display:none!important}
 </style>`
 

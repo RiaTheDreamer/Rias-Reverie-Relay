@@ -1092,11 +1092,17 @@ function classifyBacklog(records, now = Date.now()) {
     reason: stale ? "stale" : large ? "large" : "ready"
   };
 }
-function partitionBacklogByOwnership(records, currentSessionKeys) {
+function selectPendingRecordsForExplicitAction(records, selectedKeys, generateAll = false) {
+  if (!generateAll && selectedKeys.size === 0)
+    return [];
+  return records.filter((record) => record.status === "paused-backlog" && (generateAll || selectedKeys.has(record.key)));
+}
+function partitionBacklogByOwnership(records, currentSessionKeys, runtimeSessionId) {
   const currentSession = [];
   const priorSession = [];
   for (const record of records) {
-    if (currentSessionKeys.has(canonicalDispatchKey(record)))
+    const explicitlyOwnedByRuntime = Boolean(runtimeSessionId && record.discoveryRuntimeSessionId === runtimeSessionId && record.responseOwnershipKey);
+    if (explicitlyOwnedByRuntime || currentSessionKeys.has(canonicalDispatchKey(record)))
       currentSession.push(record);
     else
       priorSession.push(record);
@@ -155573,7 +155579,8 @@ var NARRATIVE_MEDIA_COMPATIBILITY_STYLE = `<style data-reverie-narrative-media-c
 .ra66-card[data-archive-category="ITEM"] .ra66-archive-media>.reverie-artifact-media,.ra66-card[data-archive-category="ITEM"] .ra66-archive-media .reverie-artifact-media,.ra66-card[data-archive-category="ITEM"] .ra66-archive-media img{object-fit:contain!important}
 .ra66-card:not([data-archive-category="ITEM"]) .ra66-archive-media>.reverie-artifact-media,.ra66-card:not([data-archive-category="ITEM"]) .ra66-archive-media .reverie-artifact-media,.ra66-card:not([data-archive-category="ITEM"]) .ra66-archive-media img{object-fit:cover!important}
 .rrcp-wallpaper>.reverie-artifact-media,.rrcp-wallpaper .reverie-artifact-media,.rrcp-wallpaper img{position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;object-fit:cover!important;object-position:center!important}
-.r65-thread>.r65-media:not(:has(image_request,image_request_error,img,.reverie-artifact-media)){display:none!important}
+.r65-thread>.r65-media:not(:has(image_request,image_request_error,img,.reverie-artifact-media,.rrl-island,.rrl-media-slot,[data-reverie-lifecycle-card])){display:none!important}
+.dg-dramatic-media>.rrl-island,.r65-media>.rrl-island,.rv6-media>.rrl-island,.ru-media>.rrl-island,.ru-portrait>.rrl-island,.ru-secret-media>.rrl-island,.ru-thread-media>.rrl-island,.ra66-archive-media>.rrl-island,.rrcp-media>.rrl-island,.rrcp-photo-media>.rrl-island,.rrcp-wallpaper>.rrl-island{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important}
 .r65-parallel-context:not(:has(.r65-opt:not(:empty))){display:none!important}
 </style>`;
 var NARRATIVE_BLOCK_SPACING_STYLE = `<style data-reverie-narrative-block-spacing="1">
@@ -156590,10 +156597,11 @@ var DEFAULT_GENERATION_PROFILE = {
 };
 var CONFIG_PATH = "config.json";
 var EXTENSION_ID = "reverie_relay";
-var STATE_SCHEMA_VERSION = 35;
+var STATE_SCHEMA_VERSION = 36;
 var PROSE_OPPORTUNITY_PLANNER_VERSION = "prose-opportunity-sidecar-v1";
 var PROSE_PROMPT_COMPOSER_VERSION = "prose-prompt-composer-v1";
 var BACKEND_LOADED_AT = Date.now();
+var RELAY_RUNTIME_SESSION_ID = `${BACKEND_LOADED_AT}:${Math.random().toString(36).slice(2, 10)}`;
 var activeStreamingSurfaceChats = new Set;
 var lastBackendResponseAt = BACKEND_LOADED_AT;
 var messageLocks = new Set;
@@ -156601,6 +156609,7 @@ var slotLocks = new Set;
 var cancelledJobs = new Set;
 var activeImageStreams = new Map;
 var imageGenerationLanes = new Map;
+var userAbortRuntime = new Map;
 var providerImageResultClaims = new Map;
 var providerAttemptDiagnostics = new Map;
 var chatDestinationDiagnostics = new BoundedLruCache({ maxEntries: 256 });
@@ -156646,6 +156655,14 @@ function abortAllImageStreams() {
       controller.abort("Cancelled by user.");
   return controllers.size;
 }
+function abortImageStreamsForUser(userId, reason = "Cancelled by global Abort All.") {
+  const scope = userId || "__default-user__";
+  const controllers = new Set([...activeImageStreams.values()].filter((stream) => stream.userId === scope).map((stream) => stream.controller));
+  for (const controller of controllers)
+    if (!controller.signal.aborted)
+      controller.abort(reason);
+  return controllers.size;
+}
 function abortImageStreamsForChat(chatId, userId) {
   const scope = userId || "__default-user__";
   const controllers = new Set([...activeImageStreams.values()].filter((stream) => stream.userId === scope && stream.context.chatId === chatId).map((stream) => stream.controller));
@@ -156656,6 +156673,21 @@ function abortImageStreamsForChat(chatId, userId) {
 }
 function imageGenerationLaneKey(userId) {
   return userId || "__default-user__";
+}
+function abortRuntimeForUser(userId) {
+  const key = imageGenerationLaneKey(userId);
+  const runtime = userAbortRuntime.get(key) || { epoch: 0, aborting: false };
+  userAbortRuntime.set(key, runtime);
+  return runtime;
+}
+function currentUserAbortEpoch(userId) {
+  return abortRuntimeForUser(userId).epoch;
+}
+function assertDispatchEpoch(context, userId) {
+  const runtime = abortRuntimeForUser(userId);
+  if (runtime.aborting || (context.cancellationEpoch ?? runtime.epoch) !== runtime.epoch) {
+    throw abortError("Provider dispatch invalidated by global Abort All.");
+  }
 }
 function inspectProviderImageFreshness(input) {
   const reasons = [];
@@ -156809,6 +156841,14 @@ function releaseImageGenerationLane(key, leaseId) {
   lane.stuckVisibilityTimer = undefined;
   lane.draining = false;
   lane.activeProviderId = undefined;
+  lane.activeLeaseId = undefined;
+  lane.activeContext = undefined;
+  lane.activeSince = undefined;
+  if (lane.handoffFrozen) {
+    lane.active = false;
+    emitImageWorkerRecoveryState(lane.userId);
+    return;
+  }
   while (lane.waiters.length) {
     const waiter = lane.waiters.shift();
     clearImageGenerationLaneWaiter(waiter);
@@ -156833,21 +156873,41 @@ function releaseAbortedImageGenerationLane(lease, providerOperation, reason) {
   if (!lane || lane.activeLeaseId !== lease.leaseId)
     return;
   const diagnostic = providerAttemptFor(lease.context);
+  lane.draining = true;
+  lane.drainStartedAt = Date.now();
+  lane.drainReason = reason instanceof Error ? reason.message : String(reason || "Provider operation was cancelled.");
   if (diagnostic)
-    diagnostic.providerDraining = false;
+    diagnostic.providerDraining = true;
   const message = reason instanceof Error ? reason.message : String(reason || "Provider operation was cancelled.");
-  spindle.log.warn(`[ReverieRelay:image_provider_aborted] ${lease.context.generationId}: ${message}; serialized lane released after abort propagation.`);
-  providerOperation.then(() => spindle.log.info(`[ReverieRelay:image_provider_late_settlement] ${lease.context.generationId}: late result discarded.`), () => {
+  spindle.log.warn(`[ReverieRelay:image_provider_aborted] ${lease.context.generationId}: ${message}; serialized lane quarantined until the host transport settles.`);
+  if (lane.stuckVisibilityTimer)
+    clearTimeout(lane.stuckVisibilityTimer);
+  lane.stuckVisibilityTimer = setTimeout(() => emitImageWorkerRecoveryState(lane.userId), SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS);
+  lane.stuckVisibilityTimer.unref?.();
+  emitImageWorkerRecoveryState(lane.userId);
+  providerOperation.then(() => spindle.log.info(`[ReverieRelay:image_provider_late_settlement] ${lease.context.generationId}: late result discarded; serialized lane is safe to release.`), () => {
     return;
+  }).then(async () => {
+    if (diagnostic)
+      diagnostic.providerDraining = false;
+    lease.release();
+    if (diagnostic) {
+      try {
+        await lease.context.onAttemptDiagnosticFinalized?.(cloneValue(diagnostic));
+      } catch (error) {
+        spindle.log.warn(`[ReverieRelay:provider_diagnostic_late_persistence_failure] ${lease.context.generationId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
   });
-  lease.release();
 }
 async function acquireImageGenerationLane(userId, context, controller, providerId) {
   const key = imageGenerationLaneKey(userId);
-  const lane = imageGenerationLanes.get(key) || { userId, active: false, draining: false, waiters: [] };
+  assertDispatchEpoch(context, userId);
+  const lane = imageGenerationLanes.get(key) || { userId, active: false, handoffFrozen: false, draining: false, waiters: [] };
   lane.userId = userId;
   imageGenerationLanes.set(key, lane);
   await context.onProviderWaiting?.();
+  assertDispatchEpoch(context, userId);
   if (!lane.active) {
     return grantImageGenerationLane(key, lane, context, providerId);
   }
@@ -157326,7 +157386,7 @@ function stageStaleChatCleanupRegressionFixture(chatId, userId) {
     return;
   }, 60000);
   retryTimer.unref?.();
-  deferredReparseRequests.set(`${chatId}:fixture-retry`, { key: `${chatId}:fixture-retry`, userId, attempts: 0, timer: retryTimer });
+  deferredReparseRequests.set(`${chatId}:fixture-retry`, { key: `${chatId}:fixture-retry`, userId, attempts: 0, abortEpoch: currentUserAbortEpoch(userId), timer: retryTimer });
   addNativeSettingsWaiters(nativeSettingsBroker(userId).waiters, chatId, [`${chatId}:fixture-waiter`]);
   const scope = relayQueueScope(userId);
   pendingPlacementBatches.set(`${scope}:${chatId}:fixture-message:0:fixture-request`, {
@@ -160112,6 +160172,9 @@ async function handleFrontendMessage(payload, userId) {
     case "gallery_link_result":
       await handleGalleryLinkResult(payload, userId);
       return;
+    case "retry_gallery_link":
+      await handleRetryGalleryLink(payload, userId);
+      return;
     case "dry_run":
       await handleDryRun(payload, snapshotFromPayload(payload), userId);
       return;
@@ -160137,12 +160200,16 @@ async function handleGalleryLinkResult(payload, userId) {
     const link = state.galleryLinks[payload.linkId];
     if (!link)
       return;
+    const now = Date.now();
     link.attempts += 1;
-    link.updatedAt = Date.now();
+    link.lastAttemptAt = now;
+    link.updatedAt = now;
+    link.lastOperationSource = link.retryMode === "gallery-only" ? "explicit-gallery-retry" : "rest-fallback";
     if (payload.ok) {
       link.status = "linked";
       link.galleryItemId = cleanString(payload.galleryItemId) || link.galleryItemId;
       link.error = undefined;
+      link.completedAt = now;
       finishBackgroundTask(state, `queue:${link.id}`, "Saved to Character Gallery");
     } else {
       link.status = "failed";
@@ -160154,16 +160221,78 @@ async function handleGalleryLinkResult(payload, userId) {
       record.galleryLinkStatus = link.status;
       record.galleryItemId = link.galleryItemId;
       record.galleryLinkError = link.error;
-      record.galleryLinkedAt = payload.ok ? Date.now() : undefined;
+      record.galleryLinkedAt = payload.ok ? now : undefined;
+      record.galleryLinkLastAttemptAt = now;
+      record.galleryLinkRetryMode = payload.ok ? undefined : "gallery-only";
     }
+    const record = link.slotKey ? state.slots[link.slotKey] : undefined;
     appendStateLog(state, {
       severity: payload.ok ? "info" : "error",
       stage: "character-gallery",
       eventType: payload.ok ? "gallery_link_completed" : "gallery_link_failed",
       chatId,
-      requestId: link.id,
+      requestId: record?.requestId || link.id,
       message: payload.ok ? "Generated image linked to the current character Gallery." : `Character Gallery link failed: ${link.error}`,
-      details: { imageId: link.imageId, characterId: link.characterId, source: link.source, galleryItemId: link.galleryItemId }
+      details: {
+        linkId: link.id,
+        slotKey: link.slotKey || null,
+        imageId: link.imageId,
+        characterId: link.characterId,
+        operationSource: link.lastOperationSource,
+        source: link.source,
+        galleryItemId: link.galleryItemId,
+        generationSucceeded: true,
+        retryBehavior: payload.ok ? "none" : "gallery-only-no-regeneration",
+        exactFailure: link.error || null
+      }
+    });
+  });
+  await sendState(userId, chatId);
+}
+async function handleRetryGalleryLink(payload, userId) {
+  const chatId = cleanString(payload.chatId);
+  if (!chatId)
+    return;
+  await mutateState(chatId, userId, (state) => {
+    const link = state.galleryLinks[payload.linkId];
+    if (!link)
+      throw new Error("Character Gallery link request was not found.");
+    if (link.status === "linked")
+      return;
+    if (!link.imageId || !link.imageUrl)
+      throw new Error("The generated image asset is unavailable for a Gallery-only retry.");
+    const now = Date.now();
+    link.status = "pending";
+    link.error = undefined;
+    link.retryMode = "gallery-only";
+    link.lastOperationSource = "explicit-gallery-retry";
+    link.updatedAt = now;
+    if (link.slotKey && state.slots[link.slotKey]) {
+      const record = state.slots[link.slotKey];
+      record.galleryLinkStatus = "pending";
+      record.galleryLinkError = undefined;
+      record.galleryLinkRetryMode = "gallery-only";
+    }
+    startBackgroundTask(state, {
+      id: `queue:${link.id}`,
+      chatId,
+      source: "gallery-link",
+      label: "Retry Character Gallery link for existing image",
+      stage: "saving-gallery",
+      statusText: "Retrying Character Gallery link without regeneration",
+      total: 1,
+      requestId: link.id,
+      slotKey: link.slotKey
+    });
+    const record = link.slotKey ? state.slots[link.slotKey] : undefined;
+    appendStateLog(state, {
+      severity: "info",
+      stage: "character-gallery",
+      eventType: "gallery_link_retry_requested",
+      chatId,
+      requestId: record?.requestId || link.id,
+      message: "Retrying Character Gallery registration for the existing generated image; no provider generation will run.",
+      details: { linkId: link.id, slotKey: link.slotKey || null, imageId: link.imageId, operationSource: "explicit-gallery-retry", generationSucceeded: true, retryBehavior: "gallery-only-no-regeneration" }
     });
   });
   await sendState(userId, chatId);
@@ -160734,7 +160863,7 @@ async function resumeNativeSettingsWaiters(snapshot, userId) {
     }
     const connectedCurrentSession = hasConnectedFrontendForChat(chatId, userId);
     const currentSessionKeys = connectedCurrentSession ? new Set(validJobs.flatMap(dispatchKeysForJob)) : new Set;
-    const ownership = partitionBacklogByOwnership(waiting, currentSessionKeys);
+    const ownership = partitionBacklogByOwnership(waiting, currentSessionKeys, RELAY_RUNTIME_SESSION_ID);
     const decision = classifyBacklog(ownership.priorSession, now);
     const priorSessionKeys = new Set(ownership.priorSession.map(canonicalDispatchKey).filter((key) => !supersededKeys.has(key)));
     if (decision.pause && priorSessionKeys.size) {
@@ -160820,7 +160949,7 @@ async function dispatchRelayJob(job, options, userId) {
   const epoch = currentQueueCancellationEpoch(job.chatId, userId);
   const attemptId = `${executionKey}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
   const controller = new AbortController;
-  activeRelayAttempts.set(attemptId, { attemptId, chatId: job.chatId, jobKey: executionKey, controller, createdAt: Date.now() });
+  activeRelayAttempts.set(attemptId, { attemptId, chatId: job.chatId, userId, jobKey: executionKey, controller, createdAt: Date.now() });
   const promise = Promise.resolve().then(async () => {
     if (epoch !== currentQueueCancellationEpoch(job.chatId, userId))
       return;
@@ -160836,7 +160965,14 @@ async function dispatchRelayJob(job, options, userId) {
         const dispatchKey = canonicalDispatchKey({ ...job, slot });
         const lease = state.dispatchLeases[dispatchKey];
         if (lease)
-          Object.assign(lease, { status: "queued", queuedAt: now, dispatchEligibleAt: now, cancellationEpoch: epoch });
+          Object.assign(lease, {
+            status: "queued",
+            queuedAt: now,
+            dispatchEligibleAt: now,
+            cancellationEpoch: epoch,
+            providerOrigin: options.providerOrigin,
+            authorizedSlotKey: options.authorizedSlotKey
+          });
       }
       const duplicate = dispatchKeysForJob(job).some((key) => {
         const lease = state.dispatchLeases[key];
@@ -160867,7 +161003,9 @@ async function dispatchRelayJob(job, options, userId) {
             cancellationEpoch: epoch,
             settingsSource: options.settingsSource,
             settingsAgeMs: options.settingsAgeMs,
-            dispatchReason: options.dispatchReason
+            dispatchReason: options.dispatchReason,
+            providerOrigin: options.providerOrigin,
+            authorizedSlotKey: options.authorizedSlotKey
           });
       }
       updateQueueSafetySummary(state, now);
@@ -160883,22 +161021,6 @@ async function dispatchRelayJob(job, options, userId) {
   });
   activeRelayJobPromises.set(executionKey, promise);
   return promise;
-}
-function cancelRelayDispatchScope(chatId, userId) {
-  const cancellationScope = relayCancellationScope(chatId, userId);
-  const epoch = (queueCancellationEpochs.get(cancellationScope) || 0) + 1;
-  queueCancellationEpochs.set(cancellationScope, epoch);
-  const queued = 0;
-  let active = 0;
-  for (const attempt of activeRelayAttempts.values()) {
-    if (attempt.chatId !== chatId || attempt.controller.signal.aborted)
-      continue;
-    active += 1;
-    attempt.abortedAt = Date.now();
-    attempt.reason = "Cancelled by Abort All.";
-    attempt.controller.abort(attempt.reason);
-  }
-  return { queued, active, epoch };
 }
 async function runWithConcurrency(items, limit, worker) {
   let cursor = 0;
@@ -161441,6 +161563,7 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
           registeredJobs.push(job);
           continue;
         }
+        const ownershipKey = `${chatId}:${message.id}:${swipeId}`;
         for (const slot of slots) {
           const key = slotKey({ chatId, messageId: message.id, swipeId, requestId: req.id, slot });
           const previous = state.slots[key];
@@ -161468,6 +161591,9 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
             createdAt: previous?.createdAt ?? now,
             discoveredAt: previous?.discoveredAt ?? now,
             registeredAt: previous?.registeredAt ?? now,
+            discoveryRuntimeSessionId: RELAY_RUNTIME_SESSION_ID,
+            responseOwnershipKey: ownershipKey,
+            responseOwnershipClaimedAt: previous?.discoveryRuntimeSessionId === RELAY_RUNTIME_SESSION_ID && previous.responseOwnershipKey === ownershipKey ? previous.responseOwnershipClaimedAt || now : now,
             queuedAt: now,
             updatedAt: now,
             highResMode: previous?.highResMode ?? config.highResMode,
@@ -161594,6 +161720,8 @@ async function runJob(job, options, userId) {
   let failureStage = "parser-failed";
   let expectedAttemptNumbers = {};
   const backgroundTaskId = `slot:${contentFingerprint(lockKey).slice(0, 20)}`;
+  const providerAbortEpoch = currentUserAbortEpoch(userId);
+  const providerOrigin = options.providerOrigin || (job.target === "prose.illustration" ? "illustrator-generation" : options.automaticDispatch ? "new-response-auto" : options.triggerType.startsWith("regenerate") ? "explicit-regenerate" : options.triggerType === "reparse" ? "explicit-reparse" : "explicit-single-retry");
   try {
     throwIfAborted(options.signal);
     if (options.cancellationEpoch !== undefined && options.cancellationEpoch !== currentQueueCancellationEpoch(job.chatId, userId))
@@ -161761,6 +161889,12 @@ async function runJob(job, options, userId) {
         source: job.target === "prose.illustration" ? "relay-illustrator" : "relay-slot",
         slotKey: key,
         requestId: job.requestId,
+        origin: providerOrigin,
+        previousSlotStatus: options.previousSlotStatus || record.status,
+        cancellationEpoch: providerAbortEpoch,
+        authorizedSlotKey: options.authorizedSlotKey || (options.automaticDispatch ? undefined : key),
+        followedAbort: Boolean(abortRuntimeForUser(userId).lastAbortAllAt),
+        elapsedSinceAbortAllMs: abortRuntimeForUser(userId).lastAbortAllAt ? Math.max(0, Date.now() - abortRuntimeForUser(userId).lastAbortAllAt) : undefined,
         addToGallery: config.galleryAutoLink,
         attemptSignal: options.signal,
         onAttemptDiagnosticFinalized: async (diagnostic) => {
@@ -161803,7 +161937,15 @@ async function runJob(job, options, userId) {
               connectionId: stored.imageConnectionId,
               connectionName: stored.imageConnectionName,
               model: stored.imageModel,
-              message: "Native ImageGen provider call started."
+              message: "Native ImageGen provider call started.",
+              details: {
+                origin: providerOrigin,
+                previousSlotStatus: options.previousSlotStatus || record.status,
+                cancellationEpoch: providerAbortEpoch,
+                authorizedSlotKey: options.authorizedSlotKey || (options.automaticDispatch ? null : key),
+                followedAbort: Boolean(abortRuntimeForUser(userId).lastAbortAllAt),
+                elapsedSinceAbortAllMs: abortRuntimeForUser(userId).lastAbortAllAt ? Math.max(0, Date.now() - abortRuntimeForUser(userId).lastAbortAllAt) : null
+              }
             });
           });
           await sendState(userId, job.chatId);
@@ -162049,7 +162191,7 @@ async function enqueueGalleryLinksForResults(job, results, userId) {
   });
   await sendState(userId, job.chatId);
 }
-async function regenerateSlot(key, nativeSnapshot, userId, highResMode) {
+async function regenerateSlot(key, nativeSnapshot, userId, highResMode, providerOrigin = "explicit-regenerate") {
   const { chatId, record } = await getRecordByKey(key, userId);
   if (!canRegenerateRecord(record)) {
     if (canReparseRecord(record)) {
@@ -162069,7 +162211,7 @@ async function regenerateSlot(key, nativeSnapshot, userId, highResMode) {
   }
   cancelledJobs.delete(jobCancellationKey(record));
   const job = jobFromRecord(record);
-  await runJob(job, { replaceExisting: record.status === "completed", reparse: true, triggerType: nativeSnapshot ? "regenerate-current-settings" : "regenerate-same-settings", nativeSnapshot, highResMode }, userId);
+  await runJob(job, { replaceExisting: record.status === "completed", reparse: true, triggerType: nativeSnapshot ? "regenerate-current-settings" : "regenerate-same-settings", nativeSnapshot, highResMode, providerOrigin, authorizedSlotKey: key, previousSlotStatus: record.status }, userId);
   await sendState(userId, chatId);
 }
 function normalizeRelaySurfaceContracts(content) {
@@ -162159,24 +162301,28 @@ async function resetRecordForReparse(chatId, key, userId) {
   relayProcessingKeys.delete(record.key);
   return record;
 }
-function scheduleDeferredRegenerate(key, nativeSnapshot, userId, highResMode, attempts = 0) {
+function scheduleDeferredRegenerate(key, nativeSnapshot, userId, highResMode, attempts = 0, abortEpoch = currentUserAbortEpoch(userId)) {
   const existing = deferredRegenerateRequests.get(key);
   if (existing?.timer)
     clearTimeout(existing.timer);
-  const request = { key, nativeSnapshot, userId, highResMode, attempts };
+  const request = { key, nativeSnapshot, userId, highResMode, attempts, abortEpoch };
   request.timer = setTimeout(() => {
     (async () => {
       try {
+        if (abortEpoch !== currentUserAbortEpoch(userId)) {
+          deferredRegenerateRequests.delete(key);
+          return;
+        }
         const located = await getRecordByKey(key, userId);
         if (isRecordJobActive(located.record) || relayProcessingKeys.has(key)) {
           if (attempts < 120)
-            scheduleDeferredRegenerate(key, nativeSnapshot, userId, highResMode, attempts + 1);
+            scheduleDeferredRegenerate(key, nativeSnapshot, userId, highResMode, attempts + 1, abortEpoch);
           else
             spindle.sendToFrontend({ type: "relay_notice", level: "warning", message: "The previous provider call did not release this slot. Use Regenerate again after it stops." }, userId);
           return;
         }
         deferredRegenerateRequests.delete(key);
-        await regenerateSlot(key, nativeSnapshot, userId, highResMode);
+        await regenerateSlot(key, nativeSnapshot, userId, highResMode, "deferred-regenerate");
       } catch (error) {
         deferredRegenerateRequests.delete(key);
         const message = error instanceof Error ? error.message : String(error);
@@ -162187,24 +162333,28 @@ function scheduleDeferredRegenerate(key, nativeSnapshot, userId, highResMode, at
   }, 500);
   deferredRegenerateRequests.set(key, request);
 }
-function scheduleDeferredReparse(key, nativeSnapshot, userId, attempts = 0) {
+function scheduleDeferredReparse(key, nativeSnapshot, userId, attempts = 0, abortEpoch = currentUserAbortEpoch(userId)) {
   const existing = deferredReparseRequests.get(key);
   if (existing?.timer)
     clearTimeout(existing.timer);
-  const request = { key, nativeSnapshot, userId, attempts };
+  const request = { key, nativeSnapshot, userId, attempts, abortEpoch };
   request.timer = setTimeout(() => {
     (async () => {
       try {
+        if (abortEpoch !== currentUserAbortEpoch(userId)) {
+          deferredReparseRequests.delete(key);
+          return;
+        }
         const located = await getRecordByKey(key, userId);
         if (isRecordJobActive(located.record) || relayProcessingKeys.has(key)) {
           if (attempts < 120)
-            scheduleDeferredReparse(key, nativeSnapshot, userId, attempts + 1);
+            scheduleDeferredReparse(key, nativeSnapshot, userId, attempts + 1, abortEpoch);
           else
             spindle.sendToFrontend({ type: "relay_notice", level: "warning", message: "The previous provider call did not release this slot. Use Reparse again after it stops." }, userId);
           return;
         }
         deferredReparseRequests.delete(key);
-        await reparseSlot(key, nativeSnapshot, userId);
+        await reparseSlot(key, nativeSnapshot, userId, "deferred-reparse");
       } catch (error) {
         deferredReparseRequests.delete(key);
         const message = error instanceof Error ? error.message : String(error);
@@ -162235,7 +162385,7 @@ async function reparseChatSlots(chatId, nativeSnapshot, userId) {
   spindle.sendToFrontend({ type: "relay_notice", level: "success", message: `Reparse finished for ${completed} Relay slot${completed === 1 ? "" : "s"}.` }, userId);
   await sendState(userId, chatId);
 }
-async function reparseSlot(key, nativeSnapshot, userId) {
+async function reparseSlot(key, nativeSnapshot, userId, providerOrigin = "explicit-reparse") {
   const located = await getRecordByKey(key, userId);
   const chatId = located.chatId;
   const record = await resetRecordForReparse(chatId, key, userId);
@@ -162259,12 +162409,12 @@ async function reparseSlot(key, nativeSnapshot, userId) {
     const job = groupFailedRetryJobs(siblings)[0];
     if (!job)
       throw new Error("Could not reconstruct the original carousel request.");
-    await runJob(job, { replaceExisting: false, reparse: true, triggerType: "reparse", nativeSnapshot: nativeSnapshot || nativeSnapshotFromConfig(await getConfig(userId)) }, userId);
+    await runJob(job, { replaceExisting: false, reparse: true, triggerType: "reparse", nativeSnapshot: nativeSnapshot || nativeSnapshotFromConfig(await getConfig(userId)), providerOrigin, authorizedSlotKey: key, previousSlotStatus: record.status }, userId);
     await sendState(userId, chatId);
     return;
   }
   const job = jobFromRecord(record);
-  await runJob(job, { replaceExisting: Boolean(record.imageUrl), reparse: true, triggerType: "reparse", nativeSnapshot: nativeSnapshot || nativeSnapshotFromConfig(await getConfig(userId)) }, userId);
+  await runJob(job, { replaceExisting: Boolean(record.imageUrl), reparse: true, triggerType: "reparse", nativeSnapshot: nativeSnapshot || nativeSnapshotFromConfig(await getConfig(userId)), providerOrigin, authorizedSlotKey: key, previousSlotStatus: record.status }, userId);
   await sendState(userId, chatId);
 }
 async function retryFailed(chatId, userId) {
@@ -162473,6 +162623,12 @@ async function generateRelayCandidate(batch, candidate, record, messages, target
     source: "relay-candidate",
     slotKey: candidate.stableSlotKey,
     requestId: candidate.requestId,
+    origin: "candidate-generation",
+    previousSlotStatus: record.status,
+    cancellationEpoch: currentUserAbortEpoch(userId),
+    authorizedSlotKey: candidate.stableSlotKey,
+    followedAbort: Boolean(abortRuntimeForUser(userId).lastAbortAllAt),
+    elapsedSinceAbortAllMs: abortRuntimeForUser(userId).lastAbortAllAt ? Math.max(0, Date.now() - abortRuntimeForUser(userId).lastAbortAllAt) : undefined,
     addToGallery: false,
     onProviderStarted: async () => {
       await updateRelayCandidate(batch.chatId, batch.batchId, candidate.candidateKey, { status: "generating" }, userId);
@@ -163079,7 +163235,7 @@ async function generateAllRecovered(chatId, nativeSnapshot, userId) {
   let completed = 0;
   spindle.sendToFrontend({ type: "status", status: `Resuming recovered slots 0 / ${jobs.length}\u2026` }, userId);
   await runWithConcurrency(jobs, config.queueConcurrencyLimit, async (job) => {
-    await runJob(job, { replaceExisting: false, reparse: true, triggerType: "retry", nativeSnapshot: effectiveSnapshot }, userId);
+    await runJob(job, { replaceExisting: false, reparse: true, triggerType: "retry", nativeSnapshot: effectiveSnapshot, providerOrigin: "automatic-recovery" }, userId);
     completed += 1;
     spindle.sendToFrontend({ type: "status", status: `Resuming recovered slots ${completed} / ${jobs.length}\u2026` }, userId);
   });
@@ -163622,6 +163778,12 @@ async function editPrompt(key, prompt, negativePrompt, imageIntent, nativeSnapsh
       source: job.target === "prose.illustration" ? "relay-illustrator" : "relay-slot",
       slotKey: key,
       requestId: job.requestId,
+      origin: job.target === "prose.illustration" ? "illustrator-generation" : "explicit-regenerate",
+      previousSlotStatus: record.status,
+      cancellationEpoch: currentUserAbortEpoch(userId),
+      authorizedSlotKey: key,
+      followedAbort: Boolean(abortRuntimeForUser(userId).lastAbortAllAt),
+      elapsedSinceAbortAllMs: abortRuntimeForUser(userId).lastAbortAllAt ? Math.max(0, Date.now() - abortRuntimeForUser(userId).lastAbortAllAt) : undefined,
       addToGallery: config.galleryAutoLink,
       onProviderStarted: async () => {
         await mutateJobState(job, userId, (state) => {
@@ -164419,7 +164581,7 @@ async function regenerateWithIntent(key, intent, candidateCount, nativeSnapshot,
       job.aspect = sanitizedIntent.aspectRatio;
     const effectiveSnapshot = nativeSnapshot || nativeSnapshotFromConfig(await getConfig(userId));
     spindle.sendToFrontend({ type: "status", status: "Regenerating with direction", requestId: updated.record.requestId }, userId);
-    await runJob(job, { replaceExisting: Boolean(updated.record.imageUrl), reparse: true, triggerType: "intent-regeneration", nativeSnapshot: effectiveSnapshot }, userId);
+    await runJob(job, { replaceExisting: Boolean(updated.record.imageUrl), reparse: true, triggerType: "intent-regeneration", nativeSnapshot: effectiveSnapshot, providerOrigin: "explicit-regenerate", authorizedSlotKey: key, previousSlotStatus: updated.record.status }, userId);
     return;
   }
   await startRelayBatch(chatId, nativeSnapshot, userId, requestedCandidateCount, sanitizedIntent, [key]);
@@ -164500,90 +164662,58 @@ async function discardRelayCandidate(chatId, batchId, candidateKey, userId) {
 }
 async function handleQueueAction(payload, nativeSnapshot, userId) {
   if (payload.action === "abort_all") {
-    const queueAbort = cancelRelayDispatchScope(payload.chatId, userId);
-    const stoppedStreams = abortImageStreamsForChat(payload.chatId, userId);
-    for (const key of [...abortableOperationSerials.keys()])
-      if (key === `prose:${payload.chatId}`)
-        cancelAbortableOperation(key);
-    for (const [key, scheduled] of [...scheduledAssistantScans.entries()]) {
-      if (scheduled.chatId !== payload.chatId)
-        continue;
-      if (scheduled.timer)
-        clearTimeout(scheduled.timer);
-      scheduledAssistantScans.delete(key);
-    }
-    for (const [key, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
-      if (scheduled.chatId !== payload.chatId)
-        continue;
-      if (scheduled.timer)
-        clearTimeout(scheduled.timer);
-      scheduledProseOpportunityScans.delete(key);
-    }
-    for (const key of [...deferredScans.keys()])
-      if (key.startsWith(`${payload.chatId}:`))
-        deferredScans.delete(key);
-    for (const [key, request] of [...deferredRegenerateRequests.entries()]) {
-      if (!key.startsWith(`${payload.chatId}:`))
-        continue;
-      if (request.timer)
-        clearTimeout(request.timer);
-      deferredRegenerateRequests.delete(key);
-    }
-    for (const [key, request] of [...deferredReparseRequests.entries()]) {
-      if (!key.startsWith(`${payload.chatId}:`))
-        continue;
-      if (request.timer)
-        clearTimeout(request.timer);
-      deferredReparseRequests.delete(key);
-    }
-    const broker = nativeSettingsBroker(userId);
-    await mutateState(payload.chatId, userId, (state) => {
-      const now = Date.now();
-      state.backgroundQueue.abortRequestedAt = now;
-      state.backgroundQueue.updatedAt = now;
-      for (const record of Object.values(state.slots)) {
-        if (!isGenerationActiveStatus(record.status) && record.status !== "paused-backlog")
-          continue;
-        cancelledJobs.add(jobCancellationKey(record));
-        removeNativeSettingsWaiters(broker.waiters, payload.chatId, [canonicalDispatchKey(record)]);
-        if (record.status !== "cancelled")
-          state.stats.cancelledTotal += 1;
-        record.status = "cancelled";
-        record.cancelledAt = now;
-        record.updatedAt = now;
-        finishAttempt(record, "cancelled", now, "Cancelled by global Abort All.");
-        const lease = state.dispatchLeases[canonicalDispatchKey(record)];
-        if (lease)
-          Object.assign(lease, { status: "cancelled", cancellationEpoch: queueAbort.epoch });
-      }
-      for (const item of Object.values(state.backgroundQueue.items)) {
-        if (["completed", "failed", "cancelled"].includes(item.stage))
-          continue;
-        updateBackgroundTask(state, item.id, { stage: "cancelled", statusText: "Cancelled by Abort All", etaSeconds: null });
-      }
-      state.stats.updatedAt = now;
-      updateQueueSafetySummary(state, now);
-      appendStateLog(state, {
-        severity: "warning",
-        stage: "background-queue",
-        eventType: "abort_all",
-        chatId: payload.chatId,
-        message: "User cancelled all queued, waiting, and active Relay work.",
-        details: { abortedQueued: queueAbort.queued, abortedActive: queueAbort.active, stoppedStreams, cancellationEpoch: queueAbort.epoch }
+    const aborted = freezeAndCancelUserRuntime(payload.chatId, userId);
+    let cancelledRecords = 0;
+    for (const chatId of aborted.chatIds) {
+      await mutateState(chatId, userId, (state) => {
+        const now = Date.now();
+        state.backgroundQueue.abortRequestedAt = now;
+        state.backgroundQueue.updatedAt = now;
+        for (const record of Object.values(state.slots)) {
+          if (!isGenerationActiveStatus(record.status) && !["paused-backlog", "awaiting-native-settings"].includes(record.status))
+            continue;
+          cancelledJobs.add(jobCancellationKey(record));
+          if (record.status !== "cancelled") {
+            state.stats.cancelledTotal += 1;
+            cancelledRecords += 1;
+          }
+          record.status = "cancelled";
+          record.cancelledAt = now;
+          record.updatedAt = now;
+          finishAttempt(record, "cancelled", now, "Cancelled by global Abort All.");
+          const lease = state.dispatchLeases[canonicalDispatchKey(record)];
+          if (lease)
+            Object.assign(lease, { status: "cancelled", cancellationEpoch: aborted.epoch });
+        }
+        for (const item of Object.values(state.backgroundQueue.items)) {
+          if (["completed", "failed", "cancelled"].includes(item.stage))
+            continue;
+          updateBackgroundTask(state, item.id, { stage: "cancelled", statusText: "Cancelled by Abort All", etaSeconds: null });
+        }
+        state.stats.updatedAt = now;
+        updateQueueSafetySummary(state, now);
+        appendStateLog(state, {
+          severity: "warning",
+          stage: "background-queue",
+          eventType: "abort_all",
+          chatId,
+          message: "Global Abort All froze provider handoff and cancelled Relay work for this user across chats.",
+          details: { ...aborted, operationSource: "global-abort-all", startsAuthorizedAfterAbort: 0 }
+        });
       });
-    });
-    await sendState(userId, payload.chatId);
+      await sendState(userId, chatId);
+    }
     spindle.sendToFrontend({
       type: "queue_abort_ack",
-      abortedQueued: queueAbort.queued,
-      abortedActive: queueAbort.active,
+      abortedQueued: aborted.providerWaiters + aborted.nativeSettingsWaiters + aborted.deferredWork + aborted.scheduledScans,
+      abortedActive: aborted.activeAttempts + aborted.providerStreams,
       remoteCancelRequested: 0,
-      alreadyStopped: queueAbort.queued + queueAbort.active + stoppedStreams === 0 ? 1 : 0
+      alreadyStopped: cancelledRecords + aborted.activeAttempts + aborted.providerStreams + aborted.providerWaiters === 0 ? 1 : 0
     }, userId);
-    spindle.sendToFrontend({ type: "relay_notice", level: "info", message: `Abort acknowledged: ${queueAbort.queued} queued and ${queueAbort.active || stoppedStreams} active Relay job${queueAbort.queued + queueAbort.active === 1 ? "" : "s"} stopped locally.` }, userId);
+    spindle.sendToFrontend({ type: "relay_notice", level: "info", message: `Global Abort All acknowledged: ${cancelledRecords} slot${cancelledRecords === 1 ? "" : "s"} stopped across ${aborted.chatIds.length} chat${aborted.chatIds.length === 1 ? "" : "s"}. Relay will not hand off another provider request without new user work.` }, userId);
     return;
   }
-  if (payload.action === "generate_pending") {
+  if (payload.action === "generate_pending" || payload.action === "generate_all_pending") {
     const config = await getConfig(userId);
     const snapshot = nativeSnapshot || nativeSnapshotFromConfig(config);
     const freshness = classifyNativeSettings(snapshot?.capturedAt);
@@ -164594,7 +164724,9 @@ async function handleQueueAction(payload, nativeSnapshot, userId) {
     }
     const state = await getState(payload.chatId, userId);
     const selected = new Set(payload.selectedKeys || []);
-    const pending = Object.values(state.slots).filter((record) => record.status === "paused-backlog" && (!selected.size || selected.has(record.key)));
+    if (payload.action === "generate_pending" && !selected.size)
+      throw new Error("Generate Selected Pending requires at least one selected slot.");
+    const pending = selectPendingRecordsForExplicitAction(Object.values(state.slots), selected, payload.action === "generate_all_pending");
     await runWithConcurrency(groupRecordsIntoJobs(pending), config.queueConcurrencyLimit, (job) => dispatchRelayJob(job, {
       replaceExisting: false,
       reparse: true,
@@ -164603,7 +164735,9 @@ async function handleQueueAction(payload, nativeSnapshot, userId) {
       automaticDispatch: false,
       settingsSource: freshness.source,
       settingsAgeMs: freshness.ageMs,
-      dispatchReason: "explicit-generate-pending"
+      dispatchReason: payload.action === "generate_all_pending" ? "explicit-generate-all-pending" : "explicit-generate-selected-pending",
+      providerOrigin: payload.action === "generate_all_pending" ? "explicit-generate-all-pending" : "explicit-generate-selected-pending",
+      authorizedSlotKey: payload.action === "generate_pending" && selected.size === 1 ? [...selected][0] : undefined
     }, userId));
     return;
   }
@@ -165395,6 +165529,9 @@ async function generateProseIllustrationPlan(chatId, planId, nativeSnapshot, use
       registeredAt: now,
       queuedAt: now,
       updatedAt: now,
+      discoveryRuntimeSessionId: RELAY_RUNTIME_SESSION_ID,
+      responseOwnershipKey: `${chatId}:${plan.messageId}:${plan.swipeId}`,
+      responseOwnershipClaimedAt: now,
       selectedPromptProfileId: plan.promptProfileId,
       proseIllustrationId: plan.planId,
       prosePlanId: plan.planId,
@@ -168090,6 +168227,129 @@ function semanticLocationTokens(value) {
   }
   return found;
 }
+function stageGlobalAbortRegressionFixture(regenerateChatId, reparseChatId, userId) {
+  const abortEpoch = currentUserAbortEpoch(userId);
+  const regenerateKey = `${regenerateChatId}:fixture-regenerate`;
+  const reparseKey = `${reparseChatId}:fixture-reparse`;
+  const regenerateTimer = setTimeout(() => {
+    return;
+  }, 60000);
+  const reparseTimer = setTimeout(() => {
+    return;
+  }, 60000);
+  regenerateTimer.unref?.();
+  reparseTimer.unref?.();
+  deferredRegenerateRequests.set(regenerateKey, { key: regenerateKey, userId, attempts: 0, abortEpoch, timer: regenerateTimer });
+  deferredReparseRequests.set(reparseKey, { key: reparseKey, userId, attempts: 0, abortEpoch, timer: reparseTimer });
+}
+function freezeAndCancelUserRuntime(initiatingChatId, userId) {
+  const scope = relayQueueScope(userId);
+  const runtime = abortRuntimeForUser(userId);
+  runtime.epoch += 1;
+  runtime.aborting = true;
+  runtime.lastAbortAllAt = Date.now();
+  const chatIds = new Set([initiatingChatId]);
+  let providerWaiters = 0;
+  let deferredWork = 0;
+  let scheduledScans = 0;
+  let nativeSettingsWaiters = 0;
+  let activeAttempts = 0;
+  const lane = imageGenerationLanes.get(scope);
+  if (lane) {
+    lane.handoffFrozen = true;
+    const waiters = lane.waiters.splice(0);
+    providerWaiters = waiters.length;
+    for (const waiter of waiters) {
+      if (waiter.context.chatId)
+        chatIds.add(waiter.context.chatId);
+      clearImageGenerationLaneWaiter(waiter);
+      if (!waiter.controller.signal.aborted)
+        waiter.controller.abort("Cancelled by global Abort All.");
+      waiter.reject(abortError("Cancelled by global Abort All."));
+    }
+  }
+  for (const attempt of activeRelayAttempts.values()) {
+    if (relayQueueScope(attempt.userId) !== scope || attempt.controller.signal.aborted)
+      continue;
+    chatIds.add(attempt.chatId);
+    attempt.abortedAt = Date.now();
+    attempt.reason = "Cancelled by global Abort All.";
+    attempt.controller.abort(attempt.reason);
+    activeAttempts += 1;
+  }
+  for (const stream of activeImageStreams.values()) {
+    if (stream.userId === scope && stream.context.chatId)
+      chatIds.add(stream.context.chatId);
+  }
+  for (const [key, scheduled] of [...scheduledAssistantScans.entries()]) {
+    if (relayQueueScope(scheduled.userId) !== scope)
+      continue;
+    chatIds.add(scheduled.chatId);
+    if (scheduled.timer)
+      clearTimeout(scheduled.timer);
+    scheduledAssistantScans.delete(key);
+    scheduledScans += 1;
+  }
+  for (const [key, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
+    if (relayQueueScope(scheduled.userId) !== scope)
+      continue;
+    chatIds.add(scheduled.chatId);
+    if (scheduled.timer)
+      clearTimeout(scheduled.timer);
+    scheduledProseOpportunityScans.delete(key);
+    scheduledScans += 1;
+  }
+  for (const [key, deferred] of [...deferredScans.entries()]) {
+    if (relayQueueScope(deferred[3]) !== scope)
+      continue;
+    chatIds.add(deferred[0]);
+    deferredScans.delete(key);
+    deferredWork += 1;
+  }
+  for (const registry of [deferredRegenerateRequests, deferredReparseRequests]) {
+    for (const [key, request] of [...registry.entries()]) {
+      if (relayQueueScope(request.userId) !== scope)
+        continue;
+      const chatId = key.split(":")[0];
+      if (chatId)
+        chatIds.add(chatId);
+      if (request.timer)
+        clearTimeout(request.timer);
+      registry.delete(key);
+      deferredWork += 1;
+    }
+  }
+  const broker = nativeSettingsBrokers.get(scope);
+  if (broker) {
+    for (const [chatId, keys] of broker.waiters) {
+      chatIds.add(chatId);
+      nativeSettingsWaiters += keys.size;
+    }
+    broker.waiters.clear();
+    if (broker.refreshWatchdog)
+      clearTimeout(broker.refreshWatchdog);
+    broker.refreshWatchdog = undefined;
+    broker.refreshInFlight = false;
+    broker.refreshRequestedAt = undefined;
+    broker.refreshRetryCount = 0;
+  }
+  for (const chatId of chatIds) {
+    const cancellationScope = relayCancellationScope(chatId, userId);
+    queueCancellationEpochs.set(cancellationScope, (queueCancellationEpochs.get(cancellationScope) || 0) + 1);
+    for (const key of [...abortableOperationSerials.keys()])
+      if (key.endsWith(`:${chatId}`))
+        cancelAbortableOperation(key);
+  }
+  const providerStreams = abortImageStreamsForUser(userId);
+  runtime.aborting = false;
+  if (lane) {
+    lane.handoffFrozen = false;
+    if (!lane.active)
+      imageGenerationLanes.delete(scope);
+    emitImageWorkerRecoveryState(userId);
+  }
+  return { epoch: runtime.epoch, chatIds: [...chatIds], activeAttempts, providerStreams, providerWaiters, deferredWork, scheduledScans, nativeSettingsWaiters };
+}
 function stateCueAuthorizedByCurrentScene(cue, authoritative, supportingContext) {
   if (hasSemanticCue(authoritative, cue))
     return true;
@@ -168686,7 +168946,7 @@ async function generateImage(chatId, prepared, plan, userId, streamContext, owne
     relay_recipe_id: plan.recipeId || undefined,
     clientJobId: resolvedStreamContext.generationId
   };
-  spindle.log.info(`[ReverieRelay:generation_origin] ${JSON.stringify({ origin: source, chatId: resolvedOwnerChatId || chatId || null, requestId: resolvedStreamContext.requestId || null, generationId: resolvedStreamContext.generationId, connectionId: plan.connectionId, model: plan.model, semanticPromptPresent: isMeaningfulAutomaticPrompt(assembled.prompt, plan.effectiveBaseTags), recipeId: plan.recipeId || null, fallbackProviderGuardApplied: prepared.promptPipeline.fallbackProviderGuardApplied, fallbackProviderFragmentsRemoved: assembled.removedFallbackFragments.length })}`);
+  spindle.log.info(`[ReverieRelay:generation_origin] ${JSON.stringify({ origin: resolvedStreamContext.origin || source, source, chatId: resolvedOwnerChatId || chatId || null, requestId: resolvedStreamContext.requestId || null, slotKey: resolvedStreamContext.slotKey || null, authorizedSlotKey: resolvedStreamContext.authorizedSlotKey || null, cancellationEpoch: resolvedStreamContext.cancellationEpoch ?? currentUserAbortEpoch(userId), followedAbort: resolvedStreamContext.followedAbort === true, elapsedSinceAbortAllMs: resolvedStreamContext.elapsedSinceAbortAllMs ?? null, generationId: resolvedStreamContext.generationId, connectionId: plan.connectionId, model: plan.model, semanticPromptPresent: isMeaningfulAutomaticPrompt(assembled.prompt, plan.effectiveBaseTags), recipeId: plan.recipeId || null, fallbackProviderGuardApplied: prepared.promptPipeline.fallbackProviderGuardApplied, fallbackProviderFragmentsRemoved: assembled.removedFallbackFragments.length })}`);
   let providerStartedAt = Date.now();
   let result = await generateWithOptionalStream(providerRequest, plan, userId, resolvedStreamContext);
   let galleryItemId = cleanString(result.galleryItemId) || undefined;
@@ -170467,6 +170727,10 @@ function normalizeGalleryLinks(value) {
       attempts: Math.max(0, Number(row.attempts) || 0),
       createdAt: Number(row.createdAt) || Date.now(),
       updatedAt: Number(row.updatedAt) || Date.now(),
+      lastAttemptAt: Number(row.lastAttemptAt) || undefined,
+      completedAt: Number(row.completedAt) || undefined,
+      retryMode: cleanString(row.retryMode) === "gallery-only" ? "gallery-only" : undefined,
+      lastOperationSource: ["server-persistence", "rest-fallback", "explicit-gallery-retry"].includes(cleanString(row.lastOperationSource)) ? cleanString(row.lastOperationSource) : undefined,
       galleryItemId: cleanString(row.galleryItemId) || undefined,
       error: cleanString(row.error) || undefined
     };
@@ -170567,7 +170831,7 @@ function queueGalleryLink(state, input) {
     createdAt: now,
     updatedAt: now
   };
-  Object.assign(link, input, { status: existing?.status === "failed" ? "pending" : link.status, error: undefined, updatedAt: now });
+  Object.assign(link, input, { updatedAt: now, lastOperationSource: existing?.lastOperationSource || "server-persistence" });
   state.galleryLinks[id] = link;
   startBackgroundTask(state, {
     id: `queue:${id}`,
@@ -170661,6 +170925,13 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     generationId: context.generationId,
     chatId: context.chatId || null,
     requestId: context.requestId || null,
+    slotKey: context.slotKey || null,
+    origin: context.origin || (context.source === "relay-candidate" ? "candidate-generation" : context.source === "relay-illustrator" ? "illustrator-generation" : "automatic-recovery"),
+    previousSlotStatus: context.previousSlotStatus || null,
+    cancellationEpoch: context.cancellationEpoch ?? currentUserAbortEpoch(userId),
+    authorizedSlotKey: context.authorizedSlotKey || null,
+    followedAbort: context.followedAbort === true,
+    elapsedSinceAbortAllMs: Number.isFinite(context.elapsedSinceAbortAllMs) ? context.elapsedSinceAbortAllMs : null,
     provider: cleanString(plan.provider).toLocaleLowerCase(),
     providerDispatchCount: 0,
     providerSpendStartedAt: 0,
@@ -170714,6 +170985,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     diagnostic.terminalResolutionCount += 1;
   };
   try {
+    assertDispatchEpoch(context, userId);
     diagnostic.destinationAvailable = await revalidateChatDestination(context.chatId, userId);
     if (!diagnostic.destinationAvailable)
       throw new ImageGenerationDestinationUnavailableError(context.chatId);
@@ -170721,6 +170993,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
     laneLease = await acquireImageGenerationLane(userId, context, controller, plan.provider);
     if (controller.signal.aborted)
       throw abortError();
+    assertDispatchEpoch(context, userId);
     diagnostic.destinationAvailable = await revalidateChatDestination(context.chatId, userId);
     if (!diagnostic.destinationAvailable)
       throw new ImageGenerationDestinationUnavailableError(context.chatId);
@@ -170764,6 +171037,7 @@ async function generateWithOptionalStream(finalRequest, plan, userId, context, f
       });
     };
     const startProviderSpend = (transport) => {
+      assertDispatchEpoch(context, userId);
       if (diagnostic.providerDispatchCount !== 0) {
         throw new Error(`Provider dispatch invariant violated for ${context.generationId}; Relay refused generation #${diagnostic.providerDispatchCount + 1}.`);
       }
@@ -171140,6 +171414,12 @@ async function exportQueueDispatchDiagnostic(chatId, userId) {
       settingsSource: lease?.settingsSource || freshness.source,
       settingsAgeMs: Number.isFinite(lease?.settingsAgeMs) ? lease.settingsAgeMs : freshness.ageMs,
       dispatchReason: lease?.dispatchReason || "",
+      providerOrigin: lease?.providerOrigin || "",
+      authorizedSlotKey: lease?.authorizedSlotKey || null,
+      cancellationEpoch: lease?.cancellationEpoch || 0,
+      discoveryRuntimeSessionId: record.discoveryRuntimeSessionId || null,
+      responseOwnershipKey: record.responseOwnershipKey || null,
+      responseOwnershipClaimedAt: record.responseOwnershipClaimedAt || 0,
       timing: generationTimingForRecord(record, now)
     };
   });
@@ -171479,7 +171759,7 @@ function migrateSlotRecord(record) {
     record.error = "Recovered after the app closed or generation state became stale. Reparse or generate this slot again.";
     record.updatedAt = Date.now();
     finishAttempt(record, "cancelled", record.updatedAt, "Recovered stale processing state after restart.");
-  } else if ((record.status === "queued" || record.status === "awaiting-native-settings") && !activeInThisRuntime && processingAge > AUTO_DISPATCH_STALE_MS) {
+  } else if ((record.status === "queued" || record.status === "awaiting-native-settings") && !activeInThisRuntime && record.discoveryRuntimeSessionId !== RELAY_RUNTIME_SESSION_ID && processingAge > AUTO_DISPATCH_STALE_MS) {
     record.status = "paused-backlog";
     record.error = undefined;
     record.updatedAt = Date.now();
@@ -172298,7 +172578,7 @@ async function sendState(userId, chatId) {
     customSurfaces: state.customSurfaces,
     proseIllustrator: state.proseIllustrator,
     backgroundQueue: state.backgroundQueue,
-    galleryLinks: Object.values(state.galleryLinks).sort((a, b) => b.updatedAt - a.updatedAt).filter((link, index) => index < RECENT_COMPLETED_HOT_LIMIT || link.status === "pending"),
+    galleryLinks: Object.values(state.galleryLinks).sort((a, b) => b.updatedAt - a.updatedAt).filter((link, index) => index < RECENT_COMPLETED_HOT_LIMIT || link.status === "pending" || link.status === "failed"),
     lastDryRun: state.lastDryRun,
     lastGenerationBlockers: state.lastGenerationBlockers,
     schemaVersion: state.schemaVersion,
@@ -174332,6 +174612,7 @@ export {
   filterBaseTagsForTarget,
   finalizeParsedPositivePrompt,
   followedNativeParserConfig,
+  freezeAndCancelUserRuntime,
   generateParserText,
   generateWithOptionalStream,
   generationTimingForRecord,
@@ -174404,6 +174685,7 @@ export {
   selectCompletedRequestContent,
   setConfig,
   shouldScanCompletedGeneration,
+  stageGlobalAbortRegressionFixture,
   stageStaleChatCleanupRegressionFixture,
   targetFramingInstruction,
   targetHumanPolicy,

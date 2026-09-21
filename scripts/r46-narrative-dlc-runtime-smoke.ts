@@ -206,7 +206,10 @@ assert(dramaticRendered.includes('data-reverie-narrative-media-compat="1"'), 'Dr
 assert(dramaticRendered.includes('data-reverie-narrative-block-spacing="1"') && dramaticRendered.includes('margin-bottom:clamp(24px,4.5vw,34px)!important'), 'Narrative launcher roots must retain a readable gutter from surrounding prose')
 for (const owner of ['dg-dramatic-media', 'r65-media', 'rv6-media', 'ru-media', 'ru-portrait', 'ru-secret-media', 'ru-thread-media', 'ra66-archive-media', 'rrcp-media', 'rrcp-photo-media', 'rrcp-wallpaper']) {
   assert(dramaticRendered.includes(owner), `${owner}: shared Narrative media compatibility coverage is missing`)
+  assert(dramaticRendered.includes(`.${owner}>.rrl-island`), `${owner}: unresolved Relay lifecycle islands are not forced visible at full owner width`)
 }
+assert(dramaticRendered.includes('.r65-thread>.r65-media:not(:has(image_request,image_request_error,img,.reverie-artifact-media,.rrl-island,.rrl-media-slot,[data-reverie-lifecycle-card]))'), 'Parallel media still hides its unresolved lifecycle reservation')
+assert(dramaticRendered.includes('>.rrl-island{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important}'), 'Narrative lifecycle reservations lost stable full-width sizing')
 const dramaticRequest = parseImageRequests(dramaticFixture)[0]
 assert(dramaticRequest?.target === 'custom.artifact-media' && dramaticRequest.promptSource === 'structured', 'Dramatic Cutaway media must use the shared parsed artifact lane')
 const resolvedDramaticMedia = renderResolvedMarkup({

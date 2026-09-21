@@ -20,15 +20,15 @@ function presentationHash(scripts: NarrativeRegexScript[]): string {
 const EXPECTED: Record<NarrativeRegexVariant, { raw: string; assembled: string }> = {
   inline: {
     raw: 'fedb87a76b45236206c498243a86d160f3b53921c2382a35fc04ac1b7c9f9d77',
-    assembled: '751e34ac7d58518f7390b4a5670cb9f967848f0227ff934fbff5f0dc9056ff8d',
+    assembled: '5c80a3bf07c92fc86cbd544116b442e4adf51170704a427a0061a160e9d84d5d',
   },
   'plain-button': {
     raw: '2fc76fd965435f4d50ed2772cdc6145efe982a9bb3afc1327444e724b49d6b0e',
-    assembled: '224a32298317254b9ef2a9355a0cc50194e30c7c04b4ab8a7d17d90f8eafdda0',
+    assembled: '66fe09388671fb820fa199543e869d72527ebd9d3e01cddb1761b551312a176f',
   },
   'sparkle-button': {
     raw: '866e8351a2455f9c9754135c2c114a37a73292368f6f0db867d11920796e2c6b',
-    assembled: 'a0ee1981ed177fd3e5aaf1b085f9eda5e9f5a3d988d3fdd17dde475c5be0ffc1',
+    assembled: 'aee30ff37ffe037d8a24b422c295d69f171cdb796b28fba19d0e6a681260a5a8',
   },
 }
 

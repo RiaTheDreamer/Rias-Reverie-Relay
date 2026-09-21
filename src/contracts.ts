@@ -161,6 +161,10 @@ export type GalleryLinkRequest = {
   attempts: number
   createdAt: number
   updatedAt: number
+  lastAttemptAt?: number
+  completedAt?: number
+  retryMode?: 'gallery-only'
+  lastOperationSource?: 'server-persistence' | 'rest-fallback' | 'explicit-gallery-retry'
   galleryItemId?: string
   error?: string
 }
@@ -1303,6 +1307,9 @@ export type SlotRecord = {
   createdAt: number
   discoveredAt?: number
   registeredAt?: number
+  discoveryRuntimeSessionId?: string
+  responseOwnershipKey?: string
+  responseOwnershipClaimedAt?: number
   queuedAt?: number
   parsingStartedAt?: number
   parsingCompletedAt?: number
@@ -1422,6 +1429,8 @@ export type SlotRecord = {
   galleryItemId?: string
   galleryLinkError?: string
   galleryLinkedAt?: number
+  galleryLinkLastAttemptAt?: number
+  galleryLinkRetryMode?: 'gallery-only'
   history: GenerationSnapshot[]
 }
 

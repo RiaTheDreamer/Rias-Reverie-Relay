@@ -70,7 +70,7 @@ const legacy = {
   },
 }
 const migrated = backend.migrateRelayStateSnapshot(legacy) as any
-assert.equal(migrated.schemaVersion, 35)
+assert.equal(migrated.schemaVersion, 36)
 assert.equal(migrated.revision, 7)
 assert.equal(migrated.slots[legacyKey].status, 'completed')
 assert.equal(migrated.slots[legacyKey].imageId, 'legacy-image')

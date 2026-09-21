@@ -746,7 +746,7 @@ assert(manifest.permissions?.includes('interceptor') && manifest.permissions?.in
 const versionMatch = buildSource.match(/EXTENSION_VERSION = '([^']+)'/)
 const buildIdMatch = buildSource.match(/BUILD_ID = '([^']+)'/)
 assert(versionMatch?.[1] === manifest.version && new RegExp(`^\\d{8}-${String(manifest.version).replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}$`, 'i').test(buildIdMatch?.[1] || ''), 'expected shared current release identity')
-assert(backendSource.includes('STATE_SCHEMA_VERSION = 35'), 'expected state schema 35')
+assert(backendSource.includes('STATE_SCHEMA_VERSION = 36'), 'expected state schema 36')
 
 assert(frontendSource.includes("type SuiteSection = 'relay' | 'illustrator' | 'surfaces' | 'memory' | 'archive' | 'settings'"), 'expected six-part Surface Suite navigation')
 assert(frontendSource.includes('dg-suite-primary') && frontendSource.includes('dg-suite-secondary') && frontendSource.includes('Current Chat Overview'), 'expected clean hierarchical workspace')

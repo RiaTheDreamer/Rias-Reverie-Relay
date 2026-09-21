@@ -1,7 +1,7 @@
 // @ts-nocheck -- Deterministic Bun smoke harness; no host/provider calls.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { AUTO_RESUME_MAX_JOBS, NATIVE_SETTINGS_HARD_TTL_MS, NATIVE_SETTINGS_REFRESH_TIMEOUT_MS, NATIVE_SETTINGS_SOFT_TTL_MS, addNativeSettingsWaiters, canonicalDispatchKey, classifyBacklog, classifyNativeSettings, nativeSettingsWaiterCount, nativeSettingsWaiterCountsByChat, partitionBacklogByOwnership, raceWithAbort, removeNativeSettingsWaiters } from '../src/queueSafety'
+import { AUTO_RESUME_MAX_JOBS, NATIVE_SETTINGS_HARD_TTL_MS, NATIVE_SETTINGS_REFRESH_TIMEOUT_MS, NATIVE_SETTINGS_SOFT_TTL_MS, addNativeSettingsWaiters, canonicalDispatchKey, classifyBacklog, classifyNativeSettings, nativeSettingsWaiterCount, nativeSettingsWaiterCountsByChat, partitionBacklogByOwnership, raceWithAbort, removeNativeSettingsWaiters, selectPendingRecordsForExplicitAction } from '../src/queueSafety'
 import { HOT_LOG_LIMIT, RECENT_COMPLETED_HOT_LIMIT, compactCompletedRecord, serializedBytes, stripCompletedRecord } from '../src/completedState'
 import type { SlotRecord } from '../src/contracts'
 
@@ -51,6 +51,20 @@ assert.equal(ownership.currentSession.length, 9)
 assert.equal(ownership.priorSession.length, 1)
 assert.equal(classifyBacklog(ownership.priorSession, now).reason, 'stale')
 assert.equal(ownership.currentSession.every(item => currentKeys.has(canonicalDispatchKey(item))), true, 'current response siblings lost explicit session ownership')
+const durableOwned = record(91, 11)
+durableOwned.discoveryRuntimeSessionId = 'runtime-current'
+durableOwned.responseOwnershipKey = `${durableOwned.chatId}:${durableOwned.messageId}:${durableOwned.swipeId}`
+durableOwned.responseOwnershipClaimedAt = now - 11 * 60_000
+const durableOwnership = partitionBacklogByOwnership([durableOwned], new Set(), 'runtime-current')
+assert.equal(durableOwnership.currentSession.length, 1, 'an 11-minute provider choke converted a persistently owned current-response slot into prior-session backlog')
+
+const pendingAcrossChats = [
+  ...Array.from({ length: 4 }, (_, index) => ({ ...record(index, 0), key: `chat-a-slot-${index}`, chatId: 'chat-a', status: 'paused-backlog' as const })),
+  { ...record(5, 0), key: 'chat-b-slot', chatId: 'chat-b', status: 'paused-backlog' as const },
+]
+assert.deepEqual(selectPendingRecordsForExplicitAction(pendingAcrossChats, new Set(['chat-a-slot-2'])).map(item => item.key), ['chat-a-slot-2'], 'single pending retry admitted siblings or another chat')
+assert.equal(selectPendingRecordsForExplicitAction(pendingAcrossChats, new Set()).length, 0, 'empty selected-pending action silently meant generate all')
+assert.equal(selectPendingRecordsForExplicitAction(pendingAcrossChats, new Set(), true).length, 5, 'separately explicit Generate All Pending did not include the full pending set')
 
 // One user-level Native settings refresh may satisfy multiple chats, but the
 // waiter registry must retain chat ownership until each chat is processed.
@@ -98,16 +112,20 @@ assert.match(backend, /broker\.refreshInFlight/)
 assert.match(backend, /handleNativeSettingsRefreshTimeout/)
 assert.match(backend, /for \(const \[chatId, registeredKeys\] of \[\.\.\.broker\.waiters\.entries\(\)\]\)/)
 assert.match(backend, /hasConnectedFrontendForChat\(chatId, userId\)/)
-assert.match(backend, /partitionBacklogByOwnership\(waiting, currentSessionKeys\)/)
-assert.doesNotMatch(backend, /broker\.waiters\.clear\(\)/)
+assert.match(backend, /partitionBacklogByOwnership\(waiting, currentSessionKeys, RELAY_RUNTIME_SESSION_ID\)/)
+assert.match(backend, /discoveryRuntimeSessionId !== RELAY_RUNTIME_SESSION_ID/)
 assert.match(backend, /cancelRelayDispatchScope/)
-assert.match(backend, /abortImageStreamsForChat\(payload\.chatId, userId\)/)
+assert.match(backend, /abortImageStreamsForUser\(userId\)/)
 assert.match(backend, /inspectImageGenerationLaneDiagnostics/)
 assert.match(backend, /providerLane:/)
 assert.match(backend, /providerAttempts:/)
 for (const field of ['providerDispatchCount', 'providerSpendStartedAt', 'providerTransport', 'providerStreamingUsed', 'providerFallbackUsed', 'providerDraining', 'destinationAvailable']) assert.match(backend, new RegExp(field))
 assert.match(backend, /relayStreamingAllowedForProvider\(plan\.provider\)/)
 assert.match(backend, /releaseAbortedImageGenerationLane/)
+assert.match(backend, /serialized lane quarantined until the host transport settles/)
+assert.match(backend, /freezeAndCancelUserRuntime/)
+assert.match(backend, /lane\.handoffFrozen = true/)
+assert.match(backend, /broker\.waiters\.clear\(\)/)
 assert.doesNotMatch(backend, /image_stream_fallback/)
 assert.match(backend, /waiterCountsByChat:/)
 assert.match(backend, /activeRelayAttempts/)
@@ -119,7 +137,7 @@ assert.match(backend, /releaseDiscoveryLock\(\)[\s\S]{0,2500}dispatchRelayJob/)
 assert.doesNotMatch(backend, /relayDispatchQueues|enqueuedRelayJobs/)
 assert.match(frontend, /native_snapshot_requested[\s\S]{0,400}syncNativeSettings\(true\)/)
 assert.doesNotMatch(frontend, /native_snapshot_requested[\s\S]{0,300}sendScanWithNativeSnapshot/)
-assert.match(frontend, /Generate Pending/)
+assert.match(frontend, /Generate All Pending/)
 assert.match(frontend, /Export Queue Diagnostic/)
 
 console.log(`Phase 1 queue/performance smoke passed: 88 unique + 40 duplicates paused, 393 lifetime completed -> ${hot.length} hot, payload ${oldBytes} -> ${newBytes} bytes, cancellation late result suppressed.`)

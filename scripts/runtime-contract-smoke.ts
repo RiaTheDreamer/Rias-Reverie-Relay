@@ -387,8 +387,8 @@ assert.equal((backend.inspectImageGenerationLaneDiagnostics('u1') as any).waiter
 resolveWaitOwner!({ imageId: 'wait-owner', imageUrl: '/wait-owner' })
 await waitOwner
 
-// A local timeout owns the lifecycle boundary. Even a host promise which
-// ignores abort cannot retain the serialized lane; its late result is ignored.
+// A local timeout owns the Relay lifecycle boundary, but a host promise which
+// ignores abort quarantines the serialized lane until that transport settles.
 let resolveHungStandard: ((value: any) => void) | undefined
 let postTimeoutCalls = 0
 imageApi.generate = (input: any) => input.prompt === 'hung-standard'
@@ -400,16 +400,17 @@ await assert.rejects(
 )
 const afterStandardTimeoutPromise = backend.generateWithOptionalStream({ prompt: 'retry-standard' }, plan, 'u1', { ...context('retry-standard'), chatId: 'chat-retry' }, false, 500)
 await delay(10)
-assert.equal(postTimeoutCalls, 1, 'standard timeout failed to release the provider lane')
+assert.equal(postTimeoutCalls, 0, 'a new provider call overlapped the old draining standard transport')
+assert.equal((backend.inspectImageGenerationLaneDiagnostics('u1') as any).draining, true)
+resolveHungStandard!({ imageId: 'late-standard-result', imageUrl: '/late-standard-result' })
 const afterStandardTimeout = await afterStandardTimeoutPromise
 assert.equal(afterStandardTimeout.imageId, 'after-standard-timeout')
 assert.equal(postTimeoutCalls, 1)
-resolveHungStandard!({ imageId: 'late-standard-result', imageUrl: '/late-standard-result' })
 await Promise.resolve()
 assert(!frontendEvents.some(event => event?.generationId === 'hung-standard' && event?.event === 'done'), 'late timed-out standard result resurrected completion')
 
-// Chat-scoped Abort All semantics: cancelling Chat A must not cancel Chat B's
-// provider waiter. B proceeds as soon as A's abort releases the lane.
+// A chat-only cancellation does not cancel Chat B's waiter, but it also cannot
+// start B until Chat A's host transport has actually settled.
 let resolveChatA: ((value: any) => void) | undefined
 let chatBCalls = 0
 imageApi.generate = (input: any) => input.prompt === 'chat-a-active'
@@ -421,20 +422,27 @@ const chatBWaiting = backend.generateWithOptionalStream({ prompt: 'chat-b-waitin
 await delay(10)
 assert.equal(backend.abortImageStreamsForChat('chat-a', 'u1'), 1)
 await assert.rejects(chatAActive, (error: any) => error?.name === 'AbortError')
+await delay(10)
+assert.equal(chatBCalls, 0, 'chat-only cancellation overlapped a draining host transport')
+resolveChatA!({ imageId: 'cancelled-chat-a-late', imageUrl: '/cancelled-chat-a-late' })
 assert.equal((await chatBWaiting).imageId, 'chat-b-result')
 assert.equal(chatBCalls, 1)
-resolveChatA!({ imageId: 'cancelled-chat-a-late', imageUrl: '/cancelled-chat-a-late' })
 await Promise.resolve()
 
 imageApi.getProviders = async () => [{ id: 'provider', capabilities: { websocketPreviewStreaming: { previews: true, status: true } } }]
-imageApi.generateStream = async function* () { await new Promise(() => {}); yield { type: 'done', result: { imageId: 'impossible' } } }
+let releaseHungStream!: () => void
+imageApi.generateStream = async function* () { await new Promise<void>(resolve => { releaseHungStream = resolve }); yield { type: 'done', result: { imageId: 'impossible' } } }
 await assert.rejects(
   backend.generateWithOptionalStream({ prompt: 'hung-stream' }, plan, 'u1', { ...context('hung-stream'), drainTimeoutMs: 10 }, false, 20),
   (error: any) => error?.name === 'ImageGenerationTimeoutError',
 )
 await delay(20)
 imageApi.generate = async () => ({ imageId: 'after-stream-timeout', imageUrl: '/after-stream-timeout' })
-const afterStreamTimeout = await backend.generateWithOptionalStream({ prompt: 'retry-stream' }, plan, 'u1', context('retry-stream'), true, 100)
+const afterStreamPromise = backend.generateWithOptionalStream({ prompt: 'retry-stream' }, plan, 'u1', context('retry-stream'), true, 100)
+await delay(10)
+assert.equal((backend.inspectImageGenerationLaneDiagnostics('u1') as any).draining, true)
+releaseHungStream()
+const afterStreamTimeout = await afterStreamPromise
 assert.equal(afterStreamTimeout.imageId, 'after-stream-timeout', 'stream timeout did not release the generation lane')
 assert(frontendEvents.some(event => event?.event === 'error' && event?.statusText === 'Generation timed out.'), 'timeout did not publish a terminal error event')
 
@@ -466,4 +474,4 @@ assertUtilitiesInjected(assembledText(slowStorageResult), 'slow diagnostic stora
 await new Promise(resolve => setTimeout(resolve, 10))
 assert(blockedStateWriteAttempts >= 1, 'prompt diagnostics were not scheduled after returning the injection')
 
-console.log('Runtime contract smoke passed: final assembled Story Model prompt has Core structural XML 0, Narrative structural XML 0, bracket image-control authoring 0, and canonical XML image controls; continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, one-spend streaming failure semantics, bounded provider deadline/abort/lane release, snapshot Abort All, and deferred interceptor recovery.')
+console.log('Runtime contract smoke passed: final assembled Story Model prompt has Core structural XML 0, Narrative structural XML 0, bracket image-control authoring 0, and canonical XML image controls; continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, one-spend streaming failure semantics, abort quarantine without provider overlap, snapshot cancellation, and deferred interceptor recovery.')

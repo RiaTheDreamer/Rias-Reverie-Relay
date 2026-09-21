@@ -66,6 +66,8 @@ export type DispatchLease = {
   settingsAgeMs?: number
   dispatchReason?: string
   cancellationEpoch?: number
+  providerOrigin?: string
+  authorizedSlotKey?: string
 }
 
 export type NativeSettingsFreshness = {
@@ -166,17 +168,23 @@ export function classifyBacklog(records: SlotRecord[], now = Date.now()): Backlo
   }
 }
 
+export function selectPendingRecordsForExplicitAction(records: SlotRecord[], selectedKeys: ReadonlySet<string>, generateAll = false): SlotRecord[] {
+  if (!generateAll && selectedKeys.size === 0) return []
+  return records.filter(record => record.status === 'paused-backlog' && (generateAll || selectedKeys.has(record.key)))
+}
+
 /**
  * Wall-clock age is only a safety signal after runtime ownership has been
  * established. Records still owned by the connected frontend and its active
  * authored response remain dispatchable even when serialized siblings make
  * that response take longer than the stale-backlog threshold.
  */
-export function partitionBacklogByOwnership(records: SlotRecord[], currentSessionKeys: ReadonlySet<string>): BacklogOwnershipPartition {
+export function partitionBacklogByOwnership(records: SlotRecord[], currentSessionKeys: ReadonlySet<string>, runtimeSessionId?: string): BacklogOwnershipPartition {
   const currentSession: SlotRecord[] = []
   const priorSession: SlotRecord[] = []
   for (const record of records) {
-    if (currentSessionKeys.has(canonicalDispatchKey(record))) currentSession.push(record)
+    const explicitlyOwnedByRuntime = Boolean(runtimeSessionId && record.discoveryRuntimeSessionId === runtimeSessionId && record.responseOwnershipKey)
+    if (explicitlyOwnedByRuntime || currentSessionKeys.has(canonicalDispatchKey(record))) currentSession.push(record)
     else priorSession.push(record)
   }
   return { currentSession, priorSession }

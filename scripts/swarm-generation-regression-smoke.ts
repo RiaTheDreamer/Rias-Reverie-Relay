@@ -133,17 +133,68 @@ try {
   globalThis.setTimeout = nativeSetTimeout
 }
 
+// Global Abort All is user-scoped because the provider lane is user-scoped.
+// It rejects cross-chat waiters and pre-abort deferred work before aborting the
+// active transport, then keeps the lane quarantined until that transport ends.
+advertiseSwarmStream()
+let releaseGlobalAbortTransport!: () => void
+const globalAbortProviderStarts: string[] = []
+imageApi.generateStream = async function* (input: any) {
+  globalAbortProviderStarts.push(input.prompt)
+  if (input.prompt === 'global-active-a') {
+    yield { type: 'status', status: 'accepted' }
+    await new Promise<void>(resolve => { releaseGlobalAbortTransport = resolve })
+  }
+  yield { type: 'done', result: { imageId: `image-${input.prompt}`, imageUrl: `/image-${input.prompt}` } }
+}
+const globalUser = 'swarm-global-abort'
+const globalA = backend.generateWithOptionalStream({ prompt: 'global-active-a' }, swarmPlan, globalUser, context('global-a', { chatId: 'global-chat-a' }), false, 500)
+while (!releaseGlobalAbortTransport) await Promise.resolve()
+const globalB = backend.generateWithOptionalStream({ prompt: 'global-waiting-b' }, swarmPlan, globalUser, context('global-b', { chatId: 'global-chat-b' }), false, 500)
+const globalC = backend.generateWithOptionalStream({ prompt: 'global-waiting-c' }, swarmPlan, globalUser, context('global-c', { chatId: 'global-chat-c' }), false, 500)
+await delay(10)
+backend.stageGlobalAbortRegressionFixture('global-chat-a', 'global-chat-b', globalUser)
+const globalAbort = backend.freezeAndCancelUserRuntime('global-chat-a', globalUser)
+assert.equal(globalAbort.providerWaiters, 2)
+assert.equal(globalAbort.deferredWork, 2)
+await Promise.all([
+  assert.rejects(globalA, /abort|cancel/i),
+  assert.rejects(globalB, /abort|cancel/i),
+  assert.rejects(globalC, /abort|cancel/i),
+])
+assert.deepEqual(globalAbortProviderStarts, ['global-active-a'], 'Abort All promoted a cross-chat waiter into provider spend')
+assert.equal((backend.inspectImageGenerationLaneDiagnostics(globalUser) as any).draining, true)
+const explicitAfterAbort = backend.generateWithOptionalStream({ prompt: 'explicit-selected-after-abort' }, swarmPlan, globalUser, context('global-explicit', {
+  chatId: 'global-chat-a', origin: 'explicit-single-retry', authorizedSlotKey: 'global-chat-a:selected-slot', cancellationEpoch: globalAbort.epoch,
+  followedAbort: true, elapsedSinceAbortAllMs: 10,
+}), false, 500)
+await delay(10)
+assert.deepEqual(globalAbortProviderStarts, ['global-active-a'], 'explicit retry overlapped the old draining transport')
+releaseGlobalAbortTransport()
+assert.equal((await explicitAfterAbort).imageId, 'image-explicit-selected-after-abort')
+assert.deepEqual(globalAbortProviderStarts, ['global-active-a', 'explicit-selected-after-abort'], 'one selected retry did not produce exactly one authorized post-abort dispatch')
+const explicitDiagnostic: any = assertExactlyOnce('global-explicit', 'success')
+assert.equal(explicitDiagnostic.origin, 'explicit-single-retry')
+assert.equal(explicitDiagnostic.authorizedSlotKey, 'global-chat-a:selected-slot')
+assert.equal(explicitDiagnostic.followedAbort, true)
+assert.equal(explicitDiagnostic.elapsedSinceAbortAllMs, 10)
+
 // An explicit short deadline exists only for this deterministic harness. It
 // exercises abort/cleanup behavior without restoring a production timeout.
 let timeoutAbortObserved = 0
+let timeoutSuccessorStarts = 0
+let releaseTimedOutTransport!: () => void
 imageApi.generateStream = async function* (input: any) {
   if (input.prompt === 'accept then never settle') {
     yield { type: 'status', status: 'accepted', requestId: 'swarm-timeout-request' }
-    await new Promise<void>(() => {
+    await new Promise<void>(resolve => {
+      releaseTimedOutTransport = resolve
       const onAbort = () => { timeoutAbortObserved += 1 }
       if (input.signal.aborted) onAbort()
       else input.signal.addEventListener('abort', onAbort, { once: true })
     })
+  } else {
+    timeoutSuccessorStarts += 1
   }
   yield { type: 'done', result: { imageId: `image-${input.prompt}`, imageUrl: `/image-${input.prompt}` } }
 }
@@ -151,12 +202,20 @@ const timeoutContext = context('timeout-a', { chatId: 'same-chat', slotKey: 'slo
 const timedOut = backend.generateWithOptionalStream({ prompt: 'accept then never settle' }, swarmPlan, 'swarm-timeout', timeoutContext, false, 20)
 await assert.rejects(timedOut, /did not finish|timed out/i)
 assert.equal(timeoutAbortObserved, 1)
-const timeoutDiagnostic = assertExactlyOnce('timeout-a', 'timeout')
-assert(timeoutDiagnostic.abortRequestedAt > 0 && timeoutDiagnostic.abortPropagatedAt >= timeoutDiagnostic.abortRequestedAt)
+const timeoutBeforeSettlement: any = backend.inspectProviderAttemptDiagnostics('timeout-a')
+assert.equal(timeoutBeforeSettlement.providerLaneReleaseCount, 0)
+assert.equal((backend.inspectImageGenerationLaneDiagnostics('swarm-timeout') as any).draining, true)
+const sameChatPromise = backend.generateWithOptionalStream({ prompt: 'same-chat successor' }, swarmPlan, 'swarm-timeout', context('timeout-same-chat', { chatId: 'same-chat' }), false, 500)
+const freshChatPromise = backend.generateWithOptionalStream({ prompt: 'fresh-chat successor' }, swarmPlan, 'swarm-timeout', context('timeout-fresh-chat', { chatId: 'fresh-chat' }), false, 500)
+await delay(10)
+assert.equal(timeoutSuccessorStarts, 0, 'post-timeout provider work overlapped the old draining Swarm transport')
+releaseTimedOutTransport()
 assert(frontendEvents.some(event => event?.generationId === 'timeout-a' && event?.slotKey === 'slot-timeout-a' && event?.event === 'error' && /timed out/i.test(event?.statusText || '')), 'exact timed-out slot did not receive terminal timeout state')
 assert.equal(frontendEvents.some(event => event?.generationId === 'timeout-a' && event?.event === 'done'), false, 'timed-out slot received stale success')
-const sameChat = await backend.generateWithOptionalStream({ prompt: 'same-chat successor' }, swarmPlan, 'swarm-timeout', context('timeout-same-chat', { chatId: 'same-chat' }), false, 500)
-const freshChat = await backend.generateWithOptionalStream({ prompt: 'fresh-chat successor' }, swarmPlan, 'swarm-timeout', context('timeout-fresh-chat', { chatId: 'fresh-chat' }), false, 500)
+const sameChat = await sameChatPromise
+const freshChat = await freshChatPromise
+const timeoutDiagnostic = assertExactlyOnce('timeout-a', 'timeout')
+assert(timeoutDiagnostic.abortRequestedAt > 0 && timeoutDiagnostic.abortPropagatedAt >= timeoutDiagnostic.abortRequestedAt)
 assert.equal(sameChat.imageId, 'image-same-chat successor')
 assert.equal(freshChat.imageId, 'image-fresh-chat successor')
 assertExactlyOnce('timeout-same-chat', 'success')
@@ -193,15 +252,20 @@ assert.match(persistedFailure.diagnostic.proven.failureReason, /fresh provider f
 
 // Explicit user cancellation uses the same abort propagation and cleanup path.
 let userAbortObserved = 0
+let cancelSuccessorStarts = 0
+let releaseCancelledTransport!: () => void
 let finalizedCancelDiagnostic: any = null
 const userController = new AbortController()
 imageApi.generateStream = async function* (input: any) {
   if (input.prompt === 'cancel me') {
     yield { type: 'status', status: 'accepted' }
-    await new Promise<void>(() => {
+    await new Promise<void>(resolve => {
+      releaseCancelledTransport = resolve
       const onAbort = () => { userAbortObserved += 1 }
       input.signal.addEventListener('abort', onAbort, { once: true })
     })
+  } else {
+    cancelSuccessorStarts += 1
   }
   yield { type: 'done', result: { imageId: 'after-cancel', imageUrl: '/after-cancel' } }
 }
@@ -213,6 +277,10 @@ const afterCancel = backend.generateWithOptionalStream({ prompt: 'next request' 
 await delay(5)
 userController.abort('user cancelled')
 await assert.rejects(cancelled, /cancel/i)
+await delay(10)
+assert.equal(cancelSuccessorStarts, 0, 'post-cancel provider work overlapped the old draining Swarm transport')
+assert.equal((backend.inspectImageGenerationLaneDiagnostics('swarm-cancel') as any).draining, true)
+releaseCancelledTransport()
 assert.equal((await afterCancel).imageId, 'after-cancel')
 assert.equal(userAbortObserved, 1)
 const cancelDiagnostic = assertExactlyOnce('cancel-a', 'cancelled')
@@ -247,5 +315,28 @@ assert.equal(frontendEvents.some(event => event?.generationId === 'late-a' && ev
 assertExactlyOnce('late-a', 'cancelled')
 assertExactlyOnce('late-b', 'success')
 
+// Every persisted provider-start origin is exercised through the actual shared
+// dispatch seam so diagnostics cannot silently collapse new paths to "auto".
+advertiseSwarmStream()
+imageApi.generateStream = async function* (input: any) {
+  yield { type: 'done', result: { imageId: `origin-${input.prompt}`, imageUrl: `/origin-${input.prompt}` } }
+}
+const providerOrigins = [
+  'new-response-auto', 'explicit-single-retry', 'explicit-generate-selected-pending', 'explicit-generate-all-pending',
+  'explicit-regenerate', 'explicit-reparse', 'deferred-regenerate', 'deferred-reparse', 'automatic-recovery',
+  'candidate-generation', 'illustrator-generation',
+] as const
+for (const origin of providerOrigins) {
+  const generationId = `origin-${origin}`
+  await backend.generateWithOptionalStream({ prompt: origin }, swarmPlan, 'swarm-origin-matrix', context(generationId, {
+    origin, previousSlotStatus: 'paused-backlog', cancellationEpoch: 0,
+    authorizedSlotKey: origin.startsWith('explicit-') ? `slot-${origin}` : undefined,
+  }), false, 500)
+  const diagnostic: any = assertExactlyOnce(generationId, 'success')
+  assert.equal(diagnostic.origin, origin)
+  assert.equal(diagnostic.previousSlotStatus, 'paused-backlog')
+  assert.equal(diagnostic.cancellationEpoch, 0)
+}
+
 assert.equal(logs.some(entry => entry.message.includes('image_stream_fallback')), false)
-console.log('Swarm generation regression smoke passed: timeoutless production waiting, abortable transport, exact correlation, concurrency one, explicit-deadline/cancel lane release, durable diagnostics, and stale-result rejection are enforced.')
+console.log('Swarm generation regression smoke passed: timeoutless production waiting, abortable transport, exact correlation, concurrency one, explicit-deadline/cancel quarantine until host settlement, durable diagnostics, and stale-result rejection are enforced.')

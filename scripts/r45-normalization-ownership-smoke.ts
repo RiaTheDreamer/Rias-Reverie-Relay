@@ -98,7 +98,20 @@ const studio = {
   definitions: {}, activePresetIds: {}, collectionPresets: {}, rendererMode: 'relay',
   defaultShellMode: 'plain', colorMode: 'realistic',
 } as any
-const nativeMixed = renderNativeSurfaceMarkup(mixed, studio, { chatId: 'mixed-contracts', messageId: 'mixed-contracts', swipeId: 0 })
+const plotRecords = vectors.map((_vector, index) => {
+  const key = String.fromCharCode(97 + index)
+  const requestId = `plot-spark-${key}`
+  return {
+    key: `mixed-contracts:mixed-contracts:0:${requestId}:${requestId}`, chatId: 'mixed-contracts', messageId: 'mixed-contracts', swipeId: 0,
+    requestId, slot: requestId, target: 'custom.artifact-media', targetApp: 'custom', status: 'generating', requestAspect: '16:9',
+    originalSceneBrief: `${key} scene`, originalNegativePrompt: '', originalRequestXml: illustration(key), alt: requestId,
+    count: 1, createdAt: 1, updatedAt: 2, history: [],
+  }
+})
+const nativeMixed = renderNativeSurfaceMarkup(mixed, studio, {
+  chatId: 'mixed-contracts', messageId: 'mixed-contracts', swipeId: 0, autoGenerate: true,
+  generationPlaceholderEffect: 'glitter', records: plotRecords as any,
+})
 assert(countPlotMedia(nativeMixed.content) === 7, 'production native pass stripped Plot Sparks Media wrappers')
 const fullyRendered = renderNarrativeRegex(nativeMixed.content, 'inline', 'mixed-contracts', { chatId: 'mixed-contracts', swipeId: 0 })
 assert(!rawPlotTags.test(fullyRendered), 'mixed production path exposed raw Plot Sparks syntax')
@@ -108,6 +121,8 @@ for (const key of vectors.map((_vector, index) => String.fromCharCode(97 + index
   assert(panel.includes(`data-rrn-native-request="plot-spark-${key}"`), `Plot Spark ${key} lost its exact lifecycle request owner`)
 }
 assert((fullyRendered.match(/data-rrn-native-request="plot-spark-[a-g]"/g) || []).length === 7, 'mixed production path did not preserve all seven Spark lifecycle requests')
+assert((fullyRendered.match(/rrl-generation-placeholder/g) || []).length === 7, 'Plot Sparks did not reserve all seven media footprints before provider completion')
+assert((fullyRendered.match(/--reverie-media-aspect:16 \/ 9/g) || []).length === 7, 'Plot Sparks placeholders lost their measurable 16:9 footprints')
 
 // Closed-but-invalid siblings fail independently. One malformed owner cannot
 // redirect the other subsystem's valid owner through its fallback path.

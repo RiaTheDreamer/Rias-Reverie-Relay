@@ -535,9 +535,6 @@ var SLOT_LIFECYCLE = {
   failed: lifecycle(false, false, true),
   cancelled: lifecycle(false, false, true)
 };
-function isGenerationActiveStatus(status) {
-  return SLOT_LIFECYCLE[status].generationActive;
-}
 function isSlotLifecycleActive(status) {
   const semantics = SLOT_LIFECYCLE[status];
   return semantics.generationActive || semantics.placementActive;
@@ -138249,7 +138246,7 @@ ${message.prompt}`;
   async function processPendingGalleryLinks() {
     if (galleryLinkProcessing)
       return;
-    const pending = galleryLinks.filter((link) => link.status === "pending" || link.status === "failed" && link.attempts < 3);
+    const pending = galleryLinks.filter((link) => link.status === "pending");
     if (!pending.length)
       return;
     galleryLinkProcessing = true;
@@ -139667,7 +139664,7 @@ Relay will not generate these without approval.`;
         activeTab = "slots";
         slotFilter = "all";
         renderPanel();
-      }, false, "subtle"), button("Generate Pending", () => activeChatId && ctx.sendToBackend({ type: "queue_action", chatId: activeChatId, action: "generate_pending" }), false, "primary"), button("Discard Pending", () => activeChatId && ctx.sendToBackend({ type: "queue_action", chatId: activeChatId, action: "discard_pending" }), false, "danger"), button("Export Queue Diagnostic", () => activeChatId && ctx.sendToBackend({ type: "export_queue_diagnostic", chatId: activeChatId }), false, "subtle"));
+      }, false, "subtle"), button("Generate All Pending", () => activeChatId && ctx.sendToBackend({ type: "queue_action", chatId: activeChatId, action: "generate_all_pending" }), false, "primary"), button("Discard Pending", () => activeChatId && ctx.sendToBackend({ type: "queue_action", chatId: activeChatId, action: "discard_pending" }), false, "danger"), button("Export Queue Diagnostic", () => activeChatId && ctx.sendToBackend({ type: "export_queue_diagnostic", chatId: activeChatId }), false, "subtle"));
       backlog.append(copy, actions);
       head.appendChild(backlog);
     }
@@ -140991,19 +140988,10 @@ Model enumeration unavailable; Relay can only show models exposed by configured 
   function abortActiveGeneration() {
     if (!activeChatId)
       return;
-    const activeKeys = records.filter((record) => isGenerationActiveStatus(record.status)).map((record) => record.key);
-    if (activeKeys.length) {
-      ctx.sendToBackend({ type: "queue_action", chatId: activeChatId, action: "cancel_selected", selectedKeys: activeKeys });
-    }
-    for (const batch of candidateBatches.filter((item) => item.chatId === activeChatId && item.status === "processing")) {
-      for (const candidate of batch.candidates.filter((item) => ["preflight", "parsing", "provider-waiting", "generating"].includes(item.status))) {
-        ctx.sendToBackend({ type: "relay_discard_candidate", chatId: batch.chatId, batchId: batch.batchId, candidateKey: candidate.candidateKey });
-      }
-    }
-    sendProseAction({ action: "cancel_active" });
+    ctx.sendToBackend({ type: "queue_action", chatId: activeChatId, action: "abort_all" });
     localSidecarAnalysisStartedAt = 0;
     updateSidecarTicker();
-    showToast("info", "Relay is stopping active analysis and generation work.");
+    showToast("info", "Relay is globally freezing provider handoff and stopping work across chats.");
     renderRelayOrb();
   }
   function openDryRunReport(report) {
@@ -143832,10 +143820,18 @@ Latest: ${new Date(latest).toLocaleString()}${duration !== undefined ? ` / ${(du
       chips.append(chip(`Gallery ${titleCase(record.galleryLinkStatus)}`, record.galleryLinkStatus === "linked" ? "completed" : record.galleryLinkStatus === "failed" ? "failed" : "processing"));
     main.appendChild(chips);
     if (record.galleryLinkStatus === "failed") {
+      const failedLink = galleryLinks.find((link) => link.slotKey === record.key && link.status === "failed");
       const galleryError = document.createElement("div");
       galleryError.className = "dg-error";
-      galleryError.textContent = `Character Gallery save failed: ${record.galleryLinkError || "Unknown host error"}. Relay will retry up to three times.`;
-      main.appendChild(galleryError);
+      galleryError.textContent = `Character Gallery save failed: ${record.galleryLinkError || "Unknown host error"}. The generated image is intact; retrying this link will not regenerate it.`;
+      const galleryActions = document.createElement("div");
+      galleryActions.className = "dg-actions";
+      galleryActions.append(button("Retry Gallery Link", () => {
+        if (!failedLink)
+          return;
+        ctx.sendToBackend({ type: "retry_gallery_link", chatId: record.chatId, linkId: failedLink.id });
+      }, !failedLink, "subtle"));
+      main.append(galleryError, galleryActions);
     }
     if (record.recoverySource && record.recoverySource !== "unresolved-request") {
       const note = document.createElement("div");
