@@ -89,16 +89,6 @@ function lifecycleCardShell(card: string): string {
   return `<div class="rrl-island" data-reverie-lifecycle-card="true">${card}</div>`
 }
 
-function lifecycleMessageStyles(content: string): string {
-  if (!/(?:data-reverie-lifecycle-card|data-rrn-native-request)=/.test(content)) return content
-  if (content.includes('data-reverie-lifecycle-style="release"')) return content
-  // Lumiverse can mount rendered message HTML in a scope that the extension's
-  // document-level stylesheet does not reach. Keep one copy at the message
-  // root, before every bounded Surface block, so nested Parallel/Plot Sparks
-  // parsers never have to capture the stylesheet with an individual card.
-  return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${content}`
-}
-
 export function lifecycleRuntimeCss(): string {
   return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}`
     .replace(/<style\b[^>]*>/gi, '')
@@ -644,7 +634,7 @@ export function renderNativeSurfaceMarkup(
     bracketBlocks.push(block)
     return block.diagnostics.length
       ? editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join('; ')), block.original, block.spec.wrapper, block.spec.id, { ...renderContext, streamIslandOrdinal: bracketBlocks.length }, block.original)
-      : block.markup
+      : hydrateParityRequests(block.markup, block.spec.id, renderContext)
   })
   if (bracketBlocks.length) {
     bracketRenderedCount = bracketBlocks.length
@@ -657,8 +647,11 @@ export function renderNativeSurfaceMarkup(
       recordSurfacePipelineDiagnostic(block.spec.id, 'selected-renderer', `R4.5 bracket regex parity (${parityModeForSurface(block.spec.id, activePreset(studio, block.spec.id), renderContext)})`)
       recordSurfacePipelineDiagnostic(block.spec.id, 'final', block.diagnostics.length ? 'repair fallback' : 'rendered')
     }
-    const hydrated = hydrateParityRequests(bracketNormalized.markup, 'message', renderContext)
-    input = decorateParityImages(renderRegexSurfaceParity(hydrated, parityModeForSurface('message', undefined, renderContext), renderContext.messageId || 'bracket-surface', renderContext.colorMode || 'realistic'), renderContext)
+    // Hydration is deliberately scoped in the normalizer callback above. A
+    // whole-message pass also consumes prose illustration anchors adjacent to
+    // a bracket Surface, stealing them from the prose lifecycle and placement
+    // owner before automatic insertion can complete.
+    input = decorateParityImages(renderRegexSurfaceParity(bracketNormalized.markup, parityModeForSurface('message', undefined, renderContext), renderContext.messageId || 'bracket-surface', renderContext.colorMode || 'realistic'), renderContext)
   }
   // One shared, conservative normalization pass runs before either the Relay
   // renderer or the Regex-parity path sees an active shipped Surface.
@@ -845,7 +838,7 @@ export function renderNativeSurfaceMarkup(
     )
     content = preserveKakaoColorAttributes(content)
   }
-  return { content: lifecycleMessageStyles(content), renderedCount, renderedSurfaceIds }
+  return { content, renderedCount, renderedSurfaceIds }
 }
 
 
@@ -885,7 +878,7 @@ export function renderLifecycleWidgetMarkup(
     failed,
   }, true)
   return {
-    content: lifecycleMessageStyles(lifecycleCardIsland(card)),
+    content: lifecycleCardIsland(card),
     renderedCount: 1,
     renderedSurfaceIds: [baseSurfaceId],
   }
@@ -958,7 +951,7 @@ export function renderLegacyLifecycleMarkup(
     }, true))
   })
 
-  return { content: lifecycleMessageStyles(content), renderedCount, renderedSurfaceIds }
+  return { content, renderedCount, renderedSurfaceIds }
 }
 
 function baseSurfaceIdForTarget(target: string): string {

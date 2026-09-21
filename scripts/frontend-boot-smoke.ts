@@ -309,6 +309,8 @@ backendHandler!({
   config: { ...bootState.config, generationPlaceholderEffect: 'glitter' },
 })
 assert(mountedRoot.contains(mountedCard) && mountedCard.contains(mountedMedia) && mountedMedia.contains(mountedPlaceholder), 'mounted active lifecycle reservation was remounted or removed')
+const mountedLifecycleStyle = mountedRoot.querySelector('style')
+assert(mountedLifecycleStyle?.textContent.includes('.rrl-card') && mountedLifecycleStyle.textContent.includes('.rrl-media-slot'), 'mounted message scope did not receive extension-owned lifecycle CSS')
 assert(mountedCard.contains(mountedMain) && mountedStatus.textContent === 'Generating', 'mounted active Status Card chrome was removed or did not hydrate')
 assert(mountedPlaceholder.dataset.rrPlaceholderEffect === 'glitter', 'mounted active placeholder did not hydrate the selected effect')
 const mountedGlitter = mountedPlaceholder.querySelector('.rr-regex-particles')

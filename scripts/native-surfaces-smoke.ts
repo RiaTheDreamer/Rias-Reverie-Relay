@@ -140,16 +140,25 @@ for (const rendererMode of ['relay', 'legacy-regex', 'hybrid'] as const) for (co
       assert(!bracketRendered.content.includes(`[${definition.canonicalOuterWrapper}]`), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}/${lifecycle}: raw bracket root remained`)
       assert(!/<image_request\b/i.test(bracketRendered.content), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}/${lifecycle}: request was not hydrated in place`)
       if (lifecycle === 'pending' && /<(?:image_request|reverie-illustration)\b/i.test(definition.sampleXml)) {
-        const firstStyle = bracketRendered.content.indexOf('data-reverie-lifecycle-style="release"')
         const firstCard = bracketRendered.content.indexOf('data-reverie-lifecycle-card="true"')
         assert(firstCard > 0, `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: pending Surface lost its Status Card`)
-        assert(firstStyle >= 0 && firstStyle < firstCard, `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: Status Card CSS was not mounted at the message root`)
-        assert((bracketRendered.content.match(/data-reverie-lifecycle-style="release"/g) || []).length === 1, `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: lifecycle CSS was duplicated`)
+        assert(!bracketRendered.content.includes('data-reverie-lifecycle-style="release"'), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: message content must not transport lifecycle CSS`)
       }
       bracketOwnershipCases += 1
     }
   }
 }
+
+// A bracket Surface must not claim an adjacent Prose Illustration request.
+// Its exact owner controls automatic write-back/insertion after generation.
+const textOnlyBracket = bracketExampleFromXml(definitions.find(definition => definition.baseSurfaceId === 'x-dm')!.sampleXml)
+const adjacentProse = `<image_request id="adjacent-prose" target="prose.illustration" slot="adjacent-prose" aspect="4:3"><scene_brief>Prose-owned illustration.</scene_brief></image_request>\n${textOnlyBracket}`
+const adjacentProseRendered = renderNativeSurfaceMarkup(adjacentProse, studio, {
+  chatId: 'native-adjacent-prose', messageId: 'native-adjacent-prose-message',
+  records: [{ requestId: 'adjacent-prose', slot: 'adjacent-prose', target: 'prose.illustration', status: 'failed', messageId: 'native-adjacent-prose-message', requestAspect: '4:3', error: 'Ownership fixture' }],
+})
+assert(adjacentProseRendered.content.includes('data-rrn-surface-id="prose-illustration"'), 'bracket hydration stole an adjacent Prose Illustration from its automatic insertion owner')
+assert(!adjacentProseRendered.content.includes('data-rrn-surface-id="message"'), 'adjacent Prose Illustration fell into message-wide bracket ownership')
 
 const phoneGallery = canonical.find(row => row.id === 'phone-gallery')!
 for (const presentation of presentations) {

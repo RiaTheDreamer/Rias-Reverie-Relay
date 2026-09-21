@@ -2531,6 +2531,31 @@ export function setup(ctx: SpindleFrontendContext) {
     return [...found]
   }
 
+  const mountedLifecycleStyles = new WeakMap<Element | ShadowRoot, HTMLStyleElement>()
+  const mountedLifecycleStyleNodes = new Set<HTMLStyleElement>()
+
+  function ensureMountedLifecycleStyle(root: Element): void {
+    // Message content is not a stylesheet transport. Lumiverse may mount a
+    // message inside a shadow scope that the extension-wide stylesheet cannot
+    // reach, so install the same extension-owned CSS into the mounted message
+    // tree without changing or persisting the assistant's authored content.
+    const scopes = new Set<Element | ShadowRoot>()
+    for (const card of deepQueryAll<HTMLElement>(root, '[data-reverie-lifecycle-card], [data-rrn-native-request]')) {
+      const owner = typeof card.getRootNode === 'function' ? card.getRootNode() : root
+      scopes.add(owner instanceof ShadowRoot ? owner : root)
+    }
+    for (const scope of scopes) {
+      const existing = mountedLifecycleStyles.get(scope)
+      if (existing && scope.contains(existing)) continue
+      const style = document.createElement('style')
+      style.dataset.reverieLifecycleStyleHost = 'release'
+      style.textContent = lifecycleRuntimeCss()
+      scope.appendChild(style)
+      mountedLifecycleStyles.set(scope, style)
+      mountedLifecycleStyleNodes.add(style)
+    }
+  }
+
   function cleanLegacyIllustrationControls(root: ParentNode): void {
     for (const stale of deepQueryAll<HTMLElement>(root, '[data-dgir-illustration-menu], .dg-illustration-quick-button, .dg-illustration-portal-button')) stale.remove()
     for (const candidate of deepQueryAll<HTMLElement>(root, 'p, span, div')) {
@@ -2722,6 +2747,7 @@ export function setup(ctx: SpindleFrontendContext) {
       if (visibleSwipe !== undefined && record.swipeId !== visibleSwipe) continue
       const root = ctx.dom.findMessageElement(record.messageId)
       if (!root) continue
+      ensureMountedLifecycleStyle(root)
       const requestCards = deepQueryAll<HTMLElement>(root as ParentNode, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`)
       const active = ['preparing', 'queued', 'awaiting-native-settings', 'parsing', 'provider-waiting', 'generating', 'previewing', 'placement-pending'].includes(record.status)
       const stallEligible = ['preparing', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)
@@ -2951,6 +2977,7 @@ export function setup(ctx: SpindleFrontendContext) {
     const root = ctx.dom.findMessageElement(messageId)
     if (!root) return
     const hadMountedContent = root.childNodes.length > 0
+    ensureMountedLifecycleStyle(root)
     bindInlineImages(messageId)
     const expected = records.filter(record => record.messageId === messageId && (record.pendingPlacement?.imageUrl || record.imageUrl))
     const images = deepQueryAll<HTMLImageElement>(root as ParentNode, 'img')
@@ -9944,6 +9971,8 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     inputRelayAction.destroy()
     inputSurfacesAction.destroy()
     tab.destroy()
+    for (const style of mountedLifecycleStyleNodes) style.remove()
+    mountedLifecycleStyleNodes.clear()
     removeLifecycleStyle()
     removeStyle()
     ctx.dom.cleanup()

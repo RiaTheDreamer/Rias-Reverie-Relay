@@ -103,15 +103,27 @@ assert((combinedRendered.match(/<div class="rrl-card"[^>]*data-rrn-live-status="
 assert((combinedRendered.match(/class="rrl-main"/g) || []).length === combinedIds.length, 'combined first render lost shared Status Card chrome inside one or more Surface families')
 assert((combinedRendered.match(/class="rrl-media-skeleton rrl-generation-placeholder"/g) || []).length === combinedIds.length, 'combined first render did not reserve every unresolved Surface media footprint')
 const firstCombinedCard = combinedRendered.indexOf('data-reverie-lifecycle-card="true"')
-const combinedMessageScope = combinedRendered.slice(0, firstCombinedCard)
 assert(firstCombinedCard > 0, 'combined first render lost its first lifecycle card')
-assert((combinedRendered.match(/data-reverie-lifecycle-style="release"/g) || []).length === 1, 'combined first render must install lifecycle CSS exactly once at the message root')
-assert(combinedMessageScope.includes('.rrl-main .rrl-title') && combinedMessageScope.includes('.rrl-media-slot{'), 'combined first render left raw Waiting/Queued copy without scoped Status Card and reservation CSS')
+assert(!combinedRendered.includes('data-reverie-lifecycle-style="release"'), 'combined first render must leave lifecycle CSS to the extension-owned mounted style path')
 for (const id of combinedIds) assertStableSlot(combinedRendered, id, id.startsWith('combined-parallel') || id === 'combined-prose' ? '4:3' : '16:9', 'preparing')
 assert(combinedRendered.includes('Ordinary prose before every Surface.') && combinedRendered.includes('Ordinary prose after every Surface.'), 'combined first render lost prose surrounding the Surface reservations')
 assert(!/<(?:image_request|reverie-illustration)\b/i.test(combinedRendered), 'combined first render leaked raw image-control markup')
 
+const completedMixedSource = `Opening prose.
+<image_request id="mixed-prose" target="prose.illustration" slot="illustration" aspect="4:3" alt="Completed prose illustration"><scene_brief>Completed prose illustration.</scene_brief></image_request>
+[SCENE|Library|Night|Rain][scene_media]${surfaceRequest('mixed-surface')}[/scene_media][scene_detail]Rain ticks against the glass.[/scene_detail][scene_context][reason]The story moved indoors.[/reason][continuity]The red notebook remains open.[/continuity][/scene_context][/SCENE]
+Closing prose.`
+const completedMixed = rendered(completedMixedSource, [
+  { requestId: 'mixed-prose', slot: 'illustration', target: 'prose.illustration', status: 'completed', messageId: 'layout-message', requestAspect: '4:3', imageUrl: '/mock/mixed-prose.jpg', imageId: 'mixed-prose-image' },
+  { requestId: 'mixed-surface', slot: 'mixed-surface', target: 'custom.artifact-media', status: 'completed', messageId: 'layout-message', requestAspect: '16:9', imageUrl: '/mock/mixed-surface.jpg', imageId: 'mixed-surface-image' },
+])
+assert(completedMixed.includes('/mock/mixed-prose.jpg') && completedMixed.includes('data-dgir-request-id="mixed-prose"'), 'adjacent bracket Surface stole the completed Prose Illustration insertion owner')
+assert(completedMixed.includes('/mock/mixed-surface.jpg') && completedMixed.includes('data-dgir-request-id="mixed-surface"'), 'completed bracket Surface media did not insert through its own owner')
+assert(completedMixed.includes('Opening prose.') && completedMixed.includes('Closing prose.'), 'mixed completed insertion damaged surrounding prose')
+assert(!completedMixed.includes('data-rrn-native-request="mixed-prose"') && !completedMixed.includes('data-rrn-native-request="mixed-surface"'), 'completed mixed media retained pending Status Cards')
+
 const nativeSource = readFileSync(new URL('../src/nativeSurfaces.ts', import.meta.url), 'utf8')
+assert(nativeSource.includes('hydrateParityRequests(block.markup, block.spec.id, renderContext)') && !nativeSource.includes("hydrateParityRequests(bracketNormalized.markup, 'message', renderContext)"), 'bracket hydration must not consume adjacent prose illustration anchors')
 assert(nativeSource.includes('data-reverie-stable-media-slot="2"') && nativeSource.includes('overflow-anchor:none'), 'stable media CSS must ship with Relay media output')
 assert(!/html\s*,\s*body[\s\S]{0,80}overflow-anchor\s*:\s*none/i.test(nativeSource), 'scroll anchoring must not be globally disabled')
 assert(nativeSource.includes('.rrl-card{display:block;min-height:0;padding:0;border:0') && nativeSource.includes('rrl-generation-placeholder'), 'reserved media geometry must render through the shared placeholder shell')
@@ -130,6 +142,7 @@ assert(frontendSource.includes('tab.root.replaceChildren(root)') && !frontendSou
 assert(frontendSource.includes("'[data-rr-kakao-color]'") && frontendSource.includes('applyKakaoColorBinding(row)'), 'frontend must restore sanitized Kakao color properties after host sanitization')
 assert(frontendSource.includes("!image.closest('[data-rrn-native-request]')") && frontendSource.includes('stripHealthyCompletedLifecycleUi(card)'), 'frontend must strip completed reservation UI and remove the reservation when the authored image binds')
 assert(frontendSource.includes('invalidateDisplayIfContractChanged') && (frontendSource.match(/ctx\.display\?\.invalidate\(\['\*'\]\)/g) || []).length === 1, 'slot-state updates must not wholesale-invalidate and remount every Surface')
+assert(frontendSource.includes('ensureMountedLifecycleStyle(root)') && frontendSource.includes('reverieLifecycleStyleHost'), 'mounted Status Cards must receive extension-owned lifecycle CSS without transporting styles in message content')
 
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
 assert(backendSource.includes('activeStreamingSurfaceChats.add(chatId)') && backendSource.includes('activeStreamingSurfaceChats.has(chatId)'), 'Surface discovery must wait until assistant streaming finishes')

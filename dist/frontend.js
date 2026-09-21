@@ -134335,13 +134335,6 @@ function lifecycleCardIsland(card) {
 function lifecycleCardShell(card) {
   return `<div class="rrl-island" data-reverie-lifecycle-card="true">${card}</div>`;
 }
-function lifecycleMessageStyles(content) {
-  if (!/(?:data-reverie-lifecycle-card|data-rrn-native-request)=/.test(content))
-    return content;
-  if (content.includes('data-reverie-lifecycle-style="release"'))
-    return content;
-  return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${content}`;
-}
 function lifecycleRuntimeCss() {
   return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}`.replace(/<style\b[^>]*>/gi, "").replace(/<\/style>/gi, "");
 }
@@ -134699,7 +134692,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
   const bracketBlocks = [];
   const bracketNormalized = normalizeBracketSurfaceDocument(input, SHIPPED_SURFACE_SPECS, (block) => {
     bracketBlocks.push(block);
-    return block.diagnostics.length ? editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join("; ")), block.original, block.spec.wrapper, block.spec.id, { ...renderContext, streamIslandOrdinal: bracketBlocks.length }, block.original) : block.markup;
+    return block.diagnostics.length ? editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join("; ")), block.original, block.spec.wrapper, block.spec.id, { ...renderContext, streamIslandOrdinal: bracketBlocks.length }, block.original) : hydrateParityRequests(block.markup, block.spec.id, renderContext);
   });
   if (bracketBlocks.length) {
     bracketRenderedCount = bracketBlocks.length;
@@ -134712,8 +134705,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
       recordSurfacePipelineDiagnostic(block.spec.id, "selected-renderer", `R4.5 bracket regex parity (${parityModeForSurface(block.spec.id, activePreset(studio, block.spec.id), renderContext)})`);
       recordSurfacePipelineDiagnostic(block.spec.id, "final", block.diagnostics.length ? "repair fallback" : "rendered");
     }
-    const hydrated = hydrateParityRequests(bracketNormalized.markup, "message", renderContext);
-    input = decorateParityImages(renderRegexSurfaceParity(hydrated, parityModeForSurface("message", undefined, renderContext), renderContext.messageId || "bracket-surface", renderContext.colorMode || "realistic"), renderContext);
+    input = decorateParityImages(renderRegexSurfaceParity(bracketNormalized.markup, parityModeForSurface("message", undefined, renderContext), renderContext.messageId || "bracket-surface", renderContext.colorMode || "realistic"), renderContext);
   }
   const normalizationFailures = [];
   const normalizedSurface = normalizeSurfaceDocument(input, SHIPPED_SURFACE_SPECS, (block) => {
@@ -134865,7 +134857,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
     content = renderRegexSurfaceParity(content, parityModeForSurface("message", undefined, renderContext), renderContext.messageId || "message-surface", renderContext.colorMode || "realistic");
     content = preserveKakaoColorAttributes(content);
   }
-  return { content: lifecycleMessageStyles(content), renderedCount, renderedSurfaceIds };
+  return { content, renderedCount, renderedSurfaceIds };
 }
 function baseSurfaceIdForTarget(target) {
   if (target === "prose.illustration")
@@ -138418,6 +138410,26 @@ ${message.prompt}`;
     visit(root);
     return [...found];
   }
+  const mountedLifecycleStyles = new WeakMap;
+  const mountedLifecycleStyleNodes = new Set;
+  function ensureMountedLifecycleStyle(root) {
+    const scopes = new Set;
+    for (const card of deepQueryAll(root, "[data-reverie-lifecycle-card], [data-rrn-native-request]")) {
+      const owner = typeof card.getRootNode === "function" ? card.getRootNode() : root;
+      scopes.add(owner instanceof ShadowRoot ? owner : root);
+    }
+    for (const scope of scopes) {
+      const existing = mountedLifecycleStyles.get(scope);
+      if (existing && scope.contains(existing))
+        continue;
+      const style = document.createElement("style");
+      style.dataset.reverieLifecycleStyleHost = "release";
+      style.textContent = lifecycleRuntimeCss();
+      scope.appendChild(style);
+      mountedLifecycleStyles.set(scope, style);
+      mountedLifecycleStyleNodes.add(style);
+    }
+  }
   function cleanLegacyIllustrationControls(root) {
     for (const stale of deepQueryAll(root, "[data-dgir-illustration-menu], .dg-illustration-quick-button, .dg-illustration-portal-button"))
       stale.remove();
@@ -138606,6 +138618,7 @@ ${message.prompt}`;
       const root = ctx.dom.findMessageElement(record.messageId);
       if (!root)
         continue;
+      ensureMountedLifecycleStyle(root);
       const requestCards = deepQueryAll(root, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`);
       const active = ["preparing", "queued", "awaiting-native-settings", "parsing", "provider-waiting", "generating", "previewing", "placement-pending"].includes(record.status);
       const stallEligible = ["preparing", "parsing", "generating", "previewing", "placement-pending"].includes(record.status);
@@ -138829,6 +138842,7 @@ ${message.prompt}`;
     if (!root)
       return;
     const hadMountedContent = root.childNodes.length > 0;
+    ensureMountedLifecycleStyle(root);
     bindInlineImages(messageId);
     const expected = records.filter((record) => record.messageId === messageId && (record.pendingPlacement?.imageUrl || record.imageUrl));
     const images = deepQueryAll(root, "img");
@@ -146002,6 +146016,9 @@ Original prompt metadata unavailable`;
     inputRelayAction.destroy();
     inputSurfacesAction.destroy();
     tab.destroy();
+    for (const style of mountedLifecycleStyleNodes)
+      style.remove();
+    mountedLifecycleStyleNodes.clear();
     removeLifecycleStyle();
     removeStyle();
     ctx.dom.cleanup();
