@@ -118,6 +118,10 @@ let bracketOwnershipCases = 0
 for (const rendererMode of ['relay', 'legacy-regex', 'hybrid'] as const) for (const presentation of presentations) for (const colorMode of colors) {
   const matrixStudio = { ...studio, rendererMode, defaultShellMode: presentation, colorMode }
   for (const definition of definitions) {
+    const pendingRequestIds = [...definition.sampleXml.matchAll(/<(?:image_request|reverie-illustration)\b([^>]*)>/gi)].map((match, index) => {
+      const attrs = Object.fromEntries([...match[1].matchAll(/([\w:-]+)="([^"]*)"/g)].map(attr => [attr[1], attr[2]]))
+      return attrs.id || attrs.request_id || attrs.slot || `request-${index + 1}`
+    })
     const rendered = renderNativeSurfaceMarkup(definition.sampleXml, matrixStudio, { chatId: 'native', messageId: `message-${definition.surfaceId}` })
     assert(rendered.renderedCount === 1 && rendered.renderedSurfaceIds.includes(definition.baseSurfaceId), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: did not claim exactly one Surface`)
     assert(!rendered.content.includes(`<${definition.canonicalOuterWrapper}`), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: raw XML remained`)
@@ -127,6 +131,10 @@ for (const rendererMode of ['relay', 'legacy-regex', 'hybrid'] as const) for (co
       assert(rendered.content.includes('data-rrn-editable-surface'), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: Relay-native visual owner missing`)
     }
     assert(!rendered.content.includes('Relay Surface needs repair'), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: valid XML fell into repair UI`)
+    const pendingCardCount = (rendered.content.match(/data-reverie-lifecycle-card="true"/g) || []).length
+    const pendingCardRequestIds = [...rendered.content.matchAll(/data-rrn-native-request="([^"]*)"/g)].map(match => match[1])
+    assert(pendingCardRequestIds.length === pendingCardCount, `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: pending card escaped its lifecycle island (${pendingCardRequestIds.length}/${pendingCardCount})`)
+    assert(pendingRequestIds.every(requestId => pendingCardRequestIds.includes(requestId)), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: at least one pending request lost its Status Card`)
     ownershipCases += 1
 
     const bracket = bracketExampleFromXml(definition.sampleXml)
@@ -142,9 +150,11 @@ for (const rendererMode of ['relay', 'legacy-regex', 'hybrid'] as const) for (co
       assert(!bracketRendered.content.includes('Relay Surface needs repair'), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}/${lifecycle}: canonical bracket fell into repair UI`)
       assert(!bracketRendered.content.includes(`[${definition.canonicalOuterWrapper}]`), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}/${lifecycle}: raw bracket root remained`)
       assert(!/<image_request\b/i.test(bracketRendered.content), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}/${lifecycle}: request was not hydrated in place`)
-      if (lifecycle === 'pending' && /<(?:image_request|reverie-illustration)\b/i.test(definition.sampleXml)) {
-        const firstCard = bracketRendered.content.indexOf('data-reverie-lifecycle-card="true"')
-        assert(firstCard > 0, `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: pending Surface lost its Status Card`)
+      if (lifecycle === 'pending' && pendingRequestIds.length) {
+        const pendingCardCount = (bracketRendered.content.match(/data-reverie-lifecycle-card="true"/g) || []).length
+        const pendingCardRequestIds = [...bracketRendered.content.matchAll(/data-rrn-native-request="([^"]*)"/g)].map(match => match[1])
+        assert(pendingCardRequestIds.length === pendingCardCount, `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: pending bracket card escaped its lifecycle island (${pendingCardRequestIds.length}/${pendingCardCount})`)
+        assert(pendingRequestIds.every(requestId => pendingCardRequestIds.includes(requestId)), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: at least one pending bracket request lost its Status Card`)
         assert(!bracketRendered.content.includes('data-reverie-lifecycle-style="release"'), `${definition.surfaceId}/${rendererMode}/${presentation}/${colorMode}: message content must not transport lifecycle CSS`)
       }
       bracketOwnershipCases += 1

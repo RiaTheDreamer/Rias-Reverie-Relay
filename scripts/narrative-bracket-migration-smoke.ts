@@ -52,6 +52,11 @@ const assembledStructuralXml = [...assembledPrompt.matchAll(/<\/?([A-Za-z][A-Za-
 assert(assembledStructuralXml.length === 0, `assembled Narrative prompt contains structural XML: ${assembledStructuralXml.length}`)
 
 const image = (id: string, aspect = '16:9') => `<image_request id="${id}" target="custom.artifact-media" slot="${id}" aspect="${aspect}"><scene_brief>Grounded ${id} image.</scene_brief></image_request>`
+const nativeStudio = {
+  definitions: {}, activePresetIds: {}, collectionPresets: {}, rendererMode: 'relay', defaultShellMode: 'inline', colorMode: 'realistic',
+  utilityInjectionEnabled: true, utilityInjectionPosition: 'system-prefix', utilityTemplate: '', validationErrors: {},
+  lastInjectedModuleIds: [], lastInjectionAt: 0, lastInjectionSource: 'none', lastInjectionPosition: 'none', lastInjectionSummary: '', updatedAt: 0,
+} as any
 const fixtures: Record<string, { source: string; rendered: string }> = {
   'Scene Shift': {
     source: `[SCENE|Library|Night|Rain][scene_media]${image('scene')}[/scene_media][scene_detail]Rain ticks against the glass.[/scene_detail][scene_context][reason]The story moved indoors.[/reason][continuity]The red notebook remains open.[/continuity][/scene_context][/SCENE]`,
@@ -124,6 +129,11 @@ for (const [name, fixture] of Object.entries(fixtures)) {
     const rendered = renderNarrativeRegex(fixture.source, variant, `batch-d-${name}-${variant}`)
     assert(rendered.includes(fixture.rendered), `${name}/${variant}: dedicated presentation did not render`)
     assert(!rendered.includes('Relay Surface needs repair'), `${name}/${variant}: canonical fixture fell into generic repair UI`)
+    const requestCount = (fixture.source.match(/<(?:image_request|reverie-illustration)\b/gi) || []).length
+    const hydrated = renderNativeSurfaceMarkup(rendered, nativeStudio, { chatId: 'batch-d', messageId: `batch-d-${name}-${variant}`, swipeId: 0, records: [] }).content
+    const cardCount = (hydrated.match(/data-reverie-lifecycle-card="true"/g) || []).length
+    assert(requestCount > 0 && cardCount === requestCount, `${name}/${variant}: pending request/Status Card mismatch (${requestCount}/${cardCount})`)
+    assert(!/<(?:image_request|reverie-illustration)\b/i.test(hydrated), `${name}/${variant}: raw pending image control survived lifecycle hydration`)
     renderCases += 1
   }
 }
@@ -196,11 +206,7 @@ const combinedLiveResponse = [
   missingIllustrationCloser,
 ].join('\n\n')
 const combinedNarrative = renderNarrativeRegex(combinedLiveResponse, 'inline', 'live-combined-response')
-const combinedRendered = renderNativeSurfaceMarkup(combinedNarrative, {
-  definitions: {}, activePresetIds: {}, collectionPresets: {}, rendererMode: 'relay', defaultShellMode: 'inline', colorMode: 'realistic',
-  utilityInjectionEnabled: true, utilityInjectionPosition: 'system-prefix', utilityTemplate: '', validationErrors: {},
-  lastInjectedModuleIds: [], lastInjectionAt: 0, lastInjectionSource: 'none', lastInjectionPosition: 'none', lastInjectionSummary: '', updatedAt: 0,
-} as any, { chatId: 'live-combined', messageId: 'live-combined-response', swipeId: 0, records: [] }).content
+const combinedRendered = renderNativeSurfaceMarkup(combinedNarrative, nativeStudio, { chatId: 'live-combined', messageId: 'live-combined-response', swipeId: 0, records: [] }).content
 const combinedOrder = [
   combinedRendered.indexOf('live-inline-before'),
   combinedRendered.indexOf('Lisa'),
