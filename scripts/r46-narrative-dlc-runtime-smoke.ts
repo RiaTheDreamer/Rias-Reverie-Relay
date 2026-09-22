@@ -11,7 +11,7 @@ import {
   reconcileNarrativeRegex,
   removeNarrativeRegex,
 } from '../src/narrativeDlcRuntime'
-import { NARRATIVE_UTILITY_DISPLAY_NAMES, applyNarrativeDisplayNames, containsNarrativeRegexMarkup, narrativeRegexPack, narrativeRegexScripts, narrativeUtilityItems, narrativeUtilityNames, normalizeNarrativeMarkupForRendering, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup } from '../src/narrativeRegexAssets'
+import { LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS, NARRATIVE_UTILITY_FORMAT_CONTRACTS, applyNarrativeDisplayNames, containsNarrativeRegexMarkup, missingNarrativeUtilityFormatMarkers, narrativeRegexPack, narrativeRegexScripts, narrativeUtilityItems, narrativeUtilityNames, normalizeNarrativeMarkupForRendering, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup } from '../src/narrativeRegexAssets'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { parseImageRequests, renderResolvedMarkup } from '../src/contracts'
 
@@ -98,7 +98,7 @@ for (const variant of ['sparkle-button', 'plain-button', 'inline'] as const) {
 }
 assert(api.rows.some(row => row.name.includes('Parallel Scene')) && !api.rows.some(row => row.name.includes('Parallel Current')), 'installed host Regex scripts must use the current public Narrative labels')
 const installedNarrativeCopy = api.rows.map(row => `${row.name}\n${row.replace_string}`).join('\n')
-for (const [oldName, currentName] of Object.entries(NARRATIVE_UTILITY_DISPLAY_NAMES)) {
+for (const [oldName, currentName] of Object.entries(LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS)) {
   assert(!installedNarrativeCopy.includes(oldName), `installed Narrative copy retained old name: ${oldName}`)
   if (narrativeRegexPack('sparkle-button').scripts.some(script => `${script.name}\n${script.replace_string}`.includes(oldName))) {
     assert(installedNarrativeCopy.includes(currentName), `installed Narrative copy omitted current name: ${currentName}`)
@@ -144,24 +144,27 @@ assert(removed.status === 'removed' && api.rows.length === 0, 'remove must delet
 const utility = buildNarrativeUtilityPrompt()
 assert(NARRATIVE_DLC_VERSION === '6.3-final', 'Character Phone gallery contract must ship as Narrative Utility pack 6.3-final')
 assert(utility.utilityNames.length === 13, 'all 13 Narrative Utilities must be selected by default')
+assert(utility.utilityNames.join('|') === 'Character Phone|Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry', 'active Narrative Utility roster must contain only current names')
 assert(utility.utilityNames.join('|') === narrativeUtilityNames().join('|'), 'Utility injection order must match the source bundle')
 for (const item of narrativeUtilityItems()) {
   assert(utility.content.includes(applyNarrativeDisplayNames(item.loomContent)), `${item.loomName}: final prompt injection must preserve the complete source Utility instructions under its public label`)
+  assert(Object.prototype.hasOwnProperty.call(NARRATIVE_UTILITY_FORMAT_CONTRACTS, item.loomName), `${item.loomName}: canonical format contract is missing`)
+  assert(missingNarrativeUtilityFormatMarkers(item.loomName, item.loomContent).length === 0, `${item.loomName}: shipped Utility format does not match its Regex contract`)
 }
-for (const oldName of Object.keys(NARRATIVE_UTILITY_DISPLAY_NAMES)) {
+for (const oldName of Object.keys(LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS)) {
+  assert(!narrativeUtilityNames().includes(oldName), `retired Utility name remains in the active roster: ${oldName}`)
   assert(!narrativeUtilityItems().some(item => item.loomContent.includes(oldName)), `runtime Utility content retained retired model-facing name: ${oldName}`)
   assert(!utility.content.includes(oldName), `combined Narrative prompt retained retired model-facing name: ${oldName}`)
 }
 assert(utility.content.includes('[reverie_narrative_utility]') && utility.content.includes('[contract]narrative[/contract]'), 'Narrative Utility wrapper must use bracket-native Narrative contract fields')
-const archiveUtility = buildNarrativeUtilityPrompt(['Unified Archive Generator'])
+const archiveUtility = buildNarrativeUtilityPrompt(['Archive Entry'])
 for (const contract of ['[archive_media]', 'aspect="1:1"', 'aspect="4:3"', 'aspect="16:9"', 'VISUAL SUBJECT ONLY', 'Legacy Archive payloads may omit [archive_media]']) {
   assert(archiveUtility.content.includes(contract), `Archive media Utility contract missing: ${contract}`)
 }
 assert(archiveUtility.content.includes('[/archive_head]\n[archive_media]') && archiveUtility.content.includes('[/archive_media]\n[archive_stats]'), 'new Archive Utility output must place media between head and stats')
 assert(!archiveUtility.content.includes('Archive cards are intentionally image-free'), 'retired image-free Archive rule leaked into the runtime Utility prompt')
-const plotSparksUtility = buildNarrativeUtilityPrompt(['Chaos Hooks'])
-assert(plotSparksUtility.utilityNames.join('|') === 'Chaos Hooks', 'Plot Sparks must retain Chaos Hooks as its internal selection/migration key')
-assert(plotSparksUtility.content.includes('Plot Sparks') && !plotSparksUtility.content.includes('Chaos Hooks'), 'model-facing Plot Sparks Utility must use the public name without leaking its compatibility name')
+const plotSparksUtility = buildNarrativeUtilityPrompt(['Plot Sparks'])
+assert(plotSparksUtility.utilityNames.join('|') === 'Plot Sparks', 'Plot Sparks must be the active selection and roster key')
 for (const contract of [
   'seven possible NEXT BRANCHES growing directly from the current scene',
   'Every Plot Spark MUST preserve the current scene as its launch point',
@@ -193,8 +196,8 @@ for (const exactCount of ['Exactly seven [Spark] blocks exist', 'Each Spark cont
 for (const forbidden of ['hook ledger', 'chaos payload', 'chaos_payload', 'chaos hook', 'chaos_hook', 'hook_text', 'hook_media', '<payload>', 'two-ledger']) {
   assert(!plotSparksUtility.content.toLocaleLowerCase().includes(forbidden), `active Plot Sparks Utility leaked legacy/cross-system terminology: ${forbidden}`)
 }
-const subset = buildNarrativeUtilityPrompt(['Scene Compass', 'Character Phone'])
-assert(subset.utilityNames.join('|') === 'Character Phone|Scene Compass', 'selected Utility prompt must preserve source order and contain only enabled contracts')
+const subset = buildNarrativeUtilityPrompt(['Scene Shift', 'Character Phone'])
+assert(subset.utilityNames.join('|') === 'Character Phone|Scene Shift', 'selected Utility prompt must preserve source order and contain only enabled contracts')
 assert(subset.content.includes(applyNarrativeDisplayNames(narrativeUtilityItems()[0].loomContent)) && subset.content.includes(applyNarrativeDisplayNames(narrativeUtilityItems()[3].loomContent)), 'selected Utility prompt omitted enabled complete contracts')
 assert(!subset.content.includes(narrativeUtilityItems()[1].loomContent), 'selected Utility prompt leaked a disabled contract')
 
@@ -272,18 +275,18 @@ assert(!/<\/?character_phone\b|<\/cp_(?:icon|glyph)>/i.test(normalizedXmlRootPho
 const renderedXmlRootPhone = renderNarrativeRegex(xmlRootHybridPhone, 'inline', 'phone-xml-root-hybrid')
 assert((renderedXmlRootPhone.match(/class="rrcp-entry /g) || []).length === 8 && !/<\/?character_phone\b|\[\/?cp_/i.test(renderedXmlRootPhone), 'captured XML-root Character Phone drift must render all eight apps without raw scaffold')
 assert(normalizeNarrativeMarkupForRendering('<character_phone>[cp_owner]streaming') === '<character_phone>[cp_owner]streaming', 'incomplete streaming phone roots must remain untouched')
-const mixedResolvedPlot = `<chaos_payload id="captured-terrace" lifecycle="Unused Plot Sparks dissolve after this response.">${plotVectors.map((vector, index) => {
+const mixedResolvedPlot = `[Plot_Sparks][ID]captured-terrace[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${plotVectors.map((vector, index) => {
   const key = String.fromCharCode(97 + index)
   const media = index < 2
     ? `<img src="/api/v1/image-gen/results/spark-${key}" class="reverie-artifact-media" data-reverie-artifact-media="true">`
-    : `<reverie-illustration request="generate" slot="chaos-${key}" aspect="16:9" cast="none" alt="Spark ${key}"><visual_prompt>Grounded continuation ${key}.</visual_prompt></reverie-illustration>`
-  return `<chaos_hook key="${key}" vector="${vector}"><hook_text>Captured continuation ${key}.</hook_text><hook_media>${media}</hook_media></chaos_hook>`
-}).join('')}</chaos_payload>`
+    : `<reverie-illustration request="generate" slot="plot-spark-${key}" aspect="16:9" cast="none" alt="Spark ${key}"><visual_prompt>Grounded continuation ${key}.</visual_prompt></reverie-illustration>`
+  return `[Spark][Key]${key}[/Key][Vector]${vector}[/Vector][Text]Captured continuation ${key}.[/Text][Media]${media}[/Media][/Spark]`
+}).join('')}[/Plot_Sparks]`
 const capturedCombined = `${xmlRootHybridPhone}\n${dramaticFixture.replace(dramaticRequest.fullMatch, resolvedDramaticMedia)}\n${mixedResolvedPlot}`
 const capturedCombinedRendered = renderNarrativeRegex(capturedCombined, 'inline', 'captured-combined-regression')
-assert(!/<\/?(?:character_phone|dramatic_parallel|chaos_payload|chaos_hook)\b|\[\/?cp_/i.test(capturedCombinedRendered), 'captured Phone, Dramatic Cutaway, and Plot Sparks response must not leak semantic roots or phone scaffold')
+assert(!/<\/?(?:character_phone|dramatic_parallel)\b|\[\/?(?:cp_|Plot_Sparks|Spark|Media)/i.test(capturedCombinedRendered), 'captured Phone, Dramatic Cutaway, and Plot Sparks response must not leak semantic roots or phone scaffold')
 assert(capturedCombinedRendered.includes('rrcp-wrap') && capturedCombinedRendered.includes('dg-dramatic-cutaway') && capturedCombinedRendered.includes('ch-og'), 'captured mixed response must render Phone, Dramatic Cutaway, and Plot Sparks together')
-assert(capturedCombinedRendered.includes('/api/v1/image-gen/results/spark-a') && capturedCombinedRendered.includes('<reverie-illustration request="generate" slot="chaos-g"'), 'Plot Sparks must retain both already-resolved and still-pending media inside its rendered lanes')
+assert(capturedCombinedRendered.includes('/api/v1/image-gen/results/spark-a') && capturedCombinedRendered.includes('<reverie-illustration request="generate" slot="plot-spark-g"'), 'Plot Sparks must retain both already-resolved and still-pending media inside its rendered lanes')
 
 const canonicalArchive = '[dossier_ui][category]SECRET[/category][archive_head][icon]🤫[/icon][name]Canonical Secret[/name][state]PARTIAL[/state][relation]A ↔ B[/relation][role]Hidden act[/role][/archive_head][archive_stats][archive_stat][label]Exposure[/label][value]75[/value][/archive_stat][archive_stat][label]Certainty[/label][value]40[/value][/archive_stat][archive_stat][label]Consequence[/label][value]90[/value][/archive_stat][/archive_stats][archive_details][archive_row][label]The Hidden Truth[/label][value]Truth.[/value][/archive_row][archive_row][label]Known By[/label][value]A.[/value][/archive_row][archive_row][label]Hidden From[/label][value]B.[/value][/archive_row][archive_row][label]Near-Slips[/label][value]One clue.[/value][/archive_row][archive_row][label]Impact If Revealed[/label][value]Trust changes.[/value][/archive_row][archive_row][label]Current Status[/label][value]SLIPPING[/value][/archive_row][/archive_details][archive_export][SECRET: Canonical Secret]\nCURRENT STATUS: SLIPPING[/archive_export][/dossier_ui]'
 assert(normalizeNarrativeMarkupForRendering(canonicalArchive) === canonicalArchive, 'canonical Archive Entry payloads must remain byte-for-byte unchanged')

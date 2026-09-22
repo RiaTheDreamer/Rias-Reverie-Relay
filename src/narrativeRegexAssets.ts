@@ -5,7 +5,6 @@ import utilityPack from '../regex-packs/narrative-final/Reverie-Narrative-Utilit
 import dramaticCutawayPack from '../regex-packs/narrative-final/Reverie-Dramatic-Cutaway-BULLETPROOF-V8.json'
 import plotSparksPack from '../regex-packs/narrative-final/Reverie-Plot-Sparks-BULLETPROOF-V7.json'
 import { sceneCompassPresentation } from './sceneCompassPresentation'
-import { PLOT_SPARKS_V2_UTILITY } from './plotSparksV2'
 
 export type NarrativeRegexVariant = 'sparkle-button' | 'plain-button' | 'inline'
 
@@ -110,15 +109,37 @@ export const NARRATIVE_BLOCK_SPACING_STYLE = `<style data-reverie-narrative-bloc
 </style>`
 
 const safeMessageId = (value: string): string => String(value || 'narrative').replace(/[^A-Za-z0-9_-]+/g, '-') || 'narrative'
-const NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i
+const NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i
 
 export const NARRATIVE_UTILITY_PACK = utilityPack as NarrativeUtilityPack
 export const NARRATIVE_REGEX_VARIANTS: NarrativeRegexVariant[] = ['sparkle-button', 'plain-button', 'inline']
 
-/** Public theater labels. Loom names and script IDs remain stable migration
- * keys; only user/model-facing copy crosses this boundary. */
-export const NARRATIVE_UTILITY_DISPLAY_NAMES: Readonly<Record<string, string>> = {
-  'Character Profile': 'Cast Sheet',
+/** Canonical model-authored bracket fields consumed by the paired Regexes.
+ * XML is intentionally limited to the image-control tags nested inside media. */
+export const NARRATIVE_UTILITY_FORMAT_CONTRACTS: Readonly<Record<string, readonly string[]>> = {
+  'Character Phone': ['[character_phone]', '[cp_presentation]', '[cp_apps]', '[/character_phone]'],
+  'Dramatic Cutaway': ['[dramatic_parallel]', '[dramatic_head]', '[dramatic_media]', '[dramatic_body]', '[dramatic_foot]', '[/dramatic_parallel]'],
+  'Plot Sparks': ['[Plot_Sparks]', '[Spark]', '[Key]', '[Vector]', '[Text]', '[Media]', '[/Plot_Sparks]'],
+  'Scene Shift': ['[SCENE|', '[scene_media]', '[scene_detail]', '[scene_context]', '[/SCENE]'],
+  'Parallel Scene': ['[PARALLEL|', '[parallel_entry]', '[parallel_media]', '[parallel_context]', '[/PARALLEL]'],
+  'Cast Introduction': ['[NPC:', '[npc_media]', '[/NPC]'],
+  'Backstage Secrets': ['[SECRET|', '[secret_media]', '[context]', '[pressure]', '[/SECRET]'],
+  'Setting the Scene': ['[WORLD|', '[world_media]', '[world_detail]', '[world_context]', '[/WORLD]'],
+  'Off-Stage': ['[[else ', '[else_media]', '[else_scene]', '[else_context]', '[[/else]]'],
+  'Character Dossier': ['[[npc ', '[npc_media]', '[[/npc]]'],
+  'Location File': ['[[place ', '[place_media]', '[[/place]]'],
+  'In Another Life': ['[WHATIF|', '[whatif_media]', '[whatif_scenario]', '[whatif_branch]', '[/WHATIF]'],
+  'Archive Entry': ['[dossier_ui]', '[category]', '[archive_head]', '[archive_media]', '[archive_stats]', '[archive_details]', '[archive_export]', '[/dossier_ui]'],
+}
+
+export function missingNarrativeUtilityFormatMarkers(name: string, content: string): string[] {
+  const source = String(content || '').toLocaleLowerCase()
+  return (NARRATIVE_UTILITY_FORMAT_CONTRACTS[name] || []).filter(marker => !source.includes(marker.toLocaleLowerCase()))
+}
+
+/** One-way persisted-settings migration only. These names are not part of the
+ * active roster and never enter the model-facing Utility prompt. */
+export const LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS: Readonly<Record<string, string>> = {
   'Chaos Hooks': 'Plot Sparks',
   'Knowledge Veil': 'Backstage Secrets',
   'Beyond the Frame': 'Off-Stage',
@@ -133,20 +154,12 @@ export const NARRATIVE_UTILITY_DISPLAY_NAMES: Readonly<Record<string, string>> =
 }
 
 export function narrativeUtilityDisplayName(internalName: string): string {
-  return NARRATIVE_UTILITY_DISPLAY_NAMES[internalName] || internalName
+  return LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS[internalName] || internalName
 }
 
-export function applyNarrativeDisplayNames(value: string, rendered = false): string {
+export function applyNarrativeDisplayNames(value: string, _rendered = false): string {
   let output = String(value || '')
-  if (rendered) {
-    output = output
-      .replace(/<span>Character File<\/span>/g, '<span>Introducing...</span>')
-      .replace(/<span>Cast Arrival<\/span>/g, '<span>Welcome to the Stage...</span>')
-      .replace(/<span>Unified Archive Generator<\/span>/g, '<span>Archive Entry</span>')
-      .replace(/<span>Parallel Current<\/span>/g, '<span>Parallel Scene</span>')
-      .replace(/<span>(?:Unwalked Path|What If\?)<\/span>/g, '<span>In Another Life</span>')
-  }
-  for (const [internalName, displayName] of Object.entries(NARRATIVE_UTILITY_DISPLAY_NAMES)) {
+  for (const [internalName, displayName] of Object.entries(LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS)) {
     output = output.replace(new RegExp(internalName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), displayName)
   }
   return output
@@ -157,60 +170,8 @@ export function narrativeUtilityNames(): string[] {
 }
 
 export function narrativeUtilityItems(): NarrativeUtilityItem[] {
-  return (NARRATIVE_UTILITY_PACK.loomItems || []).map(item => {
-    let source = item.loomName === 'Parallel Current'
-      ? PARALLEL_SCENE_UTILITY
-      : item.loomName === 'Chaos Hooks'
-        ? PLOT_SPARKS_V2_UTILITY
-        : item.loomContent
-    if (item.loomName === 'Cast Arrival') source = `TRIGGER POLICY — CAST INTRODUCTION
-Emit when a named non-user character appears on-page for the first time and this response establishes at least two of: role/occupation; physical appearance; relationship to existing cast; characteristic behavior/voice; immediate narrative function.
-Do not wait for proof that the character will become major. Do not repeat if history already contains their Cast Introduction.
-
-${source}`
-    if (item.loomName === 'Unified Archive Generator') source = `TRIGGER POLICY — ARCHIVE ENTRY
-Archive only durable canon milestones that pass BOTH gates.
-Gate A — durable canon: an irreversible or long-lived world-state change, formal relationship-state change with durable consequences, major knowledge-changing secret revelation, major faction/institutional event, transfer or destruction of a uniquely important object, or explicit user request.
-Gate B — future-reference value: the information is genuinely worth retrieving many turns later.
-Do not archive ordinary domestic beats, outfit changes, normal flirting, incremental closeness, visits, ordinary scene transitions, or a name alone. A specialized Surface wins unless the moment independently passes both gates.
-
-${source}`
-    return { ...item, loomContent: applyNarrativeDisplayNames(source) }
-  })
+  return (NARRATIVE_UTILITY_PACK.loomItems || []).map(item => ({ ...item }))
 }
-
-const PARALLEL_SCENE_UTILITY = `### Parallel Scene — Three Live Threads
-
-Use this Surface to show three active off-stage threads grounded in the current story.
-
-CANONICAL OUTPUT
-[PARALLEL|Scope|Status]
-[parallel_entry]
-[text]Entry 1 text[/text]
-[parallel_media]<image_request id="parallel-1-[unique-id]" target="custom.artifact-media" slot="parallel-1-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request>[/parallel_media]
-[/parallel_entry]
-[parallel_entry]
-[text]Entry 2 text[/text]
-[parallel_media]<image_request id="parallel-2-[unique-id]" target="custom.artifact-media" slot="parallel-2-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request>[/parallel_media]
-[/parallel_entry]
-[parallel_entry]
-[text]Entry 3 text[/text]
-[parallel_media]<image_request id="parallel-3-[unique-id]" target="custom.artifact-media" slot="parallel-3-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request>[/parallel_media]
-[/parallel_entry]
-[parallel_context]
-[trajectory]How these three established threads are currently moving, without inventing a resolved future.[/trajectory]
-[intersection]Where their existing pressures may touch, stated as present context rather than a guaranteed payoff.[/intersection]
-[/parallel_context]
-[/PARALLEL]
-
-RULES
-- Emit exactly three ordered [parallel_entry] blocks, each with one non-empty [text] and one non-empty [parallel_media].
-- Always include exactly one [parallel_context] with one non-empty [trajectory] and one non-empty [intersection].
-- Never emit an empty [parallel_media]. Supply one complete request with a non-empty scene_brief for every entry.
-- Keep every request attached to its matching entry. IDs and slots are unique, lowercase, slug-safe, and match each other.
-- Do not nest another Utility inside Parallel Scene. Do not manufacture a resolved future event merely to populate the Surface.
-
-{{trim}}`
 
 const PARALLEL_SCENE_FIND = '\\[PARALLEL\\|(?<scope>[^\\|\\]\\r\\n]{1,500})\\|(?<relevance>[^\\]\\r\\n]{1,200})\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread1>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media1>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread2>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media2>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread3>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media3>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_context\\]\\s*\\[trajectory\\](?<trajectory>[\\s\\S]{1,6000}?)\\[/trajectory\\]\\s*\\[intersection\\](?<intersection>[\\s\\S]{1,6000}?)\\[/intersection\\]\\s*\\[/parallel_context\\]\\s*\\[/PARALLEL\\]'
 
@@ -283,33 +244,6 @@ function normalizeFlatArchiveDossiers(markup: string): string {
   })
 }
 
-function markupAttribute(source: string, name: string): string {
-  return new RegExp(`\\b${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, 'i').exec(source)?.[2]?.trim() || ''
-}
-
-/** Historical Chaos payloads remain readable, but are converted locally into
- * the active semantic representation. This compatibility grammar is never
- * included in model-facing Utility text. */
-export function normalizeLegacyPlotSparksMarkup(markup: string): string {
-  return String(markup || '').replace(/<chaos_payload\b([^>]*)>((?:(?!<chaos_payload\b)[\s\S])*?)<\/chaos_payload\s*>/gi, (full, attrs: string, body: string) => {
-    const hooks = [...body.matchAll(/<chaos_hook\b([^>]*)>([\s\S]*?)<\/chaos_hook\s*>/gi)]
-    if (hooks.length !== 7) return full
-    const id = markupAttribute(attrs, 'id')
-    const lifecycle = markupAttribute(attrs, 'lifecycle') || 'Unused Plot Sparks dissolve after this response.'
-    if (!id) return full
-    const sparks = hooks.map(match => {
-      const key = markupAttribute(match[1] || '', 'key')
-      const vector = markupAttribute(match[1] || '', 'vector')
-      const text = match[2]?.match(/<hook_text\b[^>]*>([\s\S]*?)<\/hook_text\s*>/i)?.[1]?.trim() || ''
-      const media = match[2]?.match(/<hook_media\b[^>]*>([\s\S]*?)<\/hook_media\s*>/i)?.[1]?.trim() || ''
-      if (!key || !vector || !text || !media) return ''
-      return `[Spark]\n[Key]${key}[/Key]\n[Vector]${vector}[/Vector]\n[Text]${text}[/Text]\n[Media]${media}[/Media]\n[/Spark]`
-    })
-    if (sparks.some(spark => !spark)) return full
-    return `[Plot_Sparks]\n[ID]${id}[/ID]\n[Lifecycle]${lifecycle}[/Lifecycle]\n\n${sparks.join('\n\n')}\n\n[/Plot_Sparks]`
-  })
-}
-
 /** Repair only the unambiguous known-owner blend inside Plot Sparks Media. */
 export function normalizePlotSparksMediaMarkup(markup: string): string {
   return String(markup || '').replace(/\[Media\]((?:(?!\[Media\])[\s\S])*?)\[\/Media\]/gi, (full, media: string) => {
@@ -355,7 +289,7 @@ function normalizeElsewhereMarkup(markup: string): string {
 
 const WORLD_OWNER_RANGE = /(\[WORLD\|[^\]\r\n]{1,500}\|[^\]\r\n]{1,500}\])((?:(?!\[WORLD\|)[\s\S])*?)(\[\/WORLD\])/gi
 const WORLD_BODY_SHELL = /^\s*\[world_media\]([\s\S]{1,24000}?)\[\/world_media\]\s*\[world_detail\]([\s\S]{1,12000}?)\[\/world_detail\]\s*\[world_context\]([\s\S]{1,16000}?)\[\/world_context\]\s*$/i
-const NESTED_NARRATIVE_OWNER = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i
+const NESTED_NARRATIVE_OWNER = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i
 
 /** Repair one observed Setting the Scene contract violation inside a complete,
  * otherwise canonical World owner. The first future-use closer is only changed
@@ -379,7 +313,7 @@ export function normalizeWorldMarkup(markup: string): string {
 }
 
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
-  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(normalizeLegacyPlotSparksMarkup(String(markup || '')))))))
+  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(String(markup || ''))))))
     .replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root: string, body: string) => {
       // A second observed phone drift uses an XML root around otherwise
       // canonical bracket fields. Convert only a complete, known phone root;

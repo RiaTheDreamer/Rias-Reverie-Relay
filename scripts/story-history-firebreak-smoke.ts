@@ -12,27 +12,29 @@ const resolvedMedia = (id: string) => `<!-- reverie-relay:image chatId="chat-rep
 ![reverie-relay](/api/v1/image-gen/results/${id})
 <img class="reverie-artifact-media" data-reverie-artifact-media="true" data-dgir-key="chat-repro:${id}" data-dgir-request-id="${id}" data-dgir-slot="${id}" data-dgir-image-id="${id}" data-dgir-message-id="turn-1" data-dgir-swipe-id="0" data-dgir-custom-target="custom.artifact-media" src="/api/v1/image-gen/results/${id}">`
 
-const historicalHooks = Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `<chaos_hook key="${key}" vector="${vector}">
-<hook_text>Playable historical branch ${key} remains understandable.</hook_text>
-<hook_media>${resolvedMedia(`hook-${key}`)}</hook_media>
-</chaos_hook>`).join('\n')
+const historicalSparks = Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `[Spark]
+[Key]${key}[/Key]
+[Vector]${vector}[/Vector]
+[Text]Playable historical branch ${key} remains understandable.[/Text]
+[Media]${resolvedMedia(`spark-${key}`)}[/Media]
+[/Spark]`).join('\n')
 
 // Privacy-safe structural fixture derived from the supplied Sep 14 two-turn
-// export. It preserves the reproduced transport forms and seven-hook ownership
+// export. It preserves the reproduced transport forms and seven-Spark ownership
 // layout, but contains none of the private story prose.
 const historicalTurnOne = `Ordinary narrative prose before the first illustration.
 ${resolvedMedia('inline-1')}
 Ordinary narrative prose between illustrations.
-<chaos_payload id="repro-seven" lifecycle="Unused Plot Sparks dissolve after this response.">
-${historicalHooks}
-</chaos_payload>
+[Plot_Sparks][ID]repro-seven[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]
+${historicalSparks}
+[/Plot_Sparks]
 Ordinary narrative prose after the structured payload.`
 
 const sanitized = sanitizeRelayPromptHistoryTextWithReport(historicalTurnOne)
 assert(sanitized.runtimeArtifactsDetectedBefore, 'real-derived turn-one fixture must contain hydrated Relay runtime artifacts before sanitization')
 assert(!sanitized.runtimeArtifactsRemainAfter && !containsRelayRuntimeArtifacts(sanitized.text), 'turn-two Story Model history must contain zero Relay runtime transport artifacts')
-assert(sanitized.text.includes('Ordinary narrative prose before') && sanitized.text.includes('Playable historical branch g'), 'sanitization must preserve ordinary prose and Plot Spark hook_text')
-assert(!/<hook_media>\s*<\/hook_media>/i.test(sanitized.text), 'sanitization must not leave deceptive empty hook_media owners')
+assert(sanitized.text.includes('Ordinary narrative prose before') && sanitized.text.includes('Playable historical branch g'), 'sanitization must preserve ordinary prose and Plot Spark text')
+assert(!/\[Media\]\s*\[\/Media\]/i.test(sanitized.text), 'sanitization must not leave deceptive empty Plot Spark media owners')
 assert(!sanitized.text.includes(HISTORICAL_RELAY_MEDIA_PLACEHOLDER), 'historical sanitation must never expose the readable omission sentinel')
 assert(sanitized.removed.ownershipComments === 8 && sanitized.removed.relayMarkdownResultImages === 8 && sanitized.removed.dataDgirImages === 8, 'real-derived fixture must exercise all hydrated ownership representations')
 
@@ -45,7 +47,7 @@ const canonicalHook = (key: keyof typeof PLOT_SPARK_VECTOR_BY_KEY) => `[Spark][K
 const validPlot = `[Plot_Sparks][ID]valid-seven[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${(Object.keys(PLOT_SPARK_VECTOR_BY_KEY) as Array<keyof typeof PLOT_SPARK_VECTOR_BY_KEY>).map(canonicalHook).join('')}[/Plot_Sparks]`
 const fourInline = ['one', 'two', 'three', 'four'].map(canonicalIllustration).join('\n')
 const valid = inspectStoryModelOutputContracts(`${fourInline}\n${validPlot}`, { expectedInlineIllustrations: 4, inlineCountMode: 'fixed', expectPlotSparks: true })
-assert(valid.valid && valid.inline.actualCanonicalIllustrations === 4 && valid.plotSparks.hookCount === 7, 'fixed Inline four plus canonical Plot Sparks A-G must validate')
+assert(valid.valid && valid.inline.actualCanonicalIllustrations === 4 && valid.plotSparks.sparkCount === 7, 'fixed Inline four plus canonical Plot Sparks A-G must validate')
 
 const partialPlot = `[Plot_Sparks][ID]broken-three[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${canonicalHook('a')}${canonicalHook('b')}[Spark][Key]c[/Key][Vector]crash-in[/Vector][Text]Wrong C vector.[/Text][Media]${canonicalIllustration('plot-spark-c')}[/Media][/Spark][/Plot_Sparks]`
 const partial = inspectStoryModelOutputContracts(`${fourInline}\n${partialPlot}`, { expectedInlineIllustrations: 4, inlineCountMode: 'fixed', expectPlotSparks: true })

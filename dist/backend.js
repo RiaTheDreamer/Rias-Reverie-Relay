@@ -184,15 +184,11 @@ var PLOT_SPARK_VECTOR_BY_KEY = {
   f: "reputation-fire",
   g: "wildcard-collision"
 };
-function readMarkupAttribute(source, name) {
-  const match = source.match(new RegExp(`\\b${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, "i"));
-  return match?.[2]?.trim() || "";
-}
 function runtimeArtifactOccurrenceCount(value) {
   return regexCount(value, RELAY_OWNERSHIP_MARKER_RE) + regexCount(value, RELAY_PROMPT_MARKDOWN_IMAGE_RE) + regexCount(value, RELAY_PROMPT_OWNED_IMAGE_RE) + regexCount(value, RELAY_RUNTIME_RESULT_URL_RE);
 }
 function removePlotSparkPayloads(value) {
-  return value.replace(/\[Plot_Sparks\][\s\S]*?\[\/Plot_Sparks\]/gi, "").replace(/<chaos_payload\b[^>]*>[\s\S]*?<\/chaos_payload\s*>/gi, "");
+  return value.replace(/\[Plot_Sparks\][\s\S]*?\[\/Plot_Sparks\]/gi, "");
 }
 function inspectStoryModelOutputContracts(value, options = {}) {
   const text = String(value || "");
@@ -202,36 +198,32 @@ function inspectStoryModelOutputContracts(value, options = {}) {
   const countMode = options.inlineCountMode || "unknown";
   const inlineValid = expected === null ? true : countMode === "minimum" ? canonicalInline.length >= expected : canonicalInline.length === expected;
   const canonicalPayloads = [...text.matchAll(/\[Plot_Sparks\][\s\S]*?\[\/Plot_Sparks\]/gi)];
-  const legacyPayloads = [...text.matchAll(/<chaos_payload\b[^>]*>[\s\S]*?<\/chaos_payload\s*>/gi)];
-  const payloads = [...canonicalPayloads, ...legacyPayloads];
+  const payloads = canonicalPayloads;
   const canonicalSparks = canonicalPayloads.flatMap((payload) => [...payload[0].matchAll(/\[Spark\]([\s\S]*?)\[\/Spark\]/gi)].map((match) => match[1] || ""));
-  const legacyHooks = legacyPayloads.flatMap((payload) => [...payload[0].matchAll(/<chaos_hook\b([^>]*)>([\s\S]*?)<\/chaos_hook\s*>/gi)]);
-  const hookCount = canonicalSparks.length + legacyHooks.length;
+  const sparkCount = canonicalSparks.length;
   const keysSeen = [];
   const vectorsSeen = [];
   const missingMedia = [];
   const vectorMismatches = [];
-  for (let index = 0;index < hookCount; index += 1) {
-    const canonicalBody = canonicalSparks[index];
-    const legacy = canonicalBody === undefined ? legacyHooks[index - canonicalSparks.length] : undefined;
-    const body = canonicalBody ?? legacy?.[2] ?? "";
-    const key = ((canonicalBody !== undefined ? body.match(/\[Key\]\s*([\s\S]*?)\s*\[\/Key\]/i)?.[1] : readMarkupAttribute(legacy?.[1] || "", "key")) || "").trim().toLocaleLowerCase();
-    const vector = ((canonicalBody !== undefined ? body.match(/\[Vector\]\s*([\s\S]*?)\s*\[\/Vector\]/i)?.[1] : readMarkupAttribute(legacy?.[1] || "", "vector")) || "").trim().toLocaleLowerCase();
+  for (let index = 0;index < sparkCount; index += 1) {
+    const body = canonicalSparks[index] || "";
+    const key = (body.match(/\[Key\]\s*([\s\S]*?)\s*\[\/Key\]/i)?.[1] || "").trim().toLocaleLowerCase();
+    const vector = (body.match(/\[Vector\]\s*([\s\S]*?)\s*\[\/Vector\]/i)?.[1] || "").trim().toLocaleLowerCase();
     keysSeen.push(key);
     vectorsSeen.push(vector);
     const expectedVector = PLOT_SPARK_VECTOR_BY_KEY[key];
     if (expectedVector && vector !== expectedVector)
       vectorMismatches.push({ key, expected: expectedVector, actual: vector });
-    const hookText = canonicalBody !== undefined ? body.match(/\[Text\]\s*([\s\S]*?)\s*\[\/Text\]/i)?.[1]?.trim() || "" : body.match(/<hook_text\b[^>]*>([\s\S]*?)<\/hook_text\s*>/i)?.[1]?.trim() || "";
-    const hookMedia = canonicalBody !== undefined ? body.match(/\[Media\]\s*([\s\S]*?)\s*\[\/Media\]/i)?.[1] || "" : body.match(/<hook_media\b[^>]*>([\s\S]*?)<\/hook_media\s*>/i)?.[1] || "";
-    const canonicalMedia = /<reverie-illustration\b[^>]*\brequest\s*=\s*["']generate["'][^>]*>[\s\S]*?<visual_prompt\b[^>]*>\s*[^<\s][\s\S]*?<\/visual_prompt\s*>[\s\S]*?<\/reverie-illustration\s*>/i.test(hookMedia);
-    if (!hookText || !canonicalMedia)
-      missingMedia.push(key || `hook-${index + 1}`);
+    const sparkText = body.match(/\[Text\]\s*([\s\S]*?)\s*\[\/Text\]/i)?.[1]?.trim() || "";
+    const sparkMedia = body.match(/\[Media\]\s*([\s\S]*?)\s*\[\/Media\]/i)?.[1] || "";
+    const canonicalMedia = /<reverie-illustration\b[^>]*\brequest\s*=\s*["']generate["'][^>]*>[\s\S]*?<visual_prompt\b[^>]*>\s*[^<\s][\s\S]*?<\/visual_prompt\s*>[\s\S]*?<\/reverie-illustration\s*>/i.test(sparkMedia);
+    if (!sparkText || !canonicalMedia)
+      missingMedia.push(key || `spark-${index + 1}`);
   }
   const requiredKeys = Object.keys(PLOT_SPARK_VECTOR_BY_KEY);
   const missingKeys = requiredKeys.filter((key) => !keysSeen.includes(key));
   const duplicateKeys = [...new Set(keysSeen.filter((key, index) => key && keysSeen.indexOf(key) !== index))];
-  const plotValid = !options.expectPlotSparks && payloads.length === 0 || payloads.length === 1 && hookCount === requiredKeys.length && missingKeys.length === 0 && duplicateKeys.length === 0 && vectorMismatches.length === 0 && missingMedia.length === 0;
+  const plotValid = !options.expectPlotSparks && payloads.length === 0 || payloads.length === 1 && sparkCount === requiredKeys.length && missingKeys.length === 0 && duplicateKeys.length === 0 && vectorMismatches.length === 0 && missingMedia.length === 0;
   const artifactKinds = relayRuntimeArtifactKinds(text);
   const runtimeArtifacts = {
     detected: artifactKinds.length > 0,
@@ -240,7 +232,7 @@ function inspectStoryModelOutputContracts(value, options = {}) {
   };
   return {
     inline: { expectedIllustrations: expected, actualCanonicalIllustrations: canonicalInline.length, countMode, valid: inlineValid },
-    plotSparks: { payloadCount: payloads.length, hookCount, keysSeen, vectorsSeen, missingKeys, duplicateKeys, vectorMismatches, missingMedia, valid: plotValid },
+    plotSparks: { payloadCount: payloads.length, sparkCount, keysSeen, vectorsSeen, missingKeys, duplicateKeys, vectorMismatches, missingMedia, valid: plotValid },
     modelAuthoredRuntimeArtifacts: runtimeArtifacts,
     valid: inlineValid && plotValid && !runtimeArtifacts.detected
   };
@@ -342,7 +334,6 @@ var NARRATIVE_MEDIA_CONTEXTS = [
   { open: /\[dramatic_parallel\]/gi, close: /\[\/dramatic_parallel\]/gi },
   { open: /<dramatic_parallel\b[^>]*>/gi, close: /<\/dramatic_parallel\s*>/gi },
   { open: /\[Plot_Sparks\]/gi, close: /\[\/Plot_Sparks\]/gi },
-  { open: /<chaos_payload\b[^>]*>/gi, close: /<\/chaos_payload\s*>/gi },
   { open: /\[dossier_ui\]/gi, close: /\[\/dossier_ui\]/gi },
   { open: /<dossier_ui\b[^>]*>/gi, close: /<\/dossier_ui\s*>/gi },
   { open: /\[SCENE(?:\||\])/gi, close: /\[\/SCENE\]/gi },
@@ -152598,7 +152589,7 @@ Do NOT author generic fields such as:
 
 Those generic forms exist only for legacy compatibility and are not canonical.
 
-This namespacing is intentional: Character Phone must coexist safely with Archive, Relationship, Hooks, Cutaways, Scene Cards, and other Relay surfaces in the same assistant message.
+This namespacing is intentional: Character Phone must coexist safely with Archive, Relationship, Hooks, Cutaways, Scene Shifts, and other Relay surfaces in the same assistant message.
 
 ## PRESENTATION
 
@@ -152829,7 +152820,7 @@ Before output:
     },
     {
       loomName: "Dramatic Cutaway",
-      loomContent: `### Loom Utility: Dramatic Cutaways [MANDATORY CHAOS VARIANT]
+      loomContent: `### Dramatic Cutaway \u2014 Active Off-Screen Pressure
 
 Purpose: I MUST create one vivid off-screen cutaway that increases dramatic pressure, introduces active complications, or shows a consequential B-plot moving without the focal characters' awareness. This utility is intentionally more proactive and drama-forward than the standard Cinematic Cutaway. It may coexist with the standard [PARALLEL] cutaway.
 
@@ -152838,8 +152829,7 @@ PLACEMENT \u2014 COEXISTENCE LAW
 2. Place it after the final paragraph of the main narrative.
 3. If a standard [PARALLEL] cutaway is also emitted, place [dramatic_parallel] after [PARALLEL].
 4. Place [dramatic_parallel] before [Plot_Sparks], if present.
-5. Place all cutaways before the original Hook Ledger payload.
-6. The original Hook Ledger remains the absolute final content whenever that utility is active.
+5. Do not place unrelated content inside [dramatic_parallel].
 
 DRAMA ENGINE
 The cutaway must do more than provide ambiance. It must create live pressure that can plausibly collide with the active story soon.
@@ -152882,7 +152872,7 @@ PARAGRAPHS
 Wrap every prose paragraph in [paragraph] tags. Use standard double quotes for spoken dialogue in prose.
 
 NO OUTER HTML
-Output only the semantic XML below. Do not author CSS, style blocks, outer cards, or renderer-owned UI.
+Output only the bracket Surface payload below. XML is reserved for the nested <reverie-illustration> image request. Do not author CSS, style blocks, outer cards, or renderer-owned UI.
 
 REQUIRED FORMAT \u2014 EXACT
 
@@ -152925,12 +152915,8 @@ REVERIE IMAGE EMISSION LAW \u2014 MANDATORY
       version: 1
     },
     {
-      loomName: "Chaos Hooks",
-      loomContent: `[chaos_hook_ledger]
-
-Activate:
-
-[PLOT SPARKS \u2014 CURRENT-SCENE BRANCH BOARD]
+      loomName: "Plot Sparks",
+      loomContent: `[PLOT SPARKS \u2014 CURRENT-SCENE BRANCH BOARD]
 
 PURPOSE
 
@@ -152945,8 +152931,6 @@ Every Spark begins from the scene as it currently exists.
 A Plot Spark may introduce a new reaction, interruption, consequence, realization, decision, arrival, discovery, mistake, opportunity, or complication \u2014 but it must be causally reachable from the active scene.
 
 The goal is divergence without disconnection.
-
-A Spark should feel surprising in direction while still making immediate narrative sense.
 
 GOOD:
 "Of course that could happen next."
@@ -153029,21 +153013,21 @@ CURRENT CHARACTERS FIRST
 
 Prefer using the people already participating in the scene.
 
+IDENTITY BOUNDARY
+
+Use only person names, usernames, and handles already supplied by the current scene or established context.
+
+Never invent, rename, or substitute a person, username, or handle.
+
+When an established person has no supplied name, refer to their established role without creating one.
+
 Existing nearby or already-established characters may enter when naturally motivated.
 
 A new arrival is valid only if the active scene gives them a plausible reason to appear now.
 
-Do NOT introduce a stranger, authority figure, relative, employee, rival, institution, delivery, emergency, rumor, or external crisis solely because one of the seven lanes needs variety.
+Do NOT introduce a stranger, authority figure, relative, employee, rival, institution, delivery, emergency, rumor, or external crisis solely because one of the seven lenses needs variety.
 
 External elements must connect to something already active.
-
-Example:
-
-VALID:
-A repair technician arrives because the characters have already been struggling with malfunctioning equipment.
-
-INVALID:
-A repair technician randomly appears in a bedroom argument because "crash-in" needs a person.
 
 OBJECT AND DETAIL CONTINUITY
 
@@ -153117,103 +153101,26 @@ Prefer:
 
 The strongest Sparks make the reader realize that the possibility was already latent in the scene.
 
-RELATIONSHIP TO THE NORMAL HOOK LEDGER
+DIVERSITY LAW
 
-Plot Sparks and the normal Hook Ledger may both describe possible next continuations.
+The seven Plot Sparks must branch in meaningfully different directions while remaining rooted in the same scene.
 
-They serve different creative roles:
+Avoid seven variations of the same:
+\u2022 interruption
+\u2022 confession
+\u2022 misunderstanding
+\u2022 physical accident
+\u2022 phone notification
+\u2022 discovery
+\u2022 romantic escalation
 
-The normal Hook Ledger should contain the seven most straightforward or narratively likely continuation choices.
-
-Plot Sparks should contain seven more sideways, risky, surprising, awkward, emotionally sharp, or creatively disruptive continuations \u2014 while STILL branching from the exact same active scene.
-
-Plot Sparks are not unrelated subplots.
-
-They are alternate branches of the same scene.
-
-TWO-LEDGER ALGORITHM
-
-When both systems are active, silently do this before emitting either ledger:
-
-STEP 1 \u2014 READ THE CURRENT SCENE
-
-Build one shared scene-state map from the immediate narrative.
-
-Record:
-\u2022 active characters
-\u2022 location
-\u2022 current physical positions
-\u2022 most recent action
-\u2022 immediate tension
-\u2022 unresolved interactions
-\u2022 important objects
-\u2022 active information
-\u2022 plausible nearby influences
-
-STEP 2 \u2014 PRECOMMIT NORMAL HOOKS
-
-Draft the seven normal Hook Ledger continuations first.
-
-Freeze their central branch concepts.
-
-STEP 3 \u2014 BUILD A BRANCH EXCLUSION MAP
-
-For every normal hook, record:
-\u2022 immediate trigger
-\u2022 character making the key move
-\u2022 primary direction
-\u2022 central consequence or question
-
-STEP 4 \u2014 GENERATE PLOT SPARKS FROM THE SAME SCENE ROOT
-
-Generate seven different scene continuations.
-
-Every Plot Spark must remain rooted in the shared scene-state map.
-
-Avoid duplicating the frozen normal branches.
-
-Difference should come from a different reaction, trigger, interaction, consequence, interruption, decision, use of an existing object, or interpretation of the same moment.
-
-STEP 5 \u2014 EMIT PLOT SPARKS FIRST
-
-Emit [Plot_Sparks].
-
-STEP 6 \u2014 EMIT THE FROZEN NORMAL LEDGER LAST
-
-Emit the original Hook Ledger exactly as precommitted.
-
-Do not rewrite the normal ledger to imitate the Plot Sparks.
-
-ANTI-DUPLICATION LAW
-
-The two ledgers may share:
-\u2022 the same location
-\u2022 the same characters
-\u2022 the same current conflict
-\u2022 the same scene anchors
-
-That is expected because they branch from the same scene.
-
-They must NOT describe effectively the same next beat in different wording.
-
-A Plot Spark is too similar when it shares BOTH:
-\u2022 the same immediate trigger
-AND
-\u2022 the same primary branch direction
-
-with a normal hook.
-
-Do NOT force Plot Sparks into unrelated causal domains just to make them different.
+Difference should come from a different reaction, trigger, interaction, consequence, decision, use of an existing object, environmental pressure, or interpretation of the same moment.
 
 Variation of BRANCH is required.
 
 Variation of UNIVERSE is not.
 
 SEVEN BRANCH LENSES
-
-The vector attribute names below are legacy renderer keys.
-
-Interpret them using these scene-continuation meanings.
 
 A \u2014 vector="detonation" \u2014 THE CURRENT SITUATION SLIPS
 
@@ -153381,11 +153288,11 @@ unless the Human explicitly selects or manifests one in the actual story.
 
 IMAGE CONTRACT \u2014 MANDATORY AND NON-OPTIONAL
 
-EVERY Plot Spark MUST contain exactly one <reverie-illustration> inside [hook_media].
+EVERY Plot Spark MUST contain exactly one complete <reverie-illustration> inside [Media].
 
-EMPTY [hook_media] IS INVALID OUTPUT.
+EMPTY [Media] IS INVALID OUTPUT.
 
-A [Plot_Sparks] with fewer than SEVEN <reverie-illustration> blocks is INVALID.
+A [Plot_Sparks] block with fewer than SEVEN <reverie-illustration> blocks is INVALID.
 
 Before emitting [/Plot_Sparks], count them:
 
@@ -153403,13 +153310,15 @@ It should visually remain connected to the current scene through:
 
 unless the Spark itself naturally changes one of those.
 
-Use this exact compact schema inside every hook:
+Use this exact compact schema inside every [Media] field:
 
-[hook_media]<reverie-illustration request="generate" slot="chaos-a-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[short accessible description]"><visual_prompt>[25\u201360 word cinematic still of the first playable instant of this scene branch. Preserve current-scene continuity. No UI, labels, captions, borders, or readable text.]</visual_prompt></reverie-illustration>[/hook_media]
+[Media]<reverie-illustration request="generate" slot="plot-spark-a-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[short accessible description]"><visual_prompt>[25\u201360 word cinematic still of the first playable instant of this scene branch. Preserve current-scene continuity. No UI, labels, captions, borders, or readable text.]</visual_prompt></reverie-illustration>[/Media]
 
 For B\u2013G, change the slot letter accordingly.
 
-Never emit an empty hook_media block.
+Never emit an empty [Media].
+
+Never use <image_request> or <scene_brief> inside Plot Sparks.
 
 Never omit </reverie-illustration>.
 
@@ -153424,56 +153333,67 @@ Additional NPCs or other named characters belong explicitly in <visual_prompt>.
 OUTPUT FORMAT \u2014 EXACT
 
 [Plot_Sparks]
+[ID][fresh lowercase id][/ID]
+[Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]
 
-[chaos_hook]
-[hook_text][Current situation slips \u2014 one concise playable continuation.][/hook_text]
-[hook_media]<reverie-illustration request="generate" slot="chaos-a-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/hook_media]
-[/chaos_hook]
+[Spark]
+[Key]a[/Key]
+[Vector]detonation[/Vector]
+[Text][Current situation slips \u2014 one concise playable continuation.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-a-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
 
-[chaos_hook]
-[hook_text][Unexpected personal move.][/hook_text]
-[hook_media]<reverie-illustration request="generate" slot="chaos-b-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/hook_media]
-[/chaos_hook]
+[Spark]
+[Key]b[/Key]
+[Vector]heartknife[/Vector]
+[Text][Unexpected personal move.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-b-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
 
-[chaos_hook]
-[hook_text][Current detail does not add up.][/hook_text]
-[hook_media]<reverie-illustration request="generate" slot="chaos-c-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/hook_media]
-[/chaos_hook]
+[Spark]
+[Key]c[/Key]
+[Vector]wrongness[/Vector]
+[Text][Current detail does not add up.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-c-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
 
-[chaos_hook]
-[hook_text][Grounded interruption from the existing world.][/hook_text]
-[hook_media]<reverie-illustration request="generate" slot="chaos-d-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/hook_media]
-[/chaos_hook]
+[Spark]
+[Key]d[/Key]
+[Vector]crash-in[/Vector]
+[Text][Grounded interruption from the existing world.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-d-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
 
-[chaos_hook]
-[hook_text][Existing pressure forces a decision.][/hook_text]
-[hook_media]<reverie-illustration request="generate" slot="chaos-e-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/hook_media]
-[/chaos_hook]
+[Spark]
+[Key]e[/Key]
+[Vector]matchstrike[/Vector]
+[Text][Existing pressure forces a decision.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-e-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
 
-[chaos_hook]
-[hook_text][Current moment creates a plausible misread.][/hook_text]
-[hook_media]<reverie-illustration request="generate" slot="chaos-f-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/hook_media]
-[/chaos_hook]
+[Spark]
+[Key]f[/Key]
+[Vector]reputation-fire[/Vector]
+[Text][Current moment creates a plausible misread.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-f-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
 
-[chaos_hook]
-[hook_text][Least obvious but still causally natural branch.][/hook_text]
-[hook_media]<reverie-illustration request="generate" slot="chaos-g-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/hook_media]
-[/chaos_hook]
+[Spark]
+[Key]g[/Key]
+[Vector]wildcard-collision[/Vector]
+[Text][Least obvious but still causally natural branch.][/Text]
+[Media]<reverie-illustration request="generate" slot="plot-spark-g-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
+[/Spark]
 
 [/Plot_Sparks]
 
 PLACEMENT
 
-The original Hook Ledger owns the absolute end of the response.
+Place [Plot_Sparks] after the main narrative content for the response.
 
-When all relevant systems are active:
+Do not inject Plot Sparks into the middle of a prose paragraph.
 
-1. main prose / surfaces
-2. cutaways
-3. [Plot_Sparks]
-4. original [payload] Hook Ledger LAST
-
-Do not inject Plot Sparks into the middle of main prose.
+Do not place unrelated content inside [Plot_Sparks].
 
 FINAL VALIDATION
 
@@ -153485,28 +153405,32 @@ Before sending, silently verify:
 4. At least one anchor per Spark comes from the immediate current response.
 5. No Spark requires an unrelated subplot to begin.
 6. No Spark makes a large time/location jump without scene support.
-7. No Spark duplicates a normal Hook Ledger branch.
+7. The seven Sparks are meaningfully distinct from one another.
 8. Character knowledge and emotional state remain continuous.
-9. Exactly seven [chaos_hook] blocks exist.
-10. Exactly seven NON-EMPTY [hook_media] blocks exist.
-11. Exactly seven <reverie-illustration> blocks exist.
-12. Every illustration depicts the opening instant of its matching branch.
-13. Every <reverie-illustration> closes correctly.
-14. [Plot_Sparks] appears before the original Hook Ledger.
-15. Original Hook Ledger remains absolute final content when active.
+9. Exactly one [Plot_Sparks] root exists.
+10. [ID] exists exactly once.
+11. [Lifecycle] exists exactly once.
+12. Exactly seven [Spark] blocks exist.
+13. Keys a, b, c, d, e, f, g each exist exactly once.
+14. Each Spark contains exactly one [Vector].
+15. Each Spark contains exactly one non-empty [Text].
+16. Each Spark contains exactly one non-empty [Media].
+17. Exactly seven <reverie-illustration> blocks exist.
+18. Every <reverie-illustration> contains exactly one <visual_prompt>.
+19. Every <reverie-illustration> closes with </reverie-illustration>.
+20. No Plot Spark uses <image_request>, <scene_brief>, or legacy Plot Sparks syntax.
 
-If structural checks fail, repair the payload before sending.
+If structural checks fail, repair the Plot Sparks block before sending.
 
 If a narrative-continuity check fails, replace the offending Spark rather than weakening the rule.
-
-[/chaos_hook_ledger]`,
+`,
       loomCategory: "Loom Utilities",
       authorName: null,
       version: 2
     },
     {
-      loomName: "Scene Compass",
-      loomContent: `### Scene Compass \u2014 Visual + Context
+      loomName: "Scene Shift",
+      loomContent: `### Scene Shift \u2014 Visual + Context
 
 Use this surface only when the story actually moves into a meaningfully different scene state: a new place, a meaningful time jump, or an atmosphere change substantial enough to reframe the setting.
 
@@ -153547,45 +153471,37 @@ REVERIE MEDIA CONTRACT
       version: 6
     },
     {
-      loomName: "Parallel Current",
-      loomContent: `### Parallel Current \u2014 Three Live Threads
+      loomName: "Parallel Scene",
+      loomContent: `### Parallel Scene \u2014 Three Live Threads
 
-Use this surface to show what is actively moving outside the focal scene: absent characters, institutional activity, rumor movement, relationship changes, delays, plans, discoveries, or other off-screen pressure.
-
-PLACEMENT
-After the main prose and any dramatic/cinematic cutaways. Keep it before World Detail, Elsewhere, Scene Card, What If, Chaos Hooks, and the original Hook Ledger.
+Use this Surface to show three active off-stage threads grounded in the current story.
 
 CANONICAL OUTPUT
-[PARALLEL|Scope|Relevance]
-- Character/Thread 1: brief directional development
-[parallel_media]<image_request id="parallel-1-[unique-id]" target="custom.artifact-media" slot="parallel-1-[unique-id]" aspect="4:3" alt="[Accessible image description for thread 1]"><scene_brief>[One cinematic still of thread 1 happening now. Show the present off-screen beat rather than a resolved future result. Preserve established appearance and continuity. No readable text.]</scene_brief></image_request>[/parallel_media]
-- Character/Thread 2: brief directional development
-[parallel_media]<image_request id="parallel-2-[unique-id]" target="custom.artifact-media" slot="parallel-2-[unique-id]" aspect="4:3" alt="[Accessible image description for thread 2]"><scene_brief>[One cinematic still of thread 2 happening now. Preserve continuity and avoid future outcomes. No readable text.]</scene_brief></image_request>[/parallel_media]
-- World/NPCs/Thread 3: brief directional development
-[parallel_media]<image_request id="parallel-3-[unique-id]" target="custom.artifact-media" slot="parallel-3-[unique-id]" aspect="4:3" alt="[Accessible image description for thread 3]"><scene_brief>[One cinematic still of thread 3 in its current off-screen state. Preserve continuity. No readable text.]</scene_brief></image_request>[/parallel_media]
+[PARALLEL|Scope|Status]
+[parallel_entry]
+[text]Entry 1 text[/text]
+[parallel_media]<image_request id="parallel-1-[unique-id]" target="custom.artifact-media" slot="parallel-1-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request>[/parallel_media]
+[/parallel_entry]
+[parallel_entry]
+[text]Entry 2 text[/text]
+[parallel_media]<image_request id="parallel-2-[unique-id]" target="custom.artifact-media" slot="parallel-2-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request>[/parallel_media]
+[/parallel_entry]
+[parallel_entry]
+[text]Entry 3 text[/text]
+[parallel_media]<image_request id="parallel-3-[unique-id]" target="custom.artifact-media" slot="parallel-3-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request>[/parallel_media]
+[/parallel_entry]
+[parallel_context]
+[trajectory]How these three established threads are currently moving, without inventing a resolved future.[/trajectory]
+[intersection]Where their existing pressures may touch, stated as present context rather than a guaranteed payoff.[/intersection]
+[/parallel_context]
 [/PARALLEL]
 
-STRUCTURE
-- Exactly three thread lines.
-- Exactly three [parallel_media] blocks, each immediately following its matching thread.
-- Never place another Utility inside Parallel.
-- Do not forecast a collision, write a future trajectory, prescribe a payoff, or invent an intersection with the main plot.
-- Scope and Relevance classify what is already happening; they do not promise future story beats.
-
-CONTENT
-- Prioritize characters and activity that are genuinely off-screen. In crowded scenes, prefer people who are currently absent.
-- Scope may be a named place, Multiple locations, or Background.
-- Relevance is one of: rising tension, opportunity, complication, threat, alliance forming.
-- Each thread should be short and directional: someone acts, waits, discovers, discusses, attempts, delays, changes position, or shifts loyalty.
-- Keep off-screen escalation proportionate to the current story state rather than manufacturing a larger plot.
-
-REVERIE MEDIA CONTRACT
-- Every [parallel_media] block is mandatory and non-empty.
-- Emit the raw artifact-media <image_request> syntax literally.
-- Use target="custom.artifact-media".
-- Every request contains a non-empty <scene_brief>.
-- id and slot must match exactly and remain unique, lowercase, and slug-safe.
-- Do not replace the requests with Markdown, HTML images, comments, prose, or empty wrappers.
+RULES
+- Emit exactly three ordered [parallel_entry] blocks, each with one non-empty [text] and one non-empty [parallel_media].
+- Always include exactly one [parallel_context] with one non-empty [trajectory] and one non-empty [intersection].
+- Never emit an empty [parallel_media]. Supply one complete request with a non-empty scene_brief for every entry.
+- Keep every request attached to its matching entry. IDs and slots are unique, lowercase, slug-safe, and match each other.
+- Do not nest another Utility inside Parallel Scene. Do not manufacture a resolved future event merely to populate the Surface.
 
 {{trim}}`,
       loomCategory: "Loom Utilities",
@@ -153593,8 +153509,12 @@ REVERIE MEDIA CONTRACT
       version: 6
     },
     {
-      loomName: "Cast Arrival",
-      loomContent: `### Cast Arrival \u2014 Portrait + Tier File
+      loomName: "Cast Introduction",
+      loomContent: `TRIGGER POLICY \u2014 CAST INTRODUCTION
+Emit when a named non-user character appears on-page for the first time and this response establishes at least two of: role/occupation; physical appearance; relationship to existing cast; characteristic behavior/voice; immediate narrative function.
+Do not wait for proof that the character will become major. Do not repeat if history already contains their Cast Introduction.
+
+### Cast Introduction \u2014 Portrait + Tier File
 
 When a newly named NPC becomes narratively distinct for the first meaningful time, issue one introduction file immediately after the prose introduces them.
 
@@ -153660,8 +153580,8 @@ REVERIE MEDIA CONTRACT
       version: 6
     },
     {
-      loomName: "Knowledge Veil",
-      loomContent: `### Knowledge Veil \u2014 Unified Secret Ledger
+      loomName: "Backstage Secrets",
+      loomContent: `### Backstage Secrets \u2014 Unified Secret Ledger
 
 Use this surface when the scene creates, reveals, transfers, or materially changes a meaningful gap in what different characters know.
 
@@ -153698,13 +153618,13 @@ REVERIE MEDIA CONTRACT
       version: 6
     },
     {
-      loomName: "World Texture",
-      loomContent: `### World Texture \u2014 Unified Detail Card
+      loomName: "Setting the Scene",
+      loomContent: `### Setting the Scene \u2014 Unified Detail Card
 
 Once per scene, surface one small piece of setting logic that makes the world more playable: a custom, system, environmental fact, social habit, resource, risk, sign, infrastructure rule, or other concrete detail that may matter through later in-world action.
 
 PLACEMENT
-After Parallel Tracker. Keep it before Elsewhere, Scene Card, What If, Chaos Hooks, and the original Hook Ledger.
+After Parallel Scene when present. Keep it before Off-Stage, In Another Life, and Plot Sparks.
 
 CANONICAL OUTPUT
 [WORLD|Category|Location or Context]
@@ -153717,7 +153637,7 @@ CATEGORIES
 \uD83C\uDFDB CULTURE | \uD83D\uDDE3 OVERHEARD | \uD83D\uDCDC HISTORY | \uD83C\uDF3F ENVIRONMENT | \uD83D\uDD27 HOW IT WORKS | \uD83D\uDC65 DAILY LIFE | \uD83E\uDEA7 SIGNAGE | \uD83D\uDCD6 FOLKLORE | \uD83D\uDCB0 ECONOMY | \u2699\uFE0F INFRASTRUCTURE
 
 CONSTRAINTS
-- Exactly one World Detail per scene.
+- Exactly one Setting the Scene per scene.
 - [world_detail] is concrete and no longer than 50 words.
 - Prefer information a person could notice, learn, use, run into, or investigate.
 - Use the surface to broaden the setting rather than rephrasing the scene.
@@ -153725,7 +153645,7 @@ CONSTRAINTS
 - Exactly one 16:9 artifact-media request with matching id/slot.
 
 REVERIE MEDIA CONTRACT
-- A World Detail always includes its non-empty [world_media].
+- A Setting the Scene always includes its non-empty [world_media].
 - Emit the raw <image_request> and <scene_brief> tags literally.
 - Use target="custom.artifact-media".
 - id and slot must be identical, unique, lowercase, and slug-safe.
@@ -153738,13 +153658,13 @@ REVERIE MEDIA CONTRACT
       version: 6
     },
     {
-      loomName: "Beyond the Frame",
-      loomContent: `### Beyond the Frame \u2014 Cinematic Off-Screen Scene + Firewall
+      loomName: "Off-Stage",
+      loomContent: `### Off-Stage \u2014 Cinematic Off-Screen Scene + Firewall
 
-Use Elsewhere to dramatize one active thread outside the focal scene as a real scene of its own rather than a status summary.
+Use Off-Stage to dramatize one active thread outside the focal scene as a real scene of its own rather than a status summary.
 
 PLACEMENT
-After World Detail. Keep it before Scene Card, What If, Chaos Hooks, and the original Hook Ledger.
+After Setting the Scene when present. Keep it before In Another Life and Plot Sparks.
 
 CANONICAL OUTPUT
 [[else Thread Name]]
@@ -153756,7 +153676,7 @@ CANONICAL OUTPUT
 [[/else]]
 
 PRESENTATION
-- Elsewhere renders as one cinematic card.
+- Off-Stage renders as one cinematic card.
 - Show the image and scene first.
 - Follow with one labeled FIREWALL section containing visibility, clock, knowledge, and collision.
 - Visibility values are status information, never navigation or fake tabs.
@@ -153788,8 +153708,8 @@ REVERIE MEDIA CONTRACT
       version: 6
     },
     {
-      loomName: "Character File",
-      loomContent: `### Character File \u2014 Tiered Inline Character File
+      loomName: "Character Dossier",
+      loomContent: `### Character Dossier \u2014 Tiered Inline Character Dossier
 
 When a person first becomes individually meaningful, classify the amount of narrative load they carry right now as mook, side, or main. The classification is about current story weight, not moral value, competence, power, or predicted importance.
 
@@ -153939,8 +153859,8 @@ REVERIE MEDIA CONTRACT
       version: 6
     },
     {
-      loomName: "Place File",
-      loomContent: `### Place File \u2014 Persistent Inline Place Dossier
+      loomName: "Location File",
+      loomContent: `### Location File \u2014 Persistent Inline Place Dossier
 
 Create a file when a place has already earned lasting narrative value: it is likely to recur, anchors an important scene, controls movement or resources, belongs to a faction, carries meaningful history, contains a secret, or rewards investigation.
 
@@ -153996,15 +153916,14 @@ REVERIE MEDIA CONTRACT
       version: 6
     },
     {
-      loomName: "Unwalked Path",
-      loomContent: `### Unwalked Path \u2014 Unified Branch Preview
+      loomName: "In Another Life",
+      loomContent: `### In Another Life \u2014 Unified Branch Preview
 
 Use this surface to explore one plausible alternate choice or event without altering the canonical timeline.
 
 PLACEMENT
-- Place after Elsewhere and Scene Card when present.
-- Keep it before Chaos Hooks and the original Hook Ledger.
-- If the original Hook Ledger is active, that ledger still owns the absolute end.
+- Place after Off-Stage and Scene Shift when present.
+- Keep it before Plot Sparks.
 
 CANONICAL OUTPUT
 [WHATIF|Short Branch Title]
@@ -154014,7 +153933,7 @@ CANONICAL OUTPUT
 [/WHATIF]
 
 DISPLAY CONTRACT
-- What If renders as one unified card.
+- In Another Life renders as one unified card.
 - Show the image and scenario first.
 - Follow with Pivot, Stakes, Canon State, and the Regex-owned fork control.
 - Do not emit HTML, details elements, buttons, or fork UI yourself.
@@ -154040,8 +153959,14 @@ REVERIE MEDIA CONTRACT
       version: 6
     },
     {
-      loomName: "Unified Archive Generator",
-      loomContent: `### Loom Utility: Unified Archive Generator
+      loomName: "Archive Entry",
+      loomContent: `TRIGGER POLICY \u2014 ARCHIVE ENTRY
+Archive only durable canon milestones that pass BOTH gates.
+Gate A \u2014 durable canon: an irreversible or long-lived world-state change, formal relationship-state change with durable consequences, major knowledge-changing secret revelation, major faction/institutional event, transfer or destruction of a uniquely important object, or explicit user request.
+Gate B \u2014 future-reference value: the information is genuinely worth retrieving many turns later.
+Do not archive ordinary domestic beats, outfit changes, normal flirting, incremental closeness, visits, ordinary scene transitions, or a name alone. A specialized Surface wins unless the moment independently passes both gates.
+
+### Loom Utility: Archive Entry
 
 PURPOSE
 Maintain a reader-facing archive of meaningful canon as the story develops. Whenever something important becomes established strongly enough to deserve a reusable lorebook entry, emit one standalone archive card payload that the Regex renderer can turn into a copy-ready record.
@@ -154064,10 +153989,10 @@ FREQUENCY
 - When several distinct entries genuinely qualify, emit separate [dossier_ui] blocks.
 - Do not merge unrelated categories into one card.
 - There is no hard card count, but only archive elements that actually crossed a trigger threshold.
-- Do not archive speculative What If branches, unused Chaos Hooks, unselected Hooks, or other non-canon possibilities unless the Human explicitly requests a hypothetical archive.
+- Do not archive speculative In Another Life branches, unused Plot Sparks, or other non-canon possibilities unless the Human explicitly requests a hypothetical archive.
 
 PLACEMENT
-Archive canon after the canon-bearing narrative/surfaces it summarizes and before speculative continuation surfaces such as What If, Chaos Hooks, and the original Hook Ledger.
+Archive canon after the canon-bearing narrative/Surfaces it summarizes and before speculative continuation Surfaces such as In Another Life and Plot Sparks.
 
 ARCHIVE MEDIA
 Every newly generated Archive Entry includes exactly one non-empty [archive_media] block immediately after [/archive_head] and before [archive_stats]. The semantic wrapper is shared by all categories; do not create category-specific Archive schemas.
@@ -154314,34 +154239,34 @@ Archive entries may contain reader-facing canon and lorebook-ready information, 
     schemaVersionCorrected: true,
     sceneDriftRecovery: true,
     tabContracts: {
-      "Scene Tracker": "single unified card",
-      "Parallel Off-Screen Tracker": "single unified card; no predictive context",
-      "NPC Introduction": "single unified card with semantic field labels",
-      "Secrets & Information Asymmetry": "single unified card",
-      "World Detail": "single unified card",
-      Elsewhere: "single cinematic card + firewall section",
-      Dossier: "single unified profile + file card",
-      "Location Files": "single unified visual + file card",
-      "What If? Loom": "single unified scenario + branch card"
+      "Scene Shift": "single unified card",
+      "Parallel Scene": "single unified card; no predictive context",
+      "Cast Introduction": "single unified card with semantic field labels",
+      "Backstage Secrets": "single unified card",
+      "Setting the Scene": "single unified card",
+      "Off-Stage": "single cinematic card + firewall section",
+      "Character Dossier": "single unified profile + file card",
+      "Location File": "single unified visual + file card",
+      "In Another Life": "single unified scenario + branch card"
     },
     archiveGenerator: {
       enabled: true,
-      images: false,
-      reason: "Archive may emit multiple cards per response; remains image-free for mobile performance.",
+      images: true,
+      reason: "Every new Archive Entry includes one category-appropriate image request.",
       javascript: false,
       standaloneCards: true
     },
-    renamedUtilities: {
-      "Scene Tracker": "Scene Compass",
-      "Parallel Off-Screen Tracker": "Parallel Current",
-      "NPC Introduction": "Cast Arrival",
-      "Secrets & Information Asymmetry": "Knowledge Veil",
-      "World Detail": "World Texture",
-      Elsewhere: "Beyond the Frame",
-      Dossier: "Character File",
-      "Location Files": "Place File",
-      "What If? Loom": "Unwalked Path"
-    },
+    canonicalUtilities: [
+      "Scene Shift",
+      "Parallel Scene",
+      "Cast Introduction",
+      "Backstage Secrets",
+      "Setting the Scene",
+      "Off-Stage",
+      "Character Dossier",
+      "Location File",
+      "In Another Life"
+    ],
     archiveRendererVariants: [
       "button",
       "inline"
@@ -155036,22 +154961,20 @@ var Reverie_Plot_Sparks_BULLETPROOF_V7_default = {
       run_on_edit: true,
       disabled: false,
       sort_order: 121,
-      description: "OG-style purple sparkle launcher + seven tabs for <chaos_payload>. Tolerates long/nonstandard IDs, payload/hook attribute order and extras, missing hook_media blocks, and omitted </hook_media> closers.",
+      description: "OG-style purple sparkle launcher with seven tabs for the canonical bracket-native [Plot_Sparks] Surface.",
       metadata: {
-        category: "\u2604 Chaos Hooks",
-        canonical_wrapper: "chaos_payload",
+        category: "\u2604 Plot Sparks",
+        canonical_wrapper: "Plot_Sparks",
         ui_variant: "og_sparkle_tabs",
         safe_import_enabled: true,
-        tolerates_missing_hook_media_closer: true,
         single_row_tabs: true,
         sparkle_launcher: true,
         version: "5",
-        tolerant_payload_id: true,
-        tolerant_attribute_order: true,
-        tolerates_missing_hook_media: true,
+        requires_seven_sparks: true,
+        bracket_native: true,
         bulletproof_revision: 7
       },
-      folder: "\u2604 Chaos Hooks",
+      folder: "\u2604 Plot Sparks",
       script_id: "ria_plot_sparks_og_sparkle_tabs_bulletproof_v7",
       actions: [
         {
@@ -155230,518 +155153,6 @@ function sceneCompassPresentation(scriptId, replacement) {
   return replacement.replace("</style>", `${SCENE_COMPASS_LAYOUT_CSS}</style>`).replace('<details class="r65"', '<details class="r65 rr-scene-compass"');
 }
 
-// src/plotSparksV2.ts
-var PLOT_SPARKS_V2_UTILITY = `
-[PLOT SPARKS \u2014 CURRENT-SCENE BRANCH BOARD]
-
-PURPOSE
-
-Plot Sparks are seven possible NEXT BRANCHES growing directly from the current scene.
-
-They answer:
-
-"What could naturally happen next from the exact people, actions, objects, information, tension, location, and unfinished business already present right now?"
-
-Every Spark begins from the scene as it currently exists.
-
-A Plot Spark may introduce a new reaction, interruption, consequence, realization, decision, arrival, discovery, mistake, opportunity, or complication \u2014 but it must be causally reachable from the active scene.
-
-The goal is divergence without disconnection.
-
-GOOD:
-"Of course that could happen next."
-
-BAD:
-"Where did that plotline come from?"
-
-SCENE-CONTINUATION LAW \u2014 MANDATORY
-
-Every Plot Spark MUST preserve the current scene as its launch point.
-
-Before generating the seven Sparks, silently identify the active scene state:
-
-\u2022 who is physically present
-\u2022 where everyone is
-\u2022 what each relevant person is doing
-\u2022 the most recent spoken/action beat
-\u2022 active emotional tensions
-\u2022 unfinished actions
-\u2022 visible or recently handled objects
-\u2022 established immediate obligations
-\u2022 information that has just been revealed, hidden, misunderstood, or noticed
-\u2022 nearby people or systems already established as capable of affecting the scene
-\u2022 the current location and time
-\u2022 anything the scene has obviously placed in motion but has not resolved
-
-Each Spark must connect to at least TWO of those active anchors.
-
-At least ONE anchor should come from the immediate current response rather than distant lore.
-
-Do not abandon the scene merely to create novelty.
-
-IMMEDIACY
-
-Plot Sparks are immediate or near-immediate continuations.
-
-Prefer branches playable:
-
-\u2022 in the next action
-\u2022 in the next exchange
-\u2022 within the next few minutes
-\u2022 before the characters naturally leave the location
-\u2022 as the direct consequence of what just occurred
-
-A short natural transition is allowed.
-
-Avoid major time skips unless the current scene itself is already ending or explicitly creates one.
-
-Do not jump to:
-\u2022 tomorrow
-\u2022 next week
-\u2022 months later
-\u2022 an unrelated location
-\u2022 a distant subplot
-
-just to make a Spark different.
-
-BRANCH, DO NOT RESOLVE
-
-Each Spark is a possible continuation, not established canon.
-
-Describe the opening move of the branch.
-
-Do not write the entire outcome.
-
-A good Spark creates a playable next beat and leaves room for characters to respond.
-
-Do not predetermine:
-\u2022 relationship outcomes
-\u2022 confessions succeeding
-\u2022 fights being won
-\u2022 secrets being fully exposed
-\u2022 investigations being solved
-\u2022 characters agreeing
-\u2022 permanent consequences
-
-unless the current scene has already made that outcome unavoidable.
-
-CURRENT CHARACTERS FIRST
-
-Prefer using the people already participating in the scene.
-
-IDENTITY BOUNDARY
-
-Use only person names, usernames, and handles already supplied by the current scene or established context.
-
-Never invent, rename, or substitute a person, username, or handle.
-
-When an established person has no supplied name, refer to their established role without creating one.
-
-Existing nearby or already-established characters may enter when naturally motivated.
-
-A new arrival is valid only if the active scene gives them a plausible reason to appear now.
-
-Do NOT introduce a stranger, authority figure, relative, employee, rival, institution, delivery, emergency, rumor, or external crisis solely because one of the seven lenses needs variety.
-
-External elements must connect to something already active.
-
-OBJECT AND DETAIL CONTINUITY
-
-Treat recently mentioned objects and physical details as live story pieces.
-
-A Spark may naturally branch from:
-\u2022 a phone that just buzzed
-\u2022 an unfinished message
-\u2022 something dropped
-\u2022 a door left open
-\u2022 damaged equipment
-\u2022 clothing or belongings
-\u2022 food or drink
-\u2022 paperwork
-\u2022 a vehicle
-\u2022 a recording
-\u2022 a photograph
-\u2022 a tool
-\u2022 a key
-\u2022 something overheard
-\u2022 an interrupted task
-
-Do not invent evidence retroactively.
-
-Use what the scene has actually established.
-
-EMOTIONAL CONTINUITY
-
-Character behavior must follow the emotional state already established.
-
-Do not reset characters to neutral between the prose and the Plot Sparks.
-
-If someone is:
-\u2022 furious
-\u2022 embarrassed
-\u2022 scared
-\u2022 exhausted
-\u2022 flirting
-\u2022 avoiding eye contact
-\u2022 physically close
-\u2022 withdrawing
-\u2022 protective
-\u2022 suspicious
-\u2022 overwhelmed
-
-the Spark begins with that state still true unless the branch itself creates the change.
-
-Do not make someone casually joke, confess, attack, leave, forgive, kiss, expose a secret, or become calm without a believable immediate trigger.
-
-SURPRISE WITHOUT RANDOMNESS
-
-A Plot Spark can be unexpected.
-
-Unexpected does NOT mean unrelated.
-
-Find surprising consequences hidden inside the existing scene.
-
-Prefer:
-\u2022 an overlooked implication becoming important
-\u2022 one character interpreting the last action differently
-\u2022 an unfinished physical action going wrong
-\u2022 a nearby object changing the interaction
-\u2022 someone choosing not to do the expected thing
-\u2022 a previously established obligation becoming relevant at the worst moment
-\u2022 an established person entering at an inconvenient moment
-\u2022 the current environment complicating what someone is trying to do
-\u2022 a private thought becoming behavior
-\u2022 a misunderstanding forming from something actually visible
-\u2022 an attempted escape creating another problem
-\u2022 a small practical detail becoming emotionally significant
-
-The strongest Sparks make the reader realize that the possibility was already latent in the scene.
-
-DIVERSITY LAW
-
-The seven Plot Sparks must branch in meaningfully different directions while remaining rooted in the same scene.
-
-Avoid seven variations of the same:
-\u2022 interruption
-\u2022 confession
-\u2022 misunderstanding
-\u2022 physical accident
-\u2022 phone notification
-\u2022 discovery
-\u2022 romantic escalation
-
-Difference should come from a different reaction, trigger, interaction, consequence, decision, use of an existing object, environmental pressure, or interpretation of the same moment.
-
-Variation of BRANCH is required.
-
-Variation of UNIVERSE is not.
-
-SEVEN BRANCH LENSES
-
-A \u2014 vector="detonation" \u2014 THE CURRENT SITUATION SLIPS
-
-Something already happening in the scene becomes harder to contain.
-
-A physical action, object, environment detail, mistake, technical problem, emotional restraint, lie, interruption, or unstable situation crosses a threshold.
-
-This must grow from something already active.
-
-Examples:
-\u2022 the equipment they are using finally fails
-\u2022 the door someone forgot to lock opens
-\u2022 the thing being hidden falls into view
-\u2022 someone who was trying not to react visibly reacts
-\u2022 the argument becomes audible outside the room
-\u2022 a physical attempt to leave or intervene causes another immediate problem
-
-Do not create an unrelated disaster.
-
-B \u2014 vector="heartknife" \u2014 A CHARACTER MAKES THE UNEXPECTED PERSONAL MOVE
-
-Someone already emotionally connected to the moment chooses a revealing, vulnerable, defensive, jealous, tender, frightened, selfish, restrained, or contradictory response.
-
-The action should emerge from their established current emotional state.
-
-Prefer a response that changes the shape of the scene without resolving it.
-
-Examples:
-\u2022 they ask the question they were avoiding
-\u2022 they deliberately misunderstand an offer
-\u2022 they let go when the other person expected them to hold on
-\u2022 they admit a smaller truth to avoid the larger one
-\u2022 they quietly set a boundary
-\u2022 they choose tenderness at the worst possible moment
-
-Do not manufacture an unsupported confession or personality reversal.
-
-C \u2014 vector="wrongness" \u2014 SOMETHING ALREADY PRESENT DOESN'T ADD UP
-
-A detail in the current environment, conversation, object state, timing, behavior, message, recording, possession, or physical evidence creates a new question.
-
-The anomaly must be compatible with established scene information.
-
-It may be newly noticed.
-
-It may NOT be retroactively invented as though it had always existed.
-
-Examples:
-\u2022 a timestamp conflicts with what was just said
-\u2022 an object is somewhere it should not be
-\u2022 a device shows a state that contradicts an assumption
-\u2022 someone recognizes a detail they had overlooked
-\u2022 a belonging reveals that another person was recently here
-
-Keep the discovery close enough to the current scene to act on immediately.
-
-D \u2014 vector="crash-in" \u2014 THE SCENE'S EXISTING WORLD INTERRUPTS
-
-A person, call, knock, message, obligation, service, coworker, friend, family member, staff member, classmate, neighbor, or other already-plausible influence intersects the scene NOW.
-
-The interruption must have a reason grounded in current context or established routine.
-
-Prefer already-established people or systems.
-
-The interruption should collide with what the characters are currently doing rather than replace the scene with a different plot.
-
-E \u2014 vector="matchstrike" \u2014 THE CURRENT MOMENT FORCES A DECISION
-
-Something already pending can no longer remain deferred.
-
-A deadline, promise, choice, invitation, departure, task, appointment, plan, boundary, unfinished message, request, or practical constraint forces someone to act.
-
-The pressure should already exist or follow naturally from the current scene.
-
-Examples:
-\u2022 someone has to decide whether to leave now
-\u2022 the unsent message becomes impossible to ignore
-\u2022 transportation is about to depart
-\u2022 a rehearsal/class/shift they already knew about starts soon
-\u2022 someone must answer a direct question instead of stalling
-
-Do not import a brand-new arbitrary deadline.
-
-F \u2014 vector="reputation-fire" \u2014 THE CURRENT SCENE CAN BE MISREAD
-
-Something visible, audible, recorded, overheard, messaged, photographed, or contextually ambiguous in the CURRENT scene could be interpreted by another person or community in a consequential way.
-
-The misread must originate from an actual current-scene signal.
-
-Examples:
-\u2022 someone walks in at precisely the wrong visual moment
-\u2022 a partial message gives the wrong impression
-\u2022 a nearby person hears one sentence without context
-\u2022 an existing photo/video captures something misleading
-\u2022 an observed gesture appears more intimate/hostile/suspicious than intended
-
-Do not jump immediately to viral fame, press coverage, mass gossip, or public scandal unless those systems are already active in the story.
-
-Keep the first consequence close to the scene.
-
-G \u2014 vector="wildcard-collision" \u2014 THE STRANGEST NATURAL NEXT BEAT
-
-Choose the least obvious continuation that still grows cleanly from the scene.
-
-This is the creative wildcard, not the randomness slot.
-
-Recombine existing:
-\u2022 characters
-\u2022 objects
-\u2022 physical positions
-\u2022 unfinished tasks
-\u2022 location features
-\u2022 established nearby influences
-\u2022 emotional tensions
-
-in a way the other six branches did not.
-
-The branch may be funny, awkward, strangely mundane, eerie, tender, inconvenient, or chaotic.
-
-But if you cannot explain its causal connection to the current scene in one sentence, reject it.
-
-SCENE ROOT TEST
-
-For EACH of the seven Sparks, silently complete:
-
-"This can happen next because ________ is already true in the current scene."
-
-If the blank requires invented backstory, a random external event, an unrelated new subplot, or an unsupported coincidence, reject the Spark and replace it.
-
-CONTINUITY TEST
-
-Each Spark must preserve:
-\u2022 current location unless the next action naturally exits it
-\u2022 current time
-\u2022 current wardrobe/injury/physical state
-\u2022 current relationships
-\u2022 current knowledge boundaries
-\u2022 current emotional state
-\u2022 current object state
-\u2022 established character behavior
-
-Do not teleport characters emotionally, spatially, or informationally.
-
-NO OMNISCIENT LEAKAGE
-
-A character cannot react to information they do not know.
-
-Plot Sparks may speculate about what COULD happen next, but every proposed character action must use information that character could actually possess at that point.
-
-SPECULATIVE LIFECYCLE
-
-Unused Plot Sparks dissolve after this response.
-
-They are possibilities, not canon.
-
-Do not store unused Sparks as:
-\u2022 memories
-\u2022 lore
-\u2022 character knowledge
-\u2022 completed events
-\u2022 future facts
-\u2022 off-screen developments
-
-unless the Human explicitly selects or manifests one in the actual story.
-
-IMAGE CONTRACT \u2014 MANDATORY AND NON-OPTIONAL
-
-EVERY Plot Spark MUST contain exactly one complete <reverie-illustration> inside [Media].
-
-EMPTY [Media] IS INVALID OUTPUT.
-
-A [Plot_Sparks] block with fewer than SEVEN <reverie-illustration> blocks is INVALID.
-
-Before emitting [/Plot_Sparks], count them:
-
-A image + B image + C image + D image + E image + F image + G image = exactly 7.
-
-The image must depict the OPENING INSTANT of that possible continuation.
-
-It should visually remain connected to the current scene through:
-\u2022 location
-\u2022 people
-\u2022 props
-\u2022 lighting
-\u2022 wardrobe
-\u2022 spatial continuity
-
-unless the Spark itself naturally changes one of those.
-
-Use this exact compact schema inside every [Media] field:
-
-[Media]<reverie-illustration request="generate" slot="plot-spark-a-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[short accessible description]"><visual_prompt>[25\u201360 word cinematic still of the first playable instant of this scene branch. Preserve current-scene continuity. No UI, labels, captions, borders, or readable text.]</visual_prompt></reverie-illustration>[/Media]
-
-For B\u2013G, change the slot letter accordingly.
-
-Never emit an empty [Media].
-
-Never use <image_request> or <scene_brief> inside Plot Sparks.
-
-Never omit </reverie-illustration>.
-
-CAST RULE
-
-The cast attribute refers only to active bound Character / Persona identities.
-
-Do not use cast="char+user" merely because two people are visible.
-
-Additional NPCs or other named characters belong explicitly in <visual_prompt>.
-
-OUTPUT FORMAT \u2014 EXACT
-
-[Plot_Sparks]
-[ID][fresh lowercase id][/ID]
-[Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]
-
-[Spark]
-[Key]a[/Key]
-[Vector]detonation[/Vector]
-[Text][Current situation slips \u2014 one concise playable continuation.][/Text]
-[Media]<reverie-illustration request="generate" slot="plot-spark-a-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
-[/Spark]
-
-[Spark]
-[Key]b[/Key]
-[Vector]heartknife[/Vector]
-[Text][Unexpected personal move.][/Text]
-[Media]<reverie-illustration request="generate" slot="plot-spark-b-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
-[/Spark]
-
-[Spark]
-[Key]c[/Key]
-[Vector]wrongness[/Vector]
-[Text][Current detail does not add up.][/Text]
-[Media]<reverie-illustration request="generate" slot="plot-spark-c-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
-[/Spark]
-
-[Spark]
-[Key]d[/Key]
-[Vector]crash-in[/Vector]
-[Text][Grounded interruption from the existing world.][/Text]
-[Media]<reverie-illustration request="generate" slot="plot-spark-d-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
-[/Spark]
-
-[Spark]
-[Key]e[/Key]
-[Vector]matchstrike[/Vector]
-[Text][Existing pressure forces a decision.][/Text]
-[Media]<reverie-illustration request="generate" slot="plot-spark-e-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
-[/Spark]
-
-[Spark]
-[Key]f[/Key]
-[Vector]reputation-fire[/Vector]
-[Text][Current moment creates a plausible misread.][/Text]
-[Media]<reverie-illustration request="generate" slot="plot-spark-f-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
-[/Spark]
-
-[Spark]
-[Key]g[/Key]
-[Vector]wildcard-collision[/Vector]
-[Text][Least obvious but still causally natural branch.][/Text]
-[Media]<reverie-illustration request="generate" slot="plot-spark-g-[unique-id]" aspect="16:9" cast="[char|user|char+user|none]" alt="[description]"><visual_prompt>[cinematic opening instant]</visual_prompt></reverie-illustration>[/Media]
-[/Spark]
-
-[/Plot_Sparks]
-
-PLACEMENT
-
-Place [Plot_Sparks] after the main narrative content for the response.
-
-Do not inject Plot Sparks into the middle of a prose paragraph.
-
-Do not place unrelated content inside [Plot_Sparks].
-
-FINAL VALIDATION
-
-Before sending, silently verify:
-
-1. All seven Sparks branch directly from the current active scene.
-2. Every Spark can complete: "This happens next because ___ is already true."
-3. Every Spark uses at least two current-scene anchors.
-4. At least one anchor per Spark comes from the immediate current response.
-5. No Spark requires an unrelated subplot to begin.
-6. No Spark makes a large time/location jump without scene support.
-7. The seven Sparks are meaningfully distinct from one another.
-8. Character knowledge and emotional state remain continuous.
-9. Exactly one [Plot_Sparks] root exists.
-10. [ID] exists exactly once.
-11. [Lifecycle] exists exactly once.
-12. Exactly seven [Spark] blocks exist.
-13. Keys a, b, c, d, e, f, g each exist exactly once.
-14. Each Spark contains exactly one [Vector].
-15. Each Spark contains exactly one non-empty [Text].
-16. Each Spark contains exactly one non-empty [Media].
-17. Exactly seven <reverie-illustration> blocks exist.
-18. Every <reverie-illustration> contains exactly one <visual_prompt>.
-19. Every <reverie-illustration> closes with </reverie-illustration>.
-20. No Plot Spark uses <image_request>, <scene_brief>, or legacy Plot Sparks syntax.
-
-If structural checks fail, repair the Plot Sparks block before sending.
-
-If a narrative-continuity check fails, replace the offending Spark rather than weakening the rule.
-
-`.slice(1, -1);
-
 // src/narrativeRegexAssets.ts
 var PACKS = {
   "sparkle-button": Reverie_Narrative_Surfaces_FINAL_Sparkle_Button_default,
@@ -155797,11 +155208,29 @@ var NARRATIVE_BLOCK_SPACING_STYLE = `<style data-reverie-narrative-block-spacing
 @media(max-width:560px){.r65,.ra66,.rrcp-wrap,.ch-og.dg-compact-launch-host,.dg-dramatic-cutaway.dg-compact-launch-host{margin-top:24px!important;margin-bottom:30px!important}}
 </style>`;
 var safeMessageId2 = (value) => String(value || "narrative").replace(/[^A-Za-z0-9_-]+/g, "-") || "narrative";
-var NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i;
+var NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i;
 var NARRATIVE_UTILITY_PACK = Reverie_Narrative_Utilities_v6_3_FINAL_with_Character_Phone_default;
 var NARRATIVE_REGEX_VARIANTS = ["sparkle-button", "plain-button", "inline"];
-var NARRATIVE_UTILITY_DISPLAY_NAMES = {
-  "Character Profile": "Cast Sheet",
+var NARRATIVE_UTILITY_FORMAT_CONTRACTS = {
+  "Character Phone": ["[character_phone]", "[cp_presentation]", "[cp_apps]", "[/character_phone]"],
+  "Dramatic Cutaway": ["[dramatic_parallel]", "[dramatic_head]", "[dramatic_media]", "[dramatic_body]", "[dramatic_foot]", "[/dramatic_parallel]"],
+  "Plot Sparks": ["[Plot_Sparks]", "[Spark]", "[Key]", "[Vector]", "[Text]", "[Media]", "[/Plot_Sparks]"],
+  "Scene Shift": ["[SCENE|", "[scene_media]", "[scene_detail]", "[scene_context]", "[/SCENE]"],
+  "Parallel Scene": ["[PARALLEL|", "[parallel_entry]", "[parallel_media]", "[parallel_context]", "[/PARALLEL]"],
+  "Cast Introduction": ["[NPC:", "[npc_media]", "[/NPC]"],
+  "Backstage Secrets": ["[SECRET|", "[secret_media]", "[context]", "[pressure]", "[/SECRET]"],
+  "Setting the Scene": ["[WORLD|", "[world_media]", "[world_detail]", "[world_context]", "[/WORLD]"],
+  "Off-Stage": ["[[else ", "[else_media]", "[else_scene]", "[else_context]", "[[/else]]"],
+  "Character Dossier": ["[[npc ", "[npc_media]", "[[/npc]]"],
+  "Location File": ["[[place ", "[place_media]", "[[/place]]"],
+  "In Another Life": ["[WHATIF|", "[whatif_media]", "[whatif_scenario]", "[whatif_branch]", "[/WHATIF]"],
+  "Archive Entry": ["[dossier_ui]", "[category]", "[archive_head]", "[archive_media]", "[archive_stats]", "[archive_details]", "[archive_export]", "[/dossier_ui]"]
+};
+function missingNarrativeUtilityFormatMarkers(name, content) {
+  const source = String(content || "").toLocaleLowerCase();
+  return (NARRATIVE_UTILITY_FORMAT_CONTRACTS[name] || []).filter((marker) => !source.includes(marker.toLocaleLowerCase()));
+}
+var LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS = {
   "Chaos Hooks": "Plot Sparks",
   "Knowledge Veil": "Backstage Secrets",
   "Beyond the Frame": "Off-Stage",
@@ -155814,12 +155243,12 @@ var NARRATIVE_UTILITY_DISPLAY_NAMES = {
   "Unwalked Path": "In Another Life",
   "Unified Archive Generator": "Archive Entry"
 };
-function applyNarrativeDisplayNames(value, rendered = false) {
+function narrativeUtilityDisplayName(internalName) {
+  return LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS[internalName] || internalName;
+}
+function applyNarrativeDisplayNames(value, _rendered = false) {
   let output = String(value || "");
-  if (rendered) {
-    output = output.replace(/<span>Character File<\/span>/g, "<span>Introducing...</span>").replace(/<span>Cast Arrival<\/span>/g, "<span>Welcome to the Stage...</span>").replace(/<span>Unified Archive Generator<\/span>/g, "<span>Archive Entry</span>").replace(/<span>Parallel Current<\/span>/g, "<span>Parallel Scene</span>").replace(/<span>(?:Unwalked Path|What If\?)<\/span>/g, "<span>In Another Life</span>");
-  }
-  for (const [internalName, displayName] of Object.entries(NARRATIVE_UTILITY_DISPLAY_NAMES)) {
+  for (const [internalName, displayName] of Object.entries(LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS)) {
     output = output.replace(new RegExp(internalName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), displayName);
   }
   return output;
@@ -155828,57 +155257,8 @@ function narrativeUtilityNames() {
   return (NARRATIVE_UTILITY_PACK.loomItems || []).map((item) => item.loomName).filter(Boolean);
 }
 function narrativeUtilityItems() {
-  return (NARRATIVE_UTILITY_PACK.loomItems || []).map((item) => {
-    let source = item.loomName === "Parallel Current" ? PARALLEL_SCENE_UTILITY : item.loomName === "Chaos Hooks" ? PLOT_SPARKS_V2_UTILITY : item.loomContent;
-    if (item.loomName === "Cast Arrival")
-      source = `TRIGGER POLICY \u2014 CAST INTRODUCTION
-Emit when a named non-user character appears on-page for the first time and this response establishes at least two of: role/occupation; physical appearance; relationship to existing cast; characteristic behavior/voice; immediate narrative function.
-Do not wait for proof that the character will become major. Do not repeat if history already contains their Cast Introduction.
-
-${source}`;
-    if (item.loomName === "Unified Archive Generator")
-      source = `TRIGGER POLICY \u2014 ARCHIVE ENTRY
-Archive only durable canon milestones that pass BOTH gates.
-Gate A \u2014 durable canon: an irreversible or long-lived world-state change, formal relationship-state change with durable consequences, major knowledge-changing secret revelation, major faction/institutional event, transfer or destruction of a uniquely important object, or explicit user request.
-Gate B \u2014 future-reference value: the information is genuinely worth retrieving many turns later.
-Do not archive ordinary domestic beats, outfit changes, normal flirting, incremental closeness, visits, ordinary scene transitions, or a name alone. A specialized Surface wins unless the moment independently passes both gates.
-
-${source}`;
-    return { ...item, loomContent: applyNarrativeDisplayNames(source) };
-  });
+  return (NARRATIVE_UTILITY_PACK.loomItems || []).map((item) => ({ ...item }));
 }
-var PARALLEL_SCENE_UTILITY = `### Parallel Scene \u2014 Three Live Threads
-
-Use this Surface to show three active off-stage threads grounded in the current story.
-
-CANONICAL OUTPUT
-[PARALLEL|Scope|Status]
-[parallel_entry]
-[text]Entry 1 text[/text]
-[parallel_media]<image_request id="parallel-1-[unique-id]" target="custom.artifact-media" slot="parallel-1-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request>[/parallel_media]
-[/parallel_entry]
-[parallel_entry]
-[text]Entry 2 text[/text]
-[parallel_media]<image_request id="parallel-2-[unique-id]" target="custom.artifact-media" slot="parallel-2-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request>[/parallel_media]
-[/parallel_entry]
-[parallel_entry]
-[text]Entry 3 text[/text]
-[parallel_media]<image_request id="parallel-3-[unique-id]" target="custom.artifact-media" slot="parallel-3-[unique-id]" aspect="4:3" alt="Accessible description"><scene_brief>One present-tense cinematic still of this exact off-stage thread. Preserve continuity. No readable text.</scene_brief></image_request>[/parallel_media]
-[/parallel_entry]
-[parallel_context]
-[trajectory]How these three established threads are currently moving, without inventing a resolved future.[/trajectory]
-[intersection]Where their existing pressures may touch, stated as present context rather than a guaranteed payoff.[/intersection]
-[/parallel_context]
-[/PARALLEL]
-
-RULES
-- Emit exactly three ordered [parallel_entry] blocks, each with one non-empty [text] and one non-empty [parallel_media].
-- Always include exactly one [parallel_context] with one non-empty [trajectory] and one non-empty [intersection].
-- Never emit an empty [parallel_media]. Supply one complete request with a non-empty scene_brief for every entry.
-- Keep every request attached to its matching entry. IDs and slots are unique, lowercase, slug-safe, and match each other.
-- Do not nest another Utility inside Parallel Scene. Do not manufacture a resolved future event merely to populate the Surface.
-
-{{trim}}`;
 var PARALLEL_SCENE_FIND = "\\[PARALLEL\\|(?<scope>[^\\|\\]\\r\\n]{1,500})\\|(?<relevance>[^\\]\\r\\n]{1,200})\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread1>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media1>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread2>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media2>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread3>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media3>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_context\\]\\s*\\[trajectory\\](?<trajectory>[\\s\\S]{1,6000}?)\\[/trajectory\\]\\s*\\[intersection\\](?<intersection>[\\s\\S]{1,6000}?)\\[/intersection\\]\\s*\\[/parallel_context\\]\\s*\\[/PARALLEL\\]";
 function parallelSceneReplacement(replacement) {
   const context = '<div class="r65-section r65-parallel-context"><p class="r65-section-title">Context</p><div class="r65-opt" data-label="Trajectory">$<trajectory></div><div class="r65-opt r65-gap" data-label="Intersection">$<intersection></div></div>';
@@ -155948,45 +155328,6 @@ function normalizeFlatArchiveDossiers(markup) {
     return `[dossier_ui][category]${category}[/category][archive_head][icon]${archiveText(icon)}[/icon][name]${archiveText(name)}[/name][state]${archivePresentationState(rawState)}[/state][relation]${archiveText(relation)}[/relation][role]${archiveText(role)}[/role][/archive_head][archive_stats]${statsMarkup}[/archive_stats][archive_details]${detailsMarkup}[/archive_details][archive_export]${archiveText(exportText)}[/archive_export][/dossier_ui]`;
   });
 }
-function markupAttribute(source, name) {
-  return new RegExp(`\\b${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, "i").exec(source)?.[2]?.trim() || "";
-}
-function normalizeLegacyPlotSparksMarkup(markup) {
-  return String(markup || "").replace(/<chaos_payload\b([^>]*)>((?:(?!<chaos_payload\b)[\s\S])*?)<\/chaos_payload\s*>/gi, (full, attrs, body) => {
-    const hooks = [...body.matchAll(/<chaos_hook\b([^>]*)>([\s\S]*?)<\/chaos_hook\s*>/gi)];
-    if (hooks.length !== 7)
-      return full;
-    const id = markupAttribute(attrs, "id");
-    const lifecycle = markupAttribute(attrs, "lifecycle") || "Unused Plot Sparks dissolve after this response.";
-    if (!id)
-      return full;
-    const sparks = hooks.map((match) => {
-      const key = markupAttribute(match[1] || "", "key");
-      const vector = markupAttribute(match[1] || "", "vector");
-      const text = match[2]?.match(/<hook_text\b[^>]*>([\s\S]*?)<\/hook_text\s*>/i)?.[1]?.trim() || "";
-      const media = match[2]?.match(/<hook_media\b[^>]*>([\s\S]*?)<\/hook_media\s*>/i)?.[1]?.trim() || "";
-      if (!key || !vector || !text || !media)
-        return "";
-      return `[Spark]
-[Key]${key}[/Key]
-[Vector]${vector}[/Vector]
-[Text]${text}[/Text]
-[Media]${media}[/Media]
-[/Spark]`;
-    });
-    if (sparks.some((spark) => !spark))
-      return full;
-    return `[Plot_Sparks]
-[ID]${id}[/ID]
-[Lifecycle]${lifecycle}[/Lifecycle]
-
-${sparks.join(`
-
-`)}
-
-[/Plot_Sparks]`;
-  });
-}
 function normalizePlotSparksMediaMarkup(markup) {
   return String(markup || "").replace(/\[Media\]((?:(?!\[Media\])[\s\S])*?)\[\/Media\]/gi, (full, media) => {
     if ((media.match(/<reverie-illustration\b/gi) || []).length !== 1)
@@ -156034,7 +155375,7 @@ function normalizeElsewhereMarkup(markup) {
 }
 var WORLD_OWNER_RANGE = /(\[WORLD\|[^\]\r\n]{1,500}\|[^\]\r\n]{1,500}\])((?:(?!\[WORLD\|)[\s\S])*?)(\[\/WORLD\])/gi;
 var WORLD_BODY_SHELL = /^\s*\[world_media\]([\s\S]{1,24000}?)\[\/world_media\]\s*\[world_detail\]([\s\S]{1,12000}?)\[\/world_detail\]\s*\[world_context\]([\s\S]{1,16000}?)\[\/world_context\]\s*$/i;
-var NESTED_NARRATIVE_OWNER = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel|chaos_payload)\b/i;
+var NESTED_NARRATIVE_OWNER = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i;
 function normalizeWorldMarkup(markup) {
   return String(markup || "").replace(WORLD_OWNER_RANGE, (full, opening, body, closing) => {
     const shell = WORLD_BODY_SHELL.exec(body);
@@ -156058,7 +155399,7 @@ function normalizeWorldMarkup(markup) {
   });
 }
 function normalizeNarrativeMarkupForRendering(markup) {
-  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(normalizeLegacyPlotSparksMarkup(String(markup || ""))))))).replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root, body) => {
+  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(String(markup || "")))))).replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root, body) => {
     const repairedBody = body.replace(/<\/(cp_[A-Za-z][A-Za-z0-9_]*)>/gi, "[/$1]");
     return `[${root}]${repairedBody}[/${root}]`;
   }).replace(/(\[(character_phone|private_phone)\b[^\]]*\])((?:(?!\[(?:character_phone|private_phone)\b)[\s\S])*?)\[\/\2\]/gi, (_full, opening, root, body) => {
@@ -156450,12 +155791,13 @@ function isCurrentPlotSparksUtilityContent(content) {
   return false;
 }
 function buildNarrativeUtilityPrompt(selectedNames = narrativeUtilityNames(), overrides = {}) {
-  const allow = new Set(selectedNames);
+  const allow = new Set(selectedNames.map(narrativeUtilityDisplayName));
+  const canonicalOverrides = Object.fromEntries(Object.entries(overrides).map(([name, content]) => [narrativeUtilityDisplayName(name), content]));
   const items = narrativeUtilityItems().filter((item) => allow.has(item.loomName) && String(item.loomContent || "").trim()).map((item) => {
-    const authoredContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, overrides[item.loomName]);
-    const loomContent = item.loomName === "Chaos Hooks" ? `${authoredContent}
+    const authoredContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, canonicalOverrides[item.loomName]);
+    const loomContent = item.loomName === "Plot Sparks" ? `${authoredContent}
 
-${PLOT_SPARK_COMPLETION_LOCK}` : item.loomName === "World Texture" ? `${authoredContent}
+${PLOT_SPARK_COMPLETION_LOCK}` : item.loomName === "Setting the Scene" ? `${authoredContent}
 
 ${WORLD_DETAIL_COMPLETION_LOCK}` : authoredContent;
     return { ...item, loomContent };
@@ -156476,7 +155818,7 @@ ${items.map((item) => item.loomContent).join(`
 }
 function effectiveNarrativeUtilityContent(name, defaultContent, override) {
   const candidate = typeof override === "string" && override.trim() ? override : "";
-  const useCandidate = Boolean(candidate) && (name !== "Chaos Hooks" || isCurrentPlotSparksUtilityContent(candidate));
+  const useCandidate = Boolean(candidate) && (name !== "Plot Sparks" || isCurrentPlotSparksUtilityContent(candidate));
   return applyNarrativeDisplayNames(useCandidate ? candidate : defaultContent);
 }
 
@@ -158907,7 +158249,7 @@ async function handleGenerationEnded(payload, userId) {
   const runtimeExpectedTag = inlineCountMode === "minimum" ? "minimum_count" : "target_count";
   const runtimeExpectedMatch = runtime?.directive.match(new RegExp(`<${runtimeExpectedTag}>(\\d+)<\\/${runtimeExpectedTag}>`, "i"));
   const expectedInlineIllustrations = runtimeExpectedMatch ? Number(runtimeExpectedMatch[1]) : null;
-  const expectPlotSparks = config.narrativeDlcEnabled && config.narrativeDlcUtilityNames.some((name) => name === "Chaos Hooks" || name === "Plot Sparks");
+  const expectPlotSparks = config.narrativeDlcEnabled && config.narrativeDlcUtilityNames.includes("Plot Sparks");
   const outputInspection = inspectStoryModelOutputContracts(payloadContent, { expectedInlineIllustrations, inlineCountMode, expectPlotSparks });
   if (!outputInspection.valid) {
     await mutateState(cleanString(payload.chatId), userId, (state) => {
@@ -170701,12 +170043,13 @@ function normalizeNarrativeUtilityOverrides(value) {
   const allowed = new Set(narrativeUtilityNames());
   const normalized = {};
   for (const [name, candidate] of Object.entries(value)) {
-    if (!allowed.has(name) || !candidate || typeof candidate !== "object" || Array.isArray(candidate))
+    const canonicalName = narrativeUtilityDisplayName(name);
+    if (!allowed.has(canonicalName) || !candidate || typeof candidate !== "object" || Array.isArray(candidate))
       continue;
     const record = candidate;
     if (typeof record.content !== "string" || !record.content.trim())
       continue;
-    normalized[name] = {
+    normalized[canonicalName] = {
       content: record.content,
       revision: Math.max(1, Math.floor(Number(record.revision) || 1)),
       updatedAt: Math.max(0, Number(record.updatedAt) || 0)
@@ -170731,6 +170074,7 @@ function normalizeConfig(raw) {
   const activeRelayLoraStackId = requestedRelayStackId && relayLoraStacks.some((stack) => stack.id === requestedRelayStackId) ? requestedRelayStackId : relayLoraStacks[0]?.id || null;
   const vaultStrength = ["off", "low", "medium", "strong"].includes(String(raw.vaultStrength)) ? raw.vaultStrength : DEFAULT_CONFIG.vaultStrength;
   const proseIllustratorSettings = normalizeProseIllustratorSettings(raw.proseIllustratorSettings || DEFAULT_CONFIG.proseIllustratorSettings);
+  const requestedNarrativeUtilities = Array.isArray(raw.narrativeDlcUtilityNames) ? new Set(raw.narrativeDlcUtilityNames.map(narrativeUtilityDisplayName)) : null;
   if (proseIllustratorSettings.appearanceMemoryOverride === "global")
     proseIllustratorSettings.continuityStrength = vaultStrength;
   return {
@@ -170811,7 +170155,7 @@ function normalizeConfig(raw) {
     settingsRevision: Math.max(0, Math.floor(Number(raw.settingsRevision) || 0)),
     narrativeDlcEnabled: raw.narrativeDlcEnabled === true,
     narrativeDlcVariant: NARRATIVE_REGEX_VARIANTS.includes(raw.narrativeDlcVariant) ? raw.narrativeDlcVariant : DEFAULT_CONFIG.narrativeDlcVariant,
-    narrativeDlcUtilityNames: Array.isArray(raw.narrativeDlcUtilityNames) ? narrativeUtilityNames().filter((name) => raw.narrativeDlcUtilityNames?.includes(name)) : narrativeUtilityNames(),
+    narrativeDlcUtilityNames: requestedNarrativeUtilities ? narrativeUtilityNames().filter((name) => requestedNarrativeUtilities.has(name)) : narrativeUtilityNames(),
     narrativeUtilityOverrides: normalizeNarrativeUtilityOverrides(raw.narrativeUtilityOverrides),
     characterPhoneDefaultApps: normalizeCharacterPhoneDefaultApps(raw.characterPhoneDefaultApps, {
       migrateMissing: !Object.prototype.hasOwnProperty.call(raw, "characterPhoneDefaultApps")
@@ -171737,19 +171081,14 @@ async function setConfig(patch, userId) {
   return mutateConfigAtomic((current) => ({ ...current, ...patch }), userId);
 }
 function narrativeUtilityCompatibilityWarnings(name, content) {
-  const required = {
-    "Chaos Hooks": ["[Plot_Sparks]", "[Spark]", "[Media]"],
-    "Dramatic Cutaway": ["<dramatic_parallel>"],
-    "Scene Compass": ["scene_compass"]
-  };
-  return (required[name] || []).filter((marker) => !content.toLocaleLowerCase().includes(marker.toLocaleLowerCase())).map((marker) => `Compatibility warning: ${name} no longer references ${marker}. Relay will preserve the edit, but the approved renderer may not recognize its output.`);
+  return missingNarrativeUtilityFormatMarkers(name, content).map((marker) => `Compatibility warning: ${name} no longer references ${marker}. Relay will preserve the edit, but the approved renderer may not recognize its output.`);
 }
 function narrativeUtilityRegistry(config) {
   const enabled = new Set(config.narrativeDlcEnabled ? config.narrativeDlcUtilityNames : []);
   return narrativeUtilityItems().map((item) => {
     const override = config.narrativeUtilityOverrides[item.loomName];
     const effectiveContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, override?.content);
-    const usesOverride = Boolean(override?.content?.trim()) && (item.loomName !== "Chaos Hooks" || isCurrentPlotSparksUtilityContent(override.content));
+    const usesOverride = Boolean(override?.content?.trim()) && (item.loomName !== "Plot Sparks" || isCurrentPlotSparksUtilityContent(override.content));
     return {
       id: item.loomName,
       name: item.loomName,

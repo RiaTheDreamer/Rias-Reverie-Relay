@@ -3,10 +3,12 @@ import packageJson from '../package.json'
 import { readFileSync } from 'node:fs'
 import { buildNarrativeUtilityPrompt } from '../src/narrativeDlcRuntime'
 import {
+  NARRATIVE_UTILITY_FORMAT_CONTRACTS,
   NARRATIVE_REGEX_VARIANTS,
   containsNarrativeRegexMarkup,
   narrativeRegexScripts,
   narrativeUtilityItems,
+  missingNarrativeUtilityFormatMarkers,
   normalizeNarrativeMarkupForRendering,
   renderNarrativeRegex,
 } from '../src/narrativeRegexAssets'
@@ -20,6 +22,7 @@ const utilityNames = narrativeUtilityItems().map(item => item.loomName)
 assert(utilityNames.length === 13, `Narrative Utility inventory changed: ${utilityNames.length}`)
 assert(new Set(utilityNames).size === utilityNames.length, 'Narrative Utility inventory contains duplicates')
 assert(!utilityNames.some(name => /stella/i.test(name)), 'Stella entered the Narrative Utility inventory')
+assert(utilityNames.join('|') === 'Character Phone|Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry', 'Narrative Utility inventory contains a retired name or incorrect order')
 
 const protectedTags = new Set([
   'image_request', 'scene_brief', 'reverie-illustration', 'visual_prompt',
@@ -29,6 +32,8 @@ let structuralXml = 0
 let imageRequests = 0
 let illustrations = 0
 for (const item of narrativeUtilityItems()) {
+  assert(Object.prototype.hasOwnProperty.call(NARRATIVE_UTILITY_FORMAT_CONTRACTS, item.loomName), `${item.loomName}: no canonical Regex format contract is registered`)
+  assert(missingNarrativeUtilityFormatMarkers(item.loomName, item.loomContent).length === 0, `${item.loomName}: shipped format does not expose every field consumed by its Regex renderer`)
   for (const match of item.loomContent.matchAll(/<\/?([A-Za-z][A-Za-z0-9_-]*)\b[^>]*>/g)) {
     if (!protectedTags.has(match[1].toLowerCase())) structuralXml += 1
   }
@@ -209,7 +214,7 @@ assert(!/\[(?:Plot_Sparks|Spark|Media|PARALLEL\||parallel_entry|parallel_media)|
 assert(!/&lt;div\s+class=["']rrl-card/i.test(combinedRendered), 'runtime rrl-card HTML was escaped into visible chat text')
 assert((combinedRendered.match(/class="rrl-card/g) || []).length >= 14, 'combined live response did not render its image controls as runtime cards')
 
-const offStagePrompt = buildNarrativeUtilityPrompt(['Beyond the Frame']).content
+const offStagePrompt = buildNarrativeUtilityPrompt(['Off-Stage']).content
 for (const forbidden of ['<else-media>', '<else-scene>', '<else-context>', '<visibility>', '<clock>', '<knowledge>', '<collision>']) {
   assert(!offStagePrompt.includes(forbidden), `model-facing Off-Stage prompt leaked historical authoring: ${forbidden}`)
 }
@@ -262,11 +267,11 @@ for (const variant of NARRATIVE_REGEX_VARIANTS) {
   assert(strictWorldMatcher.test(recoveredBasaltWorld), `${variant}: recovered World does not satisfy the canonical matcher`)
 }
 
-const worldPrompt = buildNarrativeUtilityPrompt(['World Texture']).content
+const worldPrompt = buildNarrativeUtilityPrompt(['Setting the Scene']).content
 assert(worldPrompt.includes('SETTING THE SCENE STRUCTURAL LOCK'), 'Setting the Scene structural lock is missing')
 assert(worldPrompt.includes('[why_it_matters]...[/why_it_matters]') && worldPrompt.includes('[future_use]...[/future_use]'), 'Setting the Scene lock lost the canonical paired fields')
 assert(worldPrompt.includes('Never use [/future_use] to close [why_it_matters]'), 'Setting the Scene lock does not prohibit the observed swapped closer')
-const overriddenWorldPrompt = buildNarrativeUtilityPrompt(['World Texture'], { 'World Texture': 'CUSTOM WORLD OVERRIDE' }).content
+const overriddenWorldPrompt = buildNarrativeUtilityPrompt(['Setting the Scene'], { 'Setting the Scene': 'CUSTOM WORLD OVERRIDE' }).content
 assert(overriddenWorldPrompt.includes('CUSTOM WORLD OVERRIDE') && overriddenWorldPrompt.includes('SETTING THE SCENE STRUCTURAL LOCK'), 'World structural lock was not appended after effective override content')
 
 const validParallel = fixtures['Parallel Scene'].source

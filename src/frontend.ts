@@ -5833,8 +5833,8 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
   }
 
   const NARRATIVE_DLC_UTILITY_NAMES = [
-    'Character Phone', 'Dramatic Cutaway', 'Chaos Hooks', 'Scene Compass', 'Parallel Current', 'Cast Arrival',
-    'Knowledge Veil', 'World Texture', 'Beyond the Frame', 'Character File', 'Place File', 'Unwalked Path', 'Unified Archive Generator',
+    'Character Phone', 'Dramatic Cutaway', 'Plot Sparks', 'Scene Shift', 'Parallel Scene', 'Cast Introduction',
+    'Backstage Secrets', 'Setting the Scene', 'Off-Stage', 'Character Dossier', 'Location File', 'In Another Life', 'Archive Entry',
   ] as const
 
   function narrativeVariantForSurfacePresentation(mode: SurfaceShellMode): RouterConfig['narrativeDlcVariant'] {
@@ -6298,7 +6298,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       heading.textContent = `${narrativeUtilityDisplayName(selected.name)} · Model-Facing Utility Text`
       const source = document.createElement('div')
       source.className = 'dg-recovery-note'
-      source.textContent = `${selected.source === 'user-override' ? 'User Override' : 'Shipped Default'} · revision ${selected.revision}. XML and bracket syntax are preserved literally. Compatibility checks warn; they do not rewrite.`
+      source.textContent = `${selected.source === 'user-override' ? 'User Override' : 'Shipped Default'} · revision ${selected.revision}. Bracket Surface syntax and nested image-request XML are preserved literally. Compatibility checks warn; they do not rewrite.`
       const textarea = document.createElement('textarea')
       textarea.className = 'dg-textarea dg-textarea-tall'
       textarea.spellcheck = false

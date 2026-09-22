@@ -4,6 +4,7 @@ import {
   NARRATIVE_UTILITY_PACK,
   applyNarrativeDisplayNames,
   narrativeRegexScripts,
+  narrativeUtilityDisplayName,
   narrativeUtilityItems,
   narrativeUtilityNames,
   type NarrativeRegexScript,
@@ -315,14 +316,15 @@ export function buildNarrativeUtilityPrompt(
   selectedNames: string[] = narrativeUtilityNames(),
   overrides: Record<string, string | undefined> = {},
 ): { content: string; utilityNames: string[] } {
-  const allow = new Set(selectedNames)
+  const allow = new Set(selectedNames.map(narrativeUtilityDisplayName))
+  const canonicalOverrides = Object.fromEntries(Object.entries(overrides).map(([name, content]) => [narrativeUtilityDisplayName(name), content]))
   const items = narrativeUtilityItems()
     .filter(item => allow.has(item.loomName) && String(item.loomContent || '').trim())
     .map(item => {
-      const authoredContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, overrides[item.loomName])
-      const loomContent = item.loomName === 'Chaos Hooks'
+      const authoredContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, canonicalOverrides[item.loomName])
+      const loomContent = item.loomName === 'Plot Sparks'
         ? `${authoredContent}\n\n${PLOT_SPARK_COMPLETION_LOCK}`
-        : item.loomName === 'World Texture'
+        : item.loomName === 'Setting the Scene'
           ? `${authoredContent}\n\n${WORLD_DETAIL_COMPLETION_LOCK}`
           : authoredContent
       return { ...item, loomContent }
@@ -337,6 +339,6 @@ export function buildNarrativeUtilityPrompt(
 
 export function effectiveNarrativeUtilityContent(name: string, defaultContent: string, override?: string): string {
   const candidate = typeof override === 'string' && override.trim() ? override : ''
-  const useCandidate = Boolean(candidate) && (name !== 'Chaos Hooks' || isCurrentPlotSparksUtilityContent(candidate))
+  const useCandidate = Boolean(candidate) && (name !== 'Plot Sparks' || isCurrentPlotSparksUtilityContent(candidate))
   return applyNarrativeDisplayNames(useCandidate ? candidate : defaultContent)
 }

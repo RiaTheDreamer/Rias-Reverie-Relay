@@ -180,7 +180,7 @@ import {
   removeNarrativeRegex,
   type NarrativeDlcHealth,
 } from './narrativeDlcRuntime'
-import { NARRATIVE_REGEX_VARIANTS, containsNarrativeRegexMarkup, narrativeRegexScripts, narrativeUtilityItems, narrativeUtilityNames, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup, type NarrativeLorebookKind, type NarrativeRegexVariant } from './narrativeRegexAssets'
+import { NARRATIVE_REGEX_VARIANTS, containsNarrativeRegexMarkup, missingNarrativeUtilityFormatMarkers, narrativeRegexScripts, narrativeUtilityDisplayName, narrativeUtilityItems, narrativeUtilityNames, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup, type NarrativeLorebookKind, type NarrativeRegexVariant } from './narrativeRegexAssets'
 import { exportNarrativeLorebookRecord, extractNarrativeLorebookRecord } from './narrativeLorebook'
 import {
   acceptSuggestion,
@@ -3441,7 +3441,7 @@ async function handleGenerationEnded(payload: any, userId?: string): Promise<voi
   const runtimeExpectedTag = inlineCountMode === 'minimum' ? 'minimum_count' : 'target_count'
   const runtimeExpectedMatch = runtime?.directive.match(new RegExp(`<${runtimeExpectedTag}>(\\d+)<\\/${runtimeExpectedTag}>`, 'i'))
   const expectedInlineIllustrations = runtimeExpectedMatch ? Number(runtimeExpectedMatch[1]) : null
-  const expectPlotSparks = config.narrativeDlcEnabled && config.narrativeDlcUtilityNames.some(name => name === 'Chaos Hooks' || name === 'Plot Sparks')
+  const expectPlotSparks = config.narrativeDlcEnabled && config.narrativeDlcUtilityNames.includes('Plot Sparks')
   const outputInspection = inspectStoryModelOutputContracts(payloadContent, { expectedInlineIllustrations, inlineCountMode, expectPlotSparks })
   if (!outputInspection.valid) {
     await mutateState(cleanString(payload.chatId), userId, state => {
@@ -14839,12 +14839,13 @@ function normalizeNarrativeUtilityOverrides(value: unknown): RouterConfig['narra
   const allowed = new Set(narrativeUtilityNames())
   const normalized: RouterConfig['narrativeUtilityOverrides'] = {}
   for (const [name, candidate] of Object.entries(value as Record<string, unknown>)) {
-    if (!allowed.has(name) || !candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
+    const canonicalName = narrativeUtilityDisplayName(name)
+    if (!allowed.has(canonicalName) || !candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue
     const record = candidate as Record<string, unknown>
     if (typeof record.content !== 'string' || !record.content.trim()) continue
-    normalized[name] = {
-      // Utility prompt text is authored source. Preserve whitespace, XML, and
-      // bracket syntax exactly; validation may warn but never rewrites it.
+    normalized[canonicalName] = {
+      // Utility prompt text is authored source. Preserve bracket syntax and
+      // the nested image-control XML exactly; validation never rewrites it.
       content: record.content,
       revision: Math.max(1, Math.floor(Number(record.revision) || 1)),
       updatedAt: Math.max(0, Number(record.updatedAt) || 0),
@@ -14872,6 +14873,9 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     : relayLoraStacks[0]?.id || null
   const vaultStrength = ['off', 'low', 'medium', 'strong'].includes(String(raw.vaultStrength)) ? raw.vaultStrength as ContinuityStrength : DEFAULT_CONFIG.vaultStrength
   const proseIllustratorSettings = normalizeProseIllustratorSettings(raw.proseIllustratorSettings || DEFAULT_CONFIG.proseIllustratorSettings)
+  const requestedNarrativeUtilities = Array.isArray(raw.narrativeDlcUtilityNames)
+    ? new Set(raw.narrativeDlcUtilityNames.map(narrativeUtilityDisplayName))
+    : null
   if (proseIllustratorSettings.appearanceMemoryOverride === 'global') proseIllustratorSettings.continuityStrength = vaultStrength
   return {
     ...DEFAULT_CONFIG,
@@ -14959,8 +14963,8 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     narrativeDlcVariant: NARRATIVE_REGEX_VARIANTS.includes(raw.narrativeDlcVariant as NarrativeRegexVariant)
       ? raw.narrativeDlcVariant as NarrativeRegexVariant
       : DEFAULT_CONFIG.narrativeDlcVariant,
-    narrativeDlcUtilityNames: Array.isArray(raw.narrativeDlcUtilityNames)
-      ? narrativeUtilityNames().filter(name => raw.narrativeDlcUtilityNames?.includes(name))
+    narrativeDlcUtilityNames: requestedNarrativeUtilities
+      ? narrativeUtilityNames().filter(name => requestedNarrativeUtilities.has(name))
       : narrativeUtilityNames(),
     narrativeUtilityOverrides: normalizeNarrativeUtilityOverrides(raw.narrativeUtilityOverrides),
     characterPhoneDefaultApps: normalizeCharacterPhoneDefaultApps(raw.characterPhoneDefaultApps, {
@@ -15927,13 +15931,7 @@ export async function setConfig(patch: Partial<RouterConfig>, userId?: string): 
 }
 
 function narrativeUtilityCompatibilityWarnings(name: string, content: string): string[] {
-  const required: Record<string, string[]> = {
-    'Chaos Hooks': ['[Plot_Sparks]', '[Spark]', '[Media]'],
-    'Dramatic Cutaway': ['<dramatic_parallel>'],
-    'Scene Compass': ['scene_compass'],
-  }
-  return (required[name] || [])
-    .filter(marker => !content.toLocaleLowerCase().includes(marker.toLocaleLowerCase()))
+  return missingNarrativeUtilityFormatMarkers(name, content)
     .map(marker => `Compatibility warning: ${name} no longer references ${marker}. Relay will preserve the edit, but the approved renderer may not recognize its output.`)
 }
 
@@ -15953,7 +15951,7 @@ function narrativeUtilityRegistry(config: RouterConfig): Array<{
     const override = config.narrativeUtilityOverrides[item.loomName]
     const effectiveContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, override?.content)
     const usesOverride = Boolean(override?.content?.trim())
-      && (item.loomName !== 'Chaos Hooks' || isCurrentPlotSparksUtilityContent(override!.content))
+      && (item.loomName !== 'Plot Sparks' || isCurrentPlotSparksUtilityContent(override!.content))
     return {
       id: item.loomName,
       name: item.loomName,

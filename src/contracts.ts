@@ -1777,7 +1777,7 @@ export type StoryOutputContractInspection = {
   }
   plotSparks: {
     payloadCount: number
-    hookCount: number
+    sparkCount: number
     keysSeen: string[]
     vectorsSeen: string[]
     missingKeys: PlotSparkKey[]
@@ -1794,11 +1794,6 @@ export type StoryOutputContractInspection = {
   valid: boolean
 }
 
-function readMarkupAttribute(source: string, name: string): string {
-  const match = source.match(new RegExp(`\\b${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, 'i'))
-  return match?.[2]?.trim() || ''
-}
-
 function runtimeArtifactOccurrenceCount(value: string): number {
   return regexCount(value, RELAY_OWNERSHIP_MARKER_RE)
     + regexCount(value, RELAY_PROMPT_MARKDOWN_IMAGE_RE)
@@ -1807,9 +1802,7 @@ function runtimeArtifactOccurrenceCount(value: string): number {
 }
 
 function removePlotSparkPayloads(value: string): string {
-  return value
-    .replace(/\[Plot_Sparks\][\s\S]*?\[\/Plot_Sparks\]/gi, '')
-    .replace(/<chaos_payload\b[^>]*>[\s\S]*?<\/chaos_payload\s*>/gi, '')
+  return value.replace(/\[Plot_Sparks\][\s\S]*?\[\/Plot_Sparks\]/gi, '')
 }
 
 /** Deterministic diagnostics for freshly authored Story Model output. This is
@@ -1832,46 +1825,32 @@ export function inspectStoryModelOutputContracts(
       : canonicalInline.length === expected
 
   const canonicalPayloads = [...text.matchAll(/\[Plot_Sparks\][\s\S]*?\[\/Plot_Sparks\]/gi)]
-  const legacyPayloads = [...text.matchAll(/<chaos_payload\b[^>]*>[\s\S]*?<\/chaos_payload\s*>/gi)]
-  const payloads = [...canonicalPayloads, ...legacyPayloads]
+  const payloads = canonicalPayloads
   const canonicalSparks = canonicalPayloads.flatMap(payload => [...payload[0].matchAll(/\[Spark\]([\s\S]*?)\[\/Spark\]/gi)].map(match => match[1] || ''))
-  const legacyHooks = legacyPayloads.flatMap(payload => [...payload[0].matchAll(/<chaos_hook\b([^>]*)>([\s\S]*?)<\/chaos_hook\s*>/gi)])
-  const hookCount = canonicalSparks.length + legacyHooks.length
+  const sparkCount = canonicalSparks.length
   const keysSeen: string[] = []
   const vectorsSeen: string[] = []
   const missingMedia: string[] = []
   const vectorMismatches: Array<{ key: string; expected: string; actual: string }> = []
-  for (let index = 0; index < hookCount; index += 1) {
-    const canonicalBody = canonicalSparks[index]
-    const legacy = canonicalBody === undefined ? legacyHooks[index - canonicalSparks.length] : undefined
-    const body = canonicalBody ?? legacy?.[2] ?? ''
-    const key = ((canonicalBody !== undefined
-      ? body.match(/\[Key\]\s*([\s\S]*?)\s*\[\/Key\]/i)?.[1]
-      : readMarkupAttribute(legacy?.[1] || '', 'key')
-    ) || '').trim().toLocaleLowerCase()
-    const vector = ((canonicalBody !== undefined
-      ? body.match(/\[Vector\]\s*([\s\S]*?)\s*\[\/Vector\]/i)?.[1]
-      : readMarkupAttribute(legacy?.[1] || '', 'vector')
-    ) || '').trim().toLocaleLowerCase()
+  for (let index = 0; index < sparkCount; index += 1) {
+    const body = canonicalSparks[index] || ''
+    const key = (body.match(/\[Key\]\s*([\s\S]*?)\s*\[\/Key\]/i)?.[1] || '').trim().toLocaleLowerCase()
+    const vector = (body.match(/\[Vector\]\s*([\s\S]*?)\s*\[\/Vector\]/i)?.[1] || '').trim().toLocaleLowerCase()
     keysSeen.push(key)
     vectorsSeen.push(vector)
     const expectedVector = PLOT_SPARK_VECTOR_BY_KEY[key as PlotSparkKey]
     if (expectedVector && vector !== expectedVector) vectorMismatches.push({ key, expected: expectedVector, actual: vector })
-    const hookText = canonicalBody !== undefined
-      ? body.match(/\[Text\]\s*([\s\S]*?)\s*\[\/Text\]/i)?.[1]?.trim() || ''
-      : body.match(/<hook_text\b[^>]*>([\s\S]*?)<\/hook_text\s*>/i)?.[1]?.trim() || ''
-    const hookMedia = canonicalBody !== undefined
-      ? body.match(/\[Media\]\s*([\s\S]*?)\s*\[\/Media\]/i)?.[1] || ''
-      : body.match(/<hook_media\b[^>]*>([\s\S]*?)<\/hook_media\s*>/i)?.[1] || ''
-    const canonicalMedia = /<reverie-illustration\b[^>]*\brequest\s*=\s*["']generate["'][^>]*>[\s\S]*?<visual_prompt\b[^>]*>\s*[^<\s][\s\S]*?<\/visual_prompt\s*>[\s\S]*?<\/reverie-illustration\s*>/i.test(hookMedia)
-    if (!hookText || !canonicalMedia) missingMedia.push(key || `hook-${index + 1}`)
+    const sparkText = body.match(/\[Text\]\s*([\s\S]*?)\s*\[\/Text\]/i)?.[1]?.trim() || ''
+    const sparkMedia = body.match(/\[Media\]\s*([\s\S]*?)\s*\[\/Media\]/i)?.[1] || ''
+    const canonicalMedia = /<reverie-illustration\b[^>]*\brequest\s*=\s*["']generate["'][^>]*>[\s\S]*?<visual_prompt\b[^>]*>\s*[^<\s][\s\S]*?<\/visual_prompt\s*>[\s\S]*?<\/reverie-illustration\s*>/i.test(sparkMedia)
+    if (!sparkText || !canonicalMedia) missingMedia.push(key || `spark-${index + 1}`)
   }
   const requiredKeys = Object.keys(PLOT_SPARK_VECTOR_BY_KEY) as PlotSparkKey[]
   const missingKeys = requiredKeys.filter(key => !keysSeen.includes(key))
   const duplicateKeys = [...new Set(keysSeen.filter((key, index) => key && keysSeen.indexOf(key) !== index))]
   const plotValid = (!options.expectPlotSparks && payloads.length === 0) || (
     payloads.length === 1
-    && hookCount === requiredKeys.length
+    && sparkCount === requiredKeys.length
     && missingKeys.length === 0
     && duplicateKeys.length === 0
     && vectorMismatches.length === 0
@@ -1885,7 +1864,7 @@ export function inspectStoryModelOutputContracts(
   }
   return {
     inline: { expectedIllustrations: expected, actualCanonicalIllustrations: canonicalInline.length, countMode, valid: inlineValid },
-    plotSparks: { payloadCount: payloads.length, hookCount, keysSeen, vectorsSeen, missingKeys, duplicateKeys, vectorMismatches, missingMedia, valid: plotValid },
+    plotSparks: { payloadCount: payloads.length, sparkCount, keysSeen, vectorsSeen, missingKeys, duplicateKeys, vectorMismatches, missingMedia, valid: plotValid },
     modelAuthoredRuntimeArtifacts: runtimeArtifacts,
     valid: inlineValid && plotValid && !runtimeArtifacts.detected,
   }
@@ -1999,7 +1978,6 @@ const NARRATIVE_MEDIA_CONTEXTS: ReadonlyArray<{ open: RegExp; close: RegExp }> =
   { open: /\[dramatic_parallel\]/gi, close: /\[\/dramatic_parallel\]/gi },
   { open: /<dramatic_parallel\b[^>]*>/gi, close: /<\/dramatic_parallel\s*>/gi },
   { open: /\[Plot_Sparks\]/gi, close: /\[\/Plot_Sparks\]/gi },
-  { open: /<chaos_payload\b[^>]*>/gi, close: /<\/chaos_payload\s*>/gi },
   { open: /\[dossier_ui\]/gi, close: /\[\/dossier_ui\]/gi },
   { open: /<dossier_ui\b[^>]*>/gi, close: /<\/dossier_ui\s*>/gi },
   { open: /\[SCENE(?:\||\])/gi, close: /\[\/SCENE\]/gi },

@@ -23,22 +23,20 @@
       "run_on_edit": true,
       "disabled": false,
       "sort_order": 121,
-      "description": "OG-style purple sparkle launcher + seven tabs for <chaos_payload>. Tolerates long/nonstandard IDs, payload/hook attribute order and extras, missing hook_media blocks, and omitted </hook_media> closers.",
+      "description": "OG-style purple sparkle launcher with seven tabs for the canonical bracket-native [Plot_Sparks] Surface.",
       "metadata": {
-        "category": "☄ Chaos Hooks",
-        "canonical_wrapper": "chaos_payload",
+        "category": "☄ Plot Sparks",
+        "canonical_wrapper": "Plot_Sparks",
         "ui_variant": "og_sparkle_tabs",
         "safe_import_enabled": true,
-        "tolerates_missing_hook_media_closer": true,
         "single_row_tabs": true,
         "sparkle_launcher": true,
         "version": "5",
-        "tolerant_payload_id": true,
-        "tolerant_attribute_order": true,
-        "tolerates_missing_hook_media": true,
+        "requires_seven_sparks": true,
+        "bracket_native": true,
         "bulletproof_revision": 7
       },
-      "folder": "☄ Chaos Hooks",
+      "folder": "☄ Plot Sparks",
       "script_id": "ria_plot_sparks_og_sparkle_tabs_bulletproof_v7",
       "actions": [
         {

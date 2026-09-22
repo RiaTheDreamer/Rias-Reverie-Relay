@@ -155,7 +155,7 @@ const structuralXmlTags = (value: string) => [...value.matchAll(/<\/?([A-Za-z][A
   .filter(match => !protectedRelayControlTags.has(match[1].toLowerCase()))
 const bracketImageControlTags = (value: string) => value.match(/\[\/?(?:image_request|scene_brief|reverie-illustration|visual_prompt)\b/gi) || []
 const expectedNarrativeUtility = buildNarrativeUtilityPrompt()
-const worldUtilityWithOverride = buildNarrativeUtilityPrompt(['World Texture'], { 'World Texture': 'CUSTOM WORLD CONTRACT' }).content
+const worldUtilityWithOverride = buildNarrativeUtilityPrompt(['Setting the Scene'], { 'Setting the Scene': 'CUSTOM WORLD CONTRACT' }).content
 assert(worldUtilityWithOverride.includes('CUSTOM WORLD CONTRACT'))
 assert(worldUtilityWithOverride.includes('SETTING THE SCENE STRUCTURAL LOCK'))
 assert(worldUtilityWithOverride.includes('[why_it_matters]...[/why_it_matters]'))

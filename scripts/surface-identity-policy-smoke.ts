@@ -8,8 +8,7 @@ import plainPrimary from '../regex-packs/r45/Reverie-Surfaces-R4.5-COLLAPSIBLE-P
 import plainRealistic from '../regex-packs/r45/Reverie-Surfaces-R4.5-COLLAPSIBLE-PLAIN-REALISTIC.json'
 import sparklingPrimary from '../regex-packs/r45/Reverie-Surfaces-R4.5-COLLAPSIBLE-SPARKLING-PRIMARY.json'
 import sparklingRealistic from '../regex-packs/r45/Reverie-Surfaces-R4.5-COLLAPSIBLE-SPARKLING-REALISTIC.json'
-import { narrativeRegexScripts, NARRATIVE_REGEX_VARIANTS } from '../src/narrativeRegexAssets'
-import { PLOT_SPARKS_V2_UTILITY } from '../src/plotSparksV2'
+import { narrativeRegexScripts, narrativeUtilityItems, NARRATIVE_REGEX_VARIANTS } from '../src/narrativeRegexAssets'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
 
@@ -40,8 +39,9 @@ for (const definition of definitions) {
   assert(!forbiddenIdentity.test(definition.promptModule), `${definition.baseSurfaceId}: model-facing module contains a hard-coded person identity`)
 }
 
-assert(PLOT_SPARKS_V2_UTILITY.includes('Never invent, rename, or substitute a person, username, or handle.'), 'Plot Sparks identity boundary is missing')
-assert(!forbiddenIdentity.test(PLOT_SPARKS_V2_UTILITY), 'Plot Sparks prompt contains a hard-coded person identity')
+const plotSparksUtility = narrativeUtilityItems().find(item => item.loomName === 'Plot Sparks')?.loomContent || ''
+assert(plotSparksUtility.includes('Never invent, rename, or substitute a person, username, or handle.'), 'Plot Sparks identity boundary is missing')
+assert(!forbiddenIdentity.test(plotSparksUtility), 'Plot Sparks prompt contains a hard-coded person identity')
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   for (const script of narrativeRegexScripts(variant)) {
     assert(!forbiddenIdentity.test(script.replace_string), `${variant}/${script.script_id}: Narrative renderer contains a hard-coded person identity`)
