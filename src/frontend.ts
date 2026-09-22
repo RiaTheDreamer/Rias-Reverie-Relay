@@ -57,7 +57,7 @@ import { applyKakaoColorBinding } from './kakaoColor'
 import { lifecycleRuntimeCss, NATIVE_SURFACE_ROOT_TAGS, renderNativeSurfaceMarkup } from './nativeSurfaces'
 import { hybridSurfaceOwner, shippedSurfaceDefinitions } from './shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
-import { DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL } from './protocols'
+import { DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK } from './protocols'
 import { CHARACTER_PHONE_APPS, characterPhoneAppLabel, normalizeCharacterPhoneDefaultApps, type CharacterPhoneAppId } from './characterPhoneConfig'
 import { NARRATIVE_UTILITY_OVERVIEWS, SURFACE_UTILITY_OVERVIEWS, settingHelp } from './uxCopy'
 import { bracketExampleFromXml } from './bracketSurfaceAuthoring'
@@ -2018,8 +2018,12 @@ export function setup(ctx: SpindleFrontendContext) {
 
   function openSurfaceMarkupEditor(buttonEl: HTMLElement): void {
     const host = buttonEl.closest<HTMLElement>('[data-rrn-editable-surface]')
-    const source = host?.querySelector<HTMLTextAreaElement>('.rrn-surface-source')?.value || ''
-    const originalSource = host?.querySelector<HTMLTextAreaElement>('.rrn-surface-original')?.value || source
+    const source = host?.dataset.rrnSurfaceSource
+      || host?.querySelector<HTMLTextAreaElement>('.rrn-surface-source')?.value
+      || ''
+    const originalSource = host?.dataset.rrnSurfaceOriginal
+      || host?.querySelector<HTMLTextAreaElement>('.rrn-surface-original')?.value
+      || source
     const chatId = buttonEl.dataset.rrnChatId || host?.dataset.rrnChatId || activeChatId || ''
     const messageId = buttonEl.dataset.rrnMessageId || host?.dataset.rrnMessageId || ''
     if (!host || !source || !chatId || !messageId) {
@@ -5995,9 +5999,11 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       .replace(/\{\{\s*reverie_renderer_mode\s*\}\}/gi, 'shared')
     const rootBoundary = `STRICT ENABLED ROOT REGISTRY\nOnly these exact roots are valid. Never rename a root after a platform or invent feed/post/story shorthand.\n${rootRegistry || 'none'}`
     return {
-      content: /STRICT ENABLED ROOT REGISTRY/i.test(expandedTemplate)
-        ? expandedTemplate
-        : `${expandedTemplate}\n\n${rootBoundary}`,
+      content: [
+        expandedTemplate,
+        /STRICT ENABLED ROOT REGISTRY/i.test(expandedTemplate) ? '' : rootBoundary,
+        /APP SURFACE SHAPE FIREBREAK/i.test(expandedTemplate) ? '' : REVERIE_SURFACE_APP_SCHEMA_FIREBREAK,
+      ].filter(Boolean).join('\n\n'),
       moduleIds,
     }
   }

@@ -1624,6 +1624,18 @@ Use the module's required target, aspect, owner, and media count. IDs and slots 
 
 CONTEXT
 Use the current scene/message for names, places, timing, route information, text, participants, and visual content. Schema ellipses are placeholders only, never default story values. Do not author Markdown fences, HTML/CSS layouts, launcher chrome, presentation controls, generic substitute cards, or renderer fallback text.`;
+var REVERIE_SURFACE_APP_SCHEMA_FIREBREAK = `APP SURFACE SHAPE FIREBREAK
+Use only the enabled module's exact registered root and exact child hierarchy. Never emit [igfeed], [igstory], [igpost], [tw_profile], [reddit_thread], [reddit_comment], or [discord_message]. A [tw_post] is valid only inside [twitter_app]. A Discord Server uses [discord_server] with the module's exact four [server_channel] children; do not flatten its messages beside the channels. If the requested platform module is not enabled, omit that Surface instead of inventing a substitute schema.`;
+var REVERIE_SURFACE_UTILITY_TEMPLATE = `REVERIE RELAY — ENABLED SURFACES
+
+{{reverie_enabled_surface_modules}}
+
+STRICT ENABLED ROOT REGISTRY
+Only the exact roots below are valid. Never rename a root after a platform, invent feed/post/story shorthand, add namespace punctuation, or combine multiple enabled contracts into a substitute app schema.
+{{reverie_enabled_surface_roots}}
+
+${REVERIE_SURFACE_APP_SCHEMA_FIREBREAK}
+`;
 var REVERIE_ALL_PROTOCOLS = `${REVERIE_SURFACE_PROTOCOL}
 
 ${REVERIE_ILLUSTRATION_PROTOCOL}
@@ -134748,7 +134760,7 @@ function editableRelaySurface(rendered, editorMarkup, rootTag, baseSurfaceId, co
   if (!context.chatId || !context.messageId)
     return rendered;
   const island = surfaceStreamIslandKey(context.messageId, context.swipeId, baseSurfaceId, context.streamIslandOrdinal || 0);
-  return `<section class="rrn-editable-surface" data-reverie-stream-island="${escapeAttr(island)}" data-rrn-editable-surface="${escapeAttr(baseSurfaceId)}" data-rrn-chat-id="${escapeAttr(context.chatId)}" data-rrn-message-id="${escapeAttr(context.messageId)}" data-rrn-root-tag="${escapeAttr(rootTag)}" data-rrn-surface-id="${escapeAttr(baseSurfaceId)}" tabindex="0">${STABLE_MEDIA_SLOT_CSS}${rendered}<textarea class="rrn-surface-source" hidden>${escapeHtml(editorMarkup)}</textarea><textarea class="rrn-surface-original" hidden>${escapeHtml(originalMarkup)}</textarea></section>`;
+  return `<section class="rrn-editable-surface" data-reverie-stream-island="${escapeAttr(island)}" data-rrn-editable-surface="${escapeAttr(baseSurfaceId)}" data-rrn-chat-id="${escapeAttr(context.chatId)}" data-rrn-message-id="${escapeAttr(context.messageId)}" data-rrn-root-tag="${escapeAttr(rootTag)}" data-rrn-surface-id="${escapeAttr(baseSurfaceId)}" data-rrn-surface-source="${escapeAttr(editorMarkup)}" data-rrn-surface-original="${escapeAttr(originalMarkup)}" tabindex="0">${STABLE_MEDIA_SLOT_CSS}${rendered}<textarea class="rrn-surface-source" hidden>${escapeHtml(editorMarkup)}</textarea><textarea class="rrn-surface-original" hidden>${escapeHtml(originalMarkup)}</textarea></section>`;
 }
 function surfaceStreamIslandKey(messageId, swipeId, surfaceId, ordinal = 0) {
   const message = String(messageId || "stream-message").replace(/[^A-Za-z0-9_-]+/g, "-") || "stream-message";
@@ -134851,10 +134863,34 @@ function renderNativeSurfaceMarkup(input, studio, context) {
   };
   const bracketRenderedSurfaceIds = [];
   let bracketRenderedCount = 0;
+  const unsupportedAppDrift = [];
+  const claimUnsupportedAppDialect = (surfaceId, canonicalRoot, rawRoot, full) => {
+    unsupportedAppDrift.push(surfaceId);
+    const reason = `Unsupported [${rawRoot}] app dialect. Use the enabled [${canonicalRoot}] contract.`;
+    return editableRelaySurface(reviewedContractError(surfaceId, reason), String(full || ""), rawRoot, surfaceId, { ...renderContext, streamIslandOrdinal: bracketBlocks.length + unsupportedAppDrift.length }, String(full || ""));
+  };
   const bracketBlocks = [];
+  const preclaimedDiscordDrift = new Map;
+  input = input.replace(/\[discord_server\][\s\S]*?\[\/discord_server\](?:\s*\[discord_message\][\s\S]*?\[\/discord_message\])+/gi, (full) => {
+    const token = `<!--rrn-unsupported-discord:${preclaimedDiscordDrift.size}-->`;
+    preclaimedDiscordDrift.set(token, full);
+    return token;
+  });
   const bracketNormalized = normalizeBracketSurfaceDocument(input, SHIPPED_SURFACE_SPECS, (block) => {
     bracketBlocks.push(block);
-    return block.diagnostics.length ? editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join("; ")), block.original, block.spec.wrapper, block.spec.id, { ...renderContext, streamIslandOrdinal: bracketBlocks.length }, block.original) : hydrateParityRequests(block.markup, block.spec.id, renderContext);
+    const instanceContext = { ...renderContext, streamIslandOrdinal: bracketBlocks.length };
+    if (block.diagnostics.length)
+      return editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join("; ")), block.original, block.spec.wrapper, block.spec.id, instanceContext, block.original);
+    const hydrated = hydrateParityRequests(block.markup, block.spec.id, renderContext);
+    const rendered = renderRegexSurfaceParity(hydrated, parityModeForSurface(block.spec.id, activePreset(studio, block.spec.id), renderContext), renderContext.messageId || `${block.spec.id}-surface`, renderContext.colorMode || "realistic");
+    const residualRoot = new RegExp(`\\[${escapeRegExp(block.spec.wrapper)}(?:\\s+[^\\]]*)?\\]`, "i").test(rendered);
+    const rendererFailedClosed = /data-reverie-surface-contract=["']failed["']|Relay Surface needs repair/i.test(rendered);
+    if (residualRoot || rendererFailedClosed) {
+      const reason = "The FINAL R4.5 renderer did not consume this approved Surface shape.";
+      block.diagnostics.push(`${block.spec.id}: ${reason}`);
+      return editableRelaySurface(reviewedContractError(block.spec.id, reason), block.original, block.spec.wrapper, block.spec.id, instanceContext, block.original);
+    }
+    return decorateParityImages(rendered, instanceContext);
   });
   if (bracketBlocks.length) {
     bracketRenderedCount = bracketBlocks.length;
@@ -134869,14 +134905,13 @@ function renderNativeSurfaceMarkup(input, studio, context) {
     }
     input = decorateParityImages(renderRegexSurfaceParity(bracketNormalized.markup, parityModeForSurface("message", undefined, renderContext), renderContext.messageId || "bracket-surface", renderContext.colorMode || "realistic"), renderContext);
   }
-  const unsupportedAppDrift = [];
-  input = input.replace(/\[(tweet:feed|tweet_feed|igfeed|igstory|igpost)\][\s\S]*?\[\/\1\]/gi, (full, rawRoot) => {
-    const root = String(rawRoot || "").toLocaleLowerCase();
-    const surfaceId = root.startsWith("ig") ? "instagram" : "twitter";
-    unsupportedAppDrift.push(surfaceId);
-    const reason = `Unsupported [${rawRoot}] app dialect. Use the enabled [${surfaceId === "twitter" ? "twitter_app" : "ig_app"}] contract.`;
-    return editableRelaySurface(reviewedContractError(surfaceId, reason), String(full || ""), rawRoot, surfaceId, { ...renderContext, streamIslandOrdinal: bracketBlocks.length + unsupportedAppDrift.length }, String(full || ""));
-  });
+  for (const [token, source] of preclaimedDiscordDrift) {
+    input = input.replace(token, claimUnsupportedAppDialect("discord-server", "discord_server with four server_channel children", "discord_server / discord_message", source));
+  }
+  input = input.replace(/(?:(?:\[igfeed\][\s\S]*?\[\/igfeed\]|\[igstory\][\s\S]*?\[\/igstory\]|\[igpost\][\s\S]*?\[\/igpost\])\s*)+/gi, (full) => claimUnsupportedAppDialect("instagram", "ig_app", "igfeed / igstory / igpost", full));
+  input = input.replace(/(?:(?:\[tw_profile\][\s\S]*?\[\/tw_profile\]|\[tw_post\][\s\S]*?\[\/tw_post\])\s*)+/gi, (full) => claimUnsupportedAppDialect("twitter", "twitter_app", "tw_profile / tw_post", full));
+  input = input.replace(/\[reddit_thread\][\s\S]*?\[\/reddit_thread\](?:\s*\[reddit_comment\][\s\S]*?\[\/reddit_comment\])*/gi, (full) => claimUnsupportedAppDialect("forum-thread", "forum_thread", "reddit_thread / reddit_comment", full));
+  input = input.replace(/\[(tweet:feed|tweet_feed)\][\s\S]*?\[\/\1\]/gi, (full, rawRoot) => claimUnsupportedAppDialect("twitter", "twitter_app", rawRoot, full));
   const normalizationFailures = [];
   const normalizedSurface = normalizeSurfaceDocument(input, SHIPPED_SURFACE_SPECS, (block) => {
     recordSurfacePipelineDiagnostic(block.spec.id, "detected-root", `<${block.spec.wrapper}>`);
@@ -138098,8 +138133,8 @@ ${message.prompt}`;
   }
   function openSurfaceMarkupEditor(buttonEl) {
     const host = buttonEl.closest("[data-rrn-editable-surface]");
-    const source = host?.querySelector(".rrn-surface-source")?.value || "";
-    const originalSource = host?.querySelector(".rrn-surface-original")?.value || source;
+    const source = host?.dataset.rrnSurfaceSource || host?.querySelector(".rrn-surface-source")?.value || "";
+    const originalSource = host?.dataset.rrnSurfaceOriginal || host?.querySelector(".rrn-surface-original")?.value || source;
     const chatId = buttonEl.dataset.rrnChatId || host?.dataset.rrnChatId || activeChatId || "";
     const messageId = buttonEl.dataset.rrnMessageId || host?.dataset.rrnMessageId || "";
     if (!host || !source || !chatId || !messageId) {
@@ -142202,9 +142237,13 @@ Next action: ${blocker.action}` : ""}`;
 Only these exact roots are valid. Never rename a root after a platform or invent feed/post/story shorthand.
 ${rootRegistry || "none"}`;
     return {
-      content: /STRICT ENABLED ROOT REGISTRY/i.test(expandedTemplate) ? expandedTemplate : `${expandedTemplate}
+      content: [
+        expandedTemplate,
+        /STRICT ENABLED ROOT REGISTRY/i.test(expandedTemplate) ? "" : rootBoundary,
+        /APP SURFACE SHAPE FIREBREAK/i.test(expandedTemplate) ? "" : REVERIE_SURFACE_APP_SCHEMA_FIREBREAK
+      ].filter(Boolean).join(`
 
-${rootBoundary}`,
+`),
       moduleIds
     };
   }

@@ -427,7 +427,10 @@ function editableRelaySurface(rendered: string, editorMarkup: string, rootTag: s
   rendered = (baseSurfaceId === 'phone-gallery' ? GALLERY_FULL_IMAGE_CSS : '') + rendered
   if (!context.chatId || !context.messageId) return rendered
   const island = surfaceStreamIslandKey(context.messageId, context.swipeId, baseSurfaceId, context.streamIslandOrdinal || 0)
-  return `<section class="rrn-editable-surface" data-reverie-stream-island="${escapeAttr(island)}" data-rrn-editable-surface="${escapeAttr(baseSurfaceId)}" data-rrn-chat-id="${escapeAttr(context.chatId)}" data-rrn-message-id="${escapeAttr(context.messageId)}" data-rrn-root-tag="${escapeAttr(rootTag)}" data-rrn-surface-id="${escapeAttr(baseSurfaceId)}" tabindex="0">${STABLE_MEDIA_SLOT_CSS}${rendered}<textarea class="rrn-surface-source" hidden>${escapeHtml(editorMarkup)}</textarea><textarea class="rrn-surface-original" hidden>${escapeHtml(originalMarkup)}</textarea></section>`
+  // Lumiverse's live message sanitizer may remove form controls from rendered
+  // assistant content. Keep source on the owning element as the authoritative
+  // editor transport; textareas remain for already-rendered compatibility.
+  return `<section class="rrn-editable-surface" data-reverie-stream-island="${escapeAttr(island)}" data-rrn-editable-surface="${escapeAttr(baseSurfaceId)}" data-rrn-chat-id="${escapeAttr(context.chatId)}" data-rrn-message-id="${escapeAttr(context.messageId)}" data-rrn-root-tag="${escapeAttr(rootTag)}" data-rrn-surface-id="${escapeAttr(baseSurfaceId)}" data-rrn-surface-source="${escapeAttr(editorMarkup)}" data-rrn-surface-original="${escapeAttr(originalMarkup)}" tabindex="0">${STABLE_MEDIA_SLOT_CSS}${rendered}<textarea class="rrn-surface-source" hidden>${escapeHtml(editorMarkup)}</textarea><textarea class="rrn-surface-original" hidden>${escapeHtml(originalMarkup)}</textarea></section>`
 }
 
 export function surfaceStreamIslandKey(messageId: string | undefined, swipeId: number | undefined, surfaceId: string, ordinal = 0): string {
@@ -626,16 +629,37 @@ export function renderNativeSurfaceMarkup(
   }
   const bracketRenderedSurfaceIds: string[] = []
   let bracketRenderedCount = 0
+  const unsupportedAppDrift: string[] = []
+  const claimUnsupportedAppDialect = (surfaceId: string, canonicalRoot: string, rawRoot: string, full: string): string => {
+    unsupportedAppDrift.push(surfaceId)
+    const reason = `Unsupported [${rawRoot}] app dialect. Use the enabled [${canonicalRoot}] contract.`
+    return editableRelaySurface(reviewedContractError(surfaceId, reason), String(full || ''), rawRoot, surfaceId, { ...renderContext, streamIslandOrdinal: bracketBlocks.length + unsupportedAppDrift.length }, String(full || ''))
+  }
   // Bracket-native authoring is the active model-facing Surface language.
   // Consume bracket roots as one document through the bracket parser and
   // bracket Regex authority. Legacy XML normalization below remains a parallel
   // compatibility path, not a whole-Surface bridge for canonical brackets.
   const bracketBlocks: Array<{ spec: { id: string; wrapper: string }; diagnostics: string[]; warnings: string[]; sourceFormat: string; bracketDialect: string; legacyXmlBridgeUsed: boolean; original: string; markup: string }> = []
+  const preclaimedDiscordDrift = new Map<string, string>()
+  input = input.replace(/\[discord_server\][\s\S]*?\[\/discord_server\](?:\s*\[discord_message\][\s\S]*?\[\/discord_message\])+/gi, full => {
+    const token = `<!--rrn-unsupported-discord:${preclaimedDiscordDrift.size}-->`
+    preclaimedDiscordDrift.set(token, full)
+    return token
+  })
   const bracketNormalized = normalizeBracketSurfaceDocument(input, SHIPPED_SURFACE_SPECS, block => {
     bracketBlocks.push(block)
-    return block.diagnostics.length
-      ? editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join('; ')), block.original, block.spec.wrapper, block.spec.id, { ...renderContext, streamIslandOrdinal: bracketBlocks.length }, block.original)
-      : hydrateParityRequests(block.markup, block.spec.id, renderContext)
+    const instanceContext = { ...renderContext, streamIslandOrdinal: bracketBlocks.length }
+    if (block.diagnostics.length) return editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join('; ')), block.original, block.spec.wrapper, block.spec.id, instanceContext, block.original)
+    const hydrated = hydrateParityRequests(block.markup, block.spec.id, renderContext)
+    const rendered = renderRegexSurfaceParity(hydrated, parityModeForSurface(block.spec.id, activePreset(studio, block.spec.id), renderContext), renderContext.messageId || `${block.spec.id}-surface`, renderContext.colorMode || 'realistic')
+    const residualRoot = new RegExp(`\\[${escapeRegExp(block.spec.wrapper)}(?:\\s+[^\\]]*)?\\]`, 'i').test(rendered)
+    const rendererFailedClosed = /data-reverie-surface-contract=["']failed["']|Relay Surface needs repair/i.test(rendered)
+    if (residualRoot || rendererFailedClosed) {
+      const reason = 'The FINAL R4.5 renderer did not consume this approved Surface shape.'
+      block.diagnostics.push(`${block.spec.id}: ${reason}`)
+      return editableRelaySurface(reviewedContractError(block.spec.id, reason), block.original, block.spec.wrapper, block.spec.id, instanceContext, block.original)
+    }
+    return decorateParityImages(rendered, instanceContext)
   })
   if (bracketBlocks.length) {
     bracketRenderedCount = bracketBlocks.length
@@ -654,14 +678,16 @@ export function renderNativeSurfaceMarkup(
     // owner before automatic insertion can complete.
     input = decorateParityImages(renderRegexSurfaceParity(bracketNormalized.markup, parityModeForSurface('message', undefined, renderContext), renderContext.messageId || 'bracket-surface', renderContext.colorMode || 'realistic'), renderContext)
   }
-  const unsupportedAppDrift: string[] = []
-  input = input.replace(/\[(tweet:feed|tweet_feed|igfeed|igstory|igpost)\][\s\S]*?\[\/\1\]/gi, (full, rawRoot: string) => {
-    const root = String(rawRoot || '').toLocaleLowerCase()
-    const surfaceId = root.startsWith('ig') ? 'instagram' : 'twitter'
-    unsupportedAppDrift.push(surfaceId)
-    const reason = `Unsupported [${rawRoot}] app dialect. Use the enabled [${surfaceId === 'twitter' ? 'twitter_app' : 'ig_app'}] contract.`
-    return editableRelaySurface(reviewedContractError(surfaceId, reason), String(full || ''), rawRoot, surfaceId, { ...renderContext, streamIslandOrdinal: bracketBlocks.length + unsupportedAppDrift.length }, String(full || ''))
-  })
+  for (const [token, source] of preclaimedDiscordDrift) {
+    input = input.replace(token, claimUnsupportedAppDialect('discord-server', 'discord_server with four server_channel children', 'discord_server / discord_message', source))
+  }
+  // Group each live generic-app family into one recovery island. These shapes
+  // are not losslessly interchangeable with the registered R4.5 contracts, so
+  // Local Repair preserves every authored byte and fails closed for editing.
+  input = input.replace(/(?:(?:\[igfeed\][\s\S]*?\[\/igfeed\]|\[igstory\][\s\S]*?\[\/igstory\]|\[igpost\][\s\S]*?\[\/igpost\])\s*)+/gi, full => claimUnsupportedAppDialect('instagram', 'ig_app', 'igfeed / igstory / igpost', full))
+  input = input.replace(/(?:(?:\[tw_profile\][\s\S]*?\[\/tw_profile\]|\[tw_post\][\s\S]*?\[\/tw_post\])\s*)+/gi, full => claimUnsupportedAppDialect('twitter', 'twitter_app', 'tw_profile / tw_post', full))
+  input = input.replace(/\[reddit_thread\][\s\S]*?\[\/reddit_thread\](?:\s*\[reddit_comment\][\s\S]*?\[\/reddit_comment\])*/gi, full => claimUnsupportedAppDialect('forum-thread', 'forum_thread', 'reddit_thread / reddit_comment', full))
+  input = input.replace(/\[(tweet:feed|tweet_feed)\][\s\S]*?\[\/\1\]/gi, (full, rawRoot: string) => claimUnsupportedAppDialect('twitter', 'twitter_app', rawRoot, full))
   // One shared, conservative normalization pass runs before either the Relay
   // renderer or the Regex-parity path sees an active shipped Surface.
   const normalizationFailures: string[] = []

@@ -169,7 +169,7 @@ import { normalizeSurfaceDocument } from './surfaceXml'
 import { bracketSurfacePromptModule } from './bracketSurfaceAuthoring'
 import { r45SurfaceAuthorityPack, r45SurfaceAuthorityScripts } from './r45SurfaceAuthority'
 import { buildCharacterPhoneRuntimeDirective, normalizeCharacterPhoneDefaultApps, type CharacterPhoneAppId } from './characterPhoneConfig'
-import { DEFAULT_EXPLICIT_SCENE_NEGATIVE_GUIDANCE, DEFAULT_EXPLICIT_SCENE_POSITIVE_GUIDANCE, DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, DEFAULT_SURFACE_PROMPT_MODULES, ILLUSTRATOR_FRAMING_REGISTRY_ALIASES, PROSE_ILLUSTRATOR_PERSPECTIVE_MODE_ALIASES, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ARTIFACT_MEDIA_PROTOCOL, REVERIE_SURFACE_UTILITY_TEMPLATE, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_PROTOCOL } from './protocols'
+import { DEFAULT_EXPLICIT_SCENE_NEGATIVE_GUIDANCE, DEFAULT_EXPLICIT_SCENE_POSITIVE_GUIDANCE, DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, DEFAULT_SURFACE_PROMPT_MODULES, ILLUSTRATOR_FRAMING_REGISTRY_ALIASES, PROSE_ILLUSTRATOR_PERSPECTIVE_MODE_ALIASES, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ARTIFACT_MEDIA_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK, REVERIE_SURFACE_UTILITY_TEMPLATE, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_PROTOCOL } from './protocols'
 import { characterProfilePortraitHasExactRelayImage, NATIVE_SURFACE_CANDIDATE_ROOT_TAGS, NATIVE_SURFACE_ROOT_TAGS, normalizeCharacterProfileContract, renderNativeSurfaceMarkup } from './nativeSurfaces'
 import {
   buildNarrativeUtilityPrompt,
@@ -2505,9 +2505,11 @@ export function buildEnabledSurfaceUtility(studio: CustomSurfaceStudioState, sou
     .replace(/\{\{\s*reverie_enabled_surface_roots\s*\}\}/gi, rootRegistry || 'none')
     .replace(/\{\{\s*reverie_renderer_mode\s*\}\}/gi, 'shared')
   const rootBoundary = `STRICT ENABLED ROOT REGISTRY\nOnly these exact roots are valid. Never rename a root after a platform or invent feed/post/story shorthand.\n${rootRegistry || 'none'}`
-  const expanded = /STRICT ENABLED ROOT REGISTRY/i.test(expandedTemplate)
-    ? expandedTemplate
-    : `${expandedTemplate}\n\n${rootBoundary}`
+  const expanded = [
+    expandedTemplate,
+    /STRICT ENABLED ROOT REGISTRY/i.test(expandedTemplate) ? '' : rootBoundary,
+    /APP SURFACE SHAPE FIREBREAK/i.test(expandedTemplate) ? '' : REVERIE_SURFACE_APP_SCHEMA_FIREBREAK,
+  ].filter(Boolean).join('\n\n')
   const result = {
     content: `<reverie_surface_utility source="${source}" renderer="${studio.rendererMode}" contract="shared" modules="${escapeXmlText(moduleIds.join(','))}">
 ${expanded}

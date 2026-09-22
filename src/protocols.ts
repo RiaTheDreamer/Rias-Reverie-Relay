@@ -475,6 +475,9 @@ Use the module's required target, aspect, owner, and media count. IDs and slots 
 CONTEXT
 Use the current scene/message for names, places, timing, route information, text, participants, and visual content. Schema ellipses are placeholders only, never default story values. Do not author Markdown fences, HTML/CSS layouts, launcher chrome, presentation controls, generic substitute cards, or renderer fallback text.`
 
+export const REVERIE_SURFACE_APP_SCHEMA_FIREBREAK = `APP SURFACE SHAPE FIREBREAK
+Use only the enabled module's exact registered root and exact child hierarchy. Never emit [igfeed], [igstory], [igpost], [tw_profile], [reddit_thread], [reddit_comment], or [discord_message]. A [tw_post] is valid only inside [twitter_app]. A Discord Server uses [discord_server] with the module's exact four [server_channel] children; do not flatten its messages beside the channels. If the requested platform module is not enabled, omit that Surface instead of inventing a substitute schema.`
+
 export const REVERIE_SURFACE_UTILITY_TEMPLATE = `REVERIE RELAY — ENABLED SURFACES
 
 {{reverie_enabled_surface_modules}}
@@ -482,6 +485,8 @@ export const REVERIE_SURFACE_UTILITY_TEMPLATE = `REVERIE RELAY — ENABLED SURFA
 STRICT ENABLED ROOT REGISTRY
 Only the exact roots below are valid. Never rename a root after a platform, invent feed/post/story shorthand, add namespace punctuation, or combine multiple enabled contracts into a substitute app schema.
 {{reverie_enabled_surface_roots}}
+
+${REVERIE_SURFACE_APP_SCHEMA_FIREBREAK}
 `
 
 

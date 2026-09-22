@@ -51,6 +51,8 @@ assert(compactMeasurement.estimatedInputTokens <= 15_000, `compact Surface promp
 assert(compactModules.every(module => module.includes('FORMAT: compact-v1')), 'every built-in module must use compact-v1')
 assert(compactModules.every(module => !module.includes('CANONICAL BRACKET EXAMPLE')), 'compact built-ins must not embed canonical full examples')
 assert(compactUtility.includes('STRICT ENABLED ROOT REGISTRY'), 'strict enabled-root registry is missing')
+assert(compactUtility.includes('APP SURFACE SHAPE FIREBREAK'), 'app Surface shape firebreak is missing')
+for (const forbidden of ['[igfeed]', '[igstory]', '[igpost]', '[tw_profile]', '[reddit_thread]', '[reddit_comment]', '[discord_message]']) assert(compactUtility.includes(forbidden), `app Surface firebreak is missing ${forbidden}`)
 for (const definition of definitions) assert(compactUtility.includes(`[${definition.canonicalOuterWrapper}]`), `${definition.baseSurfaceId}: enabled-root registry entry is missing`)
 
 for (const fixture of ['North Pier', 'Field Team', 'Character A', 'Weekend Survivors', 'Midnight Signal', 'Archive A']) {
