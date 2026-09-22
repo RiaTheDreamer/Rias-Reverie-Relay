@@ -10,6 +10,7 @@ import {
   narrativeUtilityItems,
   missingNarrativeUtilityFormatMarkers,
   normalizeNarrativeMarkupForRendering,
+  normalizeParallelSceneMarkup,
   renderNarrativeRegex,
 } from '../src/narrativeRegexAssets'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
@@ -275,6 +276,15 @@ const overriddenWorldPrompt = buildNarrativeUtilityPrompt(['Setting the Scene'],
 assert(overriddenWorldPrompt.includes('CUSTOM WORLD OVERRIDE') && overriddenWorldPrompt.includes('SETTING THE SCENE STRUCTURAL LOCK'), 'World structural lock was not appended after effective override content')
 
 const validParallel = fixtures['Parallel Scene'].source
+const resolvedParallelWithoutMediaClosers = validParallel.replace(/\[\/parallel_media\]/g, '')
+const repairedResolvedParallel = normalizeParallelSceneMarkup(resolvedParallelWithoutMediaClosers)
+assert((repairedResolvedParallel.match(/\[\/parallel_media\]/g) || []).length === 3, 'resolved Parallel Scene media closers were not deterministically restored')
+assert(renderNarrativeRegex(resolvedParallelWithoutMediaClosers, 'inline', 'parallel-repair').includes('r65-parallel-context'), 'repaired Parallel Scene did not reach the approved renderer')
+const placedParallelWithoutMediaClosers = resolvedParallelWithoutMediaClosers.replace(/<image_request\b[^>]*>[\s\S]*?<\/image_request>/g, '<!-- reverie-relay:image requestId="placed" slot="placed" --><img src="/api/v1/image-gen/results/placed" alt="Placed Parallel media">')
+assert((normalizeParallelSceneMarkup(placedParallelWithoutMediaClosers).match(/\[\/parallel_media\]/g) || []).length === 3, 'placed Parallel Scene image markup did not receive the bounded closer repair')
+assert(normalizeParallelSceneMarkup(validParallel) === validParallel, 'canonical Parallel Scene normalization must remain byte-for-byte unchanged')
+const ambiguousParallel = resolvedParallelWithoutMediaClosers.replace('<image_request', '<not_media')
+assert(normalizeParallelSceneMarkup(ambiguousParallel) === ambiguousParallel, 'ambiguous Parallel Scene media was guessed instead of failing closed')
 const malformedParallel = validParallel.replace('[/parallel_entry]', '')
 const isolated = renderNarrativeRegex(`${malformedParallel}\n${validParallel}\n${fixtures['Scene Shift'].source}`, 'inline', 'batch-d-isolation')
 assert(isolated.includes('[PARALLEL|Campus|shifting]'), 'malformed owner was unexpectedly consumed')

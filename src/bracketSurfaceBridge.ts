@@ -284,6 +284,86 @@ function optionalBracketField(name: string, value: string): string {
   return safe ? bracketField(name, safe) : ''
 }
 
+function safeInstagramText(value: string): string {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\[/g, '(')
+    .replace(/\]/g, ')')
+    .trim()
+}
+
+function instagramField(node: BracketNode | undefined, name: string): string {
+  return safeInstagramText(bracketNodeText(directBracketChild(node, name) || { name, children: [] }))
+}
+
+function instagramMedia(node: BracketNode): string {
+  const url = instagramField(node, 'media_url')
+  const alt = instagramField(node, 'media_alt')
+  if (!url || /^none$/i.test(url)) return alt
+  if (!/^(?:https?:\/\/|\/api\/v1\/image-gen\/results\/)[^\s"'<>]+$/i.test(url)) return alt || url
+  return `<img src="${url}" alt="${alt}">`
+}
+
+/** Convert the exact bracket-only Instagram family observed in live output to
+ * the registered Profile and Stories contracts. This is intentionally bounded:
+ * one complete feed, exactly three complete stories, and at least one complete
+ * post are required. Incomplete or ambiguous families remain fail-closed. */
+function repairInstagramFamily(source: string): string {
+  const parsed = parseBracketDocument(source)
+  if (parsed.diagnostics.length) return source
+  const feeds = parsed.roots.filter(node => node.name === 'igfeed')
+  const stories = parsed.roots.filter(node => node.name === 'igstory')
+  const posts = parsed.roots.filter(node => node.name === 'igpost')
+  if (feeds.length !== 1 || stories.length !== 3 || posts.length < 1 || feeds.length + stories.length + posts.length !== parsed.roots.length) return source
+
+  const feed = feeds[0]
+  const name = instagramField(feed, 'profile')
+  const handle = instagramField(feed, 'handle')
+  const bio = instagramField(feed, 'bio')
+  const stats = instagramField(feed, 'stats')
+  const statsMatch = /^(.+?)\s+posts\s*(?:·|Â·|\|)\s*(.+?)\s+followers\s*(?:·|Â·|\|)\s*(.+?)\s+following$/i.exec(stats)
+  if (!name || !handle || !bio || !statsMatch) return source
+
+  const profilePosts: string[] = []
+  for (const [index, post] of posts.entries()) {
+    const owner = instagramField(post, 'handle') || instagramField(post, 'author')
+    const time = instagramField(post, 'time')
+    const likes = instagramField(post, 'likes')
+    const caption = instagramField(post, 'caption')
+    const comments = instagramField(post, 'comments')
+    if (!owner || !time || !likes || !caption || !comments) return source
+    profilePosts.push(`[igp_post][id]recovered-${index + 1}[/id][owner]${owner}[/owner][likes]${likes}[/likes][time]${time}[/time][igp_post_avatar][/igp_post_avatar][igp_media]${instagramMedia(post)}[/igp_media][igp_caption]${caption}[/igp_caption][igp_comments]${comments}[/igp_comments][/igp_post]`)
+  }
+
+  const storyRows: string[] = []
+  for (const story of stories) {
+    const owner = instagramField(story, 'handle')
+    const storyName = instagramField(story, 'author')
+    const time = instagramField(story, 'time')
+    const caption = instagramField(story, 'caption')
+    if (!owner || !storyName || !time || !caption) return source
+    storyRows.push(`[story][owner]${owner}[/owner][name]${storyName}[/name][time]${time}[/time][avatar][/avatar][story_media]${instagramMedia(story)}[/story_media][story_caption]${caption}[/story_caption][/story]`)
+  }
+
+  return `[instagram_profile][handle]${handle}[/handle][name]${name}[/name][verified][/verified][bio]${bio}[/bio][followers]${statsMatch[2]}[/followers][following]${statsMatch[3]}[/following][posts]${statsMatch[1]}[/posts][igp_avatar][/igp_avatar][igp_posts]${profilePosts.join('')}[/igp_posts][igp_tagged][/igp_tagged][/instagram_profile]\n[instagram_stories]${storyRows.join('')}[/instagram_stories]`
+}
+
+function unwrapRetiredInstagramPayloads(source: string, warnings: string[]): string {
+  return String(source || '').replace(/<payload\b[^>]*>([\s\S]*?)<\/payload\s*>/gi, (full, body: string) => {
+    if (!/\[(?:instagram_profile|instagram_stories|ig_app)\]/i.test(body)) return full
+    const remainder = body
+      .replace(/\[instagram_profile\][\s\S]*?\[\/instagram_profile\]/gi, '')
+      .replace(/\[instagram_stories\][\s\S]*?\[\/instagram_stories\]/gi, '')
+      .replace(/\[ig_app\][\s\S]*?\[\/ig_app\]/gi, '')
+      .trim()
+    if (remainder) return full
+    warnings.push('instagram: removed retired payload wrapper around repaired bracket Surfaces.')
+    return body.trim()
+  })
+}
+
 /** Recover the exact generic Twitter feed dialect observed in live output.
  * The mapping preserves safe authored text, profile identity, timestamps,
  * engagement metrics, and replies. It never invents or moves media. */
@@ -333,11 +413,17 @@ function repairTweetFeedBlock(source: string): string {
 
 export function normalizeKnownAppSurfaceDialects(input: string): { markup: string; warnings: string[] } {
   const warnings: string[] = []
-  const markup = String(input || '').replace(/\[tweet:feed\][\s\S]*?\[\/tweet:feed\]/gi, block => {
+  let markup = String(input || '').replace(/\[tweet:feed\][\s\S]*?\[\/tweet:feed\]/gi, block => {
     const repaired = repairTweetFeedBlock(block)
     if (repaired !== block) warnings.push('twitter: repaired deterministic [TWEET:FEED] dialect to [twitter_app].')
     return repaired
   })
+  markup = markup.replace(/(?:(?:\[igfeed\][\s\S]*?\[\/igfeed\]|\[igstory\][\s\S]*?\[\/igstory\]|\[igpost\][\s\S]*?\[\/igpost\])\s*)+/gi, block => {
+    const repaired = repairInstagramFamily(block)
+    if (repaired !== block) warnings.push('instagram: repaired deterministic feed, stories, and post family to registered bracket Surfaces.')
+    return repaired
+  })
+  markup = unwrapRetiredInstagramPayloads(markup, warnings)
   return { markup, warnings }
 }
 

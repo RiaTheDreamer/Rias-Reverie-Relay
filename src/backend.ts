@@ -11858,6 +11858,16 @@ function canonicalEditedSurfaceRoot(markup: string): string {
   return spec?.wrapper || normalized
 }
 
+function isAllowedSurfaceRootMigration(surfaceId: string | undefined, originalRoot: string, replacementRoot: string): boolean {
+  const allowed: Record<string, { from: string[]; to: string[] }> = {
+    instagram: { from: ['igfeed', 'igstory', 'igpost'], to: ['ig_app', 'instagram_profile', 'instagram_stories'] },
+    twitter: { from: ['tweet', 'tweet_feed', 'tw_profile', 'tw_post'], to: ['twitter_app', 'twitter_profile'] },
+    'forum-thread': { from: ['reddit_thread', 'reddit_comment'], to: ['forum_thread'] },
+  }
+  const rule = allowed[cleanString(surfaceId)]
+  return Boolean(rule?.from.includes(originalRoot) && rule.to.includes(replacementRoot))
+}
+
 async function handleNativeSurfaceAction(payload: Extract<FrontendMessage, { type: 'native_surface_action' }>, userId?: string): Promise<void> {
   const message = await resolveMessage(payload.chatId, payload.messageId)
   if (!message) throw new Error('Message not found.')
@@ -11872,7 +11882,9 @@ async function handleNativeSurfaceAction(payload: Extract<FrontendMessage, { typ
     if (!originalMarkup || !replacementMarkup) throw new Error('Relay needs both the current and replacement surface markup.')
     const originalRoot = canonicalEditedSurfaceRoot(originalMarkup)
     const replacementRoot = canonicalEditedSurfaceRoot(replacementMarkup)
-    if (!originalRoot || !replacementRoot || replacementRoot !== originalRoot) throw new Error('The edited surface must keep the same canonical outer wrapper.')
+    if (!originalRoot || !replacementRoot || (replacementRoot !== originalRoot && !isAllowedSurfaceRootMigration(payload.surfaceId, originalRoot, replacementRoot))) {
+      throw new Error('The edited surface must keep the same canonical outer wrapper or use the registered replacement for this retired app dialect.')
+    }
     const exactIndex = next.indexOf(originalMarkup)
     if (exactIndex < 0) throw new Error('Relay could not locate the original surface markup in the active swipe. Reopen the editor and try again.')
     next = `${next.slice(0, exactIndex)}${replacementMarkup}${next.slice(exactIndex + originalMarkup.length)}`

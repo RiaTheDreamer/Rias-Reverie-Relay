@@ -138654,6 +138654,73 @@ function optionalBracketField(name, value) {
   const safe = safeBracketText(value);
   return safe ? bracketField(name, safe) : "";
 }
+function safeInstagramText(value) {
+  return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\[/g, "(").replace(/\]/g, ")").trim();
+}
+function instagramField(node, name) {
+  return safeInstagramText(bracketNodeText(directBracketChild(node, name) || { name, children: [] }));
+}
+function instagramMedia(node) {
+  const url = instagramField(node, "media_url");
+  const alt = instagramField(node, "media_alt");
+  if (!url || /^none$/i.test(url))
+    return alt;
+  if (!/^(?:https?:\/\/|\/api\/v1\/image-gen\/results\/)[^\s"'<>]+$/i.test(url))
+    return alt || url;
+  return `<img src="${url}" alt="${alt}">`;
+}
+function repairInstagramFamily(source) {
+  const parsed = parseBracketDocument(source);
+  if (parsed.diagnostics.length)
+    return source;
+  const feeds = parsed.roots.filter((node) => node.name === "igfeed");
+  const stories = parsed.roots.filter((node) => node.name === "igstory");
+  const posts = parsed.roots.filter((node) => node.name === "igpost");
+  if (feeds.length !== 1 || stories.length !== 3 || posts.length < 1 || feeds.length + stories.length + posts.length !== parsed.roots.length)
+    return source;
+  const feed = feeds[0];
+  const name = instagramField(feed, "profile");
+  const handle = instagramField(feed, "handle");
+  const bio = instagramField(feed, "bio");
+  const stats = instagramField(feed, "stats");
+  const statsMatch = /^(.+?)\s+posts\s*(?:\u00B7|\u00C2\u00B7|\|)\s*(.+?)\s+followers\s*(?:\u00B7|\u00C2\u00B7|\|)\s*(.+?)\s+following$/i.exec(stats);
+  if (!name || !handle || !bio || !statsMatch)
+    return source;
+  const profilePosts = [];
+  for (const [index, post] of posts.entries()) {
+    const owner = instagramField(post, "handle") || instagramField(post, "author");
+    const time = instagramField(post, "time");
+    const likes = instagramField(post, "likes");
+    const caption = instagramField(post, "caption");
+    const comments = instagramField(post, "comments");
+    if (!owner || !time || !likes || !caption || !comments)
+      return source;
+    profilePosts.push(`[igp_post][id]recovered-${index + 1}[/id][owner]${owner}[/owner][likes]${likes}[/likes][time]${time}[/time][igp_post_avatar][/igp_post_avatar][igp_media]${instagramMedia(post)}[/igp_media][igp_caption]${caption}[/igp_caption][igp_comments]${comments}[/igp_comments][/igp_post]`);
+  }
+  const storyRows = [];
+  for (const story of stories) {
+    const owner = instagramField(story, "handle");
+    const storyName = instagramField(story, "author");
+    const time = instagramField(story, "time");
+    const caption = instagramField(story, "caption");
+    if (!owner || !storyName || !time || !caption)
+      return source;
+    storyRows.push(`[story][owner]${owner}[/owner][name]${storyName}[/name][time]${time}[/time][avatar][/avatar][story_media]${instagramMedia(story)}[/story_media][story_caption]${caption}[/story_caption][/story]`);
+  }
+  return `[instagram_profile][handle]${handle}[/handle][name]${name}[/name][verified][/verified][bio]${bio}[/bio][followers]${statsMatch[2]}[/followers][following]${statsMatch[3]}[/following][posts]${statsMatch[1]}[/posts][igp_avatar][/igp_avatar][igp_posts]${profilePosts.join("")}[/igp_posts][igp_tagged][/igp_tagged][/instagram_profile]
+[instagram_stories]${storyRows.join("")}[/instagram_stories]`;
+}
+function unwrapRetiredInstagramPayloads(source, warnings) {
+  return String(source || "").replace(/<payload\b[^>]*>([\s\S]*?)<\/payload\s*>/gi, (full, body) => {
+    if (!/\[(?:instagram_profile|instagram_stories|ig_app)\]/i.test(body))
+      return full;
+    const remainder = body.replace(/\[instagram_profile\][\s\S]*?\[\/instagram_profile\]/gi, "").replace(/\[instagram_stories\][\s\S]*?\[\/instagram_stories\]/gi, "").replace(/\[ig_app\][\s\S]*?\[\/ig_app\]/gi, "").trim();
+    if (remainder)
+      return full;
+    warnings.push("instagram: removed retired payload wrapper around repaired bracket Surfaces.");
+    return body.trim();
+  });
+}
 function repairTweetFeedBlock(source) {
   const parseable = source.replace(/^\s*\[tweet:feed\]/i, "[tweet_feed]").replace(/\[\/tweet:feed\]\s*$/i, "[/tweet_feed]");
   const parsed = parseBracketDocument(parseable);
@@ -138703,12 +138770,19 @@ function repairTweetFeedBlock(source) {
 }
 function normalizeKnownAppSurfaceDialects(input) {
   const warnings = [];
-  const markup = String(input || "").replace(/\[tweet:feed\][\s\S]*?\[\/tweet:feed\]/gi, (block) => {
+  let markup = String(input || "").replace(/\[tweet:feed\][\s\S]*?\[\/tweet:feed\]/gi, (block) => {
     const repaired = repairTweetFeedBlock(block);
     if (repaired !== block)
       warnings.push("twitter: repaired deterministic [TWEET:FEED] dialect to [twitter_app].");
     return repaired;
   });
+  markup = markup.replace(/(?:(?:\[igfeed\][\s\S]*?\[\/igfeed\]|\[igstory\][\s\S]*?\[\/igstory\]|\[igpost\][\s\S]*?\[\/igpost\])\s*)+/gi, (block) => {
+    const repaired = repairInstagramFamily(block);
+    if (repaired !== block)
+      warnings.push("instagram: repaired deterministic feed, stories, and post family to registered bracket Surfaces.");
+    return repaired;
+  });
+  markup = unwrapRetiredInstagramPayloads(markup, warnings);
   return { markup, warnings };
 }
 function bracketDialectFor(root, diagnostics) {
@@ -138852,6 +138926,7 @@ var SHIPPED_SURFACE_CSS = `<style data-reverie-shipped-surface-style="1">
 </style>`;
 var STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="2">
 .rrn-editable-surface,.rrl-island,.rrn-media,.rrl-media-slot,[data-reverie-r45-lifecycle-media]{overflow-anchor:none}.rrn-media{aspect-ratio:var(--reverie-media-aspect,16/9);min-height:0;contain:layout paint}.rrn-media img{width:100%;height:100%;object-fit:var(--rrn-fit,contain)}.rrl-card>.rrl-media-slot{grid-column:1/-1}.rrl-media-slot{--reverie-media-aspect:1/1;--rr-primary:var(--lumiverse-primary,var(--rrl-accent));--rr-secondary:var(--lumiverse-secondary,var(--rrl-accent));--rr-text:var(--lumiverse-text,var(--rrl-text));--rr-accent:var(--lumiverse-secondary,var(--rrl-accent));--rr-accent-text:var(--lumiverse-primary,var(--rrl-text));--rr-border:var(--lumiverse-border,var(--rrl-border));--rr-bg:var(--lumiverse-bg-deep-080,var(--rrl-bg));position:relative;display:block;width:100%;aspect-ratio:var(--reverie-media-aspect);min-height:0;overflow:hidden;border:1px solid var(--rr-border);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.045),rgba(255,255,255,.015)),var(--rr-bg);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 16px 50px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.055);contain:layout paint;overflow-anchor:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-resolved{position:absolute;inset:0;width:100%;height:100%;margin:0;border:0;border-radius:0;background:transparent}.rrl-media-slot .rrl-preview{max-height:none}.rrl-media-slot .rrl-preview[hidden]{display:none}.rrl-media-slot .rrl-preview-image,.rrl-media-slot .rrl-slot-image,.rrl-media-slot .rrl-resolved img{display:block;width:100%;height:100%;max-height:none;object-fit:contain;background:#070507;border-radius:0}.rrl-actions button[data-rrn-action]{touch-action:manipulation;pointer-events:auto}.rrl-actions button[data-rrl-submitting="true"]{opacity:.68;cursor:progress}.rrl-media-skeleton{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden;padding:0;color:transparent;pointer-events:none}.rrl-media-slot[data-rrn-media-empty="false"] .rrl-media-skeleton,.rrl-media-slot[data-rrn-media-state="previewing"] .rrl-media-skeleton{opacity:0;pointer-events:none}.rrl-card{display:block;min-height:0;padding:0;border:0;border-radius:18px;background:transparent;box-shadow:none;overflow:visible}.rrl-main{position:absolute;z-index:3;left:8px;top:8px;max-width:calc(100% - 16px);padding:4px 7px;border-radius:999px;background:rgba(5,3,6,.62);backdrop-filter:blur(7px);pointer-events:none}.rrl-main .rrl-icon{width:18px;height:18px;flex-basis:18px;border:0;background:transparent}.rrl-main .rrl-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.rrl-main .rrl-copy{display:block}.rrl-main .rrl-status{padding:0;border:0;color:#fff;font-size:9px}.rrl-stream-status,.rrl-progress{display:none!important}.rrl-actions{position:absolute;z-index:4;right:8px;bottom:8px;max-width:calc(100% - 16px);padding:4px;border-radius:10px;background:rgba(5,3,6,.68);backdrop-filter:blur(7px);opacity:0;transform:translateY(3px);pointer-events:none;transition:opacity .16s ease,transform .16s ease}.rrl-card:hover .rrl-actions,.rrl-card:focus-within .rrl-actions,.rrl-card[data-rrn-live-status="completed"] .rrl-actions,.rrl-card[data-rrn-live-status="failed"] .rrl-actions,.rrl-card[data-rrn-live-status="image-unavailable"] .rrl-actions,.rrl-card[data-rrn-live-status="cancelled"] .rrl-actions,.rrl-card[data-rrn-live-status="placement-repair-needed"] .rrl-actions{opacity:1;transform:none;pointer-events:auto}.rrl-detail{display:none}.rrl-card[data-rrn-live-status="completed"] .rrl-main{opacity:0;transition:opacity .16s ease}.rrl-card[data-rrn-live-status="completed"]:hover .rrl-main,.rrl-card[data-rrn-live-status="completed"]:focus-within .rrl-main{opacity:.9}.rrn-message[data-rr-kakao-color] .rrn-avatar{background:color-mix(in srgb,var(--kk-color) 38%,var(--rrn-panel));border-color:color-mix(in srgb,var(--kk-color) 54%,transparent)}.rrn-message[data-rr-kakao-color] .rrn-meta b{color:color-mix(in srgb,var(--kk-color) 65%,var(--rrn-text))}.rrn-message[data-rr-kakao-color] .rrn-bubble{border:1px solid color-mix(in srgb,var(--kk-color) 35%,var(--rrn-border));background:color-mix(in srgb,var(--rrn-panel) 82%,var(--kk-color) 18%)}.rrn-message[data-rr-kakao-color] .rrn-bubble.is-sent{background:color-mix(in srgb,var(--rrn-panel) 68%,var(--kk-color) 32%)}@media(max-width:560px){.rrl-media-slot{width:100%;max-height:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-preview-image{max-height:none}}
+.rrn-editable-surface>.rrn-contract-recovery{--rrr-accent:var(--lumiverse-primary,#c24b78);--rrr-panel:var(--lumiverse-bg-elevated,#24131d);--rrr-deep:var(--lumiverse-bg-deep,#150a11);--rrr-border:var(--lumiverse-border,rgba(194,75,120,.34));--rrr-text:var(--lumiverse-text-primary,var(--lumiverse-text,#f7eaf0));--rrr-muted:var(--lumiverse-text-secondary,var(--lumiverse-text-muted,#c8aeb9));box-sizing:border-box;display:grid;gap:7px;width:min(100%,680px);margin:10px auto;padding:14px 15px;border:1px solid color-mix(in srgb,var(--rrr-accent) 42%,var(--rrr-border));border-left:3px solid var(--rrr-accent);border-radius:16px;background:radial-gradient(circle at 0 0,color-mix(in srgb,var(--rrr-accent) 14%,transparent),transparent 48%),linear-gradient(145deg,color-mix(in srgb,var(--rrr-panel) 94%,transparent),color-mix(in srgb,var(--rrr-deep) 98%,transparent));color:var(--rrr-text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,"Segoe UI",sans-serif);box-shadow:0 10px 28px rgba(0,0,0,.24),inset 0 1px rgba(255,255,255,.045)}.rrn-contract-recovery>b{font:800 13px/1.25 var(--lumiverse-font-family,system-ui,sans-serif);letter-spacing:.01em}.rrn-contract-recovery>span{color:var(--rrr-text);font-size:12px;line-height:1.45}.rrn-contract-recovery>small{color:var(--rrr-muted);font-size:10px;line-height:1.4}.rrn-contract-recovery>div{display:flex;flex-wrap:wrap;gap:6px;margin-top:3px}.rrn-contract-recovery button[data-rrn-action]{appearance:none;min-height:31px;padding:6px 10px;border:1px solid color-mix(in srgb,var(--rrr-accent) 34%,var(--rrr-border));border-radius:9px;background:color-mix(in srgb,var(--rrr-panel) 88%,transparent);color:var(--rrr-text);font:750 10px/1 var(--lumiverse-font-family,system-ui,sans-serif);cursor:pointer;touch-action:manipulation;pointer-events:auto}.rrn-contract-recovery button[data-rrn-action]:hover,.rrn-contract-recovery button[data-rrn-action]:focus-visible{border-color:color-mix(in srgb,var(--rrr-accent) 72%,var(--rrr-border));background:color-mix(in srgb,var(--rrr-accent) 20%,var(--rrr-panel));outline:none}.rrn-contract-recovery button[data-rrn-action="edit-surface"]{background:color-mix(in srgb,var(--rrr-accent) 27%,var(--rrr-panel));border-color:color-mix(in srgb,var(--rrr-accent) 62%,var(--rrr-border))}@media(max-width:560px){.rrn-editable-surface>.rrn-contract-recovery{margin:8px 0;padding:12px}.rrn-contract-recovery>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.rrn-contract-recovery button[data-rrn-action]{width:100%}}
 .rrl-media-slot .rrl-slot-image.rrl-final-reveal{animation:rrlFinalReveal .42s cubic-bezier(.22,.72,.28,1) both}@keyframes rrlFinalReveal{from{opacity:0;transform:scale(.99);filter:blur(5px) brightness(1.04)}to{opacity:1;transform:none;filter:none}}
 .rrl-generation-placeholder .rr-spinner{width:19px;height:19px;border-radius:50%;border:2px solid rgba(255,255,255,.12);border-top-color:var(--rr-primary);border-right-color:var(--rr-secondary);animation:rr-spin 1.15s linear infinite}@keyframes rr-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
 .rrl-generation-placeholder .rr-regex-particles{position:absolute;inset:0;z-index:2;overflow:hidden;pointer-events:none}.rrl-generation-placeholder .rr-regex-particles i{position:absolute;left:var(--x);top:var(--y);width:var(--s);height:var(--s);border-radius:999px;background:radial-gradient(circle,color-mix(in srgb,var(--rr-accent-text) 90%,var(--rr-text) 10%) 0 28%,color-mix(in srgb,var(--rr-accent-text) 66%,var(--rr-accent) 34%) 38%,color-mix(in srgb,var(--rr-accent) 22%,transparent) 65%,transparent 72%);box-shadow:0 0 5px color-mix(in srgb,var(--rr-accent-text) 72%,transparent),0 0 12px color-mix(in srgb,var(--rr-accent) 34%,transparent);opacity:0;animation:rr-regex-floating-particle var(--d) ease-in-out var(--delay) infinite}.rrl-generation-placeholder .rr-regex-particles i:nth-child(1){--x:3%;--y:88%;--dx:6px;--dy:-76px;--s:2px;--d:10.2s;--delay:-7.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(2){--x:8%;--y:66%;--dx:-5px;--dy:-63px;--s:3px;--d:12.4s;--delay:-3.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(3){--x:13%;--y:92%;--dx:7px;--dy:-84px;--s:2px;--d:11.8s;--delay:-9.4s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(4){--x:18%;--y:46%;--dx:-4px;--dy:-55px;--s:2px;--d:9.9s;--delay:-5.6s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(5){--x:22%;--y:78%;--dx:8px;--dy:-71px;--s:3px;--d:13.2s;--delay:-1.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(6){--x:27%;--y:58%;--dx:-6px;--dy:-64px;--s:2px;--d:10.8s;--delay:-8.3s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(7){--x:31%;--y:96%;--dx:5px;--dy:-89px;--s:3px;--d:14.1s;--delay:-6.2s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(8){--x:35%;--y:34%;--dx:-7px;--dy:-48px;--s:2px;--d:11.3s;--delay:-2.5s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(9){--x:39%;--y:73%;--dx:6px;--dy:-69px;--s:2px;--d:10.7s;--delay:-9.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(10){--x:43%;--y:90%;--dx:-7px;--dy:-86px;--s:3px;--d:13.7s;--delay:-4.4s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(11){--x:47%;--y:53%;--dx:4px;--dy:-59px;--s:2px;--d:9.7s;--delay:-7.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(12){--x:51%;--y:82%;--dx:-5px;--dy:-75px;--s:3px;--d:12.6s;--delay:-10.6s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(13){--x:55%;--y:42%;--dx:7px;--dy:-52px;--s:2px;--d:11.1s;--delay:-3.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(14){--x:59%;--y:94%;--dx:-6px;--dy:-91px;--s:2px;--d:14.5s;--delay:-8.9s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(15){--x:63%;--y:69%;--dx:5px;--dy:-67px;--s:3px;--d:10.4s;--delay:-5.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(16){--x:67%;--y:31%;--dx:-7px;--dy:-46px;--s:2px;--d:12.9s;--delay:-1.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(17){--x:71%;--y:86%;--dx:8px;--dy:-81px;--s:3px;--d:13.9s;--delay:-11.3s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(18){--x:75%;--y:57%;--dx:-5px;--dy:-61px;--s:2px;--d:10.1s;--delay:-6.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(19){--x:79%;--y:97%;--dx:6px;--dy:-92px;--s:2px;--d:14.8s;--delay:-4.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(20){--x:83%;--y:38%;--dx:-4px;--dy:-51px;--s:3px;--d:11.6s;--delay:-9.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(21){--x:87%;--y:76%;--dx:7px;--dy:-72px;--s:2px;--d:12.2s;--delay:-2.9s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(22){--x:91%;--y:91%;--dx:-6px;--dy:-87px;--s:3px;--d:14.3s;--delay:-7.5s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(23){--x:95%;--y:49%;--dx:4px;--dy:-56px;--s:2px;--d:10.9s;--delay:-10.2s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(24){--x:98%;--y:84%;--dx:-5px;--dy:-79px;--s:2px;--d:13.4s;--delay:-5.9s}@keyframes rr-regex-floating-particle{0%{opacity:0;transform:translate3d(0,10px,0) scale(.45)}18%{opacity:.72}55%{opacity:.94}100%{opacity:0;transform:translate3d(var(--dx),var(--dy),0) scale(1.18)}}
@@ -139135,6 +139210,8 @@ function editableRelaySurface(rendered, editorMarkup, rootTag, baseSurfaceId, co
   rendered = (baseSurfaceId === "phone-gallery" ? GALLERY_FULL_IMAGE_CSS : "") + rendered;
   if (!context.chatId || !context.messageId)
     return rendered;
+  const actionContext = ` data-rrn-chat-id="${escapeAttr2(context.chatId)}" data-rrn-message-id="${escapeAttr2(context.messageId)}" data-rrn-swipe-id="${Number.isFinite(Number(context.swipeId)) ? Number(context.swipeId) : ""}" data-rrn-root-tag="${escapeAttr2(rootTag)}" data-rrn-surface-id="${escapeAttr2(baseSurfaceId)}"`;
+  rendered = rendered.replace(/<button\b(?![^>]*\bdata-rrn-chat-id=)([^>]*\bdata-rrn-action=)/gi, `<button${actionContext}$1`);
   const island = surfaceStreamIslandKey(context.messageId, context.swipeId, baseSurfaceId, context.streamIslandOrdinal || 0);
   return `<section class="rrn-editable-surface" data-reverie-stream-island="${escapeAttr2(island)}" data-rrn-editable-surface="${escapeAttr2(baseSurfaceId)}" data-rrn-chat-id="${escapeAttr2(context.chatId)}" data-rrn-message-id="${escapeAttr2(context.messageId)}" data-rrn-root-tag="${escapeAttr2(rootTag)}" data-rrn-surface-id="${escapeAttr2(baseSurfaceId)}" data-rrn-surface-source="${escapeAttr2(editorMarkup)}" data-rrn-surface-original="${escapeAttr2(originalMarkup)}" tabindex="0">${STABLE_MEDIA_SLOT_CSS}${rendered}<textarea class="rrn-surface-source" hidden>${escapeHtml(editorMarkup)}</textarea><textarea class="rrn-surface-original" hidden>${escapeHtml(originalMarkup)}</textarea></section>`;
 }
@@ -155350,6 +155427,36 @@ function normalizeDramaticParagraphMarkup(markup) {
     return `[dramatic_parallel]${body.replace(/\[paragraph\]([\s\S]*?)\[\/paragraph\]/gi, "<p>$1</p>")}[/dramatic_parallel]`;
   });
 }
+var PARALLEL_OWNER_RANGE = /(\[PARALLEL\|[^\]\r\n]{1,500}\|[^\]\r\n]{1,500}\])((?:(?!\[PARALLEL\|)[\s\S])*?)(\[\/PARALLEL\])/gi;
+function normalizeParallelSceneMarkup(markup) {
+  return String(markup || "").replace(PARALLEL_OWNER_RANGE, (full, opening, body, closing) => {
+    const entries = body.match(/\[parallel_entry\][\s\S]*?\[\/parallel_entry\]/gi) || [];
+    if (entries.length !== 3 || !/\[parallel_context\][\s\S]*?\[\/parallel_context\]/i.test(body))
+      return full;
+    let changed = false;
+    const repairedEntries = [];
+    for (const entry of entries) {
+      const opens = entry.match(/\[parallel_media\]/gi) || [];
+      const closes = entry.match(/\[\/parallel_media\]/gi) || [];
+      if (opens.length !== 1 || closes.length > 1)
+        return full;
+      if (closes.length === 1) {
+        repairedEntries.push(entry);
+        continue;
+      }
+      const missingCloser = /\[parallel_media\]([\s\S]*?)(\[\/parallel_entry\])$/i.exec(entry);
+      if (!missingCloser || !missingCloser[1].trim() || !/(?:<image_request\b|<reverie-illustration\b|<img\b|<!--\s*reverie-relay:image\b)/i.test(missingCloser[1]))
+        return full;
+      repairedEntries.push(entry.replace(/\[\/parallel_entry\]$/i, "[/parallel_media][/parallel_entry]"));
+      changed = true;
+    }
+    if (!changed)
+      return full;
+    let offset = 0;
+    const repairedBody = body.replace(/\[parallel_entry\][\s\S]*?\[\/parallel_entry\]/gi, () => repairedEntries[offset++]);
+    return `${opening}${repairedBody}${closing}`;
+  });
+}
 var ELSEWHERE_OWNER_RANGE = /(\[\[else\s+[^\]\r\n]{1,500}\]\])((?:(?!\[\[else\s+)[\s\S])*?)(\[\[\/else\]\]|\[\/else\])/gi;
 var CURRENT_ELSEWHERE_BODY = /^\s*\[else_media\][\s\S]{0,24000}?\[\/else_media\]\s*\[else_scene\][\s\S]{1,30000}?\[\/else_scene\]\s*\[else_context\]\s*\[visibility\][\s\S]{1,500}?\[\/visibility\]\s*\[clock\][\s\S]{1,2500}?\[\/clock\]\s*\[knowledge\][\s\S]{1,5000}?\[\/knowledge\]\s*\[collision\][\s\S]{1,5000}?\[\/collision\]\s*\[\/else_context\]\s*$/i;
 var LEGACY_ELSEWHERE_BODY = /^\s*<else-media>([\s\S]{0,24000}?)<\/else-media>\s*<else-scene>([\s\S]{1,30000}?)<\/else-scene>\s*<else-context>\s*<visibility>([\s\S]{1,500}?)<\/visibility>\s*<clock>([\s\S]{1,2500}?)<\/clock>\s*<knowledge>([\s\S]{1,5000}?)<\/knowledge>\s*<collision>([\s\S]{1,5000}?)<\/collision>\s*<\/else-context>\s*$/i;
@@ -155399,7 +155506,7 @@ function normalizeWorldMarkup(markup) {
   });
 }
 function normalizeNarrativeMarkupForRendering(markup) {
-  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(String(markup || "")))))).replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root, body) => {
+  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeParallelSceneMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(String(markup || ""))))))).replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root, body) => {
     const repairedBody = body.replace(/<\/(cp_[A-Za-z][A-Za-z0-9_]*)>/gi, "[/$1]");
     return `[${root}]${repairedBody}[/${root}]`;
   }).replace(/(\[(character_phone|private_phone)\b[^\]]*\])((?:(?!\[(?:character_phone|private_phone)\b)[\s\S])*?)\[\/\2\]/gi, (_full, opening, root, body) => {
@@ -167160,6 +167267,15 @@ function canonicalEditedSurfaceRoot(markup) {
   });
   return spec?.wrapper || normalized;
 }
+function isAllowedSurfaceRootMigration(surfaceId, originalRoot, replacementRoot) {
+  const allowed = {
+    instagram: { from: ["igfeed", "igstory", "igpost"], to: ["ig_app", "instagram_profile", "instagram_stories"] },
+    twitter: { from: ["tweet", "tweet_feed", "tw_profile", "tw_post"], to: ["twitter_app", "twitter_profile"] },
+    "forum-thread": { from: ["reddit_thread", "reddit_comment"], to: ["forum_thread"] }
+  };
+  const rule = allowed[cleanString(surfaceId)];
+  return Boolean(rule?.from.includes(originalRoot) && rule.to.includes(replacementRoot));
+}
 async function handleNativeSurfaceAction(payload, userId) {
   const message = await resolveMessage(payload.chatId, payload.messageId);
   if (!message)
@@ -167176,8 +167292,9 @@ async function handleNativeSurfaceAction(payload, userId) {
       throw new Error("Relay needs both the current and replacement surface markup.");
     const originalRoot = canonicalEditedSurfaceRoot(originalMarkup);
     const replacementRoot = canonicalEditedSurfaceRoot(replacementMarkup);
-    if (!originalRoot || !replacementRoot || replacementRoot !== originalRoot)
-      throw new Error("The edited surface must keep the same canonical outer wrapper.");
+    if (!originalRoot || !replacementRoot || replacementRoot !== originalRoot && !isAllowedSurfaceRootMigration(payload.surfaceId, originalRoot, replacementRoot)) {
+      throw new Error("The edited surface must keep the same canonical outer wrapper or use the registered replacement for this retired app dialect.");
+    }
     const exactIndex = next.indexOf(originalMarkup);
     if (exactIndex < 0)
       throw new Error("Relay could not locate the original surface markup in the active swipe. Reopen the editor and try again.");

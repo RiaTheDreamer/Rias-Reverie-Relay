@@ -2071,18 +2071,19 @@ export function setup(ctx: SpindleFrontendContext) {
     if (!buttonEl) return
     event.preventDefault()
     event.stopImmediatePropagation()
+    const host = buttonEl.closest<HTMLElement>('[data-rrn-editable-surface]')
     if (buttonEl.dataset.rrnAction === 'edit-surface' || buttonEl.dataset.rrnAction === 'repair-surface') {
       openSurfaceMarkupEditor(buttonEl)
       return
     }
     handleNativeSurfaceCommand({
       action: buttonEl.dataset.rrnAction || '',
-      chatId: buttonEl.dataset.rrnChatId || activeChatId || '',
-      messageId: buttonEl.dataset.rrnMessageId || '',
-      swipeId: buttonEl.dataset.rrnSwipeId === undefined || buttonEl.dataset.rrnSwipeId === '' ? undefined : Number(buttonEl.dataset.rrnSwipeId),
+      chatId: buttonEl.dataset.rrnChatId || host?.dataset.rrnChatId || activeChatId || '',
+      messageId: buttonEl.dataset.rrnMessageId || host?.dataset.rrnMessageId || '',
+      swipeId: (buttonEl.dataset.rrnSwipeId || host?.dataset.rrnSwipeId) ? Number(buttonEl.dataset.rrnSwipeId || host?.dataset.rrnSwipeId) : undefined,
       requestId: buttonEl.dataset.rrnRequestId || '',
-      rootTag: buttonEl.dataset.rrnRootTag || '',
-      surfaceId: buttonEl.dataset.rrnSurfaceId || '',
+      rootTag: buttonEl.dataset.rrnRootTag || host?.dataset.rrnRootTag || '',
+      surfaceId: buttonEl.dataset.rrnSurfaceId || host?.dataset.rrnSurfaceId || '',
       lorebookKind: buttonEl.dataset.rrnLorebookKind || '',
       lorebookIndex: buttonEl.dataset.rrnLorebookIndex === undefined || buttonEl.dataset.rrnLorebookIndex === '' ? undefined : Number(buttonEl.dataset.rrnLorebookIndex),
     }, buttonEl)

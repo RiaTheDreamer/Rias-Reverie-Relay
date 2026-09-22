@@ -269,6 +269,38 @@ function normalizeDramaticParagraphMarkup(markup: string): string {
   })
 }
 
+const PARALLEL_OWNER_RANGE = /(\[PARALLEL\|[^\]\r\n]{1,500}\|[^\]\r\n]{1,500}\])((?:(?!\[PARALLEL\|)[\s\S])*?)(\[\/PARALLEL\])/gi
+
+/** Repair the exact resolved-media closer omission observed in live Parallel
+ * Scene output. The repair is allowed only inside one complete owner with
+ * exactly three entries, one media opener per entry, and recognizable Relay
+ * media. Canonical and ambiguous payloads remain byte-identical. */
+export function normalizeParallelSceneMarkup(markup: string): string {
+  return String(markup || '').replace(PARALLEL_OWNER_RANGE, (full, opening: string, body: string, closing: string) => {
+    const entries = body.match(/\[parallel_entry\][\s\S]*?\[\/parallel_entry\]/gi) || []
+    if (entries.length !== 3 || !/\[parallel_context\][\s\S]*?\[\/parallel_context\]/i.test(body)) return full
+    let changed = false
+    const repairedEntries: string[] = []
+    for (const entry of entries) {
+      const opens = entry.match(/\[parallel_media\]/gi) || []
+      const closes = entry.match(/\[\/parallel_media\]/gi) || []
+      if (opens.length !== 1 || closes.length > 1) return full
+      if (closes.length === 1) {
+        repairedEntries.push(entry)
+        continue
+      }
+      const missingCloser = /\[parallel_media\]([\s\S]*?)(\[\/parallel_entry\])$/i.exec(entry)
+      if (!missingCloser || !missingCloser[1].trim() || !/(?:<image_request\b|<reverie-illustration\b|<img\b|<!--\s*reverie-relay:image\b)/i.test(missingCloser[1])) return full
+      repairedEntries.push(entry.replace(/\[\/parallel_entry\]$/i, '[/parallel_media][/parallel_entry]'))
+      changed = true
+    }
+    if (!changed) return full
+    let offset = 0
+    const repairedBody = body.replace(/\[parallel_entry\][\s\S]*?\[\/parallel_entry\]/gi, () => repairedEntries[offset++])
+    return `${opening}${repairedBody}${closing}`
+  })
+}
+
 const ELSEWHERE_OWNER_RANGE = /(\[\[else\s+[^\]\r\n]{1,500}\]\])((?:(?!\[\[else\s+)[\s\S])*?)(\[\[\/else\]\]|\[\/else\])/gi
 const CURRENT_ELSEWHERE_BODY = /^\s*\[else_media\][\s\S]{0,24000}?\[\/else_media\]\s*\[else_scene\][\s\S]{1,30000}?\[\/else_scene\]\s*\[else_context\]\s*\[visibility\][\s\S]{1,500}?\[\/visibility\]\s*\[clock\][\s\S]{1,2500}?\[\/clock\]\s*\[knowledge\][\s\S]{1,5000}?\[\/knowledge\]\s*\[collision\][\s\S]{1,5000}?\[\/collision\]\s*\[\/else_context\]\s*$/i
 const LEGACY_ELSEWHERE_BODY = /^\s*<else-media>([\s\S]{0,24000}?)<\/else-media>\s*<else-scene>([\s\S]{1,30000}?)<\/else-scene>\s*<else-context>\s*<visibility>([\s\S]{1,500}?)<\/visibility>\s*<clock>([\s\S]{1,2500}?)<\/clock>\s*<knowledge>([\s\S]{1,5000}?)<\/knowledge>\s*<collision>([\s\S]{1,5000}?)<\/collision>\s*<\/else-context>\s*$/i
@@ -313,7 +345,7 @@ export function normalizeWorldMarkup(markup: string): string {
 }
 
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
-  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(String(markup || ''))))))
+  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeParallelSceneMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(String(markup || '')))))))
     .replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root: string, body: string) => {
       // A second observed phone drift uses an XML root around otherwise
       // canonical bracket fields. Convert only a complete, known phone root;
