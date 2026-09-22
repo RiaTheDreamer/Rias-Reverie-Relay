@@ -15,13 +15,15 @@
     "private demo identities",
     "review-history metadata",
     "decorative Discord member names",
+    "decorative Property Listing agent identity",
+    "built-in Surface example identities",
     "reader-facing legacy error branding"
   ],
   "packs": [
     {
       "filename": "Reverie-Surfaces-R4.5-INLINE-REALISTIC.json",
       "sourceSha256": "AD26CBEF5A1E9EF80DA8C492209549B0E24BA26A42DF0173FDFE4D4698A7EB3D",
-      "outputSha256": "33870D2560F35B76BE1FABFFA0299FBE8CFC612D00D4C980C242362846DA501C",
+      "outputSha256": "A6BB2489BC160BB64BA053805828F4444D34C644DBE108F718FEA6C20A8FD3DE",
       "scripts": 138,
       "mode": "inline",
       "color": "realistic"
@@ -29,7 +31,7 @@
     {
       "filename": "Reverie-Surfaces-R4.5-COLLAPSIBLE-PLAIN-REALISTIC.json",
       "sourceSha256": "3F9A9EB1FC427580376CB49A79C2CE45A2CDAE05CC157649A43803245DBF37B4",
-      "outputSha256": "1E1F2B729A47A34C8E3E411F6576B1AB6B1056801E80CD53ACFECAC40CBA3F45",
+      "outputSha256": "F1E1AA4183AEC37CE09EB0AF2B8732548CE6F4CC9C1746329EF81FB57E8F4C2E",
       "scripts": 138,
       "mode": "plain",
       "color": "realistic"
@@ -37,7 +39,7 @@
     {
       "filename": "Reverie-Surfaces-R4.5-COLLAPSIBLE-SPARKLING-REALISTIC.json",
       "sourceSha256": "892C49585B0B27D4582486717BD8A517E8E0C6F03D446356CA922616EF8D68F7",
-      "outputSha256": "656AC451A7D512F6E47850916F865C29453EFA76C8B957CB7644BB3646F2847D",
+      "outputSha256": "84D9810F763CF94E1A88660CC62320774C3FA9B6EC475FF2A2324C9070045978",
       "scripts": 138,
       "mode": "spark",
       "color": "realistic"
@@ -45,7 +47,7 @@
     {
       "filename": "Reverie-Surfaces-R4.5-INLINE-PRIMARY.json",
       "sourceSha256": "7197B0277A242DBDB65F936CD58BAA1B29D5A6DA124E2D6DD40E6DD7C6B24381",
-      "outputSha256": "57234BA36A0453D37B6F9D975459B51B061A650AC17B45EB706FB4FCA164B172",
+      "outputSha256": "3F95BBE6602F2FA184A6928BB50B4F4370C2FF33BBEC10A50B98221E9A265A34",
       "scripts": 138,
       "mode": "inline",
       "color": "primary"
@@ -53,7 +55,7 @@
     {
       "filename": "Reverie-Surfaces-R4.5-COLLAPSIBLE-PLAIN-PRIMARY.json",
       "sourceSha256": "5F7C25B63A559D51B1927CA71EB71F2CC22E3915AF3EE9E01034977566FE2769",
-      "outputSha256": "84DF10268235C91823F04903296DF5BFCB3E5E8121AF35CA3651218E59E01566",
+      "outputSha256": "6FD970318F8D88E5564C160100B2294A3F8D4907D8AAA4A069A5575C9C10E27A",
       "scripts": 138,
       "mode": "plain",
       "color": "primary"
@@ -61,7 +63,7 @@
     {
       "filename": "Reverie-Surfaces-R4.5-COLLAPSIBLE-SPARKLING-PRIMARY.json",
       "sourceSha256": "DE541BA705F502C6582E557B0C190890C909338DEC13831984014568C1B56C1F",
-      "outputSha256": "CD874B3ED8BC5119D17F96E25A887A687F0C8CF44CBAEF4961BE989802B28936",
+      "outputSha256": "1E012AF8B3F0260F193DD548CBD110364E33D788AEAFD9A90D2307D9CB65D7A9",
       "scripts": 138,
       "mode": "spark",
       "color": "primary"

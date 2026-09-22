@@ -46,6 +46,11 @@ let matcherChanges = 0
 let protectedControlMatchers = 0
 let replacementDrift = 0
 let captureDrift = 0
+const approvedSparkReplacementIds = new Set([
+  'rr22_sp_045_06dcb0',
+  'rr22_sp_067_ca2bc5',
+  'rr22_sp_099_53f974',
+])
 
 for (const presentation of presentations) for (const color of colors) {
   const current = r45SurfaceAuthorityPack(presentation, color)
@@ -59,11 +64,14 @@ for (const presentation of presentations) for (const color of colors) {
       assert(/<image_request(?:_error)?\b/i.test(migrated.find_regex), `${presentation}/${color}/${migrated.script_id}: unchanged matcher is not protected Relay control XML`)
       protectedControlMatchers += 1
     }
-    if (migrated.replace_string !== original.replace_string) replacementDrift += 1
+    if (migrated.replace_string !== original.replace_string) {
+      replacementDrift += 1
+      assert(presentation === 'sparkling' && color === 'realistic' && approvedSparkReplacementIds.has(original.script_id), `${presentation}/${color}/${original.script_id}: unauthorized replacement drift`)
+    }
     if (captureCount(migrated.find_regex) !== captureCount(original.find_regex)) captureDrift += 1
-    const { find_regex: _migratedFind, ...migratedAuthority } = migrated
-    const { find_regex: _legacyFind, ...legacyAuthority } = original
-    assert(JSON.stringify(migratedAuthority) === JSON.stringify(legacyAuthority), `${presentation}/${color}/${migrated.script_id}: field outside find_regex drifted`)
+    const { find_regex: _migratedFind, replace_string: _migratedReplacement, ...migratedAuthority } = migrated
+    const { find_regex: _legacyFind, replace_string: _legacyReplacement, ...legacyAuthority } = original
+    assert(JSON.stringify(migratedAuthority) === JSON.stringify(legacyAuthority), `${presentation}/${color}/${migrated.script_id}: field outside authorized matcher/replacement drifted`)
     const references = replacementCaptureReferences(migrated.replace_string)
     assert(!references.length || references.at(-1)! <= captureCount(migrated.find_regex), `${presentation}/${color}/${migrated.script_id}: replacement references a missing bracket capture`)
     assert(new RegExp(migrated.find_regex, migrated.flags), `${presentation}/${color}/${migrated.script_id}: bracket matcher does not compile`)
@@ -72,7 +80,7 @@ for (const presentation of presentations) for (const color of colors) {
 
 assert(matcherChanges === 134 * presentations.length * colors.length, `expected 804 structural matcher instances to be bracket-native; changed=${matcherChanges}`)
 assert(protectedControlMatchers === 4 * presentations.length * colors.length, `expected 24 protected XML control matcher instances; retained=${protectedControlMatchers}`)
-assert(replacementDrift === 0, `Core presentation authority failed: ${replacementDrift} replace_string changes`)
+assert(replacementDrift === approvedSparkReplacementIds.size, `Core presentation authority failed: expected ${approvedSparkReplacementIds.size} authorized replace_string changes, received ${replacementDrift}`)
 assert(captureDrift === 0, `Core capture authority failed: ${captureDrift} matcher capture-count changes`)
 
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
@@ -101,4 +109,4 @@ for (const definition of definitions) {
 }
 
 assert(protectedXmlCases > 0, 'Core fixtures must exercise canonical XML image controls')
-console.log(`Core Batch C matcher gate passed: 46 Core Surfaces, ${fixtureCases} bracket fixture variants, ${protectedXmlCases} XML-control fixtures, 804 structural matcher instances migrated, 24 Relay XML-control matcher instances retained, replace_string drift 0, capture drift 0.`)
+console.log(`Core Batch C matcher gate passed: 46 Core Surfaces, ${fixtureCases} bracket fixture variants, ${protectedXmlCases} XML-control fixtures, 804 structural matcher instances migrated, 24 Relay XML-control matcher instances retained, ${replacementDrift} authorized Sparkling/Realistic replacement updates, capture drift 0.`)

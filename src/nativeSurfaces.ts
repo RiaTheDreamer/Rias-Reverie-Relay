@@ -1,6 +1,6 @@
 import { normalizeSurfaceDocument, plainSurfaceText, completeSurfaceSpecs, residualSurfaceTags } from './surfaceXml'
 import { albumPresentation, dossierPresentation, GALLERY_FULL_IMAGE_CSS } from './surfacePresentation'
-import { normalizeBracketSurfaceDocument } from './bracketSurfaceBridge'
+import { KNOWN_APP_SURFACE_DRIFT_ROOTS, normalizeBracketSurfaceDocument } from './bracketSurfaceBridge'
 
 import { parseImageRequests, type CustomSurfaceDefinition, type CustomSurfaceStudioState, type GenerationPlaceholderEffect, type SurfaceColorMode, type SurfaceRendererMode, type SurfaceShellMode } from './contracts'
 import { hybridSurfaceOwner, SHIPPED_SURFACE_BY_ID, SHIPPED_SURFACE_SPECS, type ShippedSurfaceSpec } from './shippedSurfaceDefinitions'
@@ -168,6 +168,7 @@ const ROOT_SPECS: ReadonlyArray<readonly [string, string]> = [
 ]
 
 export const NATIVE_SURFACE_ROOT_TAGS = ROOT_SPECS.map(([tag]) => tag)
+export const NATIVE_SURFACE_CANDIDATE_ROOT_TAGS = [...NATIVE_SURFACE_ROOT_TAGS, ...KNOWN_APP_SURFACE_DRIFT_ROOTS]
 
 function parityModeForSurface(baseSurfaceId: string, preset: CustomSurfaceDefinition | undefined, context: NativeSurfaceRenderContext): RegexSurfaceParityMode {
   const mode = context.defaultShellMode || preset?.shellMode || defaultShellMode(baseSurfaceId)
@@ -653,6 +654,14 @@ export function renderNativeSurfaceMarkup(
     // owner before automatic insertion can complete.
     input = decorateParityImages(renderRegexSurfaceParity(bracketNormalized.markup, parityModeForSurface('message', undefined, renderContext), renderContext.messageId || 'bracket-surface', renderContext.colorMode || 'realistic'), renderContext)
   }
+  const unsupportedAppDrift: string[] = []
+  input = input.replace(/\[(tweet:feed|tweet_feed|igfeed|igstory|igpost)\][\s\S]*?\[\/\1\]/gi, (full, rawRoot: string) => {
+    const root = String(rawRoot || '').toLocaleLowerCase()
+    const surfaceId = root.startsWith('ig') ? 'instagram' : 'twitter'
+    unsupportedAppDrift.push(surfaceId)
+    const reason = `Unsupported [${rawRoot}] app dialect. Use the enabled [${surfaceId === 'twitter' ? 'twitter_app' : 'ig_app'}] contract.`
+    return editableRelaySurface(reviewedContractError(surfaceId, reason), String(full || ''), rawRoot, surfaceId, { ...renderContext, streamIslandOrdinal: bracketBlocks.length + unsupportedAppDrift.length }, String(full || ''))
+  })
   // One shared, conservative normalization pass runs before either the Relay
   // renderer or the Regex-parity path sees an active shipped Surface.
   const normalizationFailures: string[] = []
@@ -675,8 +684,8 @@ export function renderNativeSurfaceMarkup(
   // explicitly selected legacy ownership, hide the semantic payload from
   // Relay's generic request pass so one instance never gets two render owners.
   const protectedRegexSurfaces = new Map<string, string>()
-  let renderedCount = bracketRenderedCount + normalizationFailures.length
-  const renderedSurfaceIds: string[] = [...bracketRenderedSurfaceIds, ...normalizationFailures]
+  let renderedCount = bracketRenderedCount + normalizationFailures.length + unsupportedAppDrift.length
+  const renderedSurfaceIds: string[] = [...bracketRenderedSurfaceIds, ...normalizationFailures, ...unsupportedAppDrift]
 
   // The reviewed Tinder contract deliberately has its own <tinder> wrapper
   // rather than the older Relay-only dating_profile wrapper. In Hybrid it is

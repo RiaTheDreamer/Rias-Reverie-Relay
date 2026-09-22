@@ -67,7 +67,15 @@ function currentBracketPack(presentation: R45PresentationMode, color: R45ColorMo
     if (!matcher || matcher.sort_order !== script.sort_order || matcher.flags !== script.flags) {
       throw new Error(`Core Surface bracket matcher alignment failed: ${key} script ${script.script_id}`)
     }
-    return { ...script, find_regex: matcher.find_regex }
+    // The user-supplied Sparkling/Realistic bracket pack is the presentation
+    // authority for bracket-native rendering. Other color/shell combinations
+    // continue to borrow their protected presentation from the matching XML
+    // pack while taking only the structural bracket matcher.
+    return {
+      ...script,
+      find_regex: matcher.find_regex,
+      replace_string: key === 'sparkling:realistic' ? matcher.replace_string : script.replace_string,
+    }
   })
   const pack = { ...presentationPack, scripts }
   currentBracketPacks.set(key, pack)

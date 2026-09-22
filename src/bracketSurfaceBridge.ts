@@ -31,6 +31,11 @@ export type BracketSurfaceAuditRow = {
   legacyXmlCompatible: boolean
 }
 
+/** Explicitly recognized non-canonical app roots seen in Story Model output.
+ * They are never presentation contracts. Deterministic shapes may receive
+ * Local Repair; everything else is surfaced as a repairable format failure. */
+export const KNOWN_APP_SURFACE_DRIFT_ROOTS = ['tweet:feed', 'tweet_feed', 'igfeed', 'igstory', 'igpost'] as const
+
 const escapeRe = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const attrCache = new Map<string, Map<string, Set<string>>>()
 
@@ -256,6 +261,86 @@ function serializeBracketNode(node: BracketNode): string {
   return `[${node.name}]${inner}[/${node.name}]`
 }
 
+function directBracketChild(node: BracketNode | undefined, name: string): BracketNode | undefined {
+  const wanted = normalizeBracketName(name)
+  return node?.children.find((child): child is BracketNode => typeof child !== 'string' && child.name === wanted)
+}
+
+function directBracketChildren(node: BracketNode | undefined, name: string): BracketNode[] {
+  const wanted = normalizeBracketName(name)
+  return node?.children.filter((child): child is BracketNode => typeof child !== 'string' && child.name === wanted) || []
+}
+
+function safeBracketText(value: string): string {
+  return String(value || '').replace(/\[/g, '(').replace(/\]/g, ')').trim()
+}
+
+function bracketField(name: string, value: string): string {
+  return `[${name}]${safeBracketText(value)}[/${name}]`
+}
+
+function optionalBracketField(name: string, value: string): string {
+  const safe = safeBracketText(value)
+  return safe ? bracketField(name, safe) : ''
+}
+
+/** Recover the exact generic Twitter feed dialect observed in live output.
+ * The mapping preserves safe authored text, profile identity, timestamps,
+ * engagement metrics, and replies. It never invents or moves media. */
+function repairTweetFeedBlock(source: string): string {
+  const parseable = source
+    .replace(/^\s*\[tweet:feed\]/i, '[tweet_feed]')
+    .replace(/\[\/tweet:feed\]\s*$/i, '[/tweet_feed]')
+  const parsed = parseBracketDocument(parseable)
+  const root = parsed.roots.find(node => node.name === 'tweet_feed')
+  if (!root || parsed.diagnostics.length) return source
+  const profile = directBracketChild(root, 'profile')
+  const profileName = safeBracketText(bracketNodeText(directBracketChild(profile, 'display_name') || { name: 'display_name', children: [] }))
+  const profileHandle = safeBracketText(bracketNodeText(directBracketChild(profile, 'handle') || { name: 'handle', children: [] }))
+  if (!profileName || !profileHandle) return source
+  const verified = /verified/i.test(bracketNodeText(directBracketChild(profile, 'badge') || { name: 'badge', children: [] })) ? 'true' : ''
+  const replies = directBracketChildren(root, 'reply')
+  const tweets = directBracketChildren(root, 'tweet')
+  if (!tweets.length) return source
+  const tweetIds = new Set(tweets.map(tweet => safeBracketText(bracketNodeText(directBracketChild(tweet, 'id') || { name: 'id', children: [] }))))
+  if (replies.some(reply => {
+    const to = safeBracketText(bracketNodeText(directBracketChild(reply, 'to') || { name: 'to', children: [] }))
+    return !to || !tweetIds.has(to)
+  })) return source
+  const posts: string[] = []
+  for (const tweet of tweets) {
+    const id = safeBracketText(bracketNodeText(directBracketChild(tweet, 'id') || { name: 'id', children: [] }))
+    const time = safeBracketText(bracketNodeText(directBracketChild(tweet, 'time') || { name: 'time', children: [] }))
+    const content = safeBracketText(bracketNodeText(directBracketChild(tweet, 'content') || { name: 'content', children: [] }))
+    if (!id || !time || !content) return source
+    const metrics = directBracketChild(tweet, 'metrics')
+    const matchingReplies = replies.filter(reply => safeBracketText(bracketNodeText(directBracketChild(reply, 'to') || { name: 'to', children: [] })) === id)
+    const comments: string[] = []
+    for (const reply of matchingReplies) {
+      const handle = safeBracketText(bracketNodeText(directBracketChild(reply, 'handle') || { name: 'handle', children: [] }))
+      const replyTime = safeBracketText(bracketNodeText(directBracketChild(reply, 'time') || { name: 'time', children: [] }))
+      const replyContent = safeBracketText(bracketNodeText(directBracketChild(reply, 'content') || { name: 'content', children: [] }))
+      if (!handle || !replyTime || !replyContent) return source
+      comments.push(`[tw_comment]${bracketField('author', handle)}${bracketField('handle', handle)}${bracketField('time', replyTime)}${replyContent}[/tw_comment]`)
+    }
+    const repliesCount = safeBracketText(bracketNodeText(directBracketChild(metrics, 'replies') || { name: 'replies', children: [] })) || (matchingReplies.length ? String(matchingReplies.length) : '')
+    const reposts = safeBracketText(bracketNodeText(directBracketChild(metrics, 'retweets') || { name: 'retweets', children: [] }))
+    const likes = safeBracketText(bracketNodeText(directBracketChild(metrics, 'likes') || { name: 'likes', children: [] }))
+    posts.push(`[tw_post]${bracketField('author', profileName)}${bracketField('handle', profileHandle)}${bracketField('time', time)}${optionalBracketField('verified', verified)}${optionalBracketField('replies', repliesCount)}${optionalBracketField('reposts', reposts)}${optionalBracketField('likes', likes)}${content}[tw_comments]${comments.join('')}[/tw_comments][/tw_post]`)
+  }
+  return `[twitter_app][for_you]${posts.join('')}[/for_you][following][/following][thread][/thread][trends][/trends][/twitter_app]`
+}
+
+export function normalizeKnownAppSurfaceDialects(input: string): { markup: string; warnings: string[] } {
+  const warnings: string[] = []
+  const markup = String(input || '').replace(/\[tweet:feed\][\s\S]*?\[\/tweet:feed\]/gi, block => {
+    const repaired = repairTweetFeedBlock(block)
+    if (repaired !== block) warnings.push('twitter: repaired deterministic [TWEET:FEED] dialect to [twitter_app].')
+    return repaired
+  })
+  return { markup, warnings }
+}
+
 function bracketDialectFor(root: BracketNode, diagnostics: string[]): BracketDialect {
   if (diagnostics.some(row => !/Malformed child/.test(row))) return 'malformed'
   const stack = [root]
@@ -306,6 +391,9 @@ export function normalizeBracketSurfaceDocument(
   supplied: SurfaceNormalizationSpec[],
   render?: (block: BracketSurfaceBlock) => string,
 ): SurfaceNormalizationResult {
+  const originalInput = input
+  const appDialect = normalizeKnownAppSurfaceDialects(input)
+  input = appDialect.markup
   const specs = completeSurfaceSpecs(supplied)
   const aliases = specs.flatMap(spec => surfaceRootAliases(spec).map(alias => ({ alias: normalizeBracketName(alias), spec })))
   const startPattern = new RegExp(`\\[(${aliases.map(row => escapeRe(row.alias)).join('|')})(?:\\s+[^\\]]*)?\\]`, 'gi')
@@ -333,6 +421,7 @@ export function normalizeBracketSurfaceDocument(
       ? bracketRootToCanonicalMarkup(root, attrFieldsByTag)
       : { markup: block.source, warnings: [], objectCount: 0 }
     canonical.warnings.unshift(...preNormalized.warnings)
+    if (spec.id === 'twitter') canonical.warnings.unshift(...appDialect.warnings)
     const resultDiagnostics = root && !rootDiagnostics.length ? [] : [`${spec.id}: ${rootDiagnostics.join('; ') || 'Bracket root could not be parsed.'}`]
     diagnostics.push(...resultDiagnostics)
     const rendered = render ? render({
@@ -350,7 +439,7 @@ export function normalizeBracketSurfaceDocument(
     cursor = block.end
   }
   output += input.slice(cursor)
-  return { markup: output, changed: output !== input, diagnostics }
+  return { markup: output, changed: output !== originalInput, diagnostics }
 }
 
 export function bracketSurfaceSemanticSignature(source: string, supplied: SurfaceNormalizationSpec[]): Array<{ surfaceId: string; root: string; childNames: string[]; text: string }> {

@@ -26,7 +26,11 @@ const castSheet = definitions.find(definition => definition.baseSurfaceId === 'c
 assert(castSheet?.promptModule.includes('SURFACE: CAST SHEET'), 'Cast Sheet accepted Surface name is missing from the active contract')
 for (const filename of readdirSync('regex-packs/r45').filter(name => /^Reverie-Surfaces-R4\.5-(?:BRACKET|COLLAPSIBLE|INLINE).*\.json$/.test(name))) {
   const source = readFileSync(`regex-packs/r45/${filename}`, 'utf8')
-  assert(!source.includes('Character Profile') && source.includes('Cast Sheet'), `${filename}: Character Profile Regex presentation was not renamed directly to Cast Sheet`)
+  if (filename === 'Reverie-Surfaces-R4.5-BRACKET-SPARKLE-BUTTON-REALISTIC.json') {
+    assert(source.includes('View Character Profile') && source.includes('◇ Character Profile'), `${filename}: attached presentation authority was not preserved`)
+  } else {
+    assert(!source.includes('Character Profile') && source.includes('Cast Sheet'), `${filename}: Character Profile Regex presentation was not renamed directly to Cast Sheet`)
+  }
   const pack = JSON.parse(source)
   assert(!pack.scripts.some((script: { disabled?: boolean; name?: string }) => !script.disabled && script.name?.includes('Disabled Compatibility')), `${filename}: an enabled compatibility rule claims to be disabled`)
 }

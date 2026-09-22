@@ -16,7 +16,7 @@ const { buildEnabledSurfaceUtility } = await import('../src/backend')
 
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
 
-const separator = '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'
+const separator = '\n\n---\n\n'
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
 const byId = new Map(definitions.map(definition => [definition.baseSurfaceId, definition]))
 
@@ -38,7 +38,10 @@ const legacyModules = definitions.map(definition => [
 ].filter(Boolean).join('\n\n'))
 const legacyPrompt = legacyModules.join(separator)
 const compactModules = definitions.map(definition => definition.promptModule)
-const compactUtility = REVERIE_SURFACE_UTILITY_TEMPLATE.replace('{{reverie_enabled_surface_modules}}', compactModules.join(separator))
+const rootRegistry = definitions.map(definition => `[${definition.canonicalOuterWrapper}]`).join(' ')
+const compactUtility = REVERIE_SURFACE_UTILITY_TEMPLATE
+  .replace('{{reverie_enabled_surface_modules}}', compactModules.join(separator))
+  .replace('{{reverie_enabled_surface_roots}}', rootRegistry)
 const compactPrompt = `${REVERIE_SURFACE_PROTOCOL}\n\n${compactUtility}`
 const legacyMeasurement = measureModelMessages('surface-prompt-legacy-equivalent', [{ role: 'system', content: legacyPrompt }])
 const compactMeasurement = measureModelMessages('surface-prompt-compact', [{ role: 'system', content: compactPrompt }])
@@ -47,6 +50,8 @@ assert(compactMeasurement.chars <= legacyMeasurement.chars * 0.5, `compact Surfa
 assert(compactMeasurement.estimatedInputTokens <= 15_000, `compact Surface prompt exceeds 15,000 estimated tokens: ${compactMeasurement.estimatedInputTokens}`)
 assert(compactModules.every(module => module.includes('FORMAT: compact-v1')), 'every built-in module must use compact-v1')
 assert(compactModules.every(module => !module.includes('CANONICAL BRACKET EXAMPLE')), 'compact built-ins must not embed canonical full examples')
+assert(compactUtility.includes('STRICT ENABLED ROOT REGISTRY'), 'strict enabled-root registry is missing')
+for (const definition of definitions) assert(compactUtility.includes(`[${definition.canonicalOuterWrapper}]`), `${definition.baseSurfaceId}: enabled-root registry entry is missing`)
 
 for (const fixture of ['North Pier', 'Field Team', 'Character A', 'Weekend Survivors', 'Midnight Signal', 'Archive A']) {
   assert(!compactPrompt.includes(fixture), `fixture content leaked into compact prompt: ${fixture}`)
@@ -128,6 +133,11 @@ const customPrompt = buildEnabledSurfaceUtility(customStudio).content
 assert(customPrompt.includes('CUSTOM AUTHORED SURFACE'), 'custom authored module was replaced by the built-in compact path')
 assert(customPrompt.includes('IMAGE REQUEST CONTRACT') && customPrompt.includes('<image_request'), 'required-media custom module lost compatibility image guidance')
 assert(!customPrompt.includes('FORMAT: compact-v1'), 'custom authored module was incorrectly forced through compact-v1')
+assert(customPrompt.includes('STRICT ENABLED ROOT REGISTRY') && customPrompt.includes('[custom_budget_smoke]'), 'custom authored Surface root is missing from the strict registry')
+
+const legacyCustomStudio = { ...customStudio, utilityTemplate: '{{reverie_enabled_surface_modules}}' }
+const legacyCustomPrompt = buildEnabledSurfaceUtility(legacyCustomStudio).content
+assert(legacyCustomPrompt.includes('STRICT ENABLED ROOT REGISTRY') && legacyCustomPrompt.includes('[custom_budget_smoke]'), 'persisted legacy utility template bypassed the strict root boundary')
 
 const reduction = (1 - compactMeasurement.chars / legacyMeasurement.chars) * 100
 console.log(JSON.stringify({

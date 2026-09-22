@@ -70,6 +70,9 @@ const colors: R45ColorMode[] = ['realistic', 'primary']
 const wrapperOwningChildRules = new Set(['live_mod', 'k_part', 'k_react', 'k_typing', 'notif', 'contact', 'mk_bid'])
 for (const presentation of presentations) {
   const pack = r45BracketSurfaceAuthorityPack(presentation)
+  const discordServerRule = pack.scripts.find(script => /\\\[discord_server\\\]/.test(script.find_regex))
+  const discordMemberRail = /<aside class="rrdc-members">([\s\S]*?)<\/aside>/.exec(discordServerRule?.replace_string || '')?.[1] || ''
+  assert(discordMemberRail === '<b>ONLINE — $4</b><div class="rrdc-member"><i class="rrdc-dot"></i>Active participants</div><b>MEMBERS — $3</b>', `${presentation}: Discord member rail must use aggregate model-fed counts without hard-coded identities`)
   for (const script of pack.scripts) {
     assert(script.disabled || !script.name.includes('Disabled Compatibility'), `${presentation}/${script.script_id}: enabled rule must not claim to be disabled`)
     const opening = /^\\\[([A-Za-z][\w:-]*)\\\]/.exec(script.find_regex)?.[1] || ''

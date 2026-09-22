@@ -478,6 +478,10 @@ Use the current scene/message for names, places, timing, route information, text
 export const REVERIE_SURFACE_UTILITY_TEMPLATE = `REVERIE RELAY — ENABLED SURFACES
 
 {{reverie_enabled_surface_modules}}
+
+STRICT ENABLED ROOT REGISTRY
+Only the exact roots below are valid. Never rename a root after a platform, invent feed/post/story shorthand, add namespace punctuation, or combine multiple enabled contracts into a substitute app schema.
+{{reverie_enabled_surface_roots}}
 `
 
 

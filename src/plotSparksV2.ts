@@ -97,6 +97,14 @@ CURRENT CHARACTERS FIRST
 
 Prefer using the people already participating in the scene.
 
+IDENTITY BOUNDARY
+
+Use only person names, usernames, and handles already supplied by the current scene or established context.
+
+Never invent, rename, or substitute a person, username, or handle.
+
+When an established person has no supplied name, refer to their established role without creating one.
+
 Existing nearby or already-established characters may enter when naturally motivated.
 
 A new arrival is valid only if the active scene gives them a plausible reason to appear now.

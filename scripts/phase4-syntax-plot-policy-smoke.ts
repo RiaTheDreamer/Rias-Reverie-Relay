@@ -38,7 +38,7 @@ assert(failed.content.includes('Format error') && failed.content.includes('Inspe
 const scrubbed = sanitizeRelayPromptHistoryText(`Before ${HISTORICAL_RELAY_MEDIA_PLACEHOLDER} <reverie-illustration request="generate" slot="old"><visual_prompt>Old.</visual_prompt></reverie-illustration> After`)
 assert(scrubbed.includes('Before') && scrubbed.includes('After') && !scrubbed.includes(HISTORICAL_RELAY_MEDIA_PLACEHOLDER) && !scrubbed.includes('reverie-illustration'), 'historical Relay media must be removed silently while surrounding prose survives')
 
-assert(hash(PLOT_SPARKS_V2_UTILITY) === 'c41fa55770cc69b81b952a7f2f8981b328d05aaa0bff9c12fc81424b2a23bf7c', 'shipped Plot Sparks Utility must match supplied UTF-8 asset exactly')
+assert(hash(PLOT_SPARKS_V2_UTILITY) === 'b2b709f5643d25bb05a87636093d560f4c78c101c71384e27008f65542fa34e0', 'shipped Plot Sparks Utility must match the reviewed UTF-8 authority exactly')
 const plotScript = narrativeRegexScripts('sparkle-button').find(script => String(script.name || '').includes('Plot Sparks'))!
 assert(hash(`${plotScript.find_regex}\n`) === 'c15442dcada72b427291e04274156b5121f2986e5cd2ffe09b1a43568460fa1c', 'Plot Sparks Find must match supplied asset')
 const packedReplacement = JSON.parse(await readFile(new URL('../regex-packs/narrative-final/Reverie-Plot-Sparks-BULLETPROOF-V7.json', import.meta.url), 'utf8')).scripts[0].replace_string

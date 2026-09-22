@@ -5986,12 +5986,18 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
   function buildUtilityPreview(): { content: string; moduleIds: string[] } {
     const enabled = activeSurfacePromptDefinitions().filter(definition => definition.promptEnabled)
     const moduleIds = enabled.map(definition => definition.baseSurfaceId)
-    const modules = enabled.map(definition => definition.promptModule).filter(Boolean).join('\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n')
+    const rootRegistry = enabled.map(definition => `[${definition.canonicalOuterWrapper}]`).join(' ')
+    const modules = enabled.map(definition => definition.promptModule).filter(Boolean).join('\n\n---\n\n')
     const template = customSurfaces.utilityTemplate || '{{reverie_enabled_surface_modules}}'
+    const expandedTemplate = template
+      .replace(/\{\{\s*reverie_enabled_surface_modules\s*\}\}/gi, modules || 'Enabled surface-authoring modules: none.')
+      .replace(/\{\{\s*reverie_enabled_surface_roots\s*\}\}/gi, rootRegistry || 'none')
+      .replace(/\{\{\s*reverie_renderer_mode\s*\}\}/gi, 'shared')
+    const rootBoundary = `STRICT ENABLED ROOT REGISTRY\nOnly these exact roots are valid. Never rename a root after a platform or invent feed/post/story shorthand.\n${rootRegistry || 'none'}`
     return {
-      content: template
-        .replace(/\{\{\s*reverie_enabled_surface_modules\s*\}\}/gi, modules || 'Enabled surface-authoring modules: none.')
-        .replace(/\{\{\s*reverie_renderer_mode\s*\}\}/gi, 'shared'),
+      content: /STRICT ENABLED ROOT REGISTRY/i.test(expandedTemplate)
+        ? expandedTemplate
+        : `${expandedTemplate}\n\n${rootBoundary}`,
       moduleIds,
     }
   }
