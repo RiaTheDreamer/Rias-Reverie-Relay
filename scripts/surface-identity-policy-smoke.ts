@@ -8,6 +8,9 @@ import plainPrimary from '../regex-packs/r45/Reverie-Surfaces-R4.5-COLLAPSIBLE-P
 import plainRealistic from '../regex-packs/r45/Reverie-Surfaces-R4.5-COLLAPSIBLE-PLAIN-REALISTIC.json'
 import sparklingPrimary from '../regex-packs/r45/Reverie-Surfaces-R4.5-COLLAPSIBLE-SPARKLING-PRIMARY.json'
 import sparklingRealistic from '../regex-packs/r45/Reverie-Surfaces-R4.5-COLLAPSIBLE-SPARKLING-REALISTIC.json'
+import glassRealistic from '../regex-packs/r45/Reverie-Surfaces-R4.5-GLASS-REALISTIC.json'
+import glassPrimary from '../regex-packs/r45/Reverie-Surfaces-R4.5-GLASS-PRIMARY.json'
+import bracketGlass from '../regex-packs/r45/Reverie-Surfaces-R4.5-BRACKET-GLASS-REALISTIC.json'
 import { narrativeRegexScripts, narrativeUtilityItems, NARRATIVE_REGEX_VARIANTS } from '../src/narrativeRegexAssets'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
@@ -15,7 +18,7 @@ import { shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
 
 type Pack = { name?: string; scripts: Array<{ script_id: string; find_regex: string; replace_string: string }> }
-const packs = [bracketInline, bracketPlain, bracketSparkling, inlinePrimary, inlineRealistic, plainPrimary, plainRealistic, sparklingPrimary, sparklingRealistic] as Pack[]
+const packs = [bracketInline, bracketPlain, bracketSparkling, bracketGlass, inlinePrimary, inlineRealistic, plainPrimary, plainRealistic, sparklingPrimary, sparklingRealistic, glassPrimary, glassRealistic] as Pack[]
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
 // Assemble previously observed private/demo names without reintroducing those
 // literal strings into the public source that this gate is responsible for.
@@ -48,4 +51,4 @@ for (const variant of NARRATIVE_REGEX_VARIANTS) {
   }
 }
 
-console.log('Surface identity policy smoke passed: 46 built-ins, nine R4.5 packs, and Plot Sparks contain no Relay-invented person identities')
+console.log('Surface identity policy smoke passed: 46 built-ins, twelve R4.5 packs, and Plot Sparks contain no Relay-invented person identities')

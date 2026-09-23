@@ -109,7 +109,7 @@ export function r45SupplementalSurfaceDefinitions(now = Date.now()): CustomSurfa
     altTextSupport: true,
     defaultCandidateCount: 1,
     compatibleRegenerationIntents: ['new-angle', 'better-expression', 'preserve-composition-improve-quality', 'full-reimagining'],
-    declarativeLayoutFields: { presentation: 'inline|plain|sparkling', color: 'realistic|primary', authority: 'R4.5 FINAL' },
+    declarativeLayoutFields: { presentation: 'inline|plain|sparkling|glass', color: 'realistic|primary', authority: 'R4.5 FINAL' },
     validationRules: [
       'balanced-wrapper', 'safe-static-markup', 'stable-request-ownership',
       `required-media:${mediaLimits[0]}`, `maximum-media:${mediaLimits[1]}`,

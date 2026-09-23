@@ -65,7 +65,7 @@ function completedRecords(definition: CustomSurfaceDefinition, messageId: string
   })
 }
 
-const presentations: R45PresentationMode[] = ['inline', 'plain', 'sparkling']
+const presentations: R45PresentationMode[] = ['inline', 'plain', 'sparkling', 'glass']
 const colors: R45ColorMode[] = ['realistic', 'primary']
 const wrapperOwningChildRules = new Set(['live_mod', 'k_part', 'k_react', 'k_typing', 'notif', 'contact', 'mk_bid'])
 for (const presentation of presentations) {
@@ -99,6 +99,9 @@ for (const presentation of presentations) for (const color of colors) {
   assert(pack.version === '2.2.1' && pack.relay_product_version === '0.2.8', `${presentation}/${color}: authority identity`)
   assert(pack.scripts.length === 138 && pack.scripts.every(script => script.disabled !== true), `${presentation}/${color}: all 138 scripts enabled`)
   assert(new Set(pack.scripts.map(script => script.script_id)).size === 138, `${presentation}/${color}: unique script IDs`)
+  if (presentation === 'glass') {
+    assert(pack.scripts.some(script => script.replace_string.includes('data-reverie-glass-source=')), `${presentation}/${color}: standalone Glass replacement source missing`)
+  }
   for (const surface of canonical) {
     const rendered = renderR45SurfaceAuthority(surface.sample, presentation, color, `fixture-${surface.id}`)
     assert(!rendered.includes(`<${surface.root}`), `${surface.id}/${presentation}/${color}: raw canonical root remained`)

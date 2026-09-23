@@ -171,6 +171,7 @@ import { r45SurfaceAuthorityPack, r45SurfaceAuthorityScripts } from './r45Surfac
 import { buildCharacterPhoneRuntimeDirective, normalizeCharacterPhoneDefaultApps, type CharacterPhoneAppId } from './characterPhoneConfig'
 import { DEFAULT_EXPLICIT_SCENE_NEGATIVE_GUIDANCE, DEFAULT_EXPLICIT_SCENE_POSITIVE_GUIDANCE, DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, DEFAULT_SURFACE_PROMPT_MODULES, ILLUSTRATOR_FRAMING_REGISTRY_ALIASES, PROSE_ILLUSTRATOR_PERSPECTIVE_MODE_ALIASES, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ARTIFACT_MEDIA_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK, REVERIE_SURFACE_UTILITY_TEMPLATE, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_PROTOCOL } from './protocols'
 import { characterProfilePortraitHasExactRelayImage, NATIVE_SURFACE_CANDIDATE_ROOT_TAGS, NATIVE_SURFACE_ROOT_TAGS, normalizeCharacterProfileContract, renderNativeSurfaceMarkup } from './nativeSurfaces'
+import { narrativeVariantForSurfaceShellMode } from './surfacePresentation'
 import {
   buildNarrativeUtilityPrompt,
   effectiveNarrativeUtilityContent,
@@ -180,7 +181,7 @@ import {
   removeNarrativeRegex,
   type NarrativeDlcHealth,
 } from './narrativeDlcRuntime'
-import { NARRATIVE_REGEX_VARIANTS, containsNarrativeRegexMarkup, missingNarrativeUtilityFormatMarkers, narrativeRegexScripts, narrativeUtilityDisplayName, narrativeUtilityItems, narrativeUtilityNames, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup, type NarrativeLorebookKind, type NarrativeRegexVariant } from './narrativeRegexAssets'
+import { containsNarrativeRegexMarkup, missingNarrativeUtilityFormatMarkers, narrativeRegexScripts, narrativeUtilityDisplayName, narrativeUtilityItems, narrativeUtilityNames, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup, type NarrativeLorebookKind, type NarrativeRegexVariant } from './narrativeRegexAssets'
 import { exportNarrativeLorebookRecord, extractNarrativeLorebookRecord } from './narrativeLorebook'
 import {
   acceptSuggestion,
@@ -380,12 +381,6 @@ export type RouterConfig = {
   narrativeDlcLastSync: NarrativeDlcHealth | null
   globalSurfaceStudio: CustomSurfaceStudioState
   proseIllustratorSettings: ProseIllustratorSettings
-}
-
-function narrativeVariantForSurfaceShellMode(shellMode: SurfaceShellMode): NarrativeRegexVariant {
-  if (shellMode === 'sparkling') return 'sparkle-button'
-  if (shellMode === 'plain') return 'plain-button'
-  return 'inline'
 }
 
 function sanitizeRelayPromptMessage(message: LlmMessage): LlmMessage {
@@ -2092,7 +2087,6 @@ function renderConfigurationFingerprint(config: RouterConfig): string {
     rendererMode: config.surfaceRendererMode,
     shellMode: config.surfaceDefaultShellMode,
     colorMode: config.surfaceColorMode,
-    narrativeVariant: config.narrativeDlcVariant,
     studio: renderStudioContractFingerprint(config.globalSurfaceStudio),
   }))
 }
@@ -2111,6 +2105,45 @@ function hotFallbackRenderSnapshot(userId?: string): RenderSnapshot {
   }
 }
 
+export function renderSnapshotRecords(state: Pick<StateFile, 'slots' | 'completedArchive'>): SlotRecord[] {
+  const records = new Map<string, SlotRecord>(Object.values(state.slots).map(record => [record.key, record]))
+  for (const archived of Object.values(state.completedArchive || {})) {
+    if (records.has(archived.key) || !archived.imageUrl) continue
+    const target = archived.target as SlotRecord['target']
+    records.set(archived.key, {
+      key: archived.key,
+      chatId: archived.chatId,
+      messageId: archived.messageId,
+      swipeId: archived.swipeId,
+      requestId: archived.requestId,
+      target,
+      imageIntent: 'auto',
+      targetApp: targetApp(target),
+      slot: archived.slot,
+      status: 'completed',
+      originalSceneBrief: '',
+      originalNegativePrompt: '',
+      originalRequestXml: '',
+      alt: '',
+      caption: '',
+      count: 1,
+      requestAspect: '',
+      createdAt: archived.completedAt,
+      discoveredAt: archived.completedAt,
+      registeredAt: archived.completedAt,
+      updatedAt: archived.completedAt,
+      completedAt: archived.completedAt,
+      imageId: archived.imageId,
+      imageUrl: archived.imageUrl,
+      imageProvider: archived.imageProvider,
+      imageModel: archived.imageModel,
+      highResMode: archived.highResMode,
+      history: [],
+    } as SlotRecord)
+  }
+  return [...records.values()]
+}
+
 function cacheRenderSnapshot(chatId: string, userId: string | undefined, state: StateFile, config: RouterConfig): RenderSnapshot {
   const snapshot: RenderSnapshot = {
     studio: state.customSurfaces,
@@ -2118,7 +2151,10 @@ function cacheRenderSnapshot(chatId: string, userId: string | undefined, state: 
     autoGenerate: config.autoGenerate,
     generationPlaceholderEffect: config.generationPlaceholderEffect,
     narrativeVariant: narrativeVariantForSurfaceShellMode(config.surfaceDefaultShellMode),
-    records: Object.values(state.slots).filter(record => record.status !== 'completed'),
+    // Message content remains the immutable authored source. Completed pixels
+    // are projected from Relay's durable slot/archive state at render time so
+    // image insertion never has to emit MESSAGE_EDITED and remount the prose.
+    records: renderSnapshotRecords(state),
     cachedAt: Date.now(),
   }
   renderSnapshotCache.set(renderScopeKey(chatId, userId), snapshot)
@@ -2272,7 +2308,7 @@ const DEFAULT_CONFIG: RouterConfig = {
   surfacePreferencesInitialized: false,
   settingsRevision: 0,
   narrativeDlcEnabled: false,
-  narrativeDlcVariant: 'sparkle-button',
+  narrativeDlcVariant: 'plain-button',
   narrativeDlcUtilityNames: narrativeUtilityNames(),
   narrativeUtilityOverrides: {},
   characterPhoneDefaultApps: normalizeCharacterPhoneDefaultApps(undefined),
@@ -2788,9 +2824,7 @@ if (typeof registerMessageContentProcessor === 'function') {
     if (context.origin !== 'render') return
     if (context.extra?.is_user === true || cleanString(context.extra?.role).toLocaleLowerCase() === 'user') return
     const source = typeof context.content === 'string' ? context.content : ''
-    const nativeCandidate = NATIVE_RENDER_TAG_RE.test(source)
-    const narrativeCandidate = containsNarrativeRegexMarkup(source)
-    if (!source || (!nativeCandidate && !narrativeCandidate)) return
+    if (!source) return
     try {
       const scope = renderScopeKey(context.chatId, context.userId)
       // Render-origin processing sits directly in Lumiverse's paint path. Never
@@ -2807,9 +2841,25 @@ if (typeof registerMessageContentProcessor === 'function') {
       const renderSwipeId = context.extra?.swipe_id === undefined && context.extra?.swipeId === undefined
         ? undefined
         : Number(context.extra?.swipe_id ?? context.extra?.swipeId)
+      const messageRecords = snapshot.records
+        .filter(record => !context.messageId || record.messageId === context.messageId)
+        .filter(record => renderSwipeId === undefined || record.swipeId === renderSwipeId)
+      const nativeCandidate = NATIVE_RENDER_TAG_RE.test(source)
+      const narrativeCandidate = containsNarrativeRegexMarkup(source)
+      if (!nativeCandidate && !narrativeCandidate) return
       // Slot lifecycle changes are patched into the existing media island by the
-      // frontend. They must not invalidate and remount the surrounding prose.
-      const outputKey = `${scope}:${context.messageId || '__new__'}:${renderSwipeId ?? '__active__'}:${contentFingerprint(source)}:${snapshot.contractFingerprint}:${snapshot.narrativeVariant}`
+      // frontend. A state fingerprint prevents a later host render from reusing
+      // stale pending markup, while the host message itself remains untouched.
+      const recordFingerprint = contentFingerprint(JSON.stringify(messageRecords.map(record => [
+        record.key,
+        record.status,
+        record.imageId || '',
+        record.imageUrl || '',
+        record.pendingPlacement?.imageId || '',
+        record.pendingPlacement?.imageUrl || '',
+        record.updatedAt || 0,
+      ])))
+      const outputKey = `${scope}:${context.messageId || '__new__'}:${renderSwipeId ?? '__active__'}:${contentFingerprint(source)}:${recordFingerprint}:${snapshot.contractFingerprint}:${snapshot.narrativeVariant}`
       const cached = renderOutputCache.get(outputKey)
       if (cached) return { content: cached.content }
       const renderContext = {
@@ -2821,9 +2871,7 @@ if (typeof registerMessageContentProcessor === 'function') {
         generationPlaceholderEffect: snapshot.generationPlaceholderEffect,
         rendererMode: snapshot.studio.rendererMode,
         colorMode: snapshot.studio.colorMode,
-        records: snapshot.records
-          .filter(record => !context.messageId || record.messageId === context.messageId)
-          .filter(record => renderSwipeId === undefined || record.swipeId === renderSwipeId),
+        records: messageRecords,
       }
       let renderedContent = source
       let renderedCount = 0
@@ -8636,10 +8684,18 @@ async function commitInitialPlacementBatch(batch: InitialPlacementBatch, userId?
   })
   const composed = composeInitialPlacementBatchContent(currentContent, batch.entries)
   try {
-    if (composed.content !== currentContent) await patchSwipeContent(batch.chatId, message, batch.swipeId, composed.content)
+    // Composition is still our deterministic ownership/anchor proof, but the
+    // composed body is never written through updateMessage. Lumiverse always
+    // emits MESSAGE_EDITED for that API (even with skipChunkRebuild), which can
+    // tear down a large live message until every Surface mounts again. Relay's
+    // durable slot state is the canonical media overlay; the render processor
+    // projects it into the immutable authored message on every paint/reload.
+    const failedEntrySet = new Set(composed.failedEntries || [])
+    const verifiedEntries = batch.entries.filter(entry => !failedEntrySet.has(entry))
+    const failedEntries = batch.entries.filter(entry => failedEntrySet.has(entry))
     const markerReplacementCommittedAt = Date.now()
     await mutateState(batch.chatId, userId, state => {
-      for (const { job, results } of batch.entries) for (const result of results) {
+      for (const { job, results } of verifiedEntries) for (const result of results) {
         const record = state.slots[slotKey({ ...job, slot: result.slot })]
         if (!record || !placementFailureCanReplaceRecord(record, result)) continue
         record.markerReplacementCommittedAt = markerReplacementCommittedAt
@@ -8647,10 +8703,6 @@ async function commitInitialPlacementBatch(batch: InitialPlacementBatch, userId?
         if (attempt) attempt.markerReplacementCommittedAt = markerReplacementCommittedAt
       }
     })
-    const verifiedMessage = await resolveHostMessage(batch.chatId, batch.messageId)
-    const verifiedContent = verifiedMessage ? getAuthoritativeSwipeContent(verifiedMessage, batch.swipeId) : ''
-    const verifiedEntries = batch.entries.filter(({ job, results }) => placementIsPresent(verifiedContent, job, results))
-    const failedEntries = batch.entries.filter(entry => !verifiedEntries.includes(entry))
     await mutateState(batch.chatId, userId, state => {
       const now = Date.now()
       for (const { job, results } of verifiedEntries) for (const result of results) {
@@ -8662,17 +8714,17 @@ async function commitInitialPlacementBatch(batch: InitialPlacementBatch, userId?
           messageId: job.messageId, swipeId: job.swipeId, requestId: job.requestId, slot: result.slot, target: job.target,
           attemptNumber: record.attemptNumber, triggerType: result.triggerType, provider: result.imageProvider,
           connectionId: result.imageConnectionId, connectionName: result.imageConnectionName, model: result.imageModel,
-          durationMs: currentAttempt(record)?.durationMs, message: 'Image generation completed and its message-scoped placement was verified.',
+          durationMs: currentAttempt(record)?.durationMs, message: 'Image generation completed and its state-projected placement was verified.',
         })
       }
       appendStateLog(state, {
-        severity: 'info', stage: 'placement-completed', eventType: 'message_batch_placement_completed', chatId: batch.chatId,
+        severity: 'info', stage: 'placement-completed', eventType: 'message_batch_projection_completed', chatId: batch.chatId,
         messageId: batch.messageId, swipeId: batch.swipeId,
-        message: `Persisted ${verifiedEntries.reduce((total, entry) => total + entry.results.length, 0)} generated image slot(s) in one message-scoped update.`,
+        message: `Projected ${verifiedEntries.reduce((total, entry) => total + entry.results.length, 0)} generated image slot(s) from durable Relay state without editing the host message.`,
         details: { requestIds: verifiedEntries.map(entry => entry.job.requestId), sourceFingerprint: batch.sourceFingerprint, sourceChanged: contentFingerprint(currentContent) !== batch.sourceFingerprint, placementStartedAt, messageRereadAt, markerReplacementStartedAt, markerReplacementCommittedAt },
       })
     })
-    if (failedEntries.length) await markInitialPlacementBatchForRepair(batch, composed.error || 'The single message update returned without every intended exact placement.', verifiedContent, userId, failedEntries)
+    if (failedEntries.length) await markInitialPlacementBatchForRepair(batch, composed.error || 'The authored message no longer has every deterministic Surface anchor.', currentContent, userId, failedEntries)
     await sendState(userId, batch.chatId)
   } catch (error) {
     await markInitialPlacementBatchForRepair(batch, error instanceof Error ? error.message : String(error), currentContent, userId)
@@ -11309,7 +11361,7 @@ function normalizeCustomSurfaceStudio(value: unknown): CustomSurfaceStudioState 
     })),
     defaultCollectionPresetId: cleanString(raw.defaultCollectionPresetId) || undefined,
     rendererMode: migratedRendererMode,
-    defaultShellMode: ['inline', 'plain', 'sparkling'].includes(cleanString(raw.defaultShellMode))
+    defaultShellMode: ['inline', 'plain', 'sparkling', 'glass'].includes(cleanString(raw.defaultShellMode))
       ? cleanString(raw.defaultShellMode) as SurfaceShellMode
       : cleanString(raw.defaultShellMode) === 'collapsible' ? 'plain' : defaults.defaultShellMode,
     colorMode: cleanString(raw.colorMode) === 'primary' ? 'primary' : 'realistic',
@@ -11775,7 +11827,7 @@ function normalizeCustomSurfaceDefinition(surfaceId: string, value: unknown): Cu
     baseSurfaceId,
     basedOnSurfaceId: sanitizeSurfaceId(cleanString(raw.basedOnSurfaceId)) || undefined,
     presetName: cleanString(raw.presetName) || (raw.builtIn === true ? 'Relay Default' : cleanString(raw.displayName) || titleCase(id)),
-    shellMode: ['plain', 'sparkling'].includes(shellMode) ? shellMode as SurfaceShellMode : shellMode === 'collapsible' ? 'plain' : 'inline',
+    shellMode: ['plain', 'sparkling', 'glass'].includes(shellMode) ? shellMode as SurfaceShellMode : shellMode === 'collapsible' ? 'plain' : 'inline',
     defaultOpen: raw.defaultOpen === true,
     launcherLabel: cleanString(raw.launcherLabel) || cleanString(raw.displayName) || titleCase(baseSurfaceId),
     density: ['compact', 'comfortable', 'spacious'].includes(density) ? density as CustomSurfaceDefinition['density'] : 'comfortable',
@@ -11986,7 +12038,7 @@ async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { typ
       configPatch.surfaceRendererMode = payload.rendererMode
       globalStudio.rendererMode = payload.rendererMode
     } else if (payload.action === 'set_default_shell_mode') {
-      if (!payload.shellMode || !['inline', 'plain', 'sparkling'].includes(payload.shellMode)) throw new Error('Default surface presentation is invalid.')
+      if (!payload.shellMode || !['inline', 'plain', 'sparkling', 'glass'].includes(payload.shellMode)) throw new Error('Default surface presentation is invalid.')
       configPatch.surfaceDefaultShellMode = payload.shellMode
       configPatch.narrativeDlcVariant = narrativeVariantForSurfaceShellMode(payload.shellMode)
       globalStudio.defaultShellMode = payload.shellMode
@@ -12043,7 +12095,7 @@ async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { typ
       configPatch.surfaceRendererMode = payload.rendererMode
       configPatch.surfacePreferencesInitialized = true
     } else if (payload.action === 'set_default_shell_mode') {
-      if (!payload.shellMode || !['inline', 'plain', 'sparkling'].includes(payload.shellMode)) throw new Error('Default surface presentation is invalid.')
+      if (!payload.shellMode || !['inline', 'plain', 'sparkling', 'glass'].includes(payload.shellMode)) throw new Error('Default surface presentation is invalid.')
       studio.defaultShellMode = payload.shellMode
       configPatch.surfaceDefaultShellMode = payload.shellMode
       configPatch.narrativeDlcVariant = narrativeVariantForSurfaceShellMode(payload.shellMode)
@@ -14988,7 +15040,7 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     surfaceRendererMode: ['relay', 'legacy-regex', 'hybrid'].includes(String(raw.surfaceRendererMode))
       ? raw.surfaceRendererMode as RouterConfig['surfaceRendererMode']
       : 'relay',
-    surfaceDefaultShellMode: ['inline', 'plain', 'sparkling'].includes(String(raw.surfaceDefaultShellMode))
+    surfaceDefaultShellMode: ['inline', 'plain', 'sparkling', 'glass'].includes(String(raw.surfaceDefaultShellMode))
       ? raw.surfaceDefaultShellMode as SurfaceShellMode
       : raw.surfaceDefaultShellMode === 'collapsible' ? 'plain' : DEFAULT_CONFIG.surfaceDefaultShellMode,
     surfaceColorMode: raw.surfaceColorMode === 'primary' ? 'primary' : 'realistic',
@@ -14996,9 +15048,14 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     surfacePreferencesInitialized: raw.surfacePreferencesInitialized === true,
     settingsRevision: Math.max(0, Math.floor(Number(raw.settingsRevision) || 0)),
     narrativeDlcEnabled: raw.narrativeDlcEnabled === true,
-    narrativeDlcVariant: NARRATIVE_REGEX_VARIANTS.includes(raw.narrativeDlcVariant as NarrativeRegexVariant)
-      ? raw.narrativeDlcVariant as NarrativeRegexVariant
-      : DEFAULT_CONFIG.narrativeDlcVariant,
+    // Presentation is global. Never revive the retired independent Narrative
+    // authority from an older config; derive it from the normalized Surface
+    // shell mode on every load as well as every settings write.
+    narrativeDlcVariant: narrativeVariantForSurfaceShellMode(
+      ['inline', 'plain', 'sparkling', 'glass'].includes(String(raw.surfaceDefaultShellMode))
+        ? raw.surfaceDefaultShellMode as SurfaceShellMode
+        : raw.surfaceDefaultShellMode === 'collapsible' ? 'plain' : DEFAULT_CONFIG.surfaceDefaultShellMode,
+    ),
     narrativeDlcUtilityNames: requestedNarrativeUtilities
       ? narrativeUtilityNames().filter(name => requestedNarrativeUtilities.has(name))
       : narrativeUtilityNames(),
@@ -16017,7 +16074,7 @@ export function applyRelaySettingsPatchToConfig(current: RouterConfig, patch: Re
       next.surfaceRendererMode = patch.rendererMode
     }
     if (patch.defaultShellMode !== undefined) {
-      if (!['inline', 'plain', 'sparkling'].includes(patch.defaultShellMode)) throw new Error('Default surface presentation is invalid.')
+      if (!['inline', 'plain', 'sparkling', 'glass'].includes(patch.defaultShellMode)) throw new Error('Default surface presentation is invalid.')
       studio.defaultShellMode = patch.defaultShellMode
       next.surfaceDefaultShellMode = patch.defaultShellMode
       next.narrativeDlcVariant = narrativeVariantForSurfaceShellMode(patch.defaultShellMode)

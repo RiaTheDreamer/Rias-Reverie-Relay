@@ -1,13 +1,15 @@
 import inlinePack from '../regex-packs/narrative-final/Reverie-Narrative-Surfaces-FINAL-Inline.json'
 import plainPack from '../regex-packs/narrative-final/Reverie-Narrative-Surfaces-FINAL-Plain-Button.json'
 import sparklePack from '../regex-packs/narrative-final/Reverie-Narrative-Surfaces-FINAL-Sparkle-Button.json'
+import glassPack from '../regex-packs/narrative-final/Reverie-Narrative-Surfaces-FINAL-Glass.json'
 import utilityPack from '../regex-packs/narrative-final/Reverie-Narrative-Utilities-v6.3-FINAL-with-Character-Phone.json'
 import dramaticCutawayPack from '../regex-packs/narrative-final/Reverie-Dramatic-Cutaway-BULLETPROOF-V8.json'
 import plotSparksPack from '../regex-packs/narrative-final/Reverie-Plot-Sparks-BULLETPROOF-V7.json'
 import { sceneCompassPresentation } from './sceneCompassPresentation'
 import { normalizeRegisteredHybridClosingDelimiters } from './surfaceStructuralRepair'
+import { applyNarrativeSurfacePresentation, type NarrativeSurfacePresentationVariant } from './surfacePresentation'
 
-export type NarrativeRegexVariant = 'sparkle-button' | 'plain-button' | 'inline'
+export type NarrativeRegexVariant = NarrativeSurfacePresentationVariant
 
 export type NarrativeRegexScript = {
   script_id: string
@@ -51,12 +53,14 @@ const PACKS: Record<NarrativeRegexVariant, NarrativeRegexPack> = {
   'sparkle-button': sparklePack as unknown as NarrativeRegexPack,
   'plain-button': plainPack as unknown as NarrativeRegexPack,
   inline: inlinePack as unknown as NarrativeRegexPack,
+  glass: glassPack as unknown as NarrativeRegexPack,
 }
 
 const EXPECTED_PIN: Record<NarrativeRegexVariant, string> = {
   'sparkle-button': '[cp_presentation]sparkling[/cp_presentation]',
   'plain-button': '[cp_presentation]plain[/cp_presentation]',
   inline: '[cp_presentation]inline[/cp_presentation]',
+  glass: '[cp_presentation]glass[/cp_presentation]',
 }
 
 const DRAMATIC_CUTAWAY_PACK = dramaticCutawayPack as unknown as NarrativeRegexPack
@@ -113,7 +117,7 @@ const safeMessageId = (value: string): string => String(value || 'narrative').re
 const NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i
 
 export const NARRATIVE_UTILITY_PACK = utilityPack as NarrativeUtilityPack
-export const NARRATIVE_REGEX_VARIANTS: NarrativeRegexVariant[] = ['sparkle-button', 'plain-button', 'inline']
+export const NARRATIVE_REGEX_VARIANTS: NarrativeRegexVariant[] = ['sparkle-button', 'plain-button', 'inline', 'glass']
 
 /** Canonical model-authored bracket fields consumed by the paired Regexes.
  * XML is intentionally limited to the image-control tags nested inside media. */
@@ -440,7 +444,8 @@ export function normalizeNarrativeMarkupForRendering(markup: string): string {
 
 export function narrativeRegexPack(variant: NarrativeRegexVariant): NarrativeRegexPack {
   const pack = PACKS[variant]
-  if (!pack || pack.type !== 'lumiverse_regex_scripts' || pack.scripts.length !== 93) {
+  const expectedCount = variant === 'glass' ? 95 : 93
+  if (!pack || pack.type !== 'lumiverse_regex_scripts' || pack.scripts.length !== expectedCount) {
     throw new Error(`Invalid Narrative Regex variant: ${variant}`)
   }
   const ids = pack.scripts.map(script => script.script_id)
@@ -458,18 +463,22 @@ export function narrativeRegexScripts(variant: NarrativeRegexVariant): Narrative
   if (PLOT_SPARKS_PACK.type !== 'lumiverse_regex_scripts' || PLOT_SPARKS_PACK.scripts.length !== 1) {
     throw new Error('Invalid approved Plot Sparks Regex asset')
   }
+  const bundledPresentationScripts = narrativeRegexPack(variant).scripts.filter(script => script.disabled !== true)
   const scripts = [
     CHARACTER_PHONE_OPTIONAL_WALLPAPER_NORMALIZER,
-    ...narrativeRegexPack(variant).scripts.filter(script => script.disabled !== true),
-    ...PLOT_SPARKS_PACK.scripts.filter(script => script.disabled !== true),
-    ...DRAMATIC_CUTAWAY_PACK.scripts.filter(script => script.disabled !== true),
+    ...bundledPresentationScripts,
+    ...(variant === 'glass' ? [] : PLOT_SPARKS_PACK.scripts.filter(script => script.disabled !== true)),
+    ...(variant === 'glass' ? [] : DRAMATIC_CUTAWAY_PACK.scripts.filter(script => script.disabled !== true)),
   ]
   const ids = scripts.map(script => script.script_id)
   if (new Set(ids).size !== ids.length) throw new Error(`Duplicate active Narrative Regex script IDs in ${variant}`)
   return scripts
     .map(script => {
       const isParallel = script.script_id === 'reverie_parallel_tracker_images_v1'
-      const replacement = sceneCompassPresentation(script.script_id, isParallel ? parallelSceneReplacement(script.replace_string) : script.replace_string)
+      const replacement = applyNarrativeSurfacePresentation(
+        sceneCompassPresentation(script.script_id, isParallel ? parallelSceneReplacement(script.replace_string) : script.replace_string),
+        variant,
+      )
       const spacedReplacement = NARRATIVE_PRIMARY_SURFACE_CLASS.test(replacement)
         ? `${NARRATIVE_BLOCK_SPACING_STYLE}${replacement}`
         : replacement

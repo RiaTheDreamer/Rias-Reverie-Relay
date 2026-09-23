@@ -62,6 +62,7 @@ import { CHARACTER_PHONE_APPS, characterPhoneAppLabel, normalizeCharacterPhoneDe
 import { NARRATIVE_UTILITY_OVERVIEWS, SURFACE_UTILITY_OVERVIEWS, settingHelp } from './uxCopy'
 import { bracketExampleFromXml } from './bracketSurfaceAuthoring'
 import { narrativeUtilityDisplayName } from './narrativeRegexAssets'
+import { narrativeVariantForSurfaceShellMode } from './surfacePresentation'
 import { emptyRelayChatStats, type RelayChatStats } from './completedState'
 
 const COPYABLE_IMAGE_REQUEST_TEMPLATE = `<reverie-illustration
@@ -204,13 +205,13 @@ type RouterConfig = {
   surfacePreferencesInitialized: boolean
   settingsRevision: number
   narrativeDlcEnabled: boolean
-  narrativeDlcVariant: 'sparkle-button' | 'plain-button' | 'inline'
+  narrativeDlcVariant: 'sparkle-button' | 'plain-button' | 'inline' | 'glass'
   narrativeDlcUtilityNames: string[]
   narrativeUtilityOverrides: Record<string, { content: string; revision: number; updatedAt: number }>
   characterPhoneDefaultApps: CharacterPhoneAppId[]
   narrativeDlcLastSync: {
     status: 'not-installed' | 'healthy' | 'drifted' | 'failed' | 'removed'
-    variant: 'sparkle-button' | 'plain-button' | 'inline'
+    variant: 'sparkle-button' | 'plain-button' | 'inline' | 'glass'
     expected: number
     installed: number
     healthy: number
@@ -547,7 +548,6 @@ export function setup(ctx: SpindleFrontendContext) {
       rendererMode: nextConfig.surfaceRendererMode,
       shellMode: nextConfig.surfaceDefaultShellMode,
       colorMode: nextConfig.surfaceColorMode,
-      narrativeVariant: nextConfig.narrativeDlcVariant,
       activePresetIds: studio.activePresetIds,
       definitions,
     })
@@ -5899,10 +5899,6 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     'Backstage Secrets', 'Setting the Scene', 'Off-Stage', 'Character Dossier', 'Location File', 'In Another Life', 'Archive Entry',
   ] as const
 
-  function narrativeVariantForSurfacePresentation(mode: SurfaceShellMode): RouterConfig['narrativeDlcVariant'] {
-    return mode === 'sparkling' ? 'sparkle-button' : mode === 'plain' ? 'plain-button' : 'inline'
-  }
-
   function removeAppearanceMemoryOptimistically(characterId: string, removeCharacter: boolean): void {
     const withoutCharacter = <T extends { canonicalCharacterId?: string }>(rows: Record<string, T>) => Object.fromEntries(
       Object.entries(rows).filter(([, row]) => row.canonicalCharacterId !== characterId),
@@ -5986,7 +5982,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const narrativeActions = document.createElement('div')
     narrativeActions.className = 'dg-actions'
     const runNarrativeAction = (action: 'install' | 'repair' | 'inspect' | 'remove') => {
-      ctx.sendToBackend({ type: 'narrative_dlc_action', chatId: activeChatId, action, variant: narrativeVariantForSurfacePresentation(current.surfaceDefaultShellMode) })
+      ctx.sendToBackend({ type: 'narrative_dlc_action', chatId: activeChatId, action, variant: narrativeVariantForSurfaceShellMode(current.surfaceDefaultShellMode) })
       showToast('info', action === 'remove' ? 'Removing Relay-owned Narrative scripts…' : action === 'inspect' ? 'Inspecting Narrative scripts…' : 'Reconciling Narrative scripts…')
     }
     narrativeActions.append(
@@ -6021,7 +6017,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const installation = document.createElement('div')
     installation.className = 'dg-field-stack'
     installation.append(
-      (() => { const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = `Narrative Utilities inherit the Surface Defaults presentation above: ${current.surfaceDefaultShellMode === 'sparkling' ? 'Sparkling Button' : current.surfaceDefaultShellMode === 'plain' ? 'Button' : 'Inline'}.`; return note })(),
+      (() => { const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = `All installed Surfaces inherit the global presentation above: ${current.surfaceDefaultShellMode === 'sparkling' ? 'Sparkling Button' : current.surfaceDefaultShellMode === 'plain' ? 'Button' : current.surfaceDefaultShellMode === 'glass' ? 'Glass' : 'Inline'}.`; return note })(),
       narrativeStatus,
       narrativeActions,
     )
@@ -6143,11 +6139,12 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     }
 
     const presentation = document.createElement('div')
-    presentation.className = 'dg-illustrator-mode-grid dg-choice-compact dg-choice-three'
+    presentation.className = 'dg-illustrator-mode-grid dg-choice-compact dg-choice-four'
     const presentationOptions: Array<{ id: SurfaceShellMode; label: string; description: string }> = [
       { id: 'inline', label: 'Inline', description: 'Open in the message.' },
       { id: 'plain', label: 'Button', description: 'Centered launcher without particles.' },
       { id: 'sparkling', label: 'Sparkling Button', description: 'Centered launcher with outer sparkles.' },
+      { id: 'glass', label: 'Glass', description: 'Almost-transparent glass launcher and body.' },
     ]
     for (const option of presentationOptions) {
       const control = document.createElement('button')
@@ -6698,7 +6695,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       '.my-surface { ... }',
     )
 
-    const shell = selectField('Shell Mode', existing?.shellMode === 'collapsible' ? 'plain' : existing?.shellMode || 'inline', [['inline', 'Inline'], ['plain', 'Button'], ['sparkling', 'Sparkling Button']], () => {})
+    const shell = selectField('Shell Mode', existing?.shellMode === 'collapsible' ? 'plain' : existing?.shellMode || 'inline', [['inline', 'Inline'], ['plain', 'Button'], ['sparkling', 'Sparkling Button'], ['glass', 'Glass']], () => {})
     const density = selectField('Density', existing?.density || 'comfortable', [['compact', 'Compact'], ['comfortable', 'Comfortable'], ['spacious', 'Spacious']], () => {})
     const fit = selectField('Media Fit', existing?.mediaFit || 'contain', [['contain', 'Contain'], ['cover', 'Cover']], () => {})
     const typography = selectField('Typography', existing?.typography || 'mixed', [['system', 'System'], ['editorial', 'Editorial'], ['mono', 'Mono'], ['mixed', 'Mixed']], () => {})
@@ -9278,7 +9275,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
       config = {
         ...config,
         ...(patch.rendererMode !== undefined ? { surfaceRendererMode: patch.rendererMode } : {}),
-        ...(patch.defaultShellMode !== undefined ? { surfaceDefaultShellMode: patch.defaultShellMode, narrativeDlcVariant: narrativeVariantForSurfacePresentation(patch.defaultShellMode) } : {}),
+        ...(patch.defaultShellMode !== undefined ? { surfaceDefaultShellMode: patch.defaultShellMode, narrativeDlcVariant: narrativeVariantForSurfaceShellMode(patch.defaultShellMode) } : {}),
         ...(patch.colorMode !== undefined ? { surfaceColorMode: patch.colorMode } : {}),
         ...(patch.utilityInjectionEnabled !== undefined ? { surfaceUtilityInjectionEnabled: patch.utilityInjectionEnabled } : {}),
         surfacePreferencesInitialized: true,

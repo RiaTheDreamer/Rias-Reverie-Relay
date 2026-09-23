@@ -1,4 +1,55 @@
 import { plainSurfaceText } from './surfaceXml'
+import type { SurfaceShellMode } from './contracts'
+
+export type NarrativeSurfacePresentationVariant = 'sparkle-button' | 'plain-button' | 'inline' | 'glass'
+
+/** One global presentation authority for every Surface that ships with Relay.
+ * Narrative render packs use historical variant names, but they are derived
+ * from the same SurfaceShellMode used by Core/App Surfaces. */
+export function narrativeVariantForSurfaceShellMode(shellMode: SurfaceShellMode): NarrativeSurfacePresentationVariant {
+  if (shellMode === 'glass') return 'glass'
+  if (shellMode === 'sparkling') return 'sparkle-button'
+  if (shellMode === 'plain' || shellMode === 'collapsible') return 'plain-button'
+  return 'inline'
+}
+
+export function surfaceShellModeForNarrativeVariant(variant: NarrativeSurfacePresentationVariant): Exclude<SurfaceShellMode, 'collapsible'> {
+  if (variant === 'glass') return 'glass'
+  if (variant === 'sparkle-button') return 'sparkling'
+  if (variant === 'plain-button') return 'plain'
+  return 'inline'
+}
+
+const NARRATIVE_PRESENTATION_ROOT_CLASSES = new Set(['r65', 'ra66', 'rrcp-wrap', 'ch-og', 'dg-dramatic-cutaway'])
+
+/** Normalize only the approved Narrative layout's outer presentation shell.
+ * Most imported packs contain the same sparkling <details> shell in every
+ * variant; this adapter makes them obey Relay's global Surface mode. */
+export function applyNarrativeSurfacePresentation(replacement: string, variant: NarrativeSurfacePresentationVariant): string {
+  if (variant === 'glass') return replacement
+  const mode = surfaceShellModeForNarrativeVariant(variant)
+  const modeClass = `rr-surface-presentation-${mode === 'plain' ? 'button' : mode}`
+  let claimedRoot = false
+  // `$<name>` is Regex replacement syntax and may legally occur inside an
+  // attribute. Treat it as one token so its `>` cannot terminate the tag.
+  const normalized = String(replacement || '').replace(/<(details|div) class="([^"]+)"((?:\$<[^>]+>|[^>])*)>/gi, (opening, tag: string, className: string, rawAttributes: string) => {
+    if (claimedRoot) return opening
+    const classes = className.split(/\s+/).filter(Boolean)
+    if (!classes.some((candidate: string) => NARRATIVE_PRESENTATION_ROOT_CLASSES.has(candidate))) return opening
+    claimedRoot = true
+    const nextClasses = [...classes.filter((candidate: string) => !/^rr-surface-presentation-(?:inline|button|sparkling)$/.test(candidate)), modeClass]
+    let attributes = rawAttributes.replace(/\sopen(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '')
+    if (tag.toLowerCase() === 'details' && mode === 'inline') attributes += ' open'
+    return `<${tag} class="${nextClasses.join(' ')}"${attributes}>`
+  })
+  if (!claimedRoot) return replacement
+  return `${SHIPPED_SURFACE_PRESENTATION_CSS}${normalized}`
+}
+
+export const SHIPPED_SURFACE_PRESENTATION_CSS = `<style data-reverie-surface-presentation-contract="global">
+.rr-surface-presentation-inline>summary{display:none!important}
+.rr-surface-presentation-button>summary .r65-sparks,.rr-surface-presentation-button>summary .ra66-sparks,.rr-surface-presentation-button .rrcp-sparks,.rr-surface-presentation-button>summary .dg-unified-sparks,.rr-surface-presentation-button>summary .bf-particles-summary{display:none!important;animation:none!important}
+</style>`
 
 const esc = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 export const SURFACE_LAUNCHER_CSS = `<style data-reverie-launcher-style="shared">.rr-surface-launcher{display:block;margin:12px 0;max-width:100%;min-width:0}.rr-surface-launcher>summary{display:flex;width:fit-content;max-width:100%;align-items:center;gap:8px;padding:10px 17px;border:1px solid var(--lumiverse-primary,#b94778);border-radius:999px;background:var(--lumiverse-bg-elevated,#22151e);color:var(--lumiverse-text,#f6edf3);font:700 12px/1.4 system-ui,sans-serif;cursor:pointer;list-style:none}.rr-surface-launcher>summary::-webkit-details-marker{display:none}.rr-surface-launcher>summary:after{content:'＋'}.rr-surface-launcher[open]>summary:after{content:'−'}.rr-surface-launcher>.rr-surface-content{margin-top:10px;min-width:0}.rr-surface-launcher:not([open])>.rr-surface-content{display:none}.rr-surface-launcher summary:focus-visible{outline:2px solid currentColor;outline-offset:3px}</style>`

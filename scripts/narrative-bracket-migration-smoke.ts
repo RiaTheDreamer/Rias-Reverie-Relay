@@ -16,6 +16,7 @@ import {
   renderNarrativeRegex,
 } from '../src/narrativeRegexAssets'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
+import { narrativeVariantForSurfaceShellMode } from '../src/surfacePresentation'
 
 function assert(value: unknown, reason: string): asserts value {
   if (!value) throw new Error(reason)
@@ -149,6 +150,18 @@ for (const [name, fixture] of Object.entries(fixtures)) {
   for (const variant of NARRATIVE_REGEX_VARIANTS) {
     const rendered = renderNarrativeRegex(fixture.source, variant, `batch-d-${name}-${variant}`)
     assert(rendered.includes(fixture.rendered), `${name}/${variant}: dedicated presentation did not render`)
+    const expectedMode = variant === 'inline' ? 'inline' : variant === 'plain-button' ? 'button' : 'sparkling'
+    const presentationRoot = variant === 'glass'
+      ? /<(details|div)\b[^>]*data-reverie-glass-authority="narrative-glass"[^>]*>/i.exec(rendered)
+      : new RegExp(`<(details|div) class="[^"]*\\brr-surface-presentation-${expectedMode}\\b[^"]*"([^>]*)>`, 'i').exec(rendered)
+    assert(presentationRoot, `${name}/${variant}: global Surface presentation did not reach the Narrative root`)
+    if (variant === 'inline') {
+      if (presentationRoot[1].toLowerCase() === 'details') assert(/\bopen(?:\s|=|>)/i.test(presentationRoot[0]), `${name}/${variant}: inline details root is closed and would disappear`)
+      assert(rendered.includes('.rr-surface-presentation-inline>summary{display:none!important}'), `${name}/${variant}: inline launcher is not suppressed`)
+    } else if (variant !== 'glass') {
+      if (presentationRoot[1].toLowerCase() === 'details') assert(!/\bopen(?:\s|=|>)/i.test(presentationRoot[0]), `${name}/${variant}: button root must start closed`)
+      if (variant === 'plain-button') assert(rendered.includes('.rr-surface-presentation-button>summary .dg-unified-sparks'), `${name}/${variant}: plain Button did not suppress sparkling launcher decoration`)
+    }
     assert(!rendered.includes('Relay Surface needs repair'), `${name}/${variant}: canonical fixture fell into generic repair UI`)
     const requestCount = (fixture.source.match(/<(?:image_request|reverie-illustration)\b/gi) || []).length
     const hydrated = renderNativeSurfaceMarkup(rendered, nativeStudio, { chatId: 'batch-d', messageId: `batch-d-${name}-${variant}`, swipeId: 0, records: [] }).content
@@ -162,7 +175,7 @@ for (const [name, fixture] of Object.entries(fixtures)) {
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   for (const script of narrativeRegexScripts(variant)) assert(new RegExp(script.find_regex, script.flags), `${variant}/${script.script_id}: matcher does not compile`)
   const phoneRendered = renderNarrativeRegex(phone, variant, `batch-d-phone-${variant}`)
-  assert(phoneRendered.includes(`rrcp-presentation-${variant === 'sparkle-button' ? 'sparkling' : variant === 'plain-button' ? 'plain' : 'inline'}`), `${variant}: Character Phone visual variant changed`)
+  assert(phoneRendered.includes(`rrcp-presentation-${variant === 'sparkle-button' ? 'sparkling' : variant === 'plain-button' ? 'plain' : variant}`), `${variant}: Character Phone visual variant changed`)
 }
 
 const plotRendered = renderNarrativeRegex(plotSparks, 'sparkle-button', 'batch-d-plot-ownership')
@@ -209,11 +222,16 @@ for (const variant of NARRATIVE_REGEX_VARIANTS) {
     ['historical hybrid one-bracket closer', legacyElsewhereBadCloser, 'elsewhere-legacy'],
   ] as const) {
     const rendered = renderNarrativeRegex(source, variant, `elsewhere-${variant}-${label}`)
-    assert(rendered.includes('class="r65"') && rendered.includes('Off-Screen Scene'), `${variant}/${label}: Off-Stage did not use the current presentation`)
+    assert(rendered.includes('class="r65') && rendered.includes('Off-Screen Scene'), `${variant}/${label}: Off-Stage did not use the current presentation`)
     assert(rendered.includes(`id="${requestId}"`) && rendered.includes('<scene_brief>Security office at night.</scene_brief>'), `${variant}/${label}: image-control XML changed during recovery`)
     assert(!rendered.includes('[[else security office]]') && !rendered.includes('Relay Surface needs repair'), `${variant}/${label}: recovered Off-Stage leaked or fell through to repair`)
   }
 }
+
+assert(narrativeVariantForSurfaceShellMode('inline') === 'inline', 'global Inline mode did not map to Narrative Inline')
+assert(narrativeVariantForSurfaceShellMode('plain') === 'plain-button', 'global Button mode did not map to Narrative Button')
+assert(narrativeVariantForSurfaceShellMode('sparkling') === 'sparkle-button', 'global Sparkling Button mode did not map to Narrative Sparkling Button')
+assert(narrativeVariantForSurfaceShellMode('glass') === 'glass', 'global Glass mode did not map to Narrative Glass')
 
 // Structurally faithful combined live response: inline XML, dossier, Parallel,
 // Off-Stage, another inline control, and the malformed Plot Sparks owner retain
@@ -311,7 +329,7 @@ const basaltImageControl = `<image_request id="world-detail-basalt-sea-cave-01" 
 assert(recoveredBasaltWorld.includes(basaltImageControl), 'World recovery changed the canonical Relay image-control owner')
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   const rendered = renderNarrativeRegex(malformedBasaltWorld, variant, `world-recovery-${variant}`)
-  assert(rendered.includes('class="r65"') && rendered.includes('Setting the Scene'), `${variant}: recovered World did not use the current presentation`)
+  assert(rendered.includes('class="r65') && rendered.includes('Setting the Scene'), `${variant}: recovered World did not use the current presentation`)
   assert(rendered.includes('world-detail-basalt-sea-cave-01') && rendered.includes('<scene_brief>Secluded volcanic sea cave interior'), `${variant}: recovered World lost its image request`)
   assert(!rendered.includes('[WORLD|') && !rendered.includes('Relay Surface needs repair'), `${variant}: recovered World leaked or fell through to repair`)
 }
@@ -370,6 +388,6 @@ assert(worldIsolated.includes('rr-scene-compass'), 'malformed World poisoned val
 assert(worldIsolated.includes('class="ch-og') && !worldIsolated.includes('[Plot_Sparks]'), 'malformed World poisoned valid Plot Sparks')
 
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
-assert(packageJson.version === '0.2.8.6.3', `version changed: ${packageJson.version}`)
+assert(packageJson.version === '0.2.8.7', `version changed: ${packageJson.version}`)
 
-console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} Utilities, ${renderCases} dedicated presentation renders, ${narrativeClosingDelimiterMutationCases} closer mutations, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone three-variant regression passed, malformed-sibling isolation passed, Stella absent.`)
+console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} Surfaces, ${renderCases} dedicated presentation renders, ${narrativeClosingDelimiterMutationCases} closer mutations, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone four-variant regression passed, malformed-sibling isolation passed, Stella absent.`)

@@ -41,7 +41,7 @@ function replacementCaptureReferences(replacement: string): number[] {
     .sort((left, right) => left - right)
 }
 
-const presentations: R45PresentationMode[] = ['inline', 'plain', 'sparkling']
+const presentations: R45PresentationMode[] = ['inline', 'plain', 'sparkling', 'glass']
 const colors: R45ColorMode[] = ['realistic', 'primary']
 let matcherChanges = 0
 let protectedControlMatchers = 0
@@ -67,7 +67,11 @@ for (const presentation of presentations) for (const color of colors) {
     }
     if (migrated.replace_string !== original.replace_string) {
       replacementDrift += 1
-      assert(presentation === 'sparkling' && color === 'realistic' && approvedSparkReplacementIds.has(original.script_id), `${presentation}/${color}/${original.script_id}: unauthorized replacement drift`)
+      const approvedSparkDrift = presentation === 'sparkling' && color === 'realistic' && approvedSparkReplacementIds.has(original.script_id)
+      const dedicatedGlassBracketBody = presentation === 'glass' && color === 'realistic'
+        && migrated.replace_string.includes('data-reverie-glass-source="r45-bracket-glass"')
+        && original.replace_string.includes('data-reverie-glass-source="r45-realistic-glass"')
+      assert(approvedSparkDrift || dedicatedGlassBracketBody, `${presentation}/${color}/${original.script_id}: unauthorized replacement drift`)
     }
     if (captureCount(migrated.find_regex) !== captureCount(original.find_regex)) captureDrift += 1
     const { find_regex: _migratedFind, replace_string: _migratedReplacement, ...migratedAuthority } = migrated
@@ -81,7 +85,7 @@ for (const presentation of presentations) for (const color of colors) {
 
 assert(matcherChanges === 134 * presentations.length * colors.length, `expected 804 structural matcher instances to be bracket-native; changed=${matcherChanges}`)
 assert(protectedControlMatchers === 4 * presentations.length * colors.length, `expected 24 protected XML control matcher instances; retained=${protectedControlMatchers}`)
-assert(replacementDrift === approvedSparkReplacementIds.size, `Core presentation authority failed: expected ${approvedSparkReplacementIds.size} authorized replace_string changes, received ${replacementDrift}`)
+assert(replacementDrift === 101, `Core presentation authority failed: expected 3 protected Sparkling changes plus 98 standalone Glass bracket bodies, received ${replacementDrift}`)
 assert(captureDrift === 0, `Core capture authority failed: ${captureDrift} matcher capture-count changes`)
 
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]

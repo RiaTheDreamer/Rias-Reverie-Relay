@@ -957,7 +957,7 @@ export type ContinuityVaultState = {
 }
 
 /** `collapsible` is a persisted legacy alias normalized to `plain`. */
-export type SurfaceShellMode = 'inline' | 'plain' | 'sparkling' | 'collapsible'
+export type SurfaceShellMode = 'inline' | 'plain' | 'sparkling' | 'glass' | 'collapsible'
 export type SurfaceColorMode = 'realistic' | 'primary'
 /** Every rendered surface has exactly one visual owner. */
 export type SurfaceRendererMode = 'relay' | 'legacy-regex' | 'hybrid'

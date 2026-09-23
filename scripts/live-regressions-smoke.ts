@@ -26,9 +26,11 @@ const rows = selectRescanSwipeRows({ content: healthyContent, swipe_id: 0, swipe
 assert(rows[0]?.content === healthyContent, 'rescan/reparse must inspect canonical active content, not stale swipes[]')
 
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
-assert(backendSource.includes('getAuthoritativeSwipeContent(verifiedMessage, batch.swipeId)') && backendSource.includes('const verifiedEntries = batch.entries.filter'), 'message-scoped placement verification must accept each valid canonical rendered output')
+const initialCommitSource = backendSource.slice(backendSource.indexOf('async function commitInitialPlacementBatch'), backendSource.indexOf('export function placementBatchKey'))
+assert(initialCommitSource.includes('const verifiedEntries = batch.entries.filter') && initialCommitSource.includes('const failedEntrySet = new Set(composed.failedEntries || [])'), 'message-scoped projection must accept every deterministically owned entry')
+assert(!initialCommitSource.includes('patchSwipeContent(') && !initialCommitSource.includes('getAuthoritativeSwipeContent(verifiedMessage'), 'terminal image projection must not rewrite or reread a remounted host message')
 assert(backendSource.includes('const failedEntries = batch.entries.filter') && backendSource.includes('markInitialPlacementBatchForRepair(batch'), 'truly missing rendered media must still enter Repair Needed without poisoning valid siblings')
 assert(backendSource.includes('record.attemptNumber !== expectedAttemptNumbers[slot]') && backendSource.includes('isJobCancelled(job) || !failureApplied'), 'stale generic failure state/toast protection is missing')
 assert(backendSource.includes("eventType: 'invalid_prose_illustration_schema'") && !backendSource.includes('invalidProseSchemaNotices'), 'malformed Prose schema must remain lane-scoped diagnostic evidence instead of becoming a generic toast')
 
-console.log('live regressions smoke passed: canonical render health wins over stale snapshots/failures, real missing media remains repairable, cast aliases/default normalize, and invalid casts stay lane-scoped without toast spam.')
+console.log('live regressions smoke passed: deterministic state projection wins over stale snapshots/failures without a host remount, real missing anchors remain repairable, cast aliases/default normalize, and invalid casts stay lane-scoped without toast spam.')

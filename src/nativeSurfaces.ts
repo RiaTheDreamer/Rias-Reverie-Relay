@@ -173,6 +173,7 @@ export const NATIVE_SURFACE_CANDIDATE_ROOT_TAGS = [...NATIVE_SURFACE_ROOT_TAGS, 
 
 function parityModeForSurface(baseSurfaceId: string, preset: CustomSurfaceDefinition | undefined, context: NativeSurfaceRenderContext): RegexSurfaceParityMode {
   const mode = context.defaultShellMode || preset?.shellMode || defaultShellMode(baseSurfaceId)
+  if (mode === 'glass') return 'glass'
   if (mode === 'sparkling') return 'sparkling'
   if (mode === 'plain' || mode === 'collapsible') return 'plain'
   return 'inline'

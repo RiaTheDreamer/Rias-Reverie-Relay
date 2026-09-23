@@ -67,7 +67,7 @@ export const NARRATIVE_UTILITY_OVERVIEWS: Readonly<Record<string, string>> = {
 export const SETTING_HELP: Readonly<Record<string, string>> = {
   'Automatic Surface Injection': 'When on, Relay inserts the shared Surface grammar plus every enabled Utility into the Story Model prompt. Turn it off when you place a Relay macro manually in a preset.',
   'Renderer': 'Chooses who turns authored Surface markup into the visible interface. Relay Rendered is the default; Regex and Hybrid are compatibility choices.',
-  'Default Presentation': 'Controls whether new Surfaces open inline or behind a compact launcher. It does not rewrite stored Surface content.',
+  'Default Presentation': 'Chooses Inline, Button, Sparkling Button, or Glass for all 59 shipped Surfaces. It does not rewrite stored Surface content.',
   'Color Mode': 'Switches approved Surface accents between platform-realistic colors and your current Lumiverse primary theme.',
   'Injection Position': 'Chooses where Relay places its model instructions in the assembled prompt. Later positions are closer to the newest user message.',
   'Parser Connection': 'The Lumiverse text connection used for Relay planning and parsing. Follow Native Parser mirrors the host selection instead.',

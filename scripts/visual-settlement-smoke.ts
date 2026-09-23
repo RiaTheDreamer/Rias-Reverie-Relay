@@ -90,7 +90,7 @@ const ack = (id: string, suffix = '1') => ({ chatId: 'chat', messageId: 'message
 const gate = (fixture: any, hasGenerationSibling = false, hasVisibleFrontend = true, allowSafetyFallback = false, healthyStartedVisual = false) => backend.initialPlacementBatchCommitGate(fixture, { hasGenerationSibling, hasVisibleFrontend, allowSafetyFallback, healthyStartedVisual })
 
 const one = batch(entry('a'))
-assert(gate(one) === 'ready', 'Test A: visual presentation incorrectly blocked canonical persistence')
+assert(gate(one) === 'ready', 'Test A: visual presentation incorrectly blocked durable state projection')
 assert(backend.markInitialPlacementVisualSettled(one, ack('a')) === 'settled' && gate(one) === 'ready', 'Test A: one matching ACK changed the non-blocking persistence gate')
 
 const siblings = batch(entry('a'), entry('b'))
@@ -124,4 +124,4 @@ assert(gate(healthyStarted, false, true, true, true) === 'ready', 'Test G: a hea
 const activePatch = backend.relayMediaPersistencePatch({ id: 'message', content: 'old', swipe_id: 0, swipes: ['old'] } as any, 0, 'composed A+B+C')
 assert(activePatch.content === 'composed A+B+C' && activePatch.skipChunkRebuild === true && !('swipes' in activePatch), 'active-swipe persistence regressed from content-only + skipChunkRebuild')
 
-console.log('visual settlement smoke passed: marker persistence is immediate; load/decode -> Reveal -> animationend remains exact-version, non-blocking telemetry with reduced-motion and stale callback safety.')
+console.log('visual settlement smoke passed: durable state projection is immediate; load/decode -> Reveal -> animationend remains exact-version, non-blocking telemetry with reduced-motion and stale callback safety.')

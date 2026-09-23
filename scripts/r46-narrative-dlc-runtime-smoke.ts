@@ -90,7 +90,7 @@ for (const migrationId of ['rrcp_migrate_photo_v461', 'rrcp_migrate_app_v461', '
 
 const retiredRegexLabels = ['Character File', 'Cast Arrival', 'Unified Archive', 'Place File', 'Knowledge Veil', 'Beyond the Frame', 'Parallel Current', 'Scene Compass', 'World Texture', 'Unwalked Path']
 const acceptedRegexLabels = ['Character Dossier', 'Cast Introduction', 'Archive Entry', 'Location File', 'Backstage Secrets', 'Off-Stage', 'Parallel Scene', 'Scene Shift', 'Setting the Scene', 'In Another Life']
-for (const variant of ['sparkle-button', 'plain-button', 'inline'] as const) {
+for (const variant of ['sparkle-button', 'plain-button', 'inline', 'glass'] as const) {
   const sourcePresentation = JSON.stringify(narrativeRegexPack(variant).scripts.filter(script => script.disabled !== true).map(script => ({ name: script.name, replace_string: script.replace_string })))
   for (const label of retiredRegexLabels) assert(!sourcePresentation.includes(label), `${variant}: retired label ${label} remains embedded in the active Regex source`)
   for (const label of acceptedRegexLabels) assert(sourcePresentation.includes(label), `${variant}: accepted label ${label} is missing from the active Regex source`)
@@ -238,16 +238,18 @@ assert((normalizeNarrativeMarkupForRendering(normalizedPhone).match(/\[cp_wallpa
 for (const variant of ['sparkle-button', 'plain-button'] as const) {
   const renderedPhone = renderNarrativeRegex(missingWallpaperPhone, variant, `phone-${variant}`)
   assert(!renderedPhone.includes('[character_phone]') && !renderedPhone.includes('[/character_phone]'), `${variant}: repaired Character Phone shell did not render`)
-  assert(renderedPhone.includes(`<div class="rrcp-wrap rrcp-presentation-${variant === 'sparkle-button' ? 'sparkling' : 'plain'}">`) && renderedPhone.includes('class="rrcp-launch-toggle"'), `${variant}: supplied Character Phone presentation structure changed`)
+  assert(new RegExp(`<div class="rrcp-wrap rrcp-presentation-${variant === 'sparkle-button' ? 'sparkling' : 'plain'} rr-surface-presentation-${variant === 'sparkle-button' ? 'sparkling' : 'button'}">`).test(renderedPhone) && renderedPhone.includes('class="rrcp-launch-toggle"'), `${variant}: supplied Character Phone presentation structure changed`)
 }
+const glassPhone = renderNarrativeRegex(missingWallpaperPhone, 'glass', 'phone-glass-runtime')
+assert(glassPhone.includes('rrcp-presentation-glass') && glassPhone.includes('data-reverie-glass-authority="narrative-glass"'), 'glass: supplied Character Phone did not use its standalone Glass shell')
 const inlinePhone = renderNarrativeRegex(missingWallpaperPhone, 'inline', 'phone-inline')
-assert(inlinePhone.includes('<div class="rrcp-wrap rrcp-presentation-inline"><div class="rrcp-shell">') && !inlinePhone.includes('class="rrcp-launch-toggle"'), 'Inline Character Phone must remain directly open without a launcher')
+assert(inlinePhone.includes('<div class="rrcp-wrap rrcp-presentation-inline rr-surface-presentation-inline"><div class="rrcp-shell">') && !inlinePhone.includes('class="rrcp-launch-toggle"'), 'Inline Character Phone must remain directly open without a launcher')
 assert(inlinePhone.includes('.rrcp-wallpaper>.reverie-artifact-media') && inlinePhone.includes('height:100%!important') && inlinePhone.includes('object-fit:cover!important'), 'Character Phone wallpaper media must cover the complete fixed phone screen')
 assert(!/\.rrcp-photo-media[^}]+object-fit:cover/i.test(inlinePhone), 'Phone wallpaper sizing must not force ordinary app photos to crop')
 const galleryPhotos = ['Workbench candid', 'Saved relationship moment', 'Practical reference'].map((title, index) => `[cp_photo][cp_title]${title}[/cp_title][cp_meta]Today · Workshop[/cp_meta][cp_media]<image_request id="phone-gallery-${index + 1}" target="custom.artifact-media" slot="phone-gallery-${index + 1}" aspect="4:3"><scene_brief>${title}, grounded in current continuity.</scene_brief></image_request>[/cp_media][/cp_photo]`).join('')
 const galleryApps = `[cp_app][cp_slot]1[/cp_slot][cp_name]Photos[/cp_name][cp_icon]◇[/cp_icon][cp_tone]photos[/cp_tone][cp_badge]0[/cp_badge][cp_content]${galleryPhotos}[/cp_content][/cp_app]${Array.from({ length: 7 }, (_, index) => `[cp_app][cp_slot]${index + 2}[/cp_slot][cp_name]App ${index + 2}[/cp_name][cp_icon]◇[/cp_icon][cp_tone]blue[/cp_tone][cp_badge]0[/cp_badge][cp_content][cp_row][cp_glyph]◇[/cp_glyph][cp_title]Row ${index + 2}[/cp_title][cp_meta]Meta[/cp_meta][cp_text]Text[/cp_text][/cp_row][/cp_content][/cp_app]`).join('')}`
 const galleryPhone = `[character_phone][cp_presentation]sparkling[/cp_presentation][cp_owner]Han Minjae[/cp_owner][cp_subtitle]Recent camera roll[/cp_subtitle][cp_time]09:47[/cp_time][cp_day]Monday[/cp_day][cp_battery]63[/cp_battery][cp_wallpaper][/cp_wallpaper][cp_apps]${galleryApps}[/cp_apps][/character_phone]`
-for (const variant of ['sparkle-button', 'plain-button', 'inline'] as const) {
+for (const variant of ['sparkle-button', 'plain-button', 'inline', 'glass'] as const) {
   const renderedGallery = renderNarrativeRegex(galleryPhone, variant, `phone-gallery-${variant}`)
   assert((renderedGallery.match(/class="rrcp-photo"/g) || []).length === 3, `${variant}: Character Phone must preserve and render all three cp_photo entries`)
   assert((renderedGallery.match(/class="rrcp-photo-media"/g) || []).length === 3, `${variant}: every rendered gallery entry must retain its media container`)
@@ -291,7 +293,7 @@ assert(capturedCombinedRendered.includes('/api/v1/image-gen/results/spark-a') &&
 const canonicalArchive = '[dossier_ui][category]SECRET[/category][archive_head][icon]🤫[/icon][name]Canonical Secret[/name][state]PARTIAL[/state][relation]A ↔ B[/relation][role]Hidden act[/role][/archive_head][archive_stats][archive_stat][label]Exposure[/label][value]75[/value][/archive_stat][archive_stat][label]Certainty[/label][value]40[/value][/archive_stat][archive_stat][label]Consequence[/label][value]90[/value][/archive_stat][/archive_stats][archive_details][archive_row][label]The Hidden Truth[/label][value]Truth.[/value][/archive_row][archive_row][label]Known By[/label][value]A.[/value][/archive_row][archive_row][label]Hidden From[/label][value]B.[/value][/archive_row][archive_row][label]Near-Slips[/label][value]One clue.[/value][/archive_row][archive_row][label]Impact If Revealed[/label][value]Trust changes.[/value][/archive_row][archive_row][label]Current Status[/label][value]SLIPPING[/value][/archive_row][/archive_details][archive_export][SECRET: Canonical Secret]\nCURRENT STATUS: SLIPPING[/archive_export][/dossier_ui]'
 assert(normalizeNarrativeMarkupForRendering(canonicalArchive) === canonicalArchive, 'canonical Archive Entry payloads must remain byte-for-byte unchanged')
 
-for (const variant of ['sparkle-button', 'plain-button', 'inline'] as const) {
+for (const variant of ['sparkle-button', 'plain-button', 'inline', 'glass'] as const) {
   const renderedLegacyArchive = renderNarrativeRegex(canonicalArchive, variant, `archive-legacy-${variant}`)
   assert(renderedLegacyArchive.includes('class="ra66-archive-media" data-archive-media></div>') && renderedLegacyArchive.includes('.ra66-archive-media:empty{display:none}'), `${variant}: legacy text-only Archive must render without a media gap`)
   assert(renderedLegacyArchive.includes('data-archive-category="SECRET"') && renderedLegacyArchive.includes('class="ra66-export" readonly'), `${variant}: legacy Archive category/export behavior changed`)
@@ -301,7 +303,7 @@ for (const variant of ['sparkle-button', 'plain-button', 'inline'] as const) {
 const archiveCategories = ['CHARACTER', 'LOCATION', 'ITEM', 'FACTION', 'EVENT', 'RELATIONSHIP', 'SECRET'] as const
 const archiveAspect = { CHARACTER: '1:1', LOCATION: '16:9', ITEM: '4:3', FACTION: '16:9', EVENT: '16:9', RELATIONSHIP: '16:9', SECRET: '16:9' } as const
 const archiveFixture = (category: typeof archiveCategories[number]) => `[dossier_ui][category]${category}[/category][archive_head][icon]◇[/icon][name]${category} Record[/name][state]UNLOCKED[/state][relation]Established relation[/relation][role]Established role[/role][/archive_head][archive_media]<image_request id="archive-${category.toLowerCase()}-test" target="custom.artifact-media" slot="archive-${category.toLowerCase()}-test" aspect="${archiveAspect[category]}" alt="${category} archive visual"><scene_brief>One established ${category.toLowerCase()} visual subject. No UI or readable text.</scene_brief></image_request>[/archive_media][archive_stats][archive_stat][label]First[/label][value]25[/value][/archive_stat][archive_stat][label]Second[/label][value]50[/value][/archive_stat][archive_stat][label]Third[/label][value]75[/value][/archive_stat][/archive_stats][archive_details][archive_row][label]Identity[/label][value]Established detail.[/value][/archive_row][/archive_details][archive_export][${category}: Record]\nIdentity: Established detail.[/archive_export][/dossier_ui]`
-for (const variant of ['sparkle-button', 'plain-button', 'inline'] as const) {
+for (const variant of ['sparkle-button', 'plain-button', 'inline', 'glass'] as const) {
   for (const category of archiveCategories) {
     const renderedArchive = renderNarrativeRegex(archiveFixture(category), variant, `archive-${variant}-${category.toLowerCase()}`)
     assert(renderedArchive.includes(`data-archive-category="${category}"`), `${variant}/${category}: canonical category signal did not survive Archive rendering`)
@@ -348,7 +350,7 @@ const normalizedFlatArchive = normalizeNarrativeMarkupForRendering(flatArchive)
 assert(normalizedFlatArchive.includes('[archive_head]') && normalizedFlatArchive.includes('[state]PARTIAL[/state]') && normalizedFlatArchive.includes('[archive_row][label]The Hidden Truth[/label]'), 'flat SECRET Archive drift must normalize into the canonical bracket contract')
 assert(!normalizedFlatArchive.includes('[archive_media]'), 'flat legacy Archive normalization must not fabricate archive media')
 const renderedFlatArchive = renderNarrativeRegex(flatArchive, 'sparkle-button', 'flat-archive')
-assert(renderedFlatArchive.includes('class="ra66"') && renderedFlatArchive.includes('The Textbook Lie') && renderedFlatArchive.includes('The Hidden Truth') && !renderedFlatArchive.includes('[dossier_ui]'), 'normalized flat Archive Entry must render through the approved Dossier presentation')
+assert(renderedFlatArchive.includes('class="ra66 ') && renderedFlatArchive.includes('The Textbook Lie') && renderedFlatArchive.includes('The Hidden Truth') && !renderedFlatArchive.includes('[dossier_ui]'), 'normalized flat Archive Entry must render through the approved Dossier presentation')
 
 const failedParallelFixture = `[PARALLEL|Campus and beyond|complication]
 [parallel_entry][text]First independent thread[/text][parallel_media]<!-- reverie-relay:image-error requestId="parallel-1" slot="thread_1" --><image_request_error id="parallel-1" target="custom.artifact-media" slot="thread_1" retryable="true">Image generation failed. Open Reverie Relay to retry.</image_request_error>[/parallel_media][/parallel_entry]

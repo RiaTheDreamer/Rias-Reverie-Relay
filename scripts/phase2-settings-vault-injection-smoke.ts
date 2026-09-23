@@ -69,6 +69,10 @@ draft = backend.applyRelaySettingsPatchToConfig(draft, {
 assert(draft.settingsRevision === revisionBeforeSurfacePreferences + 1, 'Surface preferences must advance the shared settings revision')
 assert(draft.surfaceRendererMode === 'hybrid' && draft.globalSurfaceStudio.rendererMode === 'hybrid', 'Surface renderer preference must persist to canonical config and studio state')
 assert(draft.surfaceDefaultShellMode === 'sparkling' && draft.globalSurfaceStudio.defaultShellMode === 'sparkling', 'Surface presentation preference must persist to canonical config and studio state')
+assert(draft.narrativeDlcVariant === 'sparkle-button', 'every shipped Surface must derive presentation from the same global preference')
+draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'surface-preferences', defaultShellMode: 'glass' }, draft.settingsRevision, 303)
+assert(draft.surfaceDefaultShellMode === 'glass' && draft.globalSurfaceStudio.defaultShellMode === 'glass', 'Glass presentation preference must persist to canonical config and studio state')
+assert(draft.narrativeDlcVariant === 'glass', 'all shipped Surfaces must derive standalone Glass from the same global preference')
 assert(draft.surfaceColorMode === 'primary' && draft.globalSurfaceStudio.colorMode === 'primary', 'Surface color preference must persist to canonical config and studio state')
 assert(draft.surfaceUtilityInjectionEnabled === false && draft.globalSurfaceStudio.utilityInjectionEnabled === false, 'Surface injection preference must persist to canonical config and studio state')
 

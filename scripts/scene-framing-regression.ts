@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { NARRATIVE_BLOCK_SPACING_STYLE, NARRATIVE_MEDIA_COMPATIBILITY_STYLE, renderNarrativeRegex, narrativeRegexPack, narrativeRegexScripts } from '../src/narrativeRegexAssets'
 import { DEFAULT_PROMPT_REGISTRY } from '../src/protocols'
+import { SHIPPED_SURFACE_PRESENTATION_CSS } from '../src/surfacePresentation'
 
 const storage = new Map<string, unknown>()
 const requests: any[] = []
@@ -179,7 +180,7 @@ const raw = `[SCENE|Station concourse|Evening|Rain easing]
 [scene_detail]Rain beads on the platform windows.[/scene_detail]
 [scene_context][reason]The journey reaches the station.[/reason][continuity]The same travel bag remains by the bench.[/continuity][/scene_context][/SCENE]`
 const fixtures: Record<string, string> = {}
-for (const variant of ['inline', 'plain-button', 'sparkle-button'] as const) {
+for (const variant of ['inline', 'plain-button', 'sparkle-button', 'glass'] as const) {
   const originals = narrativeRegexPack(variant).scripts
   for (const script of narrativeRegexScripts(variant)) {
     const original = originals.find(row => row.script_id === script.script_id)
@@ -190,10 +191,16 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button'] as const) {
       const compatibilityBase = suppliedReplacement.startsWith(NARRATIVE_BLOCK_SPACING_STYLE)
         ? suppliedReplacement.slice(NARRATIVE_BLOCK_SPACING_STYLE.length)
         : suppliedReplacement
+      const adaptedPresentationBase = compatibilityBase
+        .replace(SHIPPED_SURFACE_PRESENTATION_CSS, '')
+        .replace(/ rr-surface-presentation-(?:inline|button|sparkling)/, '')
+      const presentationBase = variant === 'inline'
+        ? adaptedPresentationBase.replace(/(<details class="(?:r65|ra66|ch-og|bf-drawer)\b[^"]*"(?:(?:\$<[^>]+>|[^>])*?)) open>/, '$1>')
+        : adaptedPresentationBase
       const structuralAddition = '<div class="r65-section r65-parallel-context"><p class="r65-section-title">Context</p><div class="r65-opt" data-label="Trajectory">$<trajectory></div><div class="r65-opt r65-gap" data-label="Intersection">$<intersection></div></div>'
       const suppliedBase = script.script_id === 'reverie_parallel_tracker_images_v1'
-        ? compatibilityBase.replace(structuralAddition, '')
-        : compatibilityBase
+        ? presentationBase.replace(structuralAddition, '')
+        : presentationBase
       assert.equal(suppliedBase, original.replace_string, `${script.script_id}: supplied Narrative styling changed`)
     }
   }

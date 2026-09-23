@@ -29,8 +29,8 @@ const result = (id: string) => ({ slot: id, imageId: id, imageUrl: `/${id}.png` 
 const ids = ['scene-a', 'scene-b', 'scene-c']
 let latestContent = `Opening prose.\n${request(ids[0])}\nMiddle prose.\n${request(ids[1])}\nMore prose.\n${request(ids[2])}\nClosing prose.`
 
-// Progressive reveal stays request-local, but durable persistence is one
-// message/swipe transaction after every initial sibling becomes terminal.
+// Progressive reveal stays request-local, while durable Relay state finalizes
+// as one message/swipe projection batch after every initial sibling is terminal.
 assert.equal(backend.placementBatchKey(job('scene-a'), 'u'), backend.placementBatchKey(job('scene-b'), 'u'), 'initial sibling requests must share one message/swipe persistence batch')
 assert.equal(backend.initialPlacementBatchCommitGate({ entries: [] } as any, { hasGenerationSibling: true, hasVisibleFrontend: false }), 'generation-pending')
 assert.equal(backend.initialPlacementBatchCommitGate({ entries: [] } as any, { hasGenerationSibling: false, hasVisibleFrontend: false }), 'ready')
@@ -43,6 +43,25 @@ assert.equal(backend.hasPendingInitialPlacementSibling({ slots: {
   a: { ...job('scene-a'), status: 'placement-pending', triggerType: 'initial' },
   b: { ...job('scene-b'), status: 'failed', triggerType: 'initial' },
 } } as any, siblingBatch), false, 'a terminal failed sibling must release successful initial placements')
+
+const archivedProjection = backend.renderSnapshotRecords({
+  slots: {},
+  completedArchive: {
+    archived: {
+      key: 'progressive-chat:progressive-message:0:archived:archived', chatId: 'progressive-chat', messageId: 'progressive-message', swipeId: 0,
+      requestId: 'archived', slot: 'archived', target: 'custom.artifact-media', imageId: 'archived-image', imageUrl: '/archived.png', completedAt: 100,
+    },
+  },
+} as any)
+assert.equal(archivedProjection.length, 1)
+assert.equal(archivedProjection[0].status, 'completed')
+assert.equal(archivedProjection[0].imageUrl, '/archived.png', 'compacted completion archive could not hydrate an authored request after reload')
+const liveProjection = backend.renderSnapshotRecords({
+  slots: { [archivedProjection[0].key]: { ...archivedProjection[0], imageUrl: '/live.png', updatedAt: 200 } },
+  completedArchive: { archived: { ...archivedProjection[0], imageUrl: '/stale.png', completedAt: 100 } },
+} as any)
+assert.equal(liveProjection.length, 1)
+assert.equal(liveProjection[0].imageUrl, '/live.png', 'an archived completion overrode the live slot version')
 
 const deferred = () => {
   let resolve!: (value?: unknown) => void
@@ -177,4 +196,4 @@ assert.equal(postGallery.markerReplacementMs, 8)
 assert.equal(postGallery.totalMs, 12_050, 'post-completion Reveal time leaked into slot total')
 assert(postGallery.visualSettlementCompletedAt > postGallery.completedAt, 'fixture did not prove non-blocking visual settlement')
 
-console.log(`Progressive placement/performance smoke passed: A placed before B/C, sibling failure preserved, real markers use latest-content serialized writes, gallery-to-complete ${postGallery.completedAt - postGallery.galleryLinkedAt}ms while Reveal settles later, preparations max ${maxPreparations}, Swarm max provider concurrency ${maxSwarmConcurrentProviderCalls}.`)
+console.log(`Progressive placement/performance smoke passed: A projected before B/C, sibling failure preserved, real markers pass latest-content ownership composition without host writes, gallery-to-complete ${postGallery.completedAt - postGallery.galleryLinkedAt}ms while Reveal settles later, preparations max ${maxPreparations}, Swarm max provider concurrency ${maxSwarmConcurrentProviderCalls}.`)

@@ -7,8 +7,11 @@ import sparklingPrimary from '../regex-packs/r45/Reverie-Surfaces-R4.5-COLLAPSIB
 import bracketInlineRealistic from '../regex-packs/r45/Reverie-Surfaces-R4.5-BRACKET-INLINE-REALISTIC.json'
 import bracketPlainRealistic from '../regex-packs/r45/Reverie-Surfaces-R4.5-BRACKET-PLAIN-BUTTON-REALISTIC.json'
 import bracketSparklingRealistic from '../regex-packs/r45/Reverie-Surfaces-R4.5-BRACKET-SPARKLE-BUTTON-REALISTIC.json'
+import glassRealistic from '../regex-packs/r45/Reverie-Surfaces-R4.5-GLASS-REALISTIC.json'
+import glassPrimary from '../regex-packs/r45/Reverie-Surfaces-R4.5-GLASS-PRIMARY.json'
+import bracketGlassRealistic from '../regex-packs/r45/Reverie-Surfaces-R4.5-BRACKET-GLASS-REALISTIC.json'
 
-export type R45PresentationMode = 'inline' | 'plain' | 'sparkling'
+export type R45PresentationMode = 'inline' | 'plain' | 'sparkling' | 'glass'
 export type R45ColorMode = 'realistic' | 'primary'
 
 export type R45RegexScript = {
@@ -37,14 +40,17 @@ const LEGACY_XML_PACKS: Record<`${R45PresentationMode}:${R45ColorMode}`, R45Pack
   'inline:realistic': inlineRealistic as R45Pack,
   'plain:realistic': plainRealistic as R45Pack,
   'sparkling:realistic': sparklingRealistic as R45Pack,
+  'glass:realistic': glassRealistic as unknown as R45Pack,
   'inline:primary': inlinePrimary as R45Pack,
   'plain:primary': plainPrimary as R45Pack,
   'sparkling:primary': sparklingPrimary as R45Pack,
+  'glass:primary': glassPrimary as unknown as R45Pack,
 }
 const BRACKET_MATCHER_PACKS: Record<R45PresentationMode, R45Pack> = {
   inline: bracketInlineRealistic as R45Pack,
   plain: bracketPlainRealistic as R45Pack,
   sparkling: bracketSparklingRealistic as unknown as R45Pack,
+  glass: bracketGlassRealistic as unknown as R45Pack,
 }
 
 const safeMessageId = (value: string): string => String(value || 'surface').replace(/[^A-Za-z0-9_-]+/g, '-') || 'surface'
@@ -74,7 +80,7 @@ function currentBracketPack(presentation: R45PresentationMode, color: R45ColorMo
     return {
       ...script,
       find_regex: matcher.find_regex,
-      replace_string: key === 'sparkling:realistic' ? matcher.replace_string : script.replace_string,
+      replace_string: key === 'sparkling:realistic' || key === 'glass:realistic' ? matcher.replace_string : script.replace_string,
     }
   })
   const pack = { ...presentationPack, scripts }

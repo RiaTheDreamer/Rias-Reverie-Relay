@@ -4,7 +4,7 @@ Living regression ledger for the update after `0.2.8.6.2`.
 
 - Last audited: 2026-09-23
 - Baseline: `staging` at `545b973`
-- Target release: `0.2.8.6.3`
+- Target release: `0.2.8.7`
 - Scope: record confirmed defects, candidate repairs, and validation evidence; automated and live evidence remain separate.
 
 ## Open
@@ -19,7 +19,7 @@ Living regression ledger for the update after `0.2.8.6.2`.
 
 **Confirmed mechanism**
 
-Each sibling image has a request-scoped placement batch and independently reaches `updateMessage`. Lumiverse then replaces the full assistant-message DOM, recreating prose and transient `<details>`/tab state. Progressive in-place reveal works, but persistent write-back causes the remount regression.
+The first repair coalesced sibling placement into one final `updateMessage`, but the 2026-09-23 recording proves that one call is still destructive: the whole assistant body disappears at roughly 00:44 and returns around 01:05. Lumiverse emits `MESSAGE_EDITED` for every public `spindle.chat.updateMessage()` content mutation; `skipChunkRebuild` suppresses retrieval rebuilding only and does not suppress that UI event. The remaining final write therefore tears down the large mounted Surface tree while Lumiverse reconstructs it.
 
 **Required repair**
 
@@ -28,16 +28,18 @@ Each sibling image has a request-scoped placement batch and independently reache
 - Preserve open `<details>` and selected-tab state across any unavoidable remount.
 - Replace the regression assertion that requires sibling images to have different placement batch keys with a behavioral transaction assertion.
 
-**Implementation status — `0.2.8.6.3` candidate**
+**Implementation status — post-`0.2.8.6.3` candidate**
 
-- Initial siblings now share one message/swipe placement key and successful results wait until every initial sibling is terminal before one durable write.
-- Progressive in-place reveal remains request-local and does not wait for the durable transaction.
-- Mounted disclosure and radio/checkbox state is retained by message/swipe and restored after the final host remount.
-- Deterministic placement, streaming-layout, and lifecycle gates pass. Live Lumiverse observation remains separate.
+- Initial siblings still share one message/swipe batch and wait until every initial sibling is terminal.
+- The terminal batch now uses deterministic composition only as an anchor/ownership proof; it does not call `updateMessage`.
+- Generated pixels are canonical in Relay's durable slot/completion archive and are projected into the immutable authored message by the render processor on every paint/reload.
+- Completed archive rows participate in rendering after hot-state compaction, and the render-cache identity includes exact slot status/image identity so pending markup cannot survive a later host render.
+- Progressive in-place reveal remains request-local. There is no automatic host-message remount at terminal insertion.
+- Automated gates cover no-write terminal placement, completed-archive hydration, live-slot precedence, and prose preservation. Post-fix live Lumiverse observation remains separate.
 
 **Acceptance evidence**
 
-- Deterministic multi-image tests for prose-node stability, one durable message transaction, open-state retention, and selected-tab retention.
+- Deterministic multi-image tests for prose-node stability, zero host content writes at terminal placement, completed-archive reload hydration, open-state retention, and selected-tab retention.
 - Live Lumiverse observation with Plot Sparks and Parallel Scene while every image resolves; no prose flash and no Surface closure.
 
 ### NU-002 - Appearance Vault mode controls leak across effective Off/strength settings
@@ -135,6 +137,35 @@ The 2026-09-23 Mokdong response emitted a complete Setting the Scene owner and c
 **Scope boundary**
 
 `[scenecard]` is not in the current registered Core or Narrative inventories and remains intentionally unsupported. Adding it would be a separate Surface contract decision, not structural repair.
+
+### NU-005 - Presentation modes do not govern every shipped Surface
+
+**Symptoms**
+
+- Inline and Button work across the Core/App Surface inventory but not across most previously labeled Narrative Surfaces.
+- Setting the Scene and nine sibling layouts remain closed sparkling launchers in every mode.
+- Plot Sparks and Dramatic Cutaway are permanently sparkling; Inline can hide a launch control without reliably opening its `<details>` root, making the Surface disappear.
+
+**Confirmed mechanism**
+
+- Relay shipped one global presentation selector but retained two implementation authorities: `surfaceDefaultShellMode` and `narrativeDlcVariant`.
+- Eleven of the thirteen Narrative replacement sets are byte-identical across Inline, Button, and Sparkling Button. Only Character Phone and part of Archive Entry contain meaningful variant differences.
+- Plot Sparks and Dramatic Cutaway are appended from fixed packs outside that variant set.
+
+**Implementation status — candidate**
+
+- All 59 shipped Surfaces now derive from the same `SurfaceShellMode` authority.
+- A final outer-shell adapter applies Inline, Button, or Sparkling Button where the historical packs require normalization without rewriting their internal design.
+- Inline roots are explicitly open with the launcher hidden; Button roots start closed with launcher spark decoration suppressed; Sparkling Button roots start closed with their approved animation intact.
+- Old persisted `narrativeDlcVariant` values no longer override the global Surface choice during configuration normalization.
+- Glass is a first-class fourth presentation with committed standalone sources: three aligned 138-script authorities and one complete 56-active-script authority covering Character Phone, Plot Sparks, and Dramatic Cutaway.
+- Glass replacements carry their own full-body styling and do not use the historical outer-shell adapter or fall back to Sparkling/Plain at runtime.
+
+**Acceptance evidence**
+
+- All 13 Surfaces from the second authority path render canonical fixtures in all four modes (52 presentation cases), including Character Phone, Dramatic Cutaway, Plot Sparks, Setting the Scene, and Archive Entry.
+- The first authority path covers all 46 remaining shipped Surfaces across all four modes, renderer modes, and color modes.
+- The dedicated Glass gate proves 46 + 13 = all 59 shipped Surfaces with no Sparkling runtime fallback.
 
 ## Validation Rules
 

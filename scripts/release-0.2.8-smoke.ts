@@ -10,17 +10,17 @@ const json = (relative: string) => JSON.parse(read(relative))
 
 const pkg = json('package.json')
 const manifest = json('spindle.json')
-assert.equal(pkg.version, '0.2.8.6.3')
-assert.equal(manifest.version, '0.2.8.6.3')
+assert.equal(pkg.version, '0.2.8.7')
+assert.equal(manifest.version, '0.2.8.7')
 assert.match(read('README.md'), /\*\*Version:\*\* `0\.2\.8`/)
-assert.match(read('src/build.ts'), /EXTENSION_VERSION = '0\.2\.8\.6\.3'/)
-assert.match(read('src/build.ts'), /BUILD_ID = '20260923-0\.2\.8\.6\.3'/)
+assert.match(read('src/build.ts'), /EXTENSION_VERSION = '0\.2\.8\.7'/)
+assert.match(read('src/build.ts'), /BUILD_ID = '20260923-0\.2\.8\.7'/)
 
 const authorityRoot = new URL('regex-packs/r45/', root)
 const authorityManifest = json('regex-packs/r45/AUTHORITY-MANIFEST.json')
 assert.equal(authorityManifest.relayProductVersion, '0.2.8')
 const packFiles = readdirSync(authorityRoot).filter(name => /^Reverie-Surfaces-R4\.5-.*\.json$/.test(name))
-assert.equal(packFiles.length, 9)
+assert.equal(packFiles.length, 12)
 for (const filename of packFiles) {
   const pack = json(`regex-packs/r45/${filename}`)
   if (Object.prototype.hasOwnProperty.call(pack, 'relay_product_version')) assert.equal(pack.relay_product_version, '0.2.8', `${filename} product version`)
@@ -79,4 +79,4 @@ assert.ok(migrated.stats.completedTotal >= 1, 'lifetime Completed count survives
 assert.equal(migrated.proseIllustrator.opportunities['legacy-opportunity'].plannerVersion, 'prose-opportunity-v1')
 assert.ok(migrated.logs.some((row: any) => row.eventType === 'state_migrated'), 'schema 34 migration is recorded')
 
-console.log('0.2.8.6.3 release smoke passed: version metadata aligned, authority hashes verified, and a 0.2.7.5-era schema-34 completed image/state snapshot migrated without losing historical media.')
+console.log('0.2.8.7 release smoke passed: version metadata aligned, authority hashes verified, and a 0.2.7.5-era schema-34 completed image/state snapshot migrated without losing historical media.')
