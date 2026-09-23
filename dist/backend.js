@@ -381,7 +381,7 @@ function slotKey(parts) {
     parts.messageId,
     String(parts.swipeId),
     parts.requestId,
-    parts.slo
+    parts.slot
   ].join(":");
 }
 function mergeMissingSlotRecords(latest, discoveries) {
@@ -757,7 +757,7 @@ function resolvedRelayImageAttributes(job, result) {
     messageId: job.messageId,
     swipeId: job.swipeId,
     requestId: job.requestId,
-    slot: result.slo
+    slot: result.slot
   });
   return [
     ` data-dgir-key="${escapeAttr(key)}"`,
@@ -1390,9 +1390,9 @@ PROVENANCE
 
 Use only:
 - manual
-- card_explici
+- card_explicit
 - previous_memory
-- narrative_explici
+- narrative_explicit
 - inferred
 
 Prefer manual and explicit sources over inferred sources.
@@ -2157,7 +2157,7 @@ CANONICAL FORMAT
   alt="Brief accessible description"
 >
 <visual_prompt>
-generation-ready visual promp
+generation-ready visual prompt
 </visual_prompt>
 </reverie-illustration>
 
@@ -2575,7 +2575,7 @@ OUTPUT FORMAT \u2014 EXACT
 
 [character_profile]
 [portrait]
-<image_reques
+<image_request
   id="character-profile-UNIQUE-ID"
   target="custom.artifact-media"
   slot="character-profile-UNIQUE-ID"
@@ -3330,7 +3330,7 @@ Do not use it for:
 - casual background casts
 - fewer than three meaningful relationships
 - moments where the map adds no clarity
-- information unavailable to the focal viewpoin
+- information unavailable to the focal viewpoint
 
 VIEWPOINT RULES
 
@@ -3363,7 +3363,7 @@ For every portrait:
 - use target="custom.artifact-media"
 - use aspect="1:1"
 - give the request a unique id
-- give it a matching unique slo
+- give it a matching unique slot
 - describe only visible or established appearance
 - describe expression, clothing, age vibe, framing, lighting, and visual tone
 - request a polished character portrait suitable for a relationship board
@@ -3383,7 +3383,7 @@ For every included character block:
 <summary> One or two sentences describing the current read on this person
 <relationship> Primary relationship to the focal character
 <strength> Numeric value from 0 to 100
-<pressure> One current tension, vulnerability, or pressure poin
+<pressure> One current tension, vulnerability, or pressure point
 
 CONNECTION RULES
 
@@ -6176,7 +6176,7 @@ function addCanonicalAppearanceFact(vault, input, now = Date.now(), options = {}
     active: input.layer === "current-appearance" ? input.active !== false : undefined,
     expiryPolicy: input.layer === "current-appearance" ? input.expiryPolicy || "superseded" : undefined,
     expiresAt: input.layer === "current-appearance" ? input.expiresAt : undefined,
-    lastUsedAt: existing?.lastUsedA
+    lastUsedAt: existing?.lastUsedAt
   };
   map[factId] = fact;
   supersedeAppearanceConflicts(vault, fact.layer, character.canonicalCharacterId, factId, now);
@@ -9313,11 +9313,11 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
 .rrt-user-media>image_request,.rrt-user-media>.reverie-artifact-media,.rrt-user-media .reverie-artifact-media,
 .srv-dt-match-avatar>image_request,.srv-dt-match-avatar>.reverie-artifact-media,.srv-dt-match-avatar .reverie-artifact-media,
 .srv-dt-user-avatar>image_request,.srv-dt-user-avatar>.reverie-artifact-media,.srv-dt-user-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrt-photo img,.rrt-user-media img,.srv-dt-match-avatar img,.srv-dt-user-avatar img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#24141e!importan
+  object-fit:cover!important;object-position:center!important;background:#24141e!important
 }
 </style>
 <style data-r34="mobile-scale-rrt-root">
@@ -10412,11 +10412,11 @@ var Reverie_Surfaces_R4_5_INLINE_REALISTIC_default = {
 .rr-album-art,.rr-album-legacy{background:#08070a!important}
 .rr-album-art>image_request,.rr-album-art>.reverie-artifact-media,.rr-album-art .reverie-artifact-media,
 .rr-album-legacy>image_request,.rr-album-legacy>.reverie-artifact-media,.rr-album-legacy .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr-album-art img,.rr-album-legacy img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#08070a!importan
+  object-fit:cover!important;object-position:center!important;background:#08070a!important
 }
 </style>
 <style data-r32="album-fit">
@@ -11221,7 +11221,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   display:grid!important;
   grid-template-columns:repeat(3,minmax(0,1fr))!important;
   gap:10px!important;
-  padding:12px!importan
+  padding:12px!important
 }
 .srv2-google .srv-g-image{
   position:relative!important;
@@ -11230,45 +11230,45 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   aspect-ratio:auto!important;
   min-height:110px!important;
   overflow:hidden!important;
-  background:#111!importan
+  background:#111!important
 }
 .srv2-google .srv-g-image>image_request,
 .srv2-google .srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-image .reverie-artifact-media{
   display:block!important;width:100%!important;height:auto!important;
-  min-height:0!important;max-height:none!important;background:#111!importan
+  min-height:0!important;max-height:none!important;background:#111!important
 }
 .srv2-google .srv-g-image img{
   display:block!important;width:100%!important;height:auto!important;
   max-width:100%!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#111!importan
+  object-fit:cover!important;object-position:center!important;background:#111!important
 }
 .srv2-google .srv-g-result:has(.srv-g-zoom:checked){position:static!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image{
   position:absolute!important;z-index:101!important;
   left:14px!important;right:14px!important;top:14px!important;bottom:14px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
   display:flex!important;align-items:center!important;justify-content:center!important;
-  padding:12px!important;border-radius:14px!important;background:#09090b!importan
+  padding:12px!important;border-radius:14px!important;background:#09090b!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image>image_request,
 .srv2-google .srv-g-zoom:checked~.srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-zoom:checked~.srv-g-image .reverie-artifact-media{
-  width:100%!important;height:100%!importan
+  width:100%!important;height:100%!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image img{
   width:100%!important;height:100%!important;
   max-width:100%!important;max-height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-mag{display:none!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-close{
   display:grid!important;position:absolute!important;right:11px!important;top:11px!important;
   width:31px!important;height:31px!important;place-items:center!important;
-  border-radius:50%!important;background:#000d!important;color:#fff!importan
+  border-radius:50%!important;background:#000d!important;color:#fff!important
 }
 @container(max-width:620px){.srv2-google .grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>
@@ -11421,30 +11421,30 @@ width:100%!important;height:100%!important}
 .srv2-gallery .srv-gallery-photo{
   aspect-ratio:1/1!important;
   overflow:hidden!important;
-  background:#09090b!importan
+  background:#09090b!important
 }
 .srv2-gallery .srv-gallery-photo>image_request,
 .srv2-gallery .srv-gallery-photo>.reverie-artifact-media,
 .srv2-gallery .srv-gallery-photo .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv2-gallery .srv-gallery-photo img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#09090b!importan
+  object-fit:cover!important;object-position:center!important;background:#09090b!important
 }
 .srv2-gallery .srv-gallery-item:has(.srv-gallery-zoom:checked){position:static!important}
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo{
   position:absolute!important;z-index:101!important;
   left:10px!important;right:10px!important;top:10px!important;bottom:72px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
-  padding:10px!important;border-radius:12px!important;background:#050505!importan
+  padding:10px!important;border-radius:12px!important;background:#050505!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo img{
   width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-mag{display:none!important}
 </style>
@@ -11904,11 +11904,11 @@ width:100%!important;height:100%!important}
 <style data-r30="character-profile-full-image">
 .srv4-profile .portrait{overflow:hidden!important;background:#151019!important}
 .srv4-profile .portrait>image_request,.srv4-profile .portrait>.reverie-artifact-media,.srv4-profile .portrait .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv4-profile .portrait img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151019!importan
+  object-fit:cover!important;object-position:center!important;background:#151019!important
 }
 </style>
 <style data-r32="character-fit">
@@ -13603,7 +13603,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -14955,7 +14955,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -16867,10 +16867,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -16886,12 +16886,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -16940,10 +16940,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -16959,12 +16959,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -18081,11 +18081,11 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 <style data-r30="imessage-full-image">
 .rr22-im-media{overflow:hidden!important;background:#151518!important}
 .rr22-im-media>image_request,.rr22-im-media>.reverie-artifact-media,.rr22-im-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-im-media img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151518!importan
+  object-fit:cover!important;object-position:center!important;background:#151518!important
 }
 </style>
 <style data-r32="imessage-fit">
@@ -18397,12 +18397,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="voice-full-image">
 .rr22-vm-avatar{overflow:hidden!important}
 .rr22-vm-avatar>image_request,.rr22-vm-avatar>.reverie-artifact-media,.rr22-vm-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-vm-avatar img{
   display:block!important;width:100%!important;height:100%!important;
   max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#251d29!importan
+  object-fit:cover!important;object-position:center!important;background:#251d29!important
 }
 </style>
 <style data-r32="voice-fit">
@@ -21393,11 +21393,11 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
 .rrt-user-media>image_request,.rrt-user-media>.reverie-artifact-media,.rrt-user-media .reverie-artifact-media,
 .srv-dt-match-avatar>image_request,.srv-dt-match-avatar>.reverie-artifact-media,.srv-dt-match-avatar .reverie-artifact-media,
 .srv-dt-user-avatar>image_request,.srv-dt-user-avatar>.reverie-artifact-media,.srv-dt-user-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrt-photo img,.rrt-user-media img,.srv-dt-match-avatar img,.srv-dt-user-avatar img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#24141e!importan
+  object-fit:cover!important;object-position:center!important;background:#24141e!important
 }
 </style>
 <style data-r33="plain-spacing">
@@ -22541,11 +22541,11 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_REALISTIC_default = {
 .rr-album-art,.rr-album-legacy{background:#08070a!important}
 .rr-album-art>image_request,.rr-album-art>.reverie-artifact-media,.rr-album-art .reverie-artifact-media,
 .rr-album-legacy>image_request,.rr-album-legacy>.reverie-artifact-media,.rr-album-legacy .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr-album-art img,.rr-album-legacy img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#08070a!importan
+  object-fit:cover!important;object-position:center!important;background:#08070a!important
 }
 </style>
 <style data-r32="album-fit">
@@ -23689,7 +23689,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   display:grid!important;
   grid-template-columns:repeat(3,minmax(0,1fr))!important;
   gap:10px!important;
-  padding:12px!importan
+  padding:12px!important
 }
 .srv2-google .srv-g-image{
   position:relative!important;
@@ -23698,45 +23698,45 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   aspect-ratio:auto!important;
   min-height:110px!important;
   overflow:hidden!important;
-  background:#111!importan
+  background:#111!important
 }
 .srv2-google .srv-g-image>image_request,
 .srv2-google .srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-image .reverie-artifact-media{
   display:block!important;width:100%!important;height:auto!important;
-  min-height:0!important;max-height:none!important;background:#111!importan
+  min-height:0!important;max-height:none!important;background:#111!important
 }
 .srv2-google .srv-g-image img{
   display:block!important;width:100%!important;height:auto!important;
   max-width:100%!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#111!importan
+  object-fit:cover!important;object-position:center!important;background:#111!important
 }
 .srv2-google .srv-g-result:has(.srv-g-zoom:checked){position:static!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image{
   position:absolute!important;z-index:101!important;
   left:14px!important;right:14px!important;top:14px!important;bottom:14px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
   display:flex!important;align-items:center!important;justify-content:center!important;
-  padding:12px!important;border-radius:14px!important;background:#09090b!importan
+  padding:12px!important;border-radius:14px!important;background:#09090b!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image>image_request,
 .srv2-google .srv-g-zoom:checked~.srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-zoom:checked~.srv-g-image .reverie-artifact-media{
-  width:100%!important;height:100%!importan
+  width:100%!important;height:100%!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image img{
   width:100%!important;height:100%!important;
   max-width:100%!important;max-height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-mag{display:none!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-close{
   display:grid!important;position:absolute!important;right:11px!important;top:11px!important;
   width:31px!important;height:31px!important;place-items:center!important;
-  border-radius:50%!important;background:#000d!important;color:#fff!importan
+  border-radius:50%!important;background:#000d!important;color:#fff!important
 }
 @container(max-width:620px){.srv2-google .grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>
@@ -23938,30 +23938,30 @@ width:100%!important;height:100%!important}
 .srv2-gallery .srv-gallery-photo{
   aspect-ratio:1/1!important;
   overflow:hidden!important;
-  background:#09090b!importan
+  background:#09090b!important
 }
 .srv2-gallery .srv-gallery-photo>image_request,
 .srv2-gallery .srv-gallery-photo>.reverie-artifact-media,
 .srv2-gallery .srv-gallery-photo .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv2-gallery .srv-gallery-photo img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#09090b!importan
+  object-fit:cover!important;object-position:center!important;background:#09090b!important
 }
 .srv2-gallery .srv-gallery-item:has(.srv-gallery-zoom:checked){position:static!important}
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo{
   position:absolute!important;z-index:101!important;
   left:10px!important;right:10px!important;top:10px!important;bottom:72px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
-  padding:10px!important;border-radius:12px!important;background:#050505!importan
+  padding:10px!important;border-radius:12px!important;background:#050505!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo img{
   width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-mag{display:none!important}
 </style>
@@ -24617,11 +24617,11 @@ width:100%!important;height:100%!important}
 <style data-r30="character-profile-full-image">
 .srv4-profile .portrait{overflow:hidden!important;background:#151019!important}
 .srv4-profile .portrait>image_request,.srv4-profile .portrait>.reverie-artifact-media,.srv4-profile .portrait .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv4-profile .portrait img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151019!importan
+  object-fit:cover!important;object-position:center!important;background:#151019!important
 }
 </style>
 <style data-r32="character-fit">
@@ -26440,7 +26440,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -27810,7 +27810,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -29817,10 +29817,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -29836,12 +29836,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -29890,10 +29890,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -29909,12 +29909,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -31649,11 +31649,11 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 <style data-r30="imessage-full-image">
 .rr22-im-media{overflow:hidden!important;background:#151518!important}
 .rr22-im-media>image_request,.rr22-im-media>.reverie-artifact-media,.rr22-im-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-im-media img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151518!importan
+  object-fit:cover!important;object-position:center!important;background:#151518!important
 }
 </style>
 <style data-r32="imessage-fit">
@@ -31986,11 +31986,11 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="music-full-cover">
 .rrsp-cover{overflow:hidden!important;background:#0b1110!important}
 .rrsp-cover>image_request,.rrsp-cover>.reverie-artifact-media,.rrsp-cover .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrsp-cover img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#0b1110!importan
+  object-fit:cover!important;object-position:center!important;background:#0b1110!important
 }
 </style>
 <style data-r32="music-fit">
@@ -32291,12 +32291,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="voice-full-image">
 .rr22-vm-avatar{overflow:hidden!important}
 .rr22-vm-avatar>image_request,.rr22-vm-avatar>.reverie-artifact-media,.rr22-vm-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-vm-avatar img{
   display:block!important;width:100%!important;height:100%!important;
   max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#251d29!importan
+  object-fit:cover!important;object-position:center!important;background:#251d29!important
 }
 </style>
 <style data-r32="voice-fit">
@@ -33296,10 +33296,10 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   box-shadow:0 7px 14px rgba(0,0,0,.28)!important;
 }
 .rrletter-media>image_request,.rrletter-media>.reverie-artifact-media,.rrletter-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rrletter-media img,.rrletter-media img.reverie-artifact-media,.rrletter-media .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!important
 }
 @media(max-width:520px){
   .rrletter{max-width:92vw!important}.rrletter-desk{padding:8px!important}.rrletter-paper{padding:28px 25px 31px!important;font-size:14.3px!important}.rrletter-body{font-size:14.3px!important}
@@ -36213,11 +36213,11 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
 .rrt-user-media>image_request,.rrt-user-media>.reverie-artifact-media,.rrt-user-media .reverie-artifact-media,
 .srv-dt-match-avatar>image_request,.srv-dt-match-avatar>.reverie-artifact-media,.srv-dt-match-avatar .reverie-artifact-media,
 .srv-dt-user-avatar>image_request,.srv-dt-user-avatar>.reverie-artifact-media,.srv-dt-user-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrt-photo img,.rrt-user-media img,.srv-dt-match-avatar img,.srv-dt-user-avatar img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#24141e!importan
+  object-fit:cover!important;object-position:center!important;background:#24141e!important
 }
 </style>
 <style data-r33="spark-spacing">
@@ -37375,11 +37375,11 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_REALISTIC_default = {
 .rr-album-art,.rr-album-legacy{background:#08070a!important}
 .rr-album-art>image_request,.rr-album-art>.reverie-artifact-media,.rr-album-art .reverie-artifact-media,
 .rr-album-legacy>image_request,.rr-album-legacy>.reverie-artifact-media,.rr-album-legacy .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr-album-art img,.rr-album-legacy img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#08070a!importan
+  object-fit:cover!important;object-position:center!important;background:#08070a!important
 }
 </style>
 <style data-r32="album-fit">
@@ -38621,7 +38621,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   display:grid!important;
   grid-template-columns:repeat(3,minmax(0,1fr))!important;
   gap:10px!important;
-  padding:12px!importan
+  padding:12px!important
 }
 .srv2-google .srv-g-image{
   position:relative!important;
@@ -38630,45 +38630,45 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   aspect-ratio:auto!important;
   min-height:110px!important;
   overflow:hidden!important;
-  background:#111!importan
+  background:#111!important
 }
 .srv2-google .srv-g-image>image_request,
 .srv2-google .srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-image .reverie-artifact-media{
   display:block!important;width:100%!important;height:auto!important;
-  min-height:0!important;max-height:none!important;background:#111!importan
+  min-height:0!important;max-height:none!important;background:#111!important
 }
 .srv2-google .srv-g-image img{
   display:block!important;width:100%!important;height:auto!important;
   max-width:100%!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#111!importan
+  object-fit:cover!important;object-position:center!important;background:#111!important
 }
 .srv2-google .srv-g-result:has(.srv-g-zoom:checked){position:static!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image{
   position:absolute!important;z-index:101!important;
   left:14px!important;right:14px!important;top:14px!important;bottom:14px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
   display:flex!important;align-items:center!important;justify-content:center!important;
-  padding:12px!important;border-radius:14px!important;background:#09090b!importan
+  padding:12px!important;border-radius:14px!important;background:#09090b!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image>image_request,
 .srv2-google .srv-g-zoom:checked~.srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-zoom:checked~.srv-g-image .reverie-artifact-media{
-  width:100%!important;height:100%!importan
+  width:100%!important;height:100%!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image img{
   width:100%!important;height:100%!important;
   max-width:100%!important;max-height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-mag{display:none!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-close{
   display:grid!important;position:absolute!important;right:11px!important;top:11px!important;
   width:31px!important;height:31px!important;place-items:center!important;
-  border-radius:50%!important;background:#000d!important;color:#fff!importan
+  border-radius:50%!important;background:#000d!important;color:#fff!important
 }
 @container(max-width:620px){.srv2-google .grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>
@@ -38884,30 +38884,30 @@ width:100%!important;height:100%!important}
 .srv2-gallery .srv-gallery-photo{
   aspect-ratio:1/1!important;
   overflow:hidden!important;
-  background:#09090b!importan
+  background:#09090b!important
 }
 .srv2-gallery .srv-gallery-photo>image_request,
 .srv2-gallery .srv-gallery-photo>.reverie-artifact-media,
 .srv2-gallery .srv-gallery-photo .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv2-gallery .srv-gallery-photo img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#09090b!importan
+  object-fit:cover!important;object-position:center!important;background:#09090b!important
 }
 .srv2-gallery .srv-gallery-item:has(.srv-gallery-zoom:checked){position:static!important}
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo{
   position:absolute!important;z-index:101!important;
   left:10px!important;right:10px!important;top:10px!important;bottom:72px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
-  padding:10px!important;border-radius:12px!important;background:#050505!importan
+  padding:10px!important;border-radius:12px!important;background:#050505!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo img{
   width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-mag{display:none!important}
 </style>
@@ -39619,11 +39619,11 @@ width:100%!important;height:100%!important}
 <style data-r30="character-profile-full-image">
 .srv4-profile .portrait{overflow:hidden!important;background:#151019!important}
 .srv4-profile .portrait>image_request,.srv4-profile .portrait>.reverie-artifact-media,.srv4-profile .portrait .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv4-profile .portrait img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151019!importan
+  object-fit:cover!important;object-position:center!important;background:#151019!important
 }
 </style>
 <style data-r32="character-fit">
@@ -41497,7 +41497,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -42881,7 +42881,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -44967,10 +44967,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -44986,12 +44986,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -45040,10 +45040,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -45059,12 +45059,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -46912,11 +46912,11 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 <style data-r30="imessage-full-image">
 .rr22-im-media{overflow:hidden!important;background:#151518!important}
 .rr22-im-media>image_request,.rr22-im-media>.reverie-artifact-media,.rr22-im-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-im-media img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151518!importan
+  object-fit:cover!important;object-position:center!important;background:#151518!important
 }
 </style>
 <style data-r32="imessage-fit">
@@ -47277,11 +47277,11 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="music-full-cover">
 .rrsp-cover{overflow:hidden!important;background:#0b1110!important}
 .rrsp-cover>image_request,.rrsp-cover>.reverie-artifact-media,.rrsp-cover .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrsp-cover img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#0b1110!importan
+  object-fit:cover!important;object-position:center!important;background:#0b1110!important
 }
 </style>
 <style data-r32="music-fit">
@@ -47610,12 +47610,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="voice-full-image">
 .rr22-vm-avatar{overflow:hidden!important}
 .rr22-vm-avatar>image_request,.rr22-vm-avatar>.reverie-artifact-media,.rr22-vm-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-vm-avatar img{
   display:block!important;width:100%!important;height:100%!important;
   max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#251d29!importan
+  object-fit:cover!important;object-position:center!important;background:#251d29!important
 }
 </style>
 <style data-r32="voice-fit">
@@ -48685,10 +48685,10 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   box-shadow:0 7px 14px rgba(0,0,0,.28)!important;
 }
 .rrletter-media>image_request,.rrletter-media>.reverie-artifact-media,.rrletter-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rrletter-media img,.rrletter-media img.reverie-artifact-media,.rrletter-media .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!important
 }
 @media(max-width:520px){
   .rrletter{max-width:92vw!important}.rrletter-desk{padding:8px!important}.rrletter-paper{padding:28px 25px 31px!important;font-size:14.3px!important}.rrletter-body{font-size:14.3px!important}
@@ -51664,11 +51664,11 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
 .rrt-user-media>image_request,.rrt-user-media>.reverie-artifact-media,.rrt-user-media .reverie-artifact-media,
 .srv-dt-match-avatar>image_request,.srv-dt-match-avatar>.reverie-artifact-media,.srv-dt-match-avatar .reverie-artifact-media,
 .srv-dt-user-avatar>image_request,.srv-dt-user-avatar>.reverie-artifact-media,.srv-dt-user-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrt-photo img,.rrt-user-media img,.srv-dt-match-avatar img,.srv-dt-user-avatar img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#24141e!importan
+  object-fit:cover!important;object-position:center!important;background:#24141e!important
 }
 </style>
 <style data-r34="mobile-scale-rrt-root">
@@ -52763,11 +52763,11 @@ var Reverie_Surfaces_R4_5_INLINE_PRIMARY_default = {
 .rr-album-art,.rr-album-legacy{background:#08070a!important}
 .rr-album-art>image_request,.rr-album-art>.reverie-artifact-media,.rr-album-art .reverie-artifact-media,
 .rr-album-legacy>image_request,.rr-album-legacy>.reverie-artifact-media,.rr-album-legacy .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr-album-art img,.rr-album-legacy img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#08070a!importan
+  object-fit:cover!important;object-position:center!important;background:#08070a!important
 }
 </style>
 <style data-r32="album-fit">
@@ -53572,7 +53572,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   display:grid!important;
   grid-template-columns:repeat(3,minmax(0,1fr))!important;
   gap:10px!important;
-  padding:12px!importan
+  padding:12px!important
 }
 .srv2-google .srv-g-image{
   position:relative!important;
@@ -53581,45 +53581,45 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   aspect-ratio:auto!important;
   min-height:110px!important;
   overflow:hidden!important;
-  background:#111!importan
+  background:#111!important
 }
 .srv2-google .srv-g-image>image_request,
 .srv2-google .srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-image .reverie-artifact-media{
   display:block!important;width:100%!important;height:auto!important;
-  min-height:0!important;max-height:none!important;background:#111!importan
+  min-height:0!important;max-height:none!important;background:#111!important
 }
 .srv2-google .srv-g-image img{
   display:block!important;width:100%!important;height:auto!important;
   max-width:100%!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#111!importan
+  object-fit:cover!important;object-position:center!important;background:#111!important
 }
 .srv2-google .srv-g-result:has(.srv-g-zoom:checked){position:static!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image{
   position:absolute!important;z-index:101!important;
   left:14px!important;right:14px!important;top:14px!important;bottom:14px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
   display:flex!important;align-items:center!important;justify-content:center!important;
-  padding:12px!important;border-radius:14px!important;background:#09090b!importan
+  padding:12px!important;border-radius:14px!important;background:#09090b!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image>image_request,
 .srv2-google .srv-g-zoom:checked~.srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-zoom:checked~.srv-g-image .reverie-artifact-media{
-  width:100%!important;height:100%!importan
+  width:100%!important;height:100%!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image img{
   width:100%!important;height:100%!important;
   max-width:100%!important;max-height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-mag{display:none!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-close{
   display:grid!important;position:absolute!important;right:11px!important;top:11px!important;
   width:31px!important;height:31px!important;place-items:center!important;
-  border-radius:50%!important;background:#000d!important;color:#fff!importan
+  border-radius:50%!important;background:#000d!important;color:#fff!important
 }
 @container(max-width:620px){.srv2-google .grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>
@@ -53772,30 +53772,30 @@ width:100%!important;height:100%!important}
 .srv2-gallery .srv-gallery-photo{
   aspect-ratio:1/1!important;
   overflow:hidden!important;
-  background:#09090b!importan
+  background:#09090b!important
 }
 .srv2-gallery .srv-gallery-photo>image_request,
 .srv2-gallery .srv-gallery-photo>.reverie-artifact-media,
 .srv2-gallery .srv-gallery-photo .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv2-gallery .srv-gallery-photo img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#09090b!importan
+  object-fit:cover!important;object-position:center!important;background:#09090b!important
 }
 .srv2-gallery .srv-gallery-item:has(.srv-gallery-zoom:checked){position:static!important}
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo{
   position:absolute!important;z-index:101!important;
   left:10px!important;right:10px!important;top:10px!important;bottom:72px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
-  padding:10px!important;border-radius:12px!important;background:#050505!importan
+  padding:10px!important;border-radius:12px!important;background:#050505!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo img{
   width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-mag{display:none!important}
 </style>
@@ -54255,11 +54255,11 @@ width:100%!important;height:100%!important}
 <style data-r30="character-profile-full-image">
 .srv4-profile .portrait{overflow:hidden!important;background:#151019!important}
 .srv4-profile .portrait>image_request,.srv4-profile .portrait>.reverie-artifact-media,.srv4-profile .portrait .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv4-profile .portrait img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151019!importan
+  object-fit:cover!important;object-position:center!important;background:#151019!important
 }
 </style>
 <style data-r32="character-fit">
@@ -55954,7 +55954,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -57296,7 +57296,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -59207,10 +59207,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -59226,12 +59226,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -59280,10 +59280,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -59299,12 +59299,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -60421,11 +60421,11 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 <style data-r30="imessage-full-image">
 .rr22-im-media{overflow:hidden!important;background:#151518!important}
 .rr22-im-media>image_request,.rr22-im-media>.reverie-artifact-media,.rr22-im-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-im-media img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151518!importan
+  object-fit:cover!important;object-position:center!important;background:#151518!important
 }
 </style>
 <style data-r32="imessage-fit">
@@ -60737,12 +60737,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="voice-full-image">
 .rr22-vm-avatar{overflow:hidden!important}
 .rr22-vm-avatar>image_request,.rr22-vm-avatar>.reverie-artifact-media,.rr22-vm-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-vm-avatar img{
   display:block!important;width:100%!important;height:100%!important;
   max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#251d29!importan
+  object-fit:cover!important;object-position:center!important;background:#251d29!important
 }
 </style>
 <style data-r32="voice-fit">
@@ -63733,11 +63733,11 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
 .rrt-user-media>image_request,.rrt-user-media>.reverie-artifact-media,.rrt-user-media .reverie-artifact-media,
 .srv-dt-match-avatar>image_request,.srv-dt-match-avatar>.reverie-artifact-media,.srv-dt-match-avatar .reverie-artifact-media,
 .srv-dt-user-avatar>image_request,.srv-dt-user-avatar>.reverie-artifact-media,.srv-dt-user-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrt-photo img,.rrt-user-media img,.srv-dt-match-avatar img,.srv-dt-user-avatar img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#24141e!importan
+  object-fit:cover!important;object-position:center!important;background:#24141e!important
 }
 </style>
 <style data-r33="plain-spacing">
@@ -64881,11 +64881,11 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default = {
 .rr-album-art,.rr-album-legacy{background:#08070a!important}
 .rr-album-art>image_request,.rr-album-art>.reverie-artifact-media,.rr-album-art .reverie-artifact-media,
 .rr-album-legacy>image_request,.rr-album-legacy>.reverie-artifact-media,.rr-album-legacy .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr-album-art img,.rr-album-legacy img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#08070a!importan
+  object-fit:cover!important;object-position:center!important;background:#08070a!important
 }
 </style>
 <style data-r32="album-fit">
@@ -66029,7 +66029,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   display:grid!important;
   grid-template-columns:repeat(3,minmax(0,1fr))!important;
   gap:10px!important;
-  padding:12px!importan
+  padding:12px!important
 }
 .srv2-google .srv-g-image{
   position:relative!important;
@@ -66038,45 +66038,45 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   aspect-ratio:auto!important;
   min-height:110px!important;
   overflow:hidden!important;
-  background:#111!importan
+  background:#111!important
 }
 .srv2-google .srv-g-image>image_request,
 .srv2-google .srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-image .reverie-artifact-media{
   display:block!important;width:100%!important;height:auto!important;
-  min-height:0!important;max-height:none!important;background:#111!importan
+  min-height:0!important;max-height:none!important;background:#111!important
 }
 .srv2-google .srv-g-image img{
   display:block!important;width:100%!important;height:auto!important;
   max-width:100%!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#111!importan
+  object-fit:cover!important;object-position:center!important;background:#111!important
 }
 .srv2-google .srv-g-result:has(.srv-g-zoom:checked){position:static!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image{
   position:absolute!important;z-index:101!important;
   left:14px!important;right:14px!important;top:14px!important;bottom:14px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
   display:flex!important;align-items:center!important;justify-content:center!important;
-  padding:12px!important;border-radius:14px!important;background:#09090b!importan
+  padding:12px!important;border-radius:14px!important;background:#09090b!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image>image_request,
 .srv2-google .srv-g-zoom:checked~.srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-zoom:checked~.srv-g-image .reverie-artifact-media{
-  width:100%!important;height:100%!importan
+  width:100%!important;height:100%!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image img{
   width:100%!important;height:100%!important;
   max-width:100%!important;max-height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-mag{display:none!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-close{
   display:grid!important;position:absolute!important;right:11px!important;top:11px!important;
   width:31px!important;height:31px!important;place-items:center!important;
-  border-radius:50%!important;background:#000d!important;color:#fff!importan
+  border-radius:50%!important;background:#000d!important;color:#fff!important
 }
 @container(max-width:620px){.srv2-google .grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>
@@ -66278,30 +66278,30 @@ width:100%!important;height:100%!important}
 .srv2-gallery .srv-gallery-photo{
   aspect-ratio:1/1!important;
   overflow:hidden!important;
-  background:#09090b!importan
+  background:#09090b!important
 }
 .srv2-gallery .srv-gallery-photo>image_request,
 .srv2-gallery .srv-gallery-photo>.reverie-artifact-media,
 .srv2-gallery .srv-gallery-photo .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv2-gallery .srv-gallery-photo img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#09090b!importan
+  object-fit:cover!important;object-position:center!important;background:#09090b!important
 }
 .srv2-gallery .srv-gallery-item:has(.srv-gallery-zoom:checked){position:static!important}
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo{
   position:absolute!important;z-index:101!important;
   left:10px!important;right:10px!important;top:10px!important;bottom:72px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
-  padding:10px!important;border-radius:12px!important;background:#050505!importan
+  padding:10px!important;border-radius:12px!important;background:#050505!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo img{
   width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-mag{display:none!important}
 </style>
@@ -66957,11 +66957,11 @@ width:100%!important;height:100%!important}
 <style data-r30="character-profile-full-image">
 .srv4-profile .portrait{overflow:hidden!important;background:#151019!important}
 .srv4-profile .portrait>image_request,.srv4-profile .portrait>.reverie-artifact-media,.srv4-profile .portrait .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv4-profile .portrait img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151019!importan
+  object-fit:cover!important;object-position:center!important;background:#151019!important
 }
 </style>
 <style data-r32="character-fit">
@@ -68780,7 +68780,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -70140,7 +70140,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -72146,10 +72146,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -72165,12 +72165,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -72219,10 +72219,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -72238,12 +72238,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -73978,11 +73978,11 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 <style data-r30="imessage-full-image">
 .rr22-im-media{overflow:hidden!important;background:#151518!important}
 .rr22-im-media>image_request,.rr22-im-media>.reverie-artifact-media,.rr22-im-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-im-media img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151518!importan
+  object-fit:cover!important;object-position:center!important;background:#151518!important
 }
 </style>
 <style data-r32="imessage-fit">
@@ -74315,11 +74315,11 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="music-full-cover">
 .rrsp-cover{overflow:hidden!important;background:#0b1110!important}
 .rrsp-cover>image_request,.rrsp-cover>.reverie-artifact-media,.rrsp-cover .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrsp-cover img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#0b1110!importan
+  object-fit:cover!important;object-position:center!important;background:#0b1110!important
 }
 </style>
 <style data-r32="music-fit">
@@ -74620,12 +74620,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="voice-full-image">
 .rr22-vm-avatar{overflow:hidden!important}
 .rr22-vm-avatar>image_request,.rr22-vm-avatar>.reverie-artifact-media,.rr22-vm-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-vm-avatar img{
   display:block!important;width:100%!important;height:100%!important;
   max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#251d29!importan
+  object-fit:cover!important;object-position:center!important;background:#251d29!important
 }
 </style>
 <style data-r32="voice-fit">
@@ -75625,10 +75625,10 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   box-shadow:0 7px 14px rgba(0,0,0,.28)!important;
 }
 .rrletter-media>image_request,.rrletter-media>.reverie-artifact-media,.rrletter-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rrletter-media img,.rrletter-media img.reverie-artifact-media,.rrletter-media .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!important
 }
 @media(max-width:520px){
   .rrletter{max-width:92vw!important}.rrletter-desk{padding:8px!important}.rrletter-paper{padding:28px 25px 31px!important;font-size:14.3px!important}.rrletter-body{font-size:14.3px!important}
@@ -78542,11 +78542,11 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
 .rrt-user-media>image_request,.rrt-user-media>.reverie-artifact-media,.rrt-user-media .reverie-artifact-media,
 .srv-dt-match-avatar>image_request,.srv-dt-match-avatar>.reverie-artifact-media,.srv-dt-match-avatar .reverie-artifact-media,
 .srv-dt-user-avatar>image_request,.srv-dt-user-avatar>.reverie-artifact-media,.srv-dt-user-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrt-photo img,.rrt-user-media img,.srv-dt-match-avatar img,.srv-dt-user-avatar img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#24141e!importan
+  object-fit:cover!important;object-position:center!important;background:#24141e!important
 }
 </style>
 <style data-r33="spark-spacing">
@@ -79704,11 +79704,11 @@ var Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default = {
 .rr-album-art,.rr-album-legacy{background:#08070a!important}
 .rr-album-art>image_request,.rr-album-art>.reverie-artifact-media,.rr-album-art .reverie-artifact-media,
 .rr-album-legacy>image_request,.rr-album-legacy>.reverie-artifact-media,.rr-album-legacy .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr-album-art img,.rr-album-legacy img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#08070a!importan
+  object-fit:cover!important;object-position:center!important;background:#08070a!important
 }
 </style>
 <style data-r32="album-fit">
@@ -80950,7 +80950,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   display:grid!important;
   grid-template-columns:repeat(3,minmax(0,1fr))!important;
   gap:10px!important;
-  padding:12px!importan
+  padding:12px!important
 }
 .srv2-google .srv-g-image{
   position:relative!important;
@@ -80959,45 +80959,45 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   aspect-ratio:auto!important;
   min-height:110px!important;
   overflow:hidden!important;
-  background:#111!importan
+  background:#111!important
 }
 .srv2-google .srv-g-image>image_request,
 .srv2-google .srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-image .reverie-artifact-media{
   display:block!important;width:100%!important;height:auto!important;
-  min-height:0!important;max-height:none!important;background:#111!importan
+  min-height:0!important;max-height:none!important;background:#111!important
 }
 .srv2-google .srv-g-image img{
   display:block!important;width:100%!important;height:auto!important;
   max-width:100%!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#111!importan
+  object-fit:cover!important;object-position:center!important;background:#111!important
 }
 .srv2-google .srv-g-result:has(.srv-g-zoom:checked){position:static!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image{
   position:absolute!important;z-index:101!important;
   left:14px!important;right:14px!important;top:14px!important;bottom:14px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
   display:flex!important;align-items:center!important;justify-content:center!important;
-  padding:12px!important;border-radius:14px!important;background:#09090b!importan
+  padding:12px!important;border-radius:14px!important;background:#09090b!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image>image_request,
 .srv2-google .srv-g-zoom:checked~.srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-zoom:checked~.srv-g-image .reverie-artifact-media{
-  width:100%!important;height:100%!importan
+  width:100%!important;height:100%!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image img{
   width:100%!important;height:100%!important;
   max-width:100%!important;max-height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-mag{display:none!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-close{
   display:grid!important;position:absolute!important;right:11px!important;top:11px!important;
   width:31px!important;height:31px!important;place-items:center!important;
-  border-radius:50%!important;background:#000d!important;color:#fff!importan
+  border-radius:50%!important;background:#000d!important;color:#fff!important
 }
 @container(max-width:620px){.srv2-google .grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>
@@ -81213,30 +81213,30 @@ width:100%!important;height:100%!important}
 .srv2-gallery .srv-gallery-photo{
   aspect-ratio:1/1!important;
   overflow:hidden!important;
-  background:#09090b!importan
+  background:#09090b!important
 }
 .srv2-gallery .srv-gallery-photo>image_request,
 .srv2-gallery .srv-gallery-photo>.reverie-artifact-media,
 .srv2-gallery .srv-gallery-photo .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv2-gallery .srv-gallery-photo img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#09090b!importan
+  object-fit:cover!important;object-position:center!important;background:#09090b!important
 }
 .srv2-gallery .srv-gallery-item:has(.srv-gallery-zoom:checked){position:static!important}
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo{
   position:absolute!important;z-index:101!important;
   left:10px!important;right:10px!important;top:10px!important;bottom:72px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
-  padding:10px!important;border-radius:12px!important;background:#050505!importan
+  padding:10px!important;border-radius:12px!important;background:#050505!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo img{
   width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-mag{display:none!important}
 </style>
@@ -81948,11 +81948,11 @@ width:100%!important;height:100%!important}
 <style data-r30="character-profile-full-image">
 .srv4-profile .portrait{overflow:hidden!important;background:#151019!important}
 .srv4-profile .portrait>image_request,.srv4-profile .portrait>.reverie-artifact-media,.srv4-profile .portrait .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv4-profile .portrait img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151019!importan
+  object-fit:cover!important;object-position:center!important;background:#151019!important
 }
 </style>
 <style data-r32="character-fit">
@@ -83826,7 +83826,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -85200,7 +85200,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -87285,10 +87285,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -87304,12 +87304,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -87358,10 +87358,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -87377,12 +87377,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -89230,11 +89230,11 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 <style data-r30="imessage-full-image">
 .rr22-im-media{overflow:hidden!important;background:#151518!important}
 .rr22-im-media>image_request,.rr22-im-media>.reverie-artifact-media,.rr22-im-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-im-media img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151518!importan
+  object-fit:cover!important;object-position:center!important;background:#151518!important
 }
 </style>
 <style data-r32="imessage-fit">
@@ -89595,11 +89595,11 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="music-full-cover">
 .rrsp-cover{overflow:hidden!important;background:#0b1110!important}
 .rrsp-cover>image_request,.rrsp-cover>.reverie-artifact-media,.rrsp-cover .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrsp-cover img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#0b1110!importan
+  object-fit:cover!important;object-position:center!important;background:#0b1110!important
 }
 </style>
 <style data-r32="music-fit">
@@ -89928,12 +89928,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="voice-full-image">
 .rr22-vm-avatar{overflow:hidden!important}
 .rr22-vm-avatar>image_request,.rr22-vm-avatar>.reverie-artifact-media,.rr22-vm-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-vm-avatar img{
   display:block!important;width:100%!important;height:100%!important;
   max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#251d29!importan
+  object-fit:cover!important;object-position:center!important;background:#251d29!important
 }
 </style>
 <style data-r32="voice-fit">
@@ -91003,10 +91003,10 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   box-shadow:0 7px 14px rgba(0,0,0,.28)!important;
 }
 .rrletter-media>image_request,.rrletter-media>.reverie-artifact-media,.rrletter-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rrletter-media img,.rrletter-media img.reverie-artifact-media,.rrletter-media .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!important
 }
 @media(max-width:520px){
   .rrletter{max-width:92vw!important}.rrletter-desk{padding:8px!important}.rrletter-paper{padding:28px 25px 31px!important;font-size:14.3px!important}.rrletter-body{font-size:14.3px!important}
@@ -94012,11 +94012,11 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
 .rrt-user-media>image_request,.rrt-user-media>.reverie-artifact-media,.rrt-user-media .reverie-artifact-media,
 .srv-dt-match-avatar>image_request,.srv-dt-match-avatar>.reverie-artifact-media,.srv-dt-match-avatar .reverie-artifact-media,
 .srv-dt-user-avatar>image_request,.srv-dt-user-avatar>.reverie-artifact-media,.srv-dt-user-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrt-photo img,.rrt-user-media img,.srv-dt-match-avatar img,.srv-dt-user-avatar img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#24141e!importan
+  object-fit:cover!important;object-position:center!important;background:#24141e!important
 }
 </style>
 <style data-r34="mobile-scale-rrt-root">
@@ -95241,11 +95241,11 @@ var Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default = {
 .rr-album-art,.rr-album-legacy{background:#08070a!important}
 .rr-album-art>image_request,.rr-album-art>.reverie-artifact-media,.rr-album-art .reverie-artifact-media,
 .rr-album-legacy>image_request,.rr-album-legacy>.reverie-artifact-media,.rr-album-legacy .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr-album-art img,.rr-album-legacy img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#08070a!importan
+  object-fit:cover!important;object-position:center!important;background:#08070a!important
 }
 </style>
 <style data-r32="album-fit">
@@ -96085,7 +96085,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   display:grid!important;
   grid-template-columns:repeat(3,minmax(0,1fr))!important;
   gap:10px!important;
-  padding:12px!importan
+  padding:12px!important
 }
 .srv2-google .srv-g-image{
   position:relative!important;
@@ -96094,45 +96094,45 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   aspect-ratio:auto!important;
   min-height:110px!important;
   overflow:hidden!important;
-  background:#111!importan
+  background:#111!important
 }
 .srv2-google .srv-g-image>image_request,
 .srv2-google .srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-image .reverie-artifact-media{
   display:block!important;width:100%!important;height:auto!important;
-  min-height:0!important;max-height:none!important;background:#111!importan
+  min-height:0!important;max-height:none!important;background:#111!important
 }
 .srv2-google .srv-g-image img{
   display:block!important;width:100%!important;height:auto!important;
   max-width:100%!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#111!importan
+  object-fit:cover!important;object-position:center!important;background:#111!important
 }
 .srv2-google .srv-g-result:has(.srv-g-zoom:checked){position:static!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image{
   position:absolute!important;z-index:101!important;
   left:14px!important;right:14px!important;top:14px!important;bottom:14px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
   display:flex!important;align-items:center!important;justify-content:center!important;
-  padding:12px!important;border-radius:14px!important;background:#09090b!importan
+  padding:12px!important;border-radius:14px!important;background:#09090b!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image>image_request,
 .srv2-google .srv-g-zoom:checked~.srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-zoom:checked~.srv-g-image .reverie-artifact-media{
-  width:100%!important;height:100%!importan
+  width:100%!important;height:100%!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image img{
   width:100%!important;height:100%!important;
   max-width:100%!important;max-height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-mag{display:none!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-close{
   display:grid!important;position:absolute!important;right:11px!important;top:11px!important;
   width:31px!important;height:31px!important;place-items:center!important;
-  border-radius:50%!important;background:#000d!important;color:#fff!importan
+  border-radius:50%!important;background:#000d!important;color:#fff!important
 }
 @container(max-width:620px){.srv2-google .grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>
@@ -96290,30 +96290,30 @@ width:100%!important;height:100%!important}
 .srv2-gallery .srv-gallery-photo{
   aspect-ratio:1/1!important;
   overflow:hidden!important;
-  background:#09090b!importan
+  background:#09090b!important
 }
 .srv2-gallery .srv-gallery-photo>image_request,
 .srv2-gallery .srv-gallery-photo>.reverie-artifact-media,
 .srv2-gallery .srv-gallery-photo .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv2-gallery .srv-gallery-photo img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#09090b!importan
+  object-fit:cover!important;object-position:center!important;background:#09090b!important
 }
 .srv2-gallery .srv-gallery-item:has(.srv-gallery-zoom:checked){position:static!important}
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo{
   position:absolute!important;z-index:101!important;
   left:10px!important;right:10px!important;top:10px!important;bottom:72px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
-  padding:10px!important;border-radius:12px!important;background:#050505!importan
+  padding:10px!important;border-radius:12px!important;background:#050505!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo img{
   width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-mag{display:none!important}
 </style>
@@ -96793,11 +96793,11 @@ width:100%!important;height:100%!important}
 <style data-r30="character-profile-full-image">
 .srv4-profile .portrait{overflow:hidden!important;background:#151019!important}
 .srv4-profile .portrait>image_request,.srv4-profile .portrait>.reverie-artifact-media,.srv4-profile .portrait .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv4-profile .portrait img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151019!importan
+  object-fit:cover!important;object-position:center!important;background:#151019!important
 }
 </style>
 <style data-r32="character-fit">
@@ -98542,7 +98542,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -99964,7 +99964,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -101981,10 +101981,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -102000,12 +102000,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -102059,10 +102059,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -102078,12 +102078,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -103255,11 +103255,11 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 <style data-r30="imessage-full-image">
 .rr22-im-media{overflow:hidden!important;background:#151518!important}
 .rr22-im-media>image_request,.rr22-im-media>.reverie-artifact-media,.rr22-im-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-im-media img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151518!importan
+  object-fit:cover!important;object-position:center!important;background:#151518!important
 }
 </style>
 <style data-r32="imessage-fit">
@@ -103591,12 +103591,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="voice-full-image">
 .rr22-vm-avatar{overflow:hidden!important}
 .rr22-vm-avatar>image_request,.rr22-vm-avatar>.reverie-artifact-media,.rr22-vm-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-vm-avatar img{
   display:block!important;width:100%!important;height:100%!important;
   max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#251d29!importan
+  object-fit:cover!important;object-position:center!important;background:#251d29!important
 }
 </style>
 <style data-r32="voice-fit">
@@ -106782,11 +106782,11 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
 .rrt-user-media>image_request,.rrt-user-media>.reverie-artifact-media,.rrt-user-media .reverie-artifact-media,
 .srv-dt-match-avatar>image_request,.srv-dt-match-avatar>.reverie-artifact-media,.srv-dt-match-avatar .reverie-artifact-media,
 .srv-dt-user-avatar>image_request,.srv-dt-user-avatar>.reverie-artifact-media,.srv-dt-user-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrt-photo img,.rrt-user-media img,.srv-dt-match-avatar img,.srv-dt-user-avatar img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#24141e!importan
+  object-fit:cover!important;object-position:center!important;background:#24141e!important
 }
 </style>
 <style data-r33="plain-spacing">
@@ -108060,11 +108060,11 @@ var Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default = {
 .rr-album-art,.rr-album-legacy{background:#08070a!important}
 .rr-album-art>image_request,.rr-album-art>.reverie-artifact-media,.rr-album-art .reverie-artifact-media,
 .rr-album-legacy>image_request,.rr-album-legacy>.reverie-artifact-media,.rr-album-legacy .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr-album-art img,.rr-album-legacy img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#08070a!importan
+  object-fit:cover!important;object-position:center!important;background:#08070a!important
 }
 </style>
 <style data-r32="album-fit">
@@ -109243,7 +109243,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   display:grid!important;
   grid-template-columns:repeat(3,minmax(0,1fr))!important;
   gap:10px!important;
-  padding:12px!importan
+  padding:12px!important
 }
 .srv2-google .srv-g-image{
   position:relative!important;
@@ -109252,45 +109252,45 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   aspect-ratio:auto!important;
   min-height:110px!important;
   overflow:hidden!important;
-  background:#111!importan
+  background:#111!important
 }
 .srv2-google .srv-g-image>image_request,
 .srv2-google .srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-image .reverie-artifact-media{
   display:block!important;width:100%!important;height:auto!important;
-  min-height:0!important;max-height:none!important;background:#111!importan
+  min-height:0!important;max-height:none!important;background:#111!important
 }
 .srv2-google .srv-g-image img{
   display:block!important;width:100%!important;height:auto!important;
   max-width:100%!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#111!importan
+  object-fit:cover!important;object-position:center!important;background:#111!important
 }
 .srv2-google .srv-g-result:has(.srv-g-zoom:checked){position:static!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image{
   position:absolute!important;z-index:101!important;
   left:14px!important;right:14px!important;top:14px!important;bottom:14px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
   display:flex!important;align-items:center!important;justify-content:center!important;
-  padding:12px!important;border-radius:14px!important;background:#09090b!importan
+  padding:12px!important;border-radius:14px!important;background:#09090b!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image>image_request,
 .srv2-google .srv-g-zoom:checked~.srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-zoom:checked~.srv-g-image .reverie-artifact-media{
-  width:100%!important;height:100%!importan
+  width:100%!important;height:100%!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image img{
   width:100%!important;height:100%!important;
   max-width:100%!important;max-height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-mag{display:none!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-close{
   display:grid!important;position:absolute!important;right:11px!important;top:11px!important;
   width:31px!important;height:31px!important;place-items:center!important;
-  border-radius:50%!important;background:#000d!important;color:#fff!importan
+  border-radius:50%!important;background:#000d!important;color:#fff!important
 }
 @container(max-width:620px){.srv2-google .grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>
@@ -109497,30 +109497,30 @@ width:100%!important;height:100%!important}
 .srv2-gallery .srv-gallery-photo{
   aspect-ratio:1/1!important;
   overflow:hidden!important;
-  background:#09090b!importan
+  background:#09090b!important
 }
 .srv2-gallery .srv-gallery-photo>image_request,
 .srv2-gallery .srv-gallery-photo>.reverie-artifact-media,
 .srv2-gallery .srv-gallery-photo .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv2-gallery .srv-gallery-photo img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#09090b!importan
+  object-fit:cover!important;object-position:center!important;background:#09090b!important
 }
 .srv2-gallery .srv-gallery-item:has(.srv-gallery-zoom:checked){position:static!important}
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo{
   position:absolute!important;z-index:101!important;
   left:10px!important;right:10px!important;top:10px!important;bottom:72px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
-  padding:10px!important;border-radius:12px!important;background:#050505!importan
+  padding:10px!important;border-radius:12px!important;background:#050505!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo img{
   width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-mag{display:none!important}
 </style>
@@ -110196,11 +110196,11 @@ width:100%!important;height:100%!important}
 <style data-r30="character-profile-full-image">
 .srv4-profile .portrait{overflow:hidden!important;background:#151019!important}
 .srv4-profile .portrait>image_request,.srv4-profile .portrait>.reverie-artifact-media,.srv4-profile .portrait .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv4-profile .portrait img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151019!importan
+  object-fit:cover!important;object-position:center!important;background:#151019!important
 }
 </style>
 <style data-r32="character-fit">
@@ -112069,7 +112069,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -113509,7 +113509,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -115621,10 +115621,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -115640,12 +115640,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -115699,10 +115699,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -115718,12 +115718,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -117513,11 +117513,11 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 <style data-r30="imessage-full-image">
 .rr22-im-media{overflow:hidden!important;background:#151518!important}
 .rr22-im-media>image_request,.rr22-im-media>.reverie-artifact-media,.rr22-im-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-im-media img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151518!importan
+  object-fit:cover!important;object-position:center!important;background:#151518!important
 }
 </style>
 <style data-r32="imessage-fit">
@@ -117860,11 +117860,11 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="music-full-cover">
 .rrsp-cover{overflow:hidden!important;background:#0b1110!important}
 .rrsp-cover>image_request,.rrsp-cover>.reverie-artifact-media,.rrsp-cover .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrsp-cover img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#0b1110!importan
+  object-fit:cover!important;object-position:center!important;background:#0b1110!important
 }
 </style>
 <style data-r32="music-fit">
@@ -118175,12 +118175,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="voice-full-image">
 .rr22-vm-avatar{overflow:hidden!important}
 .rr22-vm-avatar>image_request,.rr22-vm-avatar>.reverie-artifact-media,.rr22-vm-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-vm-avatar img{
   display:block!important;width:100%!important;height:100%!important;
   max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#251d29!importan
+  object-fit:cover!important;object-position:center!important;background:#251d29!important
 }
 </style>
 <style data-r32="voice-fit">
@@ -119210,10 +119210,10 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   box-shadow:0 7px 14px rgba(0,0,0,.28)!important;
 }
 .rrletter-media>image_request,.rrletter-media>.reverie-artifact-media,.rrletter-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rrletter-media img,.rrletter-media img.reverie-artifact-media,.rrletter-media .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!important
 }
 @media(max-width:520px){
   .rrletter{max-width:92vw!important}.rrletter-desk{padding:8px!important}.rrletter-paper{padding:28px 25px 31px!important;font-size:14.3px!important}.rrletter-body{font-size:14.3px!important}
@@ -122304,11 +122304,11 @@ var Reverie_Surfaces_R4_5_BRACKET_SPARKLE_BUTTON_REALISTIC_default = {
 .rrt-user-media>image_request,.rrt-user-media>.reverie-artifact-media,.rrt-user-media .reverie-artifact-media,
 .srv-dt-match-avatar>image_request,.srv-dt-match-avatar>.reverie-artifact-media,.srv-dt-match-avatar .reverie-artifact-media,
 .srv-dt-user-avatar>image_request,.srv-dt-user-avatar>.reverie-artifact-media,.srv-dt-user-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrt-photo img,.rrt-user-media img,.srv-dt-match-avatar img,.srv-dt-user-avatar img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#24141e!importan
+  object-fit:cover!important;object-position:center!important;background:#24141e!important
 }
 </style>
 <style data-r33="spark-spacing">
@@ -123674,11 +123674,11 @@ var Reverie_Surfaces_R4_5_BRACKET_SPARKLE_BUTTON_REALISTIC_default = {
 .rr-album-art,.rr-album-legacy{background:#08070a!important}
 .rr-album-art>image_request,.rr-album-art>.reverie-artifact-media,.rr-album-art .reverie-artifact-media,
 .rr-album-legacy>image_request,.rr-album-legacy>.reverie-artifact-media,.rr-album-legacy .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr-album-art img,.rr-album-legacy img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#08070a!importan
+  object-fit:cover!important;object-position:center!important;background:#08070a!important
 }
 </style>
 <style data-r32="album-fit">
@@ -124972,7 +124972,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   display:grid!important;
   grid-template-columns:repeat(3,minmax(0,1fr))!important;
   gap:10px!important;
-  padding:12px!importan
+  padding:12px!important
 }
 .srv2-google .srv-g-image{
   position:relative!important;
@@ -124981,45 +124981,45 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   aspect-ratio:auto!important;
   min-height:110px!important;
   overflow:hidden!important;
-  background:#111!importan
+  background:#111!important
 }
 .srv2-google .srv-g-image>image_request,
 .srv2-google .srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-image .reverie-artifact-media{
   display:block!important;width:100%!important;height:auto!important;
-  min-height:0!important;max-height:none!important;background:#111!importan
+  min-height:0!important;max-height:none!important;background:#111!important
 }
 .srv2-google .srv-g-image img{
   display:block!important;width:100%!important;height:auto!important;
   max-width:100%!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#111!importan
+  object-fit:cover!important;object-position:center!important;background:#111!important
 }
 .srv2-google .srv-g-result:has(.srv-g-zoom:checked){position:static!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image{
   position:absolute!important;z-index:101!important;
   left:14px!important;right:14px!important;top:14px!important;bottom:14px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
   display:flex!important;align-items:center!important;justify-content:center!important;
-  padding:12px!important;border-radius:14px!important;background:#09090b!importan
+  padding:12px!important;border-radius:14px!important;background:#09090b!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image>image_request,
 .srv2-google .srv-g-zoom:checked~.srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-zoom:checked~.srv-g-image .reverie-artifact-media{
-  width:100%!important;height:100%!importan
+  width:100%!important;height:100%!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image img{
   width:100%!important;height:100%!important;
   max-width:100%!important;max-height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-mag{display:none!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-close{
   display:grid!important;position:absolute!important;right:11px!important;top:11px!important;
   width:31px!important;height:31px!important;place-items:center!important;
-  border-radius:50%!important;background:#000d!important;color:#fff!importan
+  border-radius:50%!important;background:#000d!important;color:#fff!important
 }
 @container(max-width:620px){.srv2-google .grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>
@@ -125243,30 +125243,30 @@ width:100%!important;height:100%!important}
 .srv2-gallery .srv-gallery-photo{
   aspect-ratio:1/1!important;
   overflow:hidden!important;
-  background:#09090b!importan
+  background:#09090b!important
 }
 .srv2-gallery .srv-gallery-photo>image_request,
 .srv2-gallery .srv-gallery-photo>.reverie-artifact-media,
 .srv2-gallery .srv-gallery-photo .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv2-gallery .srv-gallery-photo img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#09090b!importan
+  object-fit:cover!important;object-position:center!important;background:#09090b!important
 }
 .srv2-gallery .srv-gallery-item:has(.srv-gallery-zoom:checked){position:static!important}
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-backdrop{
-  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!importan
+  display:block!important;position:absolute!important;z-index:100!important;inset:0!important;background:#000c!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo{
   position:absolute!important;z-index:101!important;
   left:10px!important;right:10px!important;top:10px!important;bottom:72px!important;
   width:auto!important;height:auto!important;aspect-ratio:auto!important;
-  padding:10px!important;border-radius:12px!important;background:#050505!importan
+  padding:10px!important;border-radius:12px!important;background:#050505!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo img{
   width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-mag{display:none!important}
 </style>
@@ -126010,11 +126010,11 @@ width:100%!important;height:100%!important}
 <style data-r30="character-profile-full-image">
 .srv4-profile .portrait{overflow:hidden!important;background:#151019!important}
 .srv4-profile .portrait>image_request,.srv4-profile .portrait>.reverie-artifact-media,.srv4-profile .portrait .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv4-profile .portrait img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151019!importan
+  object-fit:cover!important;object-position:center!important;background:#151019!important
 }
 </style>
 <style data-r32="character-fit">
@@ -127954,7 +127954,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -129420,7 +129420,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -131632,10 +131632,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -131651,12 +131651,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -131709,10 +131709,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   background:#111!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -131728,12 +131728,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -133375,26 +133375,26 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   grid-template-rows:none!important;
   grid-auto-rows:auto!important;
   min-height:0!important;
-  align-items:start!importan
+  align-items:start!important
 }
 .rrmail-folders{
   grid-column:1!important;
   grid-row:1 / span 20!important;
   min-height:100%!important;
-  padding:12px 6px!importan
+  padding:12px 6px!important
 }
 .srv-email-item{
   grid-column:2!important;
   display:grid!important;
   grid-template-columns:minmax(0,1fr)!important;
   grid-template-rows:auto auto!important;
-  min-width:0!importan
+  min-width:0!important
 }
 .srv-email-nav{
   grid-column:1!important;
   grid-row:1!important;
   min-height:74px!important;
-  padding:10px 11px!importan
+  padding:10px 11px!important
 }
 .srv-email-reader{
   grid-column:1!important;
@@ -133404,7 +133404,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   padding:14px!important;
   border-top:1px solid #29262b!important;
   border-bottom:1px solid #29262b!important;
-  overflow:visible!importan
+  overflow:visible!important
 }
 .srv-email-slot-1 .srv-email-reader{display:block!important}
 #srv-email-2-{{lastMessageId}}:checked~.rrmail-shell .srv-email-reader,
@@ -133419,12 +133419,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .srv-email-reader h2{
   font-size:16px!important;
   line-height:1.25!important;
-  overflow-wrap:anywhere!importan
+  overflow-wrap:anywhere!important
 }
 .srv-email-meta{
   flex-wrap:wrap!important;
   gap:4px 8px!important;
-  margin-bottom:12px!importan
+  margin-bottom:12px!important
 }
 .srv-email-body{
   display:block!important;
@@ -133432,11 +133432,11 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   line-height:1.55!important;
   white-space:pre-line!important;
   overflow-wrap:anywhere!important;
-  word-break:normal!importan
+  word-break:normal!important
 }
 .srv-email-attachment{
   max-width:100%!important;
-  overflow:hidden!importan
+  overflow:hidden!important
 }
 }
 @media(max-width:430px){
@@ -133715,11 +133715,11 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 <style data-r30="imessage-full-image">
 .rr22-im-media{overflow:hidden!important;background:#151518!important}
 .rr22-im-media>image_request,.rr22-im-media>.reverie-artifact-media,.rr22-im-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-im-media img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#151518!importan
+  object-fit:cover!important;object-position:center!important;background:#151518!important
 }
 </style>
 <style data-r32="imessage-fit">
@@ -134090,11 +134090,11 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="music-full-cover">
 .rrsp-cover{overflow:hidden!important;background:#0b1110!important}
 .rrsp-cover>image_request,.rrsp-cover>.reverie-artifact-media,.rrsp-cover .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrsp-cover img{
   display:block!important;width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!important;background:#0b1110!importan
+  object-fit:cover!important;object-position:center!important;background:#0b1110!important
 }
 </style>
 <style data-r32="music-fit">
@@ -134433,12 +134433,12 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 <style data-r30="voice-full-image">
 .rr22-vm-avatar{overflow:hidden!important}
 .rr22-vm-avatar>image_request,.rr22-vm-avatar>.reverie-artifact-media,.rr22-vm-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-vm-avatar img{
   display:block!important;width:100%!important;height:100%!important;
   max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center!important;background:#251d29!importan
+  object-fit:cover!important;object-position:center!important;background:#251d29!important
 }
 </style>
 <style data-r32="voice-fit">
@@ -135537,10 +135537,10 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   box-shadow:0 7px 14px rgba(0,0,0,.28)!important;
 }
 .rrletter-media>image_request,.rrletter-media>.reverie-artifact-media,.rrletter-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rrletter-media img,.rrletter-media img.reverie-artifact-media,.rrletter-media .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!important
 }
 @media(max-width:520px){
   .rrletter{max-width:92vw!important}.rrletter-desk{padding:8px!important}.rrletter-paper{padding:28px 25px 31px!important;font-size:14.3px!important}.rrletter-body{font-size:14.3px!important}
@@ -138735,7 +138735,7 @@ var Reverie_Surfaces_R4_5_GLASS_REALISTIC_default = {
 .rrt-user-media>image_request,.rrt-user-media>.reverie-artifact-media,.rrt-user-media .reverie-artifact-media,
 .srv-dt-match-avatar>image_request,.srv-dt-match-avatar>.reverie-artifact-media,.srv-dt-match-avatar .reverie-artifact-media,
 .srv-dt-user-avatar>image_request,.srv-dt-user-avatar>.reverie-artifact-media,.srv-dt-user-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrt-photo img,.rrt-user-media img,.srv-dt-match-avatar img,.srv-dt-user-avatar img{
   display:block!important;width:100%!important;height:100%!important;
@@ -140076,7 +140076,7 @@ var Reverie_Surfaces_R4_5_GLASS_REALISTIC_default = {
 .rr-album-art,.rr-album-legacy{background:color-mix(in srgb, #08070a 8%, transparent)!important}
 .rr-album-art>image_request,.rr-album-art>.reverie-artifact-media,.rr-album-art .reverie-artifact-media,
 .rr-album-legacy>image_request,.rr-album-legacy>.reverie-artifact-media,.rr-album-legacy .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr-album-art img,.rr-album-legacy img{
   display:block!important;width:100%!important;height:100%!important;
@@ -141738,7 +141738,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   display:grid!important;
   grid-template-columns:repeat(3,minmax(0,1fr))!important;
   gap:10px!important;
-  padding:12px!importan
+  padding:12px!important
 }
 .srv2-google .srv-g-image{
   position:relative!important;
@@ -141769,18 +141769,18 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 .srv2-google .srv-g-zoom:checked~.srv-g-image>image_request,
 .srv2-google .srv-g-zoom:checked~.srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-zoom:checked~.srv-g-image .reverie-artifact-media{
-  width:100%!important;height:100%!importan
+  width:100%!important;height:100%!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image img{
   width:100%!important;height:100%!important;
   max-width:100%!important;max-height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-mag{display:none!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-close{
   display:grid!important;position:absolute!important;right:11px!important;top:11px!important;
   width:31px!important;height:31px!important;place-items:center!important;
-  border-radius:50%!important;background:color-mix(in srgb, #000d 8%, transparent)!important;color:#fff!importan
+  border-radius:50%!important;background:color-mix(in srgb, #000d 8%, transparent)!important;color:#fff!important
 }
 @container(max-width:620px){.srv2-google .grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>
@@ -142087,7 +142087,7 @@ width:100%!important;height:100%!important}
 .srv2-gallery .srv-gallery-photo>image_request,
 .srv2-gallery .srv-gallery-photo>.reverie-artifact-media,
 .srv2-gallery .srv-gallery-photo .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv2-gallery .srv-gallery-photo img{
   display:block!important;width:100%!important;height:100%!important;
@@ -142102,7 +142102,7 @@ width:100%!important;height:100%!important}
   padding:10px!important;border-radius:12px!important;background:color-mix(in srgb, #050505 8%, transparent)!important}
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo img{
   width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-mag{display:none!important}
 </style>
@@ -143042,7 +143042,7 @@ width:100%!important;height:100%!important}
 
 .srv4-profile .portrait{overflow:hidden!important;background:color-mix(in srgb, #151019 8%, transparent)!important}
 .srv4-profile .portrait>image_request,.srv4-profile .portrait>.reverie-artifact-media,.srv4-profile .portrait .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv4-profile .portrait img{
   display:block!important;width:100%!important;height:100%!important;
@@ -145192,7 +145192,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -146858,7 +146858,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -149403,10 +149403,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   background:color-mix(in srgb, #111 8%, transparent)!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -149428,12 +149428,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -149491,10 +149491,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   background:color-mix(in srgb, #111 8%, transparent)!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -149516,12 +149516,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -151924,7 +151924,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
 
 .rr22-im-media{overflow:hidden!important;background:color-mix(in srgb, #151518 8%, transparent)!important}
 .rr22-im-media>image_request,.rr22-im-media>.reverie-artifact-media,.rr22-im-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-im-media img{
   display:block!important;width:100%!important;height:100%!important;
@@ -152426,7 +152426,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 
 .rrsp-cover{overflow:hidden!important;background:color-mix(in srgb, #0b1110 8%, transparent)!important}
 .rrsp-cover>image_request,.rrsp-cover>.reverie-artifact-media,.rrsp-cover .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrsp-cover img{
   display:block!important;width:100%!important;height:100%!important;
@@ -152896,7 +152896,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 
 .rr22-vm-avatar{overflow:hidden!important}
 .rr22-vm-avatar>image_request,.rr22-vm-avatar>.reverie-artifact-media,.rr22-vm-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-vm-avatar img{
   display:block!important;width:100%!important;height:100%!important;
@@ -154306,10 +154306,10 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   box-shadow:0 7px 14px rgba(0,0,0,0.16)!important;
 }
 .rrletter-media>image_request,.rrletter-media>.reverie-artifact-media,.rrletter-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rrletter-media img,.rrletter-media img.reverie-artifact-media,.rrletter-media .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!important
 }
 @media(max-width:520px){
   .rrletter{max-width:92vw!important}.rrletter-desk{padding:8px!important}.rrletter-paper{padding:28px 25px 31px!important;font-size:14.3px!important}.rrletter-body{font-size:14.3px!important}
@@ -157948,7 +157948,7 @@ var Reverie_Surfaces_R4_5_GLASS_PRIMARY_default = {
 .rrt-user-media>image_request,.rrt-user-media>.reverie-artifact-media,.rrt-user-media .reverie-artifact-media,
 .srv-dt-match-avatar>image_request,.srv-dt-match-avatar>.reverie-artifact-media,.srv-dt-match-avatar .reverie-artifact-media,
 .srv-dt-user-avatar>image_request,.srv-dt-user-avatar>.reverie-artifact-media,.srv-dt-user-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrt-photo img,.rrt-user-media img,.srv-dt-match-avatar img,.srv-dt-user-avatar img{
   display:block!important;width:100%!important;height:100%!important;
@@ -159289,7 +159289,7 @@ var Reverie_Surfaces_R4_5_GLASS_PRIMARY_default = {
 .rr-album-art,.rr-album-legacy{background:color-mix(in srgb, #08070a 8%, transparent)!important}
 .rr-album-art>image_request,.rr-album-art>.reverie-artifact-media,.rr-album-art .reverie-artifact-media,
 .rr-album-legacy>image_request,.rr-album-legacy>.reverie-artifact-media,.rr-album-legacy .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr-album-art img,.rr-album-legacy img{
   display:block!important;width:100%!important;height:100%!important;
@@ -160951,7 +160951,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   display:grid!important;
   grid-template-columns:repeat(3,minmax(0,1fr))!important;
   gap:10px!important;
-  padding:12px!importan
+  padding:12px!important
 }
 .srv2-google .srv-g-image{
   position:relative!important;
@@ -160982,18 +160982,18 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 .srv2-google .srv-g-zoom:checked~.srv-g-image>image_request,
 .srv2-google .srv-g-zoom:checked~.srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-zoom:checked~.srv-g-image .reverie-artifact-media{
-  width:100%!important;height:100%!importan
+  width:100%!important;height:100%!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image img{
   width:100%!important;height:100%!important;
   max-width:100%!important;max-height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-mag{display:none!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-close{
   display:grid!important;position:absolute!important;right:11px!important;top:11px!important;
   width:31px!important;height:31px!important;place-items:center!important;
-  border-radius:50%!important;background:color-mix(in srgb, #000d 8%, transparent)!important;color:#fff!importan
+  border-radius:50%!important;background:color-mix(in srgb, #000d 8%, transparent)!important;color:#fff!important
 }
 @container(max-width:620px){.srv2-google .grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>
@@ -161300,7 +161300,7 @@ width:100%!important;height:100%!important}
 .srv2-gallery .srv-gallery-photo>image_request,
 .srv2-gallery .srv-gallery-photo>.reverie-artifact-media,
 .srv2-gallery .srv-gallery-photo .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv2-gallery .srv-gallery-photo img{
   display:block!important;width:100%!important;height:100%!important;
@@ -161315,7 +161315,7 @@ width:100%!important;height:100%!important}
   padding:10px!important;border-radius:12px!important;background:color-mix(in srgb, #050505 8%, transparent)!important}
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo img{
   width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-mag{display:none!important}
 </style>
@@ -162255,7 +162255,7 @@ width:100%!important;height:100%!important}
 
 .srv4-profile .portrait{overflow:hidden!important;background:color-mix(in srgb, #151019 8%, transparent)!important}
 .srv4-profile .portrait>image_request,.srv4-profile .portrait>.reverie-artifact-media,.srv4-profile .portrait .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv4-profile .portrait img{
   display:block!important;width:100%!important;height:100%!important;
@@ -164405,7 +164405,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -166061,7 +166061,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -168605,10 +168605,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   background:color-mix(in srgb, #111 8%, transparent)!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -168630,12 +168630,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -168693,10 +168693,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   background:color-mix(in srgb, #111 8%, transparent)!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -168718,12 +168718,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -171126,7 +171126,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
 
 .rr22-im-media{overflow:hidden!important;background:color-mix(in srgb, #151518 8%, transparent)!important}
 .rr22-im-media>image_request,.rr22-im-media>.reverie-artifact-media,.rr22-im-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-im-media img{
   display:block!important;width:100%!important;height:100%!important;
@@ -171628,7 +171628,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 
 .rrsp-cover{overflow:hidden!important;background:color-mix(in srgb, #0b1110 8%, transparent)!important}
 .rrsp-cover>image_request,.rrsp-cover>.reverie-artifact-media,.rrsp-cover .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrsp-cover img{
   display:block!important;width:100%!important;height:100%!important;
@@ -172098,7 +172098,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 
 .rr22-vm-avatar{overflow:hidden!important}
 .rr22-vm-avatar>image_request,.rr22-vm-avatar>.reverie-artifact-media,.rr22-vm-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-vm-avatar img{
   display:block!important;width:100%!important;height:100%!important;
@@ -173508,10 +173508,10 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   box-shadow:0 7px 14px rgba(0,0,0,0.16)!important;
 }
 .rrletter-media>image_request,.rrletter-media>.reverie-artifact-media,.rrletter-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rrletter-media img,.rrletter-media img.reverie-artifact-media,.rrletter-media .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!important
 }
 @media(max-width:520px){
   .rrletter{max-width:92vw!important}.rrletter-desk{padding:8px!important}.rrletter-paper{padding:28px 25px 31px!important;font-size:14.3px!important}.rrletter-body{font-size:14.3px!important}
@@ -177192,7 +177192,7 @@ var Reverie_Surfaces_R4_5_BRACKET_GLASS_REALISTIC_default = {
 .rrt-user-media>image_request,.rrt-user-media>.reverie-artifact-media,.rrt-user-media .reverie-artifact-media,
 .srv-dt-match-avatar>image_request,.srv-dt-match-avatar>.reverie-artifact-media,.srv-dt-match-avatar .reverie-artifact-media,
 .srv-dt-user-avatar>image_request,.srv-dt-user-avatar>.reverie-artifact-media,.srv-dt-user-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrt-photo img,.rrt-user-media img,.srv-dt-match-avatar img,.srv-dt-user-avatar img{
   display:block!important;width:100%!important;height:100%!important;
@@ -178741,7 +178741,7 @@ var Reverie_Surfaces_R4_5_BRACKET_GLASS_REALISTIC_default = {
 .rr-album-art,.rr-album-legacy{background:color-mix(in srgb, #08070a 8%, transparent)!important}
 .rr-album-art>image_request,.rr-album-art>.reverie-artifact-media,.rr-album-art .reverie-artifact-media,
 .rr-album-legacy>image_request,.rr-album-legacy>.reverie-artifact-media,.rr-album-legacy .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr-album-art img,.rr-album-legacy img{
   display:block!important;width:100%!important;height:100%!important;
@@ -180455,7 +180455,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   display:grid!important;
   grid-template-columns:repeat(3,minmax(0,1fr))!important;
   gap:10px!important;
-  padding:12px!importan
+  padding:12px!important
 }
 .srv2-google .srv-g-image{
   position:relative!important;
@@ -180486,18 +180486,18 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 .srv2-google .srv-g-zoom:checked~.srv-g-image>image_request,
 .srv2-google .srv-g-zoom:checked~.srv-g-image>.reverie-artifact-media,
 .srv2-google .srv-g-zoom:checked~.srv-g-image .reverie-artifact-media{
-  width:100%!important;height:100%!importan
+  width:100%!important;height:100%!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image img{
   width:100%!important;height:100%!important;
   max-width:100%!important;max-height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-mag{display:none!important}
 .srv2-google .srv-g-zoom:checked~.srv-g-image .srv-g-close{
   display:grid!important;position:absolute!important;right:11px!important;top:11px!important;
   width:31px!important;height:31px!important;place-items:center!important;
-  border-radius:50%!important;background:color-mix(in srgb, #000d 8%, transparent)!important;color:#fff!importan
+  border-radius:50%!important;background:color-mix(in srgb, #000d 8%, transparent)!important;color:#fff!important
 }
 @container(max-width:620px){.srv2-google .grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>
@@ -180812,7 +180812,7 @@ width:100%!important;height:100%!important}
 .srv2-gallery .srv-gallery-photo>image_request,
 .srv2-gallery .srv-gallery-photo>.reverie-artifact-media,
 .srv2-gallery .srv-gallery-photo .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv2-gallery .srv-gallery-photo img{
   display:block!important;width:100%!important;height:100%!important;
@@ -180827,7 +180827,7 @@ width:100%!important;height:100%!important}
   padding:10px!important;border-radius:12px!important;background:color-mix(in srgb, #050505 8%, transparent)!important}
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo img{
   width:100%!important;height:100%!important;
-  object-fit:cover!important;object-position:center!importan
+  object-fit:cover!important;object-position:center!important
 }
 .srv2-gallery .srv-gallery-zoom:checked~.srv-gallery-photo .srv-gallery-mag{display:none!important}
 </style>
@@ -181799,7 +181799,7 @@ width:100%!important;height:100%!important}
 
 .srv4-profile .portrait{overflow:hidden!important;background:color-mix(in srgb, #151019 8%, transparent)!important}
 .srv4-profile .portrait>image_request,.srv4-profile .portrait>.reverie-artifact-media,.srv4-profile .portrait .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .srv4-profile .portrait img{
   display:block!important;width:100%!important;height:100%!important;
@@ -184015,7 +184015,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -185763,7 +185763,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 11px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -188434,10 +188434,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   background:color-mix(in srgb, #111 8%, transparent)!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -188459,12 +188459,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -188526,10 +188526,10 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   background:color-mix(in srgb, #111 8%, transparent)!important;
 }
 .rpx-image-bubble>img,.rpx-image-bubble>image_request,.rpx-image-bubble>.reverie-artifact-media,.rpx-image-bubble .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-image-bubble img,.rpx-image-bubble .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 .rpx-msg-row-sent .rpx-image-bubble{border-bottom-right-radius:5px!important}
 .rpx-msg-row-recv .rpx-image-bubble{border-bottom-left-radius:5px!important}
@@ -188551,12 +188551,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
 .rpx-msg-row-sent .rpx-image-bubble>.reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble>.reverie-artifact-media,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media{
   position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
-  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rpx-msg-row-sent .rpx-image-bubble img,.rpx-msg-row-recv .rpx-image-bubble img,
 .rpx-msg-row-sent .rpx-image-bubble .reverie-artifact-media img,.rpx-msg-row-recv .rpx-image-bubble .reverie-artifact-media img{
   position:absolute!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;
-  object-fit:cover!important;object-position:center center!important;border-radius:0!importan
+  object-fit:cover!important;object-position:center center!important;border-radius:0!important
 }
 </style>
 `,
@@ -190672,26 +190672,26 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   grid-template-rows:none!important;
   grid-auto-rows:auto!important;
   min-height:0!important;
-  align-items:start!importan
+  align-items:start!important
 }
 .rrmail-folders{
   grid-column:1!important;
   grid-row:1 / span 20!important;
   min-height:100%!important;
-  padding:12px 6px!importan
+  padding:12px 6px!important
 }
 .srv-email-item{
   grid-column:2!important;
   display:grid!important;
   grid-template-columns:minmax(0,1fr)!important;
   grid-template-rows:auto auto!important;
-  min-width:0!importan
+  min-width:0!important
 }
 .srv-email-nav{
   grid-column:1!important;
   grid-row:1!important;
   min-height:74px!important;
-  padding:10px 11px!importan
+  padding:10px 11px!important
 }
 .srv-email-reader{
   grid-column:1!important;
@@ -190701,7 +190701,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   padding:14px!important;
   border-top:1px solid #29262b!important;
   border-bottom:1px solid #29262b!important;
-  overflow:visible!importan
+  overflow:visible!important
 }
 .srv-email-slot-1 .srv-email-reader{display:block!important}
 #srv-email-2-{{lastMessageId}}:checked~.rrmail-shell .srv-email-reader,
@@ -190716,12 +190716,12 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
 .srv-email-reader h2{
   font-size:16px!important;
   line-height:1.25!important;
-  overflow-wrap:anywhere!importan
+  overflow-wrap:anywhere!important
 }
 .srv-email-meta{
   flex-wrap:wrap!important;
   gap:4px 8px!important;
-  margin-bottom:12px!importan
+  margin-bottom:12px!important
 }
 .srv-email-body{
   display:block!important;
@@ -190729,11 +190729,11 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   line-height:1.55!important;
   white-space:pre-line!important;
   overflow-wrap:anywhere!important;
-  word-break:normal!importan
+  word-break:normal!important
 }
 .srv-email-attachment{
   max-width:100%!important;
-  overflow:hidden!importan
+  overflow:hidden!important
 }
 }
 @media(max-width:430px){
@@ -191093,7 +191093,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
 
 .rr22-im-media{overflow:hidden!important;background:color-mix(in srgb, #151518 8%, transparent)!important}
 .rr22-im-media>image_request,.rr22-im-media>.reverie-artifact-media,.rr22-im-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-im-media img{
   display:block!important;width:100%!important;height:100%!important;
@@ -191605,7 +191605,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 
 .rrsp-cover{overflow:hidden!important;background:color-mix(in srgb, #0b1110 8%, transparent)!important}
 .rrsp-cover>image_request,.rrsp-cover>.reverie-artifact-media,.rrsp-cover .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rrsp-cover img{
   display:block!important;width:100%!important;height:100%!important;
@@ -192085,7 +192085,7 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
 
 .rr22-vm-avatar{overflow:hidden!important}
 .rr22-vm-avatar>image_request,.rr22-vm-avatar>.reverie-artifact-media,.rr22-vm-avatar .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!importan
+  display:block!important;width:100%!important;height:100%!important
 }
 .rr22-vm-avatar img{
   display:block!important;width:100%!important;height:100%!important;
@@ -193524,10 +193524,10 @@ display:block!important;width:100%!important;height:100%!important;max-width:non
   box-shadow:0 7px 14px rgba(0,0,0,0.16)!important;
 }
 .rrletter-media>image_request,.rrletter-media>.reverie-artifact-media,.rrletter-media .reverie-artifact-media{
-  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!importan
+  display:block!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;overflow:hidden!important
 }
 .rrletter-media img,.rrletter-media img.reverie-artifact-media,.rrletter-media .reverie-artifact-media img{
-  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!importan
+  display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;object-fit:cover!important;object-position:center center!important
 }
 @media(max-width:520px){
   .rrletter{max-width:92vw!important}.rrletter-desk{padding:8px!important}.rrletter-paper{padding:28px 25px 31px!important;font-size:14.3px!important}.rrletter-body{font-size:14.3px!important}
@@ -196502,13 +196502,13 @@ var LEGACY_XML_PACKS = {
   "inline:primary": Reverie_Surfaces_R4_5_INLINE_PRIMARY_default,
   "plain:primary": Reverie_Surfaces_R4_5_COLLAPSIBLE_PLAIN_PRIMARY_default,
   "sparkling:primary": Reverie_Surfaces_R4_5_COLLAPSIBLE_SPARKLING_PRIMARY_default,
-  "glass:primary": Reverie_Surfaces_R4_5_GLASS_PRIMARY_defaul
+  "glass:primary": Reverie_Surfaces_R4_5_GLASS_PRIMARY_default
 };
 var BRACKET_MATCHER_PACKS = {
   inline: Reverie_Surfaces_R4_5_BRACKET_INLINE_REALISTIC_default,
   plain: Reverie_Surfaces_R4_5_BRACKET_PLAIN_BUTTON_REALISTIC_default,
   sparkling: Reverie_Surfaces_R4_5_BRACKET_SPARKLE_BUTTON_REALISTIC_default,
-  glass: Reverie_Surfaces_R4_5_BRACKET_GLASS_REALISTIC_defaul
+  glass: Reverie_Surfaces_R4_5_BRACKET_GLASS_REALISTIC_default
 };
 var safeMessageId = (value) => String(value || "surface").replace(/[^A-Za-z0-9_-]+/g, "-") || "surface";
 var sortedScripts = new Map;
@@ -198065,7 +198065,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
       rootTag: "scene_image",
       baseSurfaceId: "prose-illustration",
       preset: activePreset(studio, "prose-illustration"),
-      context: renderContex
+      context: renderContext
     }, true));
   });
   content = content.replace(/<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi, (_full, rawAttrs, body) => {
@@ -198082,7 +198082,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
       rootTag: "reverie-illustration",
       baseSurfaceId: "prose-illustration",
       preset: activePreset(studio, "prose-illustration"),
-      context: renderContex
+      context: renderContext
     }, true));
   });
   content = content.replace(/<image_request\b([^>]*)>([\s\S]*?)<\/image_request>/gi, (full, rawAttrs, body) => {
@@ -198099,7 +198099,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
       rootTag: "image_request",
       baseSurfaceId: "artifact-media",
       preset: activePreset(studio, "artifact-media"),
-      context: renderContex
+      context: renderContext
     }, true));
   });
   content = content.replace(/<image_request\b([^>]*)>([\s\S]*?)<\/image_request>/gi, (_full, rawAttrs, body) => {
@@ -198116,7 +198116,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
       rootTag: "image_request",
       baseSurfaceId,
       preset: activePreset(studio, baseSurfaceId),
-      context: renderContex
+      context: renderContext
     }, true));
   });
   content = content.replace(/<image_request_error\b([^>]*)>([\s\S]*?)<\/image_request_error>/gi, (_full, rawAttrs, body) => {
@@ -198417,7 +198417,7 @@ function renderImageSurface(baseSurfaceId, rootTag, attrs, body, preset, context
     rootTag,
     baseSurfaceId,
     preset,
-    contex
+    context
   }, true);
   return shell(baseSurfaceId, title, subtitle, pending, preset, context, extraClass);
 }
@@ -199143,7 +199143,7 @@ var Reverie_Narrative_Surfaces_FINAL_Inline_default = {
   box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),
     0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),
     inset 0 1px color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent);
-  -webkit-tap-highlight-color:transparen
+  -webkit-tap-highlight-color:transparent
 }
 .rv6-launch::-webkit-details-marker{display:none}.rv6-launch::marker{content:""}
 .rv6-label{position:relative;z-index:2;display:inline-flex;align-items:center;gap:9px}
@@ -199200,7 +199200,7 @@ var Reverie_Narrative_Surfaces_FINAL_Inline_default = {
 .rv6-media{
   position:relative;overflow:hidden;border:1px solid rgba(255,112,189,.18);border-radius:17px;
   background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.012));
-  box-shadow:inset 0 1px rgba(255,255,255,.035);contain:pain
+  box-shadow:inset 0 1px rgba(255,255,255,.035);contain:paint
 }
 .rv6-media:empty{display:none}.rv6-media image_request,.rv6-media scene_brief{display:none!important}.rv6-media .reverie-artifact-media{overflow:hidden!important}
 .rv6-media>img,.rv6-media .reverie-artifact-media{position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;min-width:100%!important;min-height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center!important;border-radius:inherit!important;margin:0!important;padding:0!important}
@@ -199625,7 +199625,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -200216,7 +200216,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;
 letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -200371,7 +200371,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),
     0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),
     inset 0 1px color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent);
-  -webkit-tap-highlight-color:transparen
+  -webkit-tap-highlight-color:transparent
 }
 .rv6-launch::-webkit-details-marker{display:none}.rv6-launch::marker{content:""}
 .rv6-label{position:relative;z-index:2;display:inline-flex;align-items:center;gap:9px}
@@ -200428,7 +200428,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rv6-media{
   position:relative;overflow:hidden;border:1px solid rgba(255,112,189,.18);border-radius:17px;
   background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.012));
-  box-shadow:inset 0 1px rgba(255,255,255,.035);contain:pain
+  box-shadow:inset 0 1px rgba(255,255,255,.035);contain:paint
 }
 .rv6-media:empty{display:none}.rv6-media image_request,.rv6-media scene_brief{display:none!important}
 .rv6-media img{display:block!important;width:100%!important;height:100%!important;object-fit:cover!important;border-radius:inherit!important}
@@ -202051,7 +202051,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   position:absolute!important;
   width:1px!important;height:1px!important;
   opacity:0!important;
-  pointer-events:none!importan
+  pointer-events:none!important
 }
 .rrcp-presentation-sparkling>.rrcp-shell,
 .rrcp-presentation-plain>.rrcp-shell{display:none!important}
@@ -202068,7 +202068,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rrcp-wrap .rrcp-grid{
   display:grid!important;
   grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  align-items:start!importan
+  align-items:start!important
 }
 .rrcp-wrap .rrcp-entry{display:contents!important}
 .rrcp-wrap .rrcp-app-launch{
@@ -202076,13 +202076,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   display:flex!important;
   flex-direction:column!important;
   align-items:center!important;
-  justify-content:flex-start!importan
+  justify-content:flex-start!important
 }
 .rrcp-wrap .rrcp-page{
   position:absolute!important;
   inset:0!important;
   z-index:40!important;
-  display:none!importan
+  display:none!important
 }
 .rrcp-wrap .rrcp-app-launch:has(.rrcp-app-toggle:checked)+.rrcp-page{display:block!important}
 .rrcp-wrap .rrcp-widget{display:block!important}
@@ -202163,7 +202163,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   position:absolute!important;
   width:1px!important;height:1px!important;
   opacity:0!important;
-  pointer-events:none!importan
+  pointer-events:none!important
 }
 .rrcp-presentation-sparkling>.rrcp-shell,
 .rrcp-presentation-plain>.rrcp-shell{display:none!important}
@@ -202180,7 +202180,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rrcp-wrap .rrcp-grid{
   display:grid!important;
   grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  align-items:start!importan
+  align-items:start!important
 }
 .rrcp-wrap .rrcp-entry{display:contents!important}
 .rrcp-wrap .rrcp-app-launch{
@@ -202188,13 +202188,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   display:flex!important;
   flex-direction:column!important;
   align-items:center!important;
-  justify-content:flex-start!importan
+  justify-content:flex-start!important
 }
 .rrcp-wrap .rrcp-page{
   position:absolute!important;
   inset:0!important;
   z-index:40!important;
-  display:none!importan
+  display:none!important
 }
 .rrcp-wrap .rrcp-app-launch:has(.rrcp-app-toggle:checked)+.rrcp-page{display:block!important}
 .rrcp-wrap .rrcp-widget{display:block!important}
@@ -203317,7 +203317,7 @@ var Reverie_Narrative_Surfaces_FINAL_Plain_Button_default = {
   box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),
     0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),
     inset 0 1px color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent);
-  -webkit-tap-highlight-color:transparen
+  -webkit-tap-highlight-color:transparent
 }
 .rv6-launch::-webkit-details-marker{display:none}.rv6-launch::marker{content:""}
 .rv6-label{position:relative;z-index:2;display:inline-flex;align-items:center;gap:9px}
@@ -203374,7 +203374,7 @@ var Reverie_Narrative_Surfaces_FINAL_Plain_Button_default = {
 .rv6-media{
   position:relative;overflow:hidden;border:1px solid rgba(255,112,189,.18);border-radius:17px;
   background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.012));
-  box-shadow:inset 0 1px rgba(255,255,255,.035);contain:pain
+  box-shadow:inset 0 1px rgba(255,255,255,.035);contain:paint
 }
 .rv6-media:empty{display:none}.rv6-media image_request,.rv6-media scene_brief{display:none!important}.rv6-media .reverie-artifact-media{overflow:hidden!important}
 .rv6-media>img,.rv6-media .reverie-artifact-media{position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;min-width:100%!important;min-height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center!important;border-radius:inherit!important;margin:0!important;padding:0!important}
@@ -203799,7 +203799,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -204390,7 +204390,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;
 letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -204545,7 +204545,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),
     0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),
     inset 0 1px color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent);
-  -webkit-tap-highlight-color:transparen
+  -webkit-tap-highlight-color:transparent
 }
 .rv6-launch::-webkit-details-marker{display:none}.rv6-launch::marker{content:""}
 .rv6-label{position:relative;z-index:2;display:inline-flex;align-items:center;gap:9px}
@@ -204602,7 +204602,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rv6-media{
   position:relative;overflow:hidden;border:1px solid rgba(255,112,189,.18);border-radius:17px;
   background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.012));
-  box-shadow:inset 0 1px rgba(255,255,255,.035);contain:pain
+  box-shadow:inset 0 1px rgba(255,255,255,.035);contain:paint
 }
 .rv6-media:empty{display:none}.rv6-media image_request,.rv6-media scene_brief{display:none!important}
 .rv6-media img{display:block!important;width:100%!important;height:100%!important;object-fit:cover!important;border-radius:inherit!important}
@@ -206223,7 +206223,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   position:absolute!important;
   width:1px!important;height:1px!important;
   opacity:0!important;
-  pointer-events:none!importan
+  pointer-events:none!important
 }
 .rrcp-presentation-sparkling>.rrcp-shell,
 .rrcp-presentation-plain>.rrcp-shell{display:none!important}
@@ -206240,7 +206240,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rrcp-wrap .rrcp-grid{
   display:grid!important;
   grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  align-items:start!importan
+  align-items:start!important
 }
 .rrcp-wrap .rrcp-entry{display:contents!important}
 .rrcp-wrap .rrcp-app-launch{
@@ -206248,13 +206248,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   display:flex!important;
   flex-direction:column!important;
   align-items:center!important;
-  justify-content:flex-start!importan
+  justify-content:flex-start!important
 }
 .rrcp-wrap .rrcp-page{
   position:absolute!important;
   inset:0!important;
   z-index:40!important;
-  display:none!importan
+  display:none!important
 }
 .rrcp-wrap .rrcp-app-launch:has(.rrcp-app-toggle:checked)+.rrcp-page{display:block!important}
 .rrcp-wrap .rrcp-widget{display:block!important}
@@ -206333,7 +206333,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   position:absolute!important;
   width:1px!important;height:1px!important;
   opacity:0!important;
-  pointer-events:none!importan
+  pointer-events:none!important
 }
 .rrcp-presentation-sparkling>.rrcp-shell,
 .rrcp-presentation-plain>.rrcp-shell{display:none!important}
@@ -206350,7 +206350,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rrcp-wrap .rrcp-grid{
   display:grid!important;
   grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  align-items:start!importan
+  align-items:start!important
 }
 .rrcp-wrap .rrcp-entry{display:contents!important}
 .rrcp-wrap .rrcp-app-launch{
@@ -206358,13 +206358,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   display:flex!important;
   flex-direction:column!important;
   align-items:center!important;
-  justify-content:flex-start!importan
+  justify-content:flex-start!important
 }
 .rrcp-wrap .rrcp-page{
   position:absolute!important;
   inset:0!important;
   z-index:40!important;
-  display:none!importan
+  display:none!important
 }
 .rrcp-wrap .rrcp-app-launch:has(.rrcp-app-toggle:checked)+.rrcp-page{display:block!important}
 .rrcp-wrap .rrcp-widget{display:block!important}
@@ -206372,7 +206372,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 </style><div class="rrcp-wrap rrcp-presentation-$1">
 <label class="rrcp-launch">
   <input class="rrcp-launch-toggle" type="checkbox">
-
+  
   <span class="rrcp-label"><span>\u25A3</span><span>Character Phone</span></span>
 </label>
 <div class="rrcp-shell">
@@ -207489,7 +207489,7 @@ var Reverie_Narrative_Surfaces_FINAL_Sparkle_Button_default = {
   box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),
     0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),
     inset 0 1px color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent);
-  -webkit-tap-highlight-color:transparen
+  -webkit-tap-highlight-color:transparent
 }
 .rv6-launch::-webkit-details-marker{display:none}.rv6-launch::marker{content:""}
 .rv6-label{position:relative;z-index:2;display:inline-flex;align-items:center;gap:9px}
@@ -207546,7 +207546,7 @@ var Reverie_Narrative_Surfaces_FINAL_Sparkle_Button_default = {
 .rv6-media{
   position:relative;overflow:hidden;border:1px solid rgba(255,112,189,.18);border-radius:17px;
   background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.012));
-  box-shadow:inset 0 1px rgba(255,255,255,.035);contain:pain
+  box-shadow:inset 0 1px rgba(255,255,255,.035);contain:paint
 }
 .rv6-media:empty{display:none}.rv6-media image_request,.rv6-media scene_brief{display:none!important}.rv6-media .reverie-artifact-media{overflow:hidden!important}
 .rv6-media>img,.rv6-media .reverie-artifact-media{position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;min-width:100%!important;min-height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center!important;border-radius:inherit!important;margin:0!important;padding:0!important}
@@ -207971,7 +207971,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -208562,7 +208562,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;
 letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -208717,7 +208717,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),
     0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),
     inset 0 1px color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent);
-  -webkit-tap-highlight-color:transparen
+  -webkit-tap-highlight-color:transparent
 }
 .rv6-launch::-webkit-details-marker{display:none}.rv6-launch::marker{content:""}
 .rv6-label{position:relative;z-index:2;display:inline-flex;align-items:center;gap:9px}
@@ -208774,7 +208774,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rv6-media{
   position:relative;overflow:hidden;border:1px solid rgba(255,112,189,.18);border-radius:17px;
   background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.012));
-  box-shadow:inset 0 1px rgba(255,255,255,.035);contain:pain
+  box-shadow:inset 0 1px rgba(255,255,255,.035);contain:paint
 }
 .rv6-media:empty{display:none}.rv6-media image_request,.rv6-media scene_brief{display:none!important}
 .rv6-media img{display:block!important;width:100%!important;height:100%!important;object-fit:cover!important;border-radius:inherit!important}
@@ -210396,7 +210396,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   position:absolute!important;
   width:1px!important;height:1px!important;
   opacity:0!important;
-  pointer-events:none!importan
+  pointer-events:none!important
 }
 .rrcp-presentation-sparkling>.rrcp-shell,
 .rrcp-presentation-plain>.rrcp-shell{display:none!important}
@@ -210413,7 +210413,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rrcp-wrap .rrcp-grid{
   display:grid!important;
   grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  align-items:start!importan
+  align-items:start!important
 }
 .rrcp-wrap .rrcp-entry{display:contents!important}
 .rrcp-wrap .rrcp-app-launch{
@@ -210421,13 +210421,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   display:flex!important;
   flex-direction:column!important;
   align-items:center!important;
-  justify-content:flex-start!importan
+  justify-content:flex-start!important
 }
 .rrcp-wrap .rrcp-page{
   position:absolute!important;
   inset:0!important;
   z-index:40!important;
-  display:none!importan
+  display:none!important
 }
 .rrcp-wrap .rrcp-app-launch:has(.rrcp-app-toggle:checked)+.rrcp-page{display:block!important}
 .rrcp-wrap .rrcp-widget{display:block!important}
@@ -210506,7 +210506,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   position:absolute!important;
   width:1px!important;height:1px!important;
   opacity:0!important;
-  pointer-events:none!importan
+  pointer-events:none!important
 }
 .rrcp-presentation-sparkling>.rrcp-shell,
 .rrcp-presentation-plain>.rrcp-shell{display:none!important}
@@ -210523,7 +210523,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
 .rrcp-wrap .rrcp-grid{
   display:grid!important;
   grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  align-items:start!importan
+  align-items:start!important
 }
 .rrcp-wrap .rrcp-entry{display:contents!important}
 .rrcp-wrap .rrcp-app-launch{
@@ -210531,13 +210531,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color
   display:flex!important;
   flex-direction:column!important;
   align-items:center!important;
-  justify-content:flex-start!importan
+  justify-content:flex-start!important
 }
 .rrcp-wrap .rrcp-page{
   position:absolute!important;
   inset:0!important;
   z-index:40!important;
-  display:none!importan
+  display:none!important
 }
 .rrcp-wrap .rrcp-app-launch:has(.rrcp-app-toggle:checked)+.rrcp-page{display:block!important}
 .rrcp-wrap .rrcp-widget{display:block!important}
@@ -211730,7 +211730,7 @@ var Reverie_Narrative_Surfaces_FINAL_Glass_default = {
   box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),
     0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),
     inset 0 1px color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent);
-  -webkit-tap-highlight-color:transparen
+  -webkit-tap-highlight-color:transparent
 }
 .rv6-launch::-webkit-details-marker{display:none}.rv6-launch::marker{content:""}
 .rv6-label{position:relative;z-index:2;display:inline-flex;align-items:center;gap:9px}
@@ -211786,7 +211786,7 @@ var Reverie_Narrative_Surfaces_FINAL_Glass_default = {
 .rv6-media{
   position:relative;overflow:hidden;border:1px solid rgba(255,112,189,.18);border-radius:17px;
   background:linear-gradient(145deg,rgba(255,255,255,0.035),rgba(255,255,255,0.012));
-  box-shadow:inset 0 1px rgba(255,255,255,0.035);contain:pain
+  box-shadow:inset 0 1px rgba(255,255,255,0.035);contain:paint
 }
 .rv6-media:empty{display:none}.rv6-media image_request,.rv6-media scene_brief{display:none!important}.rv6-media .reverie-artifact-media{overflow:hidden!important}
 .rv6-media>img,.rv6-media .reverie-artifact-media{position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;min-width:100%!important;min-height:100%!important;max-width:none!important;max-height:none!important;object-fit:cover!important;object-position:center!important;border-radius:inherit!important;margin:0!important;padding:0!important}
@@ -212268,7 +212268,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -212916,7 +212916,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;
 letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -213089,7 +213089,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),
     0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),
     inset 0 1px color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent);
-  -webkit-tap-highlight-color:transparen
+  -webkit-tap-highlight-color:transparent
 }
 .rv6-launch::-webkit-details-marker{display:none}.rv6-launch::marker{content:""}
 .rv6-label{position:relative;z-index:2;display:inline-flex;align-items:center;gap:9px}
@@ -213145,7 +213145,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
 .rv6-media{
   position:relative;overflow:hidden;border:1px solid rgba(255,112,189,.18);border-radius:17px;
   background:linear-gradient(145deg,rgba(255,255,255,0.035),rgba(255,255,255,0.012));
-  box-shadow:inset 0 1px rgba(255,255,255,0.035);contain:pain
+  box-shadow:inset 0 1px rgba(255,255,255,0.035);contain:paint
 }
 .rv6-media:empty{display:none}.rv6-media image_request,.rv6-media scene_brief{display:none!important}
 .rv6-media img{display:block!important;width:100%!important;height:100%!important;object-fit:cover!important;border-radius:inherit!important}
@@ -214905,7 +214905,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   position:absolute!important;
   width:1px!important;height:1px!important;
   opacity:0!important;
-  pointer-events:none!importan
+  pointer-events:none!important
 }
 .rrcp-presentation-sparkling>.rrcp-shell,
 .rrcp-presentation-plain>.rrcp-shell,.rrcp-presentation-glass>.rrcp-shell{display:none!important}
@@ -214922,7 +214922,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
 .rrcp-wrap .rrcp-grid{
   display:grid!important;
   grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  align-items:start!importan
+  align-items:start!important
 }
 .rrcp-wrap .rrcp-entry{display:contents!important}
 .rrcp-wrap .rrcp-app-launch{
@@ -214930,13 +214930,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   display:flex!important;
   flex-direction:column!important;
   align-items:center!important;
-  justify-content:flex-start!importan
+  justify-content:flex-start!important
 }
 .rrcp-wrap .rrcp-page{
   position:absolute!important;
   inset:0!important;
   z-index:40!important;
-  display:none!importan
+  display:none!important
 }
 .rrcp-wrap .rrcp-app-launch:has(.rrcp-app-toggle:checked)+.rrcp-page{display:block!important}
 .rrcp-wrap .rrcp-widget{display:block!important}
@@ -215024,7 +215024,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   position:absolute!important;
   width:1px!important;height:1px!important;
   opacity:0!important;
-  pointer-events:none!importan
+  pointer-events:none!important
 }
 .rrcp-presentation-sparkling>.rrcp-shell,
 .rrcp-presentation-plain>.rrcp-shell,.rrcp-presentation-glass>.rrcp-shell{display:none!important}
@@ -215041,7 +215041,7 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
 .rrcp-wrap .rrcp-grid{
   display:grid!important;
   grid-template-columns:repeat(4,minmax(0,1fr))!important;
-  align-items:start!importan
+  align-items:start!important
 }
 .rrcp-wrap .rrcp-entry{display:contents!important}
 .rrcp-wrap .rrcp-app-launch{
@@ -215049,13 +215049,13 @@ box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px colo
   display:flex!important;
   flex-direction:column!important;
   align-items:center!important;
-  justify-content:flex-start!importan
+  justify-content:flex-start!important
 }
 .rrcp-wrap .rrcp-page{
   position:absolute!important;
   inset:0!important;
   z-index:40!important;
-  display:none!importan
+  display:none!important
 }
 .rrcp-wrap .rrcp-app-launch:has(.rrcp-app-toggle:checked)+.rrcp-page{display:block!important}
 .rrcp-wrap .rrcp-widget{display:block!important}
@@ -216634,7 +216634,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,0.16)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -216778,7 +216778,7 @@ Use exactly one:
 [cp_day]Day / date[/cp_day]
 [cp_battery]0-100[/cp_battery]
 [cp_wallpaper]
-OPTIONAL Relay image reques
+OPTIONAL Relay image request
 [/cp_wallpaper]
 [cp_apps]
 
@@ -217006,7 +217006,7 @@ Prefer one or more of:
 \u2022 a witness noticing something
 \u2022 a practical problem becoming dangerous
 \u2022 a misunderstood action acquiring consequences
-\u2022 a rival, family member, staff member, stranger, or authority entering the orbi
+\u2022 a rival, family member, staff member, stranger, or authority entering the orbit
 \u2022 an object changing hands
 \u2022 a plan beginning off-screen
 \u2022 a mundane detail becoming ominous
@@ -217109,10 +217109,10 @@ Every Plot Spark MUST preserve the current scene as its launch point.
 
 Before generating the seven Sparks, silently identify the active scene state:
 
-\u2022 who is physically presen
+\u2022 who is physically present
 \u2022 where everyone is
 \u2022 what each relevant person is doing
-\u2022 the most recent spoken/action bea
+\u2022 the most recent spoken/action beat
 \u2022 active emotional tensions
 \u2022 unfinished actions
 \u2022 visible or recently handled objects
@@ -217149,7 +217149,7 @@ Do not jump to:
 \u2022 next week
 \u2022 months later
 \u2022 an unrelated location
-\u2022 a distant subplo
+\u2022 a distant subplot
 
 just to make a Spark different.
 
@@ -217203,7 +217203,7 @@ A Spark may naturally branch from:
 \u2022 an unfinished message
 \u2022 something dropped
 \u2022 a door left open
-\u2022 damaged equipmen
+\u2022 damaged equipment
 \u2022 clothing or belongings
 \u2022 food or drink
 \u2022 paperwork
@@ -217231,7 +217231,7 @@ If someone is:
 \u2022 scared
 \u2022 exhausted
 \u2022 flirting
-\u2022 avoiding eye contac
+\u2022 avoiding eye contact
 \u2022 physically close
 \u2022 withdrawing
 \u2022 protective
@@ -217251,18 +217251,18 @@ Unexpected does NOT mean unrelated.
 Find surprising consequences hidden inside the existing scene.
 
 Prefer:
-\u2022 an overlooked implication becoming importan
+\u2022 an overlooked implication becoming important
 \u2022 one character interpreting the last action differently
 \u2022 an unfinished physical action going wrong
 \u2022 a nearby object changing the interaction
 \u2022 someone choosing not to do the expected thing
-\u2022 a previously established obligation becoming relevant at the worst momen
-\u2022 an established person entering at an inconvenient momen
+\u2022 a previously established obligation becoming relevant at the worst moment
+\u2022 an established person entering at an inconvenient moment
 \u2022 the current environment complicating what someone is trying to do
 \u2022 a private thought becoming behavior
 \u2022 a misunderstanding forming from something actually visible
 \u2022 an attempted escape creating another problem
-\u2022 a small practical detail becoming emotionally significan
+\u2022 a small practical detail becoming emotionally significant
 
 The strongest Sparks make the reader realize that the possibility was already latent in the scene.
 
@@ -217274,7 +217274,7 @@ Avoid seven variations of the same:
 \u2022 interruption
 \u2022 confession
 \u2022 misunderstanding
-\u2022 physical acciden
+\u2022 physical accident
 \u2022 phone notification
 \u2022 discovery
 \u2022 romantic escalation
@@ -217319,7 +217319,7 @@ Examples:
 \u2022 they let go when the other person expected them to hold on
 \u2022 they admit a smaller truth to avoid the larger one
 \u2022 they quietly set a boundary
-\u2022 they choose tenderness at the worst possible momen
+\u2022 they choose tenderness at the worst possible moment
 
 Do not manufacture an unsupported confession or personality reversal.
 
@@ -217363,7 +217363,7 @@ The pressure should already exist or follow naturally from the current scene.
 Examples:
 \u2022 someone has to decide whether to leave now
 \u2022 the unsent message becomes impossible to ignore
-\u2022 transportation is about to depar
+\u2022 transportation is about to depart
 \u2022 a rehearsal/class/shift they already knew about starts soon
 \u2022 someone must answer a direct question instead of stalling
 
@@ -217376,9 +217376,9 @@ Something visible, audible, recorded, overheard, messaged, photographed, or cont
 The misread must originate from an actual current-scene signal.
 
 Examples:
-\u2022 someone walks in at precisely the wrong visual momen
+\u2022 someone walks in at precisely the wrong visual moment
 \u2022 a partial message gives the wrong impression
-\u2022 a nearby person hears one sentence without contex
+\u2022 a nearby person hears one sentence without context
 \u2022 an existing photo/video captures something misleading
 \u2022 an observed gesture appears more intimate/hostile/suspicious than intended
 
@@ -217418,7 +217418,7 @@ If the blank requires invented backstory, a random external event, an unrelated 
 CONTINUITY TEST
 
 Each Spark must preserve:
-\u2022 current location unless the next action naturally exits i
+\u2022 current location unless the next action naturally exits it
 \u2022 current time
 \u2022 current wardrobe/injury/physical state
 \u2022 current relationships
@@ -217595,7 +217595,7 @@ If a narrative-continuity check fails, replace the offending Spark rather than w
     },
     {
       loomName: "Scene Shift",
-      loomContent: `### Scene Shift \u2014 Visual + Contex
+      loomContent: `### Scene Shift \u2014 Visual + Context
 
 Use this surface only when the story actually moves into a meaningfully different scene state: a new place, a meaningful time jump, or an atmosphere change substantial enough to reframe the setting.
 
@@ -217900,9 +217900,9 @@ SIDE
 \xBB personality | three to five concrete traits with at least one friction or contradiction
 \xBB disposition | present stance toward the user character, current cast, and situation
 \xBB voice | cadence, vocabulary, or one distinctive speech behavior
-\xBB desire | immediate objective \xB7 longer pressure beneath i
-\xBB affiliation | official group \xB7 actual loyalty \xB7 strength of attachmen
-\xBB history | one past fact that still affects the presen
+\xBB desire | immediate objective \xB7 longer pressure beneath it
+\xBB affiliation | official group \xB7 actual loyalty \xB7 strength of attachment
+\xBB history | one past fact that still affects the present
 \xBB ties | important people and the current state of those relationships
 \xBB useful | skill, access, resource, or knowledge they can presently bring to play
 \xBB function | the pressure, information, opportunity, obstacle, or thread they currently carry
@@ -217914,7 +217914,7 @@ MAIN
 [npc_media]<image_request id="dossier-[name-slug]-[unique-id]" target="custom.artifact-media" slot="dossier-[name-slug]-[unique-id]" aspect="1:1" alt="[Accessible portrait description]"><scene_brief>[Single-subject current-state portrait of the Main character. Preserve canonical identity, wardrobe, physical condition, light, and continuity. No readable text.]</scene_brief></image_request>[/npc_media]
 \xBB\xBB who
 \xBB name | full name, including what a shortened name expands to
-\xBB aliases | each alias and who uses i
+\xBB aliases | each alias and who uses it
 \xBB age \xB7 role | exact age \xB7 occupation and present standing
 \xBB pronouns |
 \xBB origin \xB7 heritage | where they come from
@@ -217926,9 +217926,9 @@ MAIN
 \xBB hair | colour \xB7 style \xB7 length \xB7 texture \xB7 upkeep
 \xBB eyes | colour \xB7 shape \xB7 what changes when they lie
 \xBB skin \xB7 hands |
-\xBB marks | scars \xB7 tattoos \xB7 piercings \xB7 posture \xB7 gai
+\xBB marks | scars \xB7 tattoos \xB7 piercings \xB7 posture \xB7 gait
 \xBB dressed | current clothing \xB7 what it implies about money and the present week
-\xBB detail | one sharply specific visual fac
+\xBB detail | one sharply specific visual fact
 \xBB thesis | the appearance choice that reveals the most about them \xB7 why
 \xBB\xBB presence
 \xBB room | how they occupy space \xB7 what shifts when they enter
@@ -217949,9 +217949,9 @@ MAIN
 \xBB first | first-line reflex
 \xBB second | what follows when that fails
 \xBB cornered | break direction \xB7 deciding condition
-\xBB vulnerable | what they offer intentionally or expose only by acciden
+\xBB vulnerable | what they offer intentionally or expose only by accident
 \xBB\xBB contradictions
-\xBB holds both | two or three truths they carry simultaneously even when those truths conflic
+\xBB holds both | two or three truths they carry simultaneously even when those truths conflict
 \xBB\xBB taste
 \xBB loves | specific things \xB7 why
 \xBB refuses | what they reject \xB7 reason in their own language
@@ -217960,7 +217960,7 @@ MAIN
 \xBB likes | \xB7 dislikes | \xB7 strengths | \xB7 weaknesses |
 \xBB quirks | mannerisms \xB7 how their frequency changes with state
 \xBB\xBB values
-\xBB holds | \xB7 crosses | the rule they would violate and for wha
+\xBB holds | \xB7 crosses | the rule they would violate and for what
 \xBB\xBB wants
 \xBB said | \xB7 real | \xB7 now | present scene objective
 \xBB\xBB fears
@@ -217973,7 +217973,7 @@ MAIN
 \xBB tell | \xB7 floor | \xB7 schooling | \xB7 ban |
 \xBB\xBB speech
 \xBB neutral | \xB7 greeting | \xB7 angry | \xB7 happy | \xB7 sad | \xB7 flustered |
-\xBB\xBB pas
+\xBB\xBB past
 \xBB summary | one or two sentences containing only history that still operates now
 \xBB events | two or three concrete past events
 \xBB\xBB ties
@@ -218038,7 +218038,7 @@ INLINE FORMAT
 \xBB\xBB character
 \xBB impression | the sensory combination that makes this place recognizable
 \xBB rule | one social, physical, or practical truth that shapes behavior here
-\xBB\xBB layou
+\xBB\xBB layout
 \xBB anchors | stable rooms, landmarks, districts, or features and how they relate
 \xBB routes | entrances, exits, transport, chokepoints, and restricted paths
 \xBB around it | nearby areas \xB7 direction \xB7 useful travel time
@@ -218229,7 +218229,7 @@ Suggested examples:
 - CHARACTER: Familiarity \xB7 Influence \xB7 Openness
 - LOCATION: Familiarity \xB7 Access \xB7 Risk
 - ITEM: Importance \xB7 Access \xB7 Stability
-- FACTION: Influence \xB7 Exposure \xB7 Alignmen
+- FACTION: Influence \xB7 Exposure \xB7 Alignment
 - EVENT: Impact \xB7 Fallout \xB7 Certainty
 - RELATIONSHIP: Trust \xB7 Tension \xB7 Closeness
 - SECRET: Exposure \xB7 Certainty \xB7 Consequence
@@ -219057,7 +219057,7 @@ background:radial-gradient(circle at 20% 20%,color-mix(in srgb,var(--lumiverse-p
 color:var(--lumiverse-primary-text,#ffd9ed)!important;
 font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.19em!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;
 box-shadow:var(--lumiverse-shadow-lg,0 12px 32px rgba(0,0,0,.34)),0 0 20px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 18%,transparent),inset 0 1px 0 color-mix(in srgb,var(--lumiverse-text,#fff) 9%,transparent)!important;
--webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!importan
+-webkit-tap-highlight-color:transparent!important;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease!important
 }
 .dg-compact-launch-host>summary.dg-compact-launch::-webkit-details-marker{display:none!important}
 .dg-compact-launch-host>summary.dg-compact-launch::marker{content:""!important}
@@ -219323,7 +219323,7 @@ var PACKS = {
   "sparkle-button": Reverie_Narrative_Surfaces_FINAL_Sparkle_Button_default,
   "plain-button": Reverie_Narrative_Surfaces_FINAL_Plain_Button_default,
   inline: Reverie_Narrative_Surfaces_FINAL_Inline_default,
-  glass: Reverie_Narrative_Surfaces_FINAL_Glass_defaul
+  glass: Reverie_Narrative_Surfaces_FINAL_Glass_default
 };
 var EXPECTED_PIN = {
   "sparkle-button": "[cp_presentation]sparkling[/cp_presentation]",
@@ -219722,7 +219722,7 @@ function narrativeRegexScripts(variant) {
       ...script,
       name: applyNarrativeDisplayNames(String(script.name || script.script_id)),
       find_regex: isParallel ? PARALLEL_SCENE_FIND : script.find_regex,
-      replace_string: NARRATIVE_MEDIA_OWNER_CLASS.test(spacedReplacement) ? `${NARRATIVE_MEDIA_COMPATIBILITY_STYLE}${spacedReplacement}` : spacedReplacemen
+      replace_string: NARRATIVE_MEDIA_OWNER_CLASS.test(spacedReplacement) ? `${NARRATIVE_MEDIA_COMPATIBILITY_STYLE}${spacedReplacement}` : spacedReplacement
     };
   }).sort((left, right) => Number(left.sort_order) - Number(right.sort_order));
 }
@@ -222321,7 +222321,7 @@ spindle.on("GENERATION_STARTED", (payload, userId) => {
           interceptorRegistrationActive: true,
           interceptorPermissionGranted: true,
           interceptorRegistrationEpoch,
-          interceptorRegisteredA
+          interceptorRegisteredAt
         }
       })).catch((error) => spindle.log.warn(`[Reverie Relay:story_prompt_interception_missing] ${error instanceof Error ? error.message : String(error)}`));
     }
@@ -222557,7 +222557,7 @@ async function handleGenerationEnded(payload, userId) {
     generationType: payload?.generationType ?? null,
     hasError: Boolean(payload?.error),
     hasContent: Boolean(payload?.content),
-    payloadContainsImageRequest: payloadHasImageReques
+    payloadContainsImageRequest: payloadHasImageRequest
   });
   if (payload?.error || !payload?.chatId || !payload?.messageId || !payload?.content)
     return;
@@ -223289,7 +223289,7 @@ function selectProseContinuityFacts(state, chatId, settings, namedSubjects = [],
       sceneBrief: projection.sceneBrief,
       strength,
       framingMode: settings.perspectiveMode,
-      expectedPeopleCount: projection.expectedPeopleCoun
+      expectedPeopleCount: projection.expectedPeopleCount
     }).included;
   }
   return selectContinuityForSubjects(state.continuityVault, {
@@ -223487,7 +223487,7 @@ async function flushAssistantScan(scheduled) {
       sourceFingerprint: contentFingerprint(sourceContent || ""),
       authoritativeContainsRequest: containsRelayRequestMarkup(storedContent),
       sourceContainsRequest: Boolean(containsRelayRequestMarkup(sourceContent)),
-      retryAttempt: scheduled.attemp
+      retryAttempt: scheduled.attempt
     }
   }));
   await scanAndGenerate(scheduled.chatId, scheduled.messageId, swipeId, scheduled.userId, undefined, sourceContent, !config.autoGenerate);
@@ -224424,7 +224424,7 @@ function buildFullCompleteDryRunReport(input) {
       narrativeUtilities: {
         injectionEnabled: input.narrativeInjectionEnabled,
         enabledUtilityNames: input.narrativeUtility.utilityNames,
-        enabledUtilities: input.narrativeUtility.conten
+        enabledUtilities: input.narrativeUtility.content
       },
       provider: { connectionId: native.activeImageGenConnectionId || null, model: native.model || null, parameters: cloneRecord(native.parameters) },
       promptPrefixes: { positive: promptPrefix, negative: negativePrefix },
@@ -224471,7 +224471,7 @@ async function handleFullCompleteDryRun(payload, nativeSnapshot, userId) {
     slots: Object.values(state.slots),
     appearance: state.continuityVault,
     surfaceStudio: state.customSurfaces,
-    queueConcurrencyLimit: config.queueConcurrencyLimi
+    queueConcurrencyLimit: config.queueConcurrencyLimit
   });
   spindle.sendToFrontend({ type: "full_complete_dry_run_result", report }, userId);
 }
@@ -225131,7 +225131,7 @@ async function runAppearanceSidecar(input) {
     conflictDomain: fact.conflictDomain || null,
     userConfirmed: Boolean(fact.userConfirmed),
     active: fact.status === "active" && (fact.layer !== "current-appearance" || fact.active !== false),
-    updatedAt: fact.updatedA
+    updatedAt: fact.updatedAt
   })), null, 2);
   const requestContent = input.refreshField ? registryPrompt(settings, requestPromptId).replace(/\{\{\s*runtime_payload\s*\}\}/gi, JSON.stringify(payload)) : expandModelPromptTemplate(registryPrompt(settings, requestPromptId), {
     adultMode: adultModeFromSettings(config, nativeSettings),
@@ -225141,7 +225141,7 @@ async function runAppearanceSidecar(input) {
     currentVisualStateJson: appearanceFactJson(appearanceFacts.filter((fact) => fact.layer !== "visual-identity" && fact.status === "active" && (fact.layer !== "current-appearance" || fact.active !== false))),
     subjectBindingsJson: JSON.stringify({ activeCharacter: character, activePersona: persona, nativeImageGenBindings: bindings }, null, 2),
     tagVocabularyJson: JSON.stringify({ mode: "backend-validated", unknownVocabulary: "visual-phrase", aliasesNormalizedBy: "Reverie Relay" }, null, 2),
-    sourceResponse: input.conten
+    sourceResponse: input.content
   });
   const raw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, {
     ...config,
@@ -225414,7 +225414,7 @@ async function scanAndGenerate(chatId, messageId, forcedSwipeId, userId, nativeS
           originalRequestXml: req.fullMatch,
           cast: req.cast,
           promptSource: req.promptSource,
-          sourceContent: conten
+          sourceContent: content
         };
         if (blocking) {
           logStage(config, "request_skipped", {
@@ -226452,7 +226452,7 @@ async function startRelayBatch(chatId, nativeSnapshot, userId, requestedCandidat
           finalImageRequest: result.finalImageRequest,
           promptProfile: result.promptProfile,
           regenerationIntent: result.regenerationIntent,
-          snapshot: resul
+          snapshot: result
         }, userId);
         summary.candidatesGenerated += 1;
         await sendState(userId, chatId);
@@ -228540,7 +228540,7 @@ async function retryRelayCandidate(chatId, batchId, candidateKey, nativeSnapshot
       finalImageRequest: result.finalImageRequest,
       promptProfile: result.promptProfile,
       regenerationIntent: result.regenerationIntent,
-      snapshot: resul
+      snapshot: result
     }, userId);
   } catch (error) {
     await updateRelayCandidate(chatId, batchId, candidateKey, { status: "failed", error: error instanceof Error ? error.message : String(error) }, userId);
@@ -229203,7 +229203,7 @@ async function buildProsePromptComposerMessages(chatId, opportunity, content, se
   const state = await getState(chatId, userId);
   const facts = selectProseContinuityFacts(state, chatId, settings, opportunity.namedSubjects || [], {
     sceneBrief: [opportunity.sceneSummary, opportunity.selectedExcerpt].map(cleanString).filter(Boolean).join(" "),
-    expectedPeopleCount: opportunity.expectedPeopleCoun
+    expectedPeopleCount: opportunity.expectedPeopleCount
   });
   const references = selectProseReferenceAssets(state, chatId, settings, false);
   const locationReferences = selectProseReferenceAssets(state, chatId, settings, true);
@@ -230732,7 +230732,7 @@ async function handleAppearanceFieldRefresh(payload, userId) {
       status: fieldResult?.status === "unknown" ? "unknown" : "success",
       message: fieldResult?.status === "unknown" ? `No established ${labels[field]} found \u2014 existing value kept.` : `${labels[field]} updated \u2713`,
       revision: latest.revision,
-      updatedAt: latest.continuityVault.characterSheets[payload.characterId]?.updatedA
+      updatedAt: latest.continuityVault.characterSheets[payload.characterId]?.updatedAt
     }, userId);
     spindle.sendToFrontend({
       type: "relay_notice",
@@ -230966,7 +230966,7 @@ function normalizeCustomSurfaceStudio(value) {
     lastInjectionSource: ["automatic", "macro"].includes(cleanString(raw.lastInjectionSource)) ? cleanString(raw.lastInjectionSource) : "none",
     lastInjectionPosition: [...validInjectionPositions, "macro-placement"].includes(cleanString(raw.lastInjectionPosition)) ? cleanString(raw.lastInjectionPosition) : "none",
     lastInjectionSummary: cleanString(raw.lastInjectionSummary) || defaults.lastInjectionSummary,
-    updatedAt: Number(raw.updatedAt) || defaults.updatedA
+    updatedAt: Number(raw.updatedAt) || defaults.updatedAt
   };
 }
 function normalizedSurfaceDefinitionIds(value = {}) {
@@ -233007,7 +233007,7 @@ async function generateImage(chatId, prepared, plan, userId, streamContext, owne
     galleryItemId,
     galleryLinkError,
     imagePersistedAt,
-    galleryLinkedA
+    galleryLinkedAt
   };
 }
 function createSlotDiagnostic(job, slot, prepared, generated, promptProfile, intent) {
@@ -233045,7 +233045,7 @@ function createSlotDiagnostic(job, slot, prepared, generated, promptProfile, int
       nativeImageSettings: generated.nativeImageSettings,
       connectionDefaultParameters: generated.connectionDefaultParameters,
       loras: generated.lorasSentToProvider,
-      nativeActiveLoraPreset: generated.nativeActiveLoraPrese
+      nativeActiveLoraPreset: generated.nativeActiveLoraPreset
     },
     relayInferred: {
       automaticTargetClassification: promptProfile?.automaticClassification || classifyImageRequest(job),
@@ -233832,7 +233832,7 @@ async function buildParserContext(job, messages, targetIndex, config, _userId, n
       sceneBrief: job.originalSceneBrief,
       strength: illustratorAppearanceStrength,
       framingMode: continuityFramingMode,
-      expectedPeopleCount: continuityExpectedPeopleCoun
+      expectedPeopleCount: continuityExpectedPeopleCount
     }).included;
     return selected.map(appearanceFactDescriptor).filter(Boolean).join(", ");
   };
@@ -234694,7 +234694,7 @@ function normalizeGenerationRecipes(value) {
       promptProfileId: cleanString(row.promptProfileId) || "auto",
       parameterOverrides: cleanParameters(row.parameterOverrides),
       createdAt,
-      updatedAt: Number(row.updatedAt) || createdA
+      updatedAt: Number(row.updatedAt) || createdAt
     });
   }
   return out.slice(0, 120);
@@ -234840,7 +234840,7 @@ function normalizeImageGenerationStreamEvent(rawEvent) {
     step: numberOrUndefined(event.step ?? event.currentStep ?? event.current ?? event.progressStep),
     totalSteps: numberOrUndefined(event.totalSteps ?? event.steps ?? event.maxSteps ?? event.total),
     nodeId: cleanString(event.nodeId ?? event.node ?? event.executingNode),
-    resul
+    result
   };
 }
 async function generateWithOptionalStream(finalRequest, plan, userId, context, forceStandard = false, timeoutMs = IMAGE_GENERATION_TIMEOUT_MS) {
@@ -235637,7 +235637,7 @@ function ensureDispatchLeases(state) {
       discoveredAt: record.discoveredAt || record.createdAt || Date.now(),
       queuedAt: record.queuedAt,
       dispatchedAt: record.generationStartedAt,
-      completedAt: record.completedA
+      completedAt: record.completedAt
     };
   }
 }
@@ -237155,7 +237155,7 @@ function logSlotSummary(config, state, chatId) {
     requestId: record.requestId,
     slot: record.slot,
     status: record.status,
-    target: record.targe
+    target: record.target
   })).sort((a, b) => `${a.messageId}:${a.swipeId}:${a.requestId}:${a.slot}`.localeCompare(`${b.messageId}:${b.swipeId}:${b.requestId}:${b.slot}`));
   logStage(config, "slot_summary", {
     chatId,
