@@ -1,6 +1,7 @@
 import type { SurfaceNormalizationResult, SurfaceNormalizationSpec } from './c5bReliability'
 import { BracketNode, bracketNodeText, normalizeBracketName, parseBracketDocument } from './bracketParser'
 import { completeSurfaceSpecs, parseSurfaceXml, surfaceRootAliases, surfaceXmlAttributes, xmlChildren, type SurfaceXmlNode } from './surfaceXml'
+import { normalizeRegisteredHybridClosingDelimiters } from './surfaceStructuralRepair'
 
 export type BracketDialect = 'canonical-child-fields' | 'legacy-attribute-drift' | 'malformed'
 
@@ -59,18 +60,11 @@ function knownTagsForSurface(spec: SurfaceNormalizationSpec): Set<string> {
  * approved Surface. Ordinary prose and unknown bracket-like text are untouched. */
 export function normalizeKnownHybridClosingDelimiters(source: string, spec: SurfaceNormalizationSpec): { markup: string; warnings: string[] } {
   const known = knownTagsForSurface(spec)
-  const warnings: string[] = []
-  let markup = String(source || '')
-  const repair = (full: string, rawName: string): string => {
-    const name = normalizeBracketName(rawName)
-    if (!known.has(name)) return full
-    const canonical = `[/${name}]`
-    warnings.push(`${spec.id}: normalized hybrid closing delimiter ${full} -> ${canonical}`)
-    return canonical
-  }
-  markup = markup.replace(/\[\/([A-Za-z][\w-]*)>/g, repair)
-  markup = markup.replace(/<\/([A-Za-z][\w-]*)\]/g, repair)
-  return { markup, warnings }
+  return normalizeRegisteredHybridClosingDelimiters(source, {
+    knownTags: known,
+    ownerTags: surfaceRootAliases(spec),
+    scope: spec.id,
+  })
 }
 
 /**

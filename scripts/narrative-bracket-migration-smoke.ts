@@ -7,8 +7,10 @@ import {
   NARRATIVE_REGEX_VARIANTS,
   containsNarrativeRegexMarkup,
   narrativeRegexScripts,
+  narrativeSurfaceBracketTags,
   narrativeUtilityItems,
   missingNarrativeUtilityFormatMarkers,
+  normalizeNarrativeClosingDelimiters,
   normalizeNarrativeMarkupForRendering,
   normalizeParallelSceneMarkup,
   renderNarrativeRegex,
@@ -122,6 +124,25 @@ const phone = `[character_phone][cp_presentation]sparkling[/cp_presentation][cp_
 fixtures['Character Phone'] = { source: phone, rendered: 'rrcp-wrap' }
 
 assert(Object.keys(fixtures).length === utilityNames.length, `fixture inventory does not cover all Utilities: ${Object.keys(fixtures).length}/${utilityNames.length}`)
+const narrativeContractTags = narrativeSurfaceBracketTags()
+let narrativeClosingDelimiterMutationCases = 0
+for (const tag of narrativeContractTags) {
+  const canonical = `[WORLD|Test|Contract][${tag}]value[/${tag}][/WORLD]`
+  for (const malformed of [`</${tag}]`, `[/${tag}>`]) {
+    const mutated = canonical.replace(`[/${tag}]`, malformed)
+    const repaired = normalizeNarrativeClosingDelimiters(mutated)
+    assert(repaired === canonical, `Narrative contract tag ${tag} did not repair ${malformed}`)
+    narrativeClosingDelimiterMutationCases += 1
+  }
+}
+assert(narrativeClosingDelimiterMutationCases === narrativeContractTags.size * 2 && narrativeContractTags.size > 40, 'Narrative closer mutation matrix did not cover the registered contract')
+for (const untouched of [
+  'Ordinary prose [world_detail]example </world_detail] outside a Surface.',
+  '<world_detail>XML-owned value</world_detail]',
+  '[WORLD|Test|Contract][world_detail][future_use]crossed</world_detail][/future_use][/WORLD]',
+  '[WORLD|Test|Contract][invented_field]unknown</invented_field][/WORLD]',
+]) assert(normalizeNarrativeClosingDelimiters(untouched) === untouched, `unsafe closer repair changed fail-closed source: ${untouched}`)
+
 let renderCases = 0
 for (const [name, fixture] of Object.entries(fixtures)) {
   assert(containsNarrativeRegexMarkup(fixture.source), `${name}: canonical bracket root is not detected`)
@@ -237,6 +258,14 @@ const canonicalWorld = `[WORLD|🌿 ENVIRONMENT|Basalt Sea Cave South of Jeju]
 [/WORLD]`
 assert(normalizeNarrativeMarkupForRendering(canonicalWorld) === canonicalWorld, 'canonical World normalization must remain byte-for-byte unchanged')
 
+const liveHybridWorldDetailCloser = canonicalWorld.replace('[/world_detail]', '</world_detail]')
+const repairedLiveHybridWorld = normalizeNarrativeMarkupForRendering(liveHybridWorldDetailCloser)
+assert(repairedLiveHybridWorld === canonicalWorld, 'live World hybrid world_detail closer was not restored through shared Surface repair')
+for (const variant of NARRATIVE_REGEX_VARIANTS) {
+  const rendered = renderNarrativeRegex(liveHybridWorldDetailCloser, variant, `world-hybrid-closer-${variant}`)
+  assert(rendered.includes('Setting the Scene') && !rendered.includes('[WORLD|'), `${variant}: shared closer repair did not reach the World renderer`)
+}
+
 const missingRootWorld = canonicalWorld.replace('\n[/WORLD]', '')
 // The live missing-root response continued directly into Plot Sparks. That
 // next independently valid owner is the boundary that makes recovery safe.
@@ -343,4 +372,4 @@ assert(worldIsolated.includes('class="ch-og') && !worldIsolated.includes('[Plot_
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
 assert(packageJson.version === '0.2.8.6.3', `version changed: ${packageJson.version}`)
 
-console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} Utilities, ${renderCases} dedicated presentation renders, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone three-variant regression passed, malformed-sibling isolation passed, Stella absent.`)
+console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} Utilities, ${renderCases} dedicated presentation renders, ${narrativeClosingDelimiterMutationCases} closer mutations, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone three-variant regression passed, malformed-sibling isolation passed, Stella absent.`)

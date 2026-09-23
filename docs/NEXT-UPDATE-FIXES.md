@@ -106,6 +106,36 @@ The 2026-09-23 Incheon archery response emitted a valid `[WORLD|...]` header and
 - Ambiguous World fails closed and cannot poison valid sibling Surfaces.
 - Focused Narrative gates and full `bun run test` pass.
 
+### NU-004 - Hybrid closing delimiters break otherwise valid Surfaces
+
+**Observed fixture**
+
+The 2026-09-23 Mokdong response emitted a complete Setting the Scene owner and canonical `[/WORLD]`, but opened `[world_detail]` and closed it as `</world_detail]`. The strict World renderer correctly rejected the malformed child closer, leaving the World scaffold raw.
+
+**Confirmed mechanism**
+
+- Core bracket Surfaces already had deterministic hybrid-closer repair, but it lived only in the Core bracket bridge.
+- Narrative Utilities bypassed that bridge and relied on one-off normalizers for previously observed World/Phone failures.
+- The new fixture therefore failed before the World Regex despite belonging to the same lexical error class already handled elsewhere.
+
+**Candidate repair**
+
+- Added one shared registered-Surface lexical normalizer for `[field]... </field]` and `[field]... [/field>` contamination.
+- Core Surfaces resolve their allowed tags from each registered Surface grammar; Narrative Utilities resolve tags from the shipped model-facing contracts and cache the registry.
+- Repair requires a registered tag, a matching bracket opener at the stack top, and an active registered owner. Unknown tags, XML-owned elements, crossed nesting, and prose outside an owner remain byte-identical.
+- The strict presentation Regexes remain unchanged; only canonical bracket markup reaches them.
+
+**Acceptance evidence**
+
+- 1,580 deterministic closer mutations pass across all 46 Core Surface fixtures.
+- 248 deterministic closer mutations pass across 124 registered Narrative contract tags and all 13 Utilities.
+- The exact `[world_detail]... </world_detail]` World fixture renders in all three Narrative presentations without raw `[WORLD|...]` markup.
+- Full `bun run test` passes, including build, release, and source-hygiene gates. Live Lumiverse validation has not been run.
+
+**Scope boundary**
+
+`[scenecard]` is not in the current registered Core or Narrative inventories and remains intentionally unsupported. Adding it would be a separate Surface contract decision, not structural repair.
+
 ## Validation Rules
 
 - Automated local gates and live Lumiverse checks must be reported separately.

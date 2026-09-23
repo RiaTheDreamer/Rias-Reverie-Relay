@@ -138409,6 +138409,52 @@ function parseBracketDocument(source) {
   };
 }
 
+// src/surfaceStructuralRepair.ts
+var normalizeTag = (value) => String(value || "").trim().toLowerCase().replace(/-/g, "_");
+function normalizeRegisteredHybridClosingDelimiters(source, options) {
+  const known = new Set([...options.knownTags].map(normalizeTag).filter(Boolean));
+  const owners = new Set([...options.ownerTags || []].map(normalizeTag).filter(Boolean));
+  const stack = [];
+  const warnings = [];
+  const input = String(source || "");
+  const token = /<\/\s*([A-Za-z][\w-]*)\s*\]|\[\/\s*([A-Za-z][\w-]*)\s*>|\[(\/?)\s*([A-Za-z][\w-]*)([^\]]*)\]/g;
+  let output = "";
+  let cursor = 0;
+  for (const match of input.matchAll(token)) {
+    const index = match.index || 0;
+    output += input.slice(cursor, index);
+    cursor = index + match[0].length;
+    const bracketName = normalizeTag(match[4] || "");
+    const malformedName = normalizeTag(match[1] || match[2] || "");
+    if (!malformedName) {
+      if (!known.has(bracketName)) {
+        output += match[0];
+        continue;
+      }
+      if (match[3] === "/") {
+        const openIndex = stack.lastIndexOf(bracketName);
+        if (openIndex >= 0)
+          stack.splice(openIndex);
+      } else {
+        stack.push(bracketName);
+      }
+      output += match[0];
+      continue;
+    }
+    const ownerActive = !owners.size || stack.some((name) => owners.has(name));
+    if (!known.has(malformedName) || !ownerActive || stack.at(-1) !== malformedName) {
+      output += match[0];
+      continue;
+    }
+    const canonical = `[/${malformedName}]`;
+    output += canonical;
+    stack.pop();
+    warnings.push(`${options.scope || "surface"}: normalized hybrid closing delimiter ${match[0]} -> ${canonical}`);
+  }
+  output += input.slice(cursor);
+  return { markup: output, warnings };
+}
+
 // src/bracketSurfaceBridge.ts
 var KNOWN_APP_SURFACE_DRIFT_ROOTS = ["tweet:feed", "tweet_feed", "igfeed", "igstory", "igpost"];
 var escapeRe2 = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -138434,19 +138480,11 @@ function knownTagsForSurface(spec) {
 }
 function normalizeKnownHybridClosingDelimiters(source, spec) {
   const known = knownTagsForSurface(spec);
-  const warnings = [];
-  let markup = String(source || "");
-  const repair = (full, rawName) => {
-    const name = normalizeBracketName(rawName);
-    if (!known.has(name))
-      return full;
-    const canonical = `[/${name}]`;
-    warnings.push(`${spec.id}: normalized hybrid closing delimiter ${full} -> ${canonical}`);
-    return canonical;
-  };
-  markup = markup.replace(/\[\/([A-Za-z][\w-]*)>/g, repair);
-  markup = markup.replace(/<\/([A-Za-z][\w-]*)\]/g, repair);
-  return { markup, warnings };
+  return normalizeRegisteredHybridClosingDelimiters(source, {
+    knownTags: known,
+    ownerTags: surfaceRootAliases(spec),
+    scope: spec.id
+  });
 }
 function normalizeSmartphoneBracketDrift(source) {
   const input = String(source || "");
@@ -155303,6 +155341,49 @@ var NARRATIVE_UTILITY_FORMAT_CONTRACTS = {
   "In Another Life": ["[WHATIF|", "[whatif_media]", "[whatif_scenario]", "[whatif_branch]", "[/WHATIF]"],
   "Archive Entry": ["[dossier_ui]", "[category]", "[archive_head]", "[archive_media]", "[archive_stats]", "[archive_details]", "[archive_export]", "[/dossier_ui]"]
 };
+var NARRATIVE_SURFACE_ROOT_TAGS = [
+  "character_phone",
+  "private_phone",
+  "dramatic_parallel",
+  "plot_sparks",
+  "scene",
+  "parallel",
+  "npc",
+  "secret",
+  "world",
+  "else",
+  "place",
+  "whatif",
+  "dossier_ui"
+];
+var narrativeSurfaceBracketTagCache = null;
+function narrativeSurfaceBracketTags() {
+  if (narrativeSurfaceBracketTagCache)
+    return new Set(narrativeSurfaceBracketTagCache);
+  const opened = new Set;
+  const closed = new Set;
+  const contract = (NARRATIVE_UTILITY_PACK.loomItems || []).map((item) => String(item.loomContent || "")).join(`
+`);
+  for (const match of contract.matchAll(/\[(\/?)\s*([A-Za-z][\w-]*)(?:[^\]]*)\]/g)) {
+    const name = String(match[2] || "").toLowerCase().replace(/-/g, "_");
+    if (match[1] === "/")
+      closed.add(name);
+    else
+      opened.add(name);
+  }
+  const registered = new Set([...opened].filter((name) => closed.has(name)));
+  for (const root of NARRATIVE_SURFACE_ROOT_TAGS)
+    registered.add(root);
+  narrativeSurfaceBracketTagCache = registered;
+  return new Set(registered);
+}
+function normalizeNarrativeClosingDelimiters(markup) {
+  return normalizeRegisteredHybridClosingDelimiters(markup, {
+    knownTags: narrativeSurfaceBracketTags(),
+    ownerTags: NARRATIVE_SURFACE_ROOT_TAGS,
+    scope: "narrative"
+  }).markup;
+}
 function missingNarrativeUtilityFormatMarkers(name, content) {
   const source = String(content || "").toLocaleLowerCase();
   return (NARRATIVE_UTILITY_FORMAT_CONTRACTS[name] || []).filter((marker) => !source.includes(marker.toLocaleLowerCase()));
@@ -155539,7 +155620,8 @@ function normalizeWorldMarkup(markup) {
   });
 }
 function normalizeNarrativeMarkupForRendering(markup) {
-  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeParallelSceneMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(String(markup || ""))))))).replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root, body) => {
+  const structurallyNormalized = normalizeNarrativeClosingDelimiters(String(markup || ""));
+  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeParallelSceneMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(structurallyNormalized)))))).replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root, body) => {
     const repairedBody = body.replace(/<\/(cp_[A-Za-z][A-Za-z0-9_]*)>/gi, "[/$1]");
     return `[${root}]${repairedBody}[/${root}]`;
   }).replace(/(\[(character_phone|private_phone)\b[^\]]*\])((?:(?!\[(?:character_phone|private_phone)\b)[\s\S])*?)\[\/\2\]/gi, (_full, opening, root, body) => {

@@ -4519,6 +4519,52 @@ function parseBracketDocument(source) {
   };
 }
 
+// src/surfaceStructuralRepair.ts
+var normalizeTag = (value) => String(value || "").trim().toLowerCase().replace(/-/g, "_");
+function normalizeRegisteredHybridClosingDelimiters(source, options) {
+  const known = new Set([...options.knownTags].map(normalizeTag).filter(Boolean));
+  const owners = new Set([...options.ownerTags || []].map(normalizeTag).filter(Boolean));
+  const stack = [];
+  const warnings = [];
+  const input = String(source || "");
+  const token = /<\/\s*([A-Za-z][\w-]*)\s*\]|\[\/\s*([A-Za-z][\w-]*)\s*>|\[(\/?)\s*([A-Za-z][\w-]*)([^\]]*)\]/g;
+  let output = "";
+  let cursor = 0;
+  for (const match of input.matchAll(token)) {
+    const index = match.index || 0;
+    output += input.slice(cursor, index);
+    cursor = index + match[0].length;
+    const bracketName = normalizeTag(match[4] || "");
+    const malformedName = normalizeTag(match[1] || match[2] || "");
+    if (!malformedName) {
+      if (!known.has(bracketName)) {
+        output += match[0];
+        continue;
+      }
+      if (match[3] === "/") {
+        const openIndex = stack.lastIndexOf(bracketName);
+        if (openIndex >= 0)
+          stack.splice(openIndex);
+      } else {
+        stack.push(bracketName);
+      }
+      output += match[0];
+      continue;
+    }
+    const ownerActive = !owners.size || stack.some((name) => owners.has(name));
+    if (!known.has(malformedName) || !ownerActive || stack.at(-1) !== malformedName) {
+      output += match[0];
+      continue;
+    }
+    const canonical = `[/${malformedName}]`;
+    output += canonical;
+    stack.pop();
+    warnings.push(`${options.scope || "surface"}: normalized hybrid closing delimiter ${match[0]} -> ${canonical}`);
+  }
+  output += input.slice(cursor);
+  return { markup: output, warnings };
+}
+
 // src/bracketSurfaceBridge.ts
 var KNOWN_APP_SURFACE_DRIFT_ROOTS = ["tweet:feed", "tweet_feed", "igfeed", "igstory", "igpost"];
 var escapeRe2 = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -4544,19 +4590,11 @@ function knownTagsForSurface(spec) {
 }
 function normalizeKnownHybridClosingDelimiters(source, spec) {
   const known = knownTagsForSurface(spec);
-  const warnings = [];
-  let markup = String(source || "");
-  const repair = (full, rawName) => {
-    const name = normalizeBracketName(rawName);
-    if (!known.has(name))
-      return full;
-    const canonical = `[/${name}]`;
-    warnings.push(`${spec.id}: normalized hybrid closing delimiter ${full} -> ${canonical}`);
-    return canonical;
-  };
-  markup = markup.replace(/\[\/([A-Za-z][\w-]*)>/g, repair);
-  markup = markup.replace(/<\/([A-Za-z][\w-]*)\]/g, repair);
-  return { markup, warnings };
+  return normalizeRegisteredHybridClosingDelimiters(source, {
+    knownTags: known,
+    ownerTags: surfaceRootAliases(spec),
+    scope: spec.id
+  });
 }
 function normalizeSmartphoneBracketDrift(source) {
   const input = String(source || "");

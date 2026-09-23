@@ -11,6 +11,7 @@ import {
 import { renderRegexSurfaceParity } from '../src/regexSurfaceParity'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
+import { normalizeKnownHybridClosingDelimiters } from '../src/bracketSurfaceBridge'
 
 function assert(value: unknown, reason: string): asserts value {
   if (!value) throw new Error(reason)
@@ -89,6 +90,7 @@ assert(!definitions.some(definition => /stella/i.test(`${definition.surfaceId} $
 
 let fixtureCases = 0
 let protectedXmlCases = 0
+let closingDelimiterMutationCases = 0
 for (const definition of definitions) {
   const bracket = bracketExampleFromXml(definition.sampleXml)
   assert(bracket.includes(`[${definition.canonicalOuterWrapper}]`) && bracket.includes(`[/${definition.canonicalOuterWrapper}]`), `${definition.surfaceId}: canonical bracket root missing`)
@@ -96,6 +98,19 @@ for (const definition of definitions) {
   if (/<image_request\b/i.test(definition.sampleXml)) {
     protectedXmlCases += 1
     assert(/<image_request\b[\s\S]*?<scene_brief>[\s\S]*?<\/scene_brief>[\s\S]*?<\/image_request>/i.test(bracket), `${definition.surfaceId}: protected XML image control left its bracket owner`)
+  }
+  for (const close of bracket.matchAll(/\[\/([A-Za-z][\w-]*)\]/g)) {
+    const start = close.index || 0
+    for (const malformed of [`</${close[1]}]`, `[/${close[1]}>`]) {
+      const mutated = `${bracket.slice(0, start)}${malformed}${bracket.slice(start + close[0].length)}`
+      const repaired = normalizeKnownHybridClosingDelimiters(mutated, {
+        id: definition.baseSurfaceId,
+        wrapper: definition.canonicalOuterWrapper,
+        sampleXml: definition.sampleXml,
+      } as any).markup
+      assert(repaired === bracket, `${definition.surfaceId}: shared closer repair failed ${malformed}`)
+      closingDelimiterMutationCases += 1
+    }
   }
   for (const presentation of presentations) for (const color of colors) {
     const rendered = renderRegexSurfaceParity(bracket, presentation, `batch-c-${definition.surfaceId}`, color)
@@ -109,4 +124,5 @@ for (const definition of definitions) {
 }
 
 assert(protectedXmlCases > 0, 'Core fixtures must exercise canonical XML image controls')
-console.log(`Core Batch C matcher gate passed: 46 Core Surfaces, ${fixtureCases} bracket fixture variants, ${protectedXmlCases} XML-control fixtures, 804 structural matcher instances migrated, 24 Relay XML-control matcher instances retained, ${replacementDrift} authorized Sparkling/Realistic replacement updates, capture drift 0.`)
+assert(closingDelimiterMutationCases > definitions.length * 2, 'Core closer mutation matrix did not cover nested registered fields')
+console.log(`Core Batch C matcher gate passed: 46 Core Surfaces, ${fixtureCases} bracket fixture variants, ${closingDelimiterMutationCases} closer mutations, ${protectedXmlCases} XML-control fixtures, 804 structural matcher instances migrated, 24 Relay XML-control matcher instances retained, ${replacementDrift} authorized Sparkling/Realistic replacement updates, capture drift 0.`)

@@ -5,6 +5,7 @@ import utilityPack from '../regex-packs/narrative-final/Reverie-Narrative-Utilit
 import dramaticCutawayPack from '../regex-packs/narrative-final/Reverie-Dramatic-Cutaway-BULLETPROOF-V8.json'
 import plotSparksPack from '../regex-packs/narrative-final/Reverie-Plot-Sparks-BULLETPROOF-V7.json'
 import { sceneCompassPresentation } from './sceneCompassPresentation'
+import { normalizeRegisteredHybridClosingDelimiters } from './surfaceStructuralRepair'
 
 export type NarrativeRegexVariant = 'sparkle-button' | 'plain-button' | 'inline'
 
@@ -130,6 +131,43 @@ export const NARRATIVE_UTILITY_FORMAT_CONTRACTS: Readonly<Record<string, readonl
   'Location File': ['[[place ', '[place_media]', '[[/place]]'],
   'In Another Life': ['[WHATIF|', '[whatif_media]', '[whatif_scenario]', '[whatif_branch]', '[/WHATIF]'],
   'Archive Entry': ['[dossier_ui]', '[category]', '[archive_head]', '[archive_media]', '[archive_stats]', '[archive_details]', '[archive_export]', '[/dossier_ui]'],
+}
+
+export const NARRATIVE_SURFACE_ROOT_TAGS = [
+  'character_phone', 'private_phone', 'dramatic_parallel', 'plot_sparks',
+  'scene', 'parallel', 'npc', 'secret', 'world', 'else', 'place',
+  'whatif', 'dossier_ui',
+] as const
+
+let narrativeSurfaceBracketTagCache: Set<string> | null = null
+
+/** Build the lexical tag registry from the shipped Utility contracts rather
+ * than maintaining a second hand-written list of every child field. A name is
+ * admitted only when the model-facing contract contains both an opener and a
+ * closer for it. Root tags are added explicitly because parameterized owners
+ * such as [WORLD|...] do not use the ordinary opening-token shape. */
+export function narrativeSurfaceBracketTags(): Set<string> {
+  if (narrativeSurfaceBracketTagCache) return new Set(narrativeSurfaceBracketTagCache)
+  const opened = new Set<string>()
+  const closed = new Set<string>()
+  const contract = (NARRATIVE_UTILITY_PACK.loomItems || []).map(item => String(item.loomContent || '')).join('\n')
+  for (const match of contract.matchAll(/\[(\/?)\s*([A-Za-z][\w-]*)(?:[^\]]*)\]/g)) {
+    const name = String(match[2] || '').toLowerCase().replace(/-/g, '_')
+    if (match[1] === '/') closed.add(name)
+    else opened.add(name)
+  }
+  const registered = new Set([...opened].filter(name => closed.has(name)))
+  for (const root of NARRATIVE_SURFACE_ROOT_TAGS) registered.add(root)
+  narrativeSurfaceBracketTagCache = registered
+  return new Set(registered)
+}
+
+export function normalizeNarrativeClosingDelimiters(markup: string): string {
+  return normalizeRegisteredHybridClosingDelimiters(markup, {
+    knownTags: narrativeSurfaceBracketTags(),
+    ownerTags: NARRATIVE_SURFACE_ROOT_TAGS,
+    scope: 'narrative',
+  }).markup
 }
 
 export function missingNarrativeUtilityFormatMarkers(name: string, content: string): string[] {
@@ -378,7 +416,8 @@ export function normalizeWorldMarkup(markup: string): string {
 }
 
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
-  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeParallelSceneMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(String(markup || '')))))))
+  const structurallyNormalized = normalizeNarrativeClosingDelimiters(String(markup || ''))
+  return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeParallelSceneMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(structurallyNormalized))))))
     .replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root: string, body: string) => {
       // A second observed phone drift uses an XML root around otherwise
       // canonical bracket fields. Convert only a complete, known phone root;
