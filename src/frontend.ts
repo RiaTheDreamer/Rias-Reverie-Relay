@@ -1114,6 +1114,7 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-relay-orb-image-design.dg-relay-orb-generating .dg-relay-orb-icon { animation: dg-relay-orb-icon-spin 1.15s linear infinite; }
     .dg-relay-orb-image-design.dg-relay-orb-analyzing { border-style: dashed; box-shadow: 0 0 0 1px color-mix(in srgb, #ffd5a3 36%, transparent), 0 0 18px color-mix(in srgb, #ffd5a3 34%, transparent); }
     .dg-relay-orb-image-design.dg-relay-orb-analyzing .dg-relay-orb-icon { animation: dg-relay-orb-icon-analyze 1.05s ease-in-out infinite alternate; transform-origin: center; }
+    .dg-relay-orb-image-design[aria-busy="true"] .dg-relay-orb-icon { animation: dg-relay-orb-icon-spin 1.15s linear infinite; transform-origin: center; }
     .dg-relay-orb-dragging { cursor: grabbing; transition: none; animation: none !important; }
     .dg-relay-orb-modal-suppressed { opacity: .42; }
     .dg-relay-orb-size-small { width: 44px; height: 44px; font-size: 12px; }
@@ -1156,7 +1157,7 @@ export function setup(ctx: SpindleFrontendContext) {
     @keyframes dg-relay-orb-active { from { filter: saturate(1.02) brightness(1); box-shadow: 0 8px 26px rgba(4,2,8,.38), 0 0 18px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 28%, transparent); } to { filter: saturate(1.16) brightness(1.06); box-shadow: 0 10px 30px rgba(4,2,8,.42), 0 0 28px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 46%, transparent); } }
     @keyframes dg-relay-orb-icon-spin { to { transform: rotate(360deg); } }
     @keyframes dg-relay-orb-icon-analyze { from { transform: scale(.88) rotate(-7deg); opacity: .72; filter: saturate(.9) brightness(.95); } to { transform: scale(1.08) rotate(7deg); opacity: 1; filter: saturate(1.25) brightness(1.12); } }
-    @media (prefers-reduced-motion: reduce) { .dg-router-panel .dg-sidecar-indicator::before, .dg-relay-orb[aria-busy="true"]::before, .dg-relay-orb-scanning::before, .dg-relay-orb-analyzing::before, .dg-relay-orb-preparing::before, .dg-relay-orb-generating::before, .dg-relay-orb-scanning, .dg-relay-orb-analyzing, .dg-relay-orb-preparing, .dg-relay-orb-generating, .dg-relay-orb-image-design.dg-relay-orb-generating .dg-relay-orb-icon, .dg-relay-orb-image-design.dg-relay-orb-analyzing .dg-relay-orb-icon { animation: none; } }
+    @media (prefers-reduced-motion: reduce) { .dg-router-panel .dg-sidecar-indicator::before, .dg-relay-orb[aria-busy="true"]::before, .dg-relay-orb-scanning::before, .dg-relay-orb-analyzing::before, .dg-relay-orb-preparing::before, .dg-relay-orb-generating::before, .dg-relay-orb-scanning, .dg-relay-orb-analyzing, .dg-relay-orb-preparing, .dg-relay-orb-generating, .dg-relay-orb-image-design[aria-busy="true"] .dg-relay-orb-icon, .dg-relay-orb-image-design.dg-relay-orb-generating .dg-relay-orb-icon, .dg-relay-orb-image-design.dg-relay-orb-analyzing .dg-relay-orb-icon { animation: none; } }
     @keyframes dg-prism-shimmer { from { transform: translateX(-45%); } to { transform: translateX(45%); } }
 
     /* Reverie Suite · Reverie Suite shell. Inspired by LumiBooks' calm hierarchy,
@@ -2796,6 +2797,52 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   }
 
+  const normalizedProseDomText = (value: string): string => value.replace(/\s+/g, ' ').trim().toLocaleLowerCase()
+
+  function ensureSyntheticProseProjection(record: SlotRecord, root: Element): void {
+    if (record.target !== 'prose.illustration' || record.proseSynthetic !== true) return
+    const projectionSelector = `[data-dgir-prose-projection="${cssEscape(record.key)}"]`
+    if (!record.proseAnchor || !record.originalRequestXml || record.orphaned || record.status === 'superseded') {
+      for (const projection of deepQueryAll<HTMLElement>(root as ParentNode, projectionSelector)) projection.remove()
+      return
+    }
+    if (deepQueryAll<HTMLElement>(root as ParentNode, `${projectionSelector}, [data-rrn-native-request="${cssEscape(record.requestId)}"]`).length) return
+
+    const rendered = renderNativeSurfaceMarkup(record.originalRequestXml, customSurfaces, {
+      chatId: record.chatId,
+      messageId: record.messageId,
+      swipeId: record.swipeId,
+      isUser: false,
+      autoGenerate: config?.autoGenerate,
+      generationPlaceholderEffect: config?.generationPlaceholderEffect,
+      rendererMode: customSurfaces.rendererMode,
+      colorMode: customSurfaces.colorMode,
+      defaultShellMode: customSurfaces.defaultShellMode,
+      records: [record],
+    })
+    if (rendered.renderedCount < 1 || !rendered.content.trim()) return
+
+    const template = document.createElement('template')
+    template.innerHTML = rendered.content
+    const projection = template.content.querySelector<HTMLElement>(`[data-dgir-prose-projection="${cssEscape(record.key)}"]`)
+    if (!projection) return
+
+    const paragraphs = deepQueryAll<HTMLElement>(root as ParentNode, 'p').filter(paragraph => !paragraph.closest('.rrl-island, .rrn-native-island, .dgir-prose-lifecycle-projection'))
+    const excerpt = normalizedProseDomText(record.proseAnchor.selectedExcerpt || '')
+    let anchor = excerpt
+      ? paragraphs.find(paragraph => {
+          const text = normalizedProseDomText(paragraph.textContent || '')
+          return Boolean(text && (text.includes(excerpt) || excerpt.includes(text)))
+        })
+      : undefined
+    if (!anchor && Number.isInteger(record.proseAnchor.paragraphIndex)) anchor = paragraphs[record.proseAnchor.paragraphIndex]
+    if (!anchor && record.proseAnchor.insertionSide !== 'end') return
+
+    if (record.proseAnchor.insertionSide === 'before' && anchor?.parentNode) anchor.parentNode.insertBefore(projection, anchor)
+    else if (anchor?.parentNode) anchor.parentNode.insertBefore(projection, anchor.nextSibling)
+    else root.appendChild(projection)
+  }
+
   function bindInlineImages(messageId?: string): void {
     if (!messageId) {
       bindNarrativeInteractiveControls()
@@ -2823,6 +2870,7 @@ export function setup(ctx: SpindleFrontendContext) {
       const root = ctx.dom.findMessageElement(record.messageId)
       if (!root) continue
       ensureMountedLifecycleStyle(root)
+      ensureSyntheticProseProjection(record, root)
       const requestCards = deepQueryAll<HTMLElement>(root as ParentNode, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`)
       const active = ['preparing', 'queued', 'awaiting-native-settings', 'parsing', 'provider-waiting', 'generating', 'previewing', 'placement-pending'].includes(record.status)
       const stallEligible = ['preparing', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)

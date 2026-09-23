@@ -2844,9 +2844,14 @@ if (typeof registerMessageContentProcessor === 'function') {
       const messageRecords = snapshot.records
         .filter(record => !context.messageId || record.messageId === context.messageId)
         .filter(record => renderSwipeId === undefined || record.swipeId === renderSwipeId)
-      const nativeCandidate = NATIVE_RENDER_TAG_RE.test(source)
       const narrativeCandidate = containsNarrativeRegexMarkup(source)
-      if (!nativeCandidate && !narrativeCandidate) return
+      const syntheticProseRecords = messageRecords.filter(record => record.target === 'prose.illustration'
+        && record.proseSynthetic === true
+        && Boolean(record.proseAnchor)
+        && Boolean(record.originalRequestXml)
+        && !record.orphaned
+        && record.status !== 'superseded')
+      if (!NATIVE_RENDER_TAG_RE.test(source) && !narrativeCandidate && !syntheticProseRecords.length) return
       // Slot lifecycle changes are patched into the existing media island by the
       // frontend. A state fingerprint prevents a later host render from reusing
       // stale pending markup, while the host message itself remains untouched.
@@ -2875,6 +2880,15 @@ if (typeof registerMessageContentProcessor === 'function') {
       }
       let renderedContent = source
       let renderedCount = 0
+      // Synthetic Relay-Planned illustrations are a presentation projection,
+      // not a host-message edit. Insert their owned marker into the render copy
+      // only, preserving the authored prose and the host's scroll anchor.
+      for (const record of syntheticProseRecords) {
+        if (!record.proseAnchor || !record.originalRequestXml || renderedContent.includes(slotComment(record, record.slot))) continue
+        const projected = insertProseMarker(renderedContent, record.proseAnchor, record.originalRequestXml)
+        if (projected.content && !projected.ambiguous) renderedContent = projected.content
+      }
+      const nativeCandidate = NATIVE_RENDER_TAG_RE.test(renderedContent)
       // Narrative Utilities are not part of the 46 built-in registry. Relay
       // executes their approved, bundled display transformations through this
       // isolated adapter in every renderer mode. This keeps a cold or stale
@@ -8525,6 +8539,9 @@ export function composeInitialPlacementBatchContent(content: string, entries: In
       if (placed.includes(job.originalRequestXml)) {
         const ownedMediaReplacement = replaceOwningMessageMediaWrapper(placed, job, replacement)
         placed = ownedMediaReplacement || placed.split(job.originalRequestXml).join(replacement)
+      } else if (job.target === 'prose.illustration' && job.synthetic && job.proseAnchor) {
+        const projected = insertProseMarker(placed, job.proseAnchor, replacement)
+        if (projected.content && !projected.ambiguous) placed = projected.content
       } else {
         placed = replaceErrorAfterComment(placed, job, replacement) || placed
       }
@@ -10029,7 +10046,6 @@ async function generateProseIllustrationPlan(chatId: string, planId: string, nat
   const proseSlotKey = slotKey({ chatId, messageId: plan.messageId, swipeId: plan.swipeId, requestId: plan.planId, slot: 'illustration' })
   if (handsOffDispatch) {
     assertAbortableOperationCurrent(operationKey, operationSerial)
-    await patchSwipeContent(chatId, message, plan.swipeId, placement.content)
     const latest = await getState(chatId, userId)
     const autoRecord = latest.slots[proseSlotKey]
     if (!autoRecord) throw new Error('Relay-Planned could not resolve the synthetic prose slot after placement.')
@@ -10063,8 +10079,8 @@ async function removeProseIllustration(chatId: string, illustrationId: string, u
     const slot = state.slots[record.slotKey]
     const marker = slot ? slotComment(slot, slot.slot) : slotComment(jobFromProsePlan(plan, renderProsePendingMarker(plan)), 'illustration')
     const next = removeOwnedProseSegment(content, marker, renderProsePendingMarker(plan))
-    if (next === content) throw new Error('No owned prose illustration marker was found in the message.')
-    await patchSwipeContent(chatId, message, plan.swipeId, next)
+    if (next !== content) await patchSwipeContent(chatId, message, plan.swipeId, next)
+    else if (!slot?.proseSynthetic) throw new Error('No owned prose illustration marker was found in the message.')
     record.removed = true
     record.status = 'removed'
     record.inserted = false

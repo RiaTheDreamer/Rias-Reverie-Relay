@@ -74,6 +74,18 @@ for (const [state, content] of [['pending', terminalPending], ['completed', term
 assertStableSlot(terminalPending, 'terminal', '4:3', 'generating')
 assert(terminalCompleted.includes('/mock/terminal.jpg') && !terminalCompleted.includes('data-rrn-native-request="terminal"'), 'terminal completion must replace its reservation without status UI')
 
+const syntheticProseMarker = '<scene_image pending="true" requestId="synthetic-prose" planId="synthetic-prose" anchor="paragraph">Generating scene illustration...</scene_image>'
+const syntheticProseRecord = {
+  key: 'layout:layout-message:0:synthetic-prose:illustration', requestId: 'synthetic-prose', slot: 'illustration', target: 'prose.illustration',
+  status: 'generating', messageId: 'layout-message', swipeId: 0, requestAspect: '4:3', proseImageAlignment: 'right', proseImageSize: 'small',
+}
+const syntheticProsePending = rendered(syntheticProseMarker, [syntheticProseRecord])
+assert(syntheticProsePending.includes('data-dgir-prose-projection="layout:layout-message:0:synthetic-prose:illustration"'), 'synthetic prose lifecycle must own a stable render-only projection')
+assert(syntheticProsePending.includes('data-dgir-prose-align="right"') && syntheticProsePending.includes('data-dgir-prose-size="small"'), 'synthetic prose projection lost its saved alignment or size')
+assert(syntheticProsePending.includes('--dgir-prose-image-width:48%') && syntheticProsePending.includes('--dgir-prose-image-max-width:420px'), 'small prose setting must constrain the lifecycle reservation instead of expanding full width')
+const syntheticProseCompleted = rendered(syntheticProseMarker, [{ ...syntheticProseRecord, status: 'completed', imageUrl: '/mock/synthetic-prose.jpg', imageId: 'synthetic-prose-image' }])
+assert(syntheticProseCompleted.includes('/mock/synthetic-prose.jpg') && syntheticProseCompleted.includes('--dgir-prose-image-width:48%'), 'completed synthetic prose image must retain the user-selected size')
+
 const phone = definitions.find(definition => definition.baseSurfaceId === 'smartphone')!
 const phoneRendered = rendered(phone.sampleXml)
 assert((phoneRendered.includes('data-reverie-r45-lifecycle-media="smartphone"') || phoneRendered.includes('data-rrn-native-request="phone-message-1"')) && phoneRendered.includes('class="rrl-media-slot"') && phoneRendered.includes('--reverie-media-aspect:4 / 3'), 'Smartphone pending media must reserve its 4:3 message-image slot inside the Surface')
@@ -143,6 +155,8 @@ assert(frontendSource.includes("'[data-rr-kakao-color]'") && frontendSource.incl
 assert(frontendSource.includes("!image.closest('[data-rrn-native-request]')") && frontendSource.includes('stripHealthyCompletedLifecycleUi(card)'), 'frontend must strip completed reservation UI and remove the reservation when the authored image binds')
 assert(frontendSource.includes('invalidateDisplayIfContractChanged') && (frontendSource.match(/ctx\.display\?\.invalidate\(\['\*'\]\)/g) || []).length === 1, 'slot-state updates must not wholesale-invalidate and remount every Surface')
 assert(frontendSource.includes('ensureMountedLifecycleStyle(root)') && frontendSource.includes('reverieLifecycleStyleHost'), 'mounted Status Cards must receive extension-owned lifecycle CSS without transporting styles in message content')
+assert(frontendSource.includes('ensureSyntheticProseProjection(record, root)') && frontendSource.includes('root.appendChild(projection)'), 'synthetic prose reservations must mount in-place without a host-message edit')
+assert(frontendSource.includes('.dg-relay-orb-image-design[aria-busy="true"] .dg-relay-orb-icon') && frontendSource.includes('animation: dg-relay-orb-icon-spin'), 'image-design Orb must spin throughout every busy Relay phase')
 
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
 assert(backendSource.includes('activeStreamingSurfaceChats.add(chatId)') && backendSource.includes('activeStreamingSurfaceChats.has(chatId)'), 'Surface discovery must wait until assistant streaming finishes')
@@ -160,5 +174,9 @@ const renderProcessor = backendSource.slice(backendSource.indexOf("if (typeof re
 assert(renderProcessor.includes('hotFallbackRenderSnapshot(context.userId)') && !renderProcessor.includes('await Promise.all([\n          getState'), 'render-origin processing must never wait on state/config storage reads')
 assert(renderProcessor.includes('recordFingerprint') && renderProcessor.includes('contentFingerprint(source)'), 'render cache identity must include both immutable message source and durable slot state')
 assert(backendSource.includes('renderConfigurationFingerprint(current) !== renderConfigurationFingerprint(next)'), 'unrelated settings writes must not invalidate every rendered message')
+const proseGenerationSource = backendSource.slice(backendSource.indexOf('async function generateProseIllustrationPlan'), backendSource.indexOf('async function removeProseIllustration'))
+assert(!proseGenerationSource.includes('await patchSwipeContent(chatId, message, plan.swipeId, placement.content)'), 'Relay-Planned start must not rewrite and remount the host prose')
+assert(renderProcessor.includes('syntheticProseRecords') && renderProcessor.includes('insertProseMarker(renderedContent, record.proseAnchor, record.originalRequestXml)'), 'render processor must project synthetic prose markers from durable state')
+assert(backendSource.includes("job.target === 'prose.illustration' && job.synthetic && job.proseAnchor"), 'synthetic placement verification must resolve its stored prose anchor when no persisted marker exists')
 
 console.log('streaming layout stability smoke passed: stable reserved slots, state geometry, multi-image/aspect coverage, and frontend in-place binding verified.')
