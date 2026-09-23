@@ -8,6 +8,7 @@ import plotSparksPack from '../regex-packs/narrative-final/Reverie-Plot-Sparks-B
 import { sceneCompassPresentation } from './sceneCompassPresentation'
 import { normalizeRegisteredHybridClosingDelimiters } from './surfaceStructuralRepair'
 import { applyNarrativeSurfacePresentation, type NarrativeSurfacePresentationVariant } from './surfacePresentation'
+import type { SurfaceColorMode } from './contracts'
 
 export type NarrativeRegexVariant = NarrativeSurfacePresentationVariant
 
@@ -456,19 +457,23 @@ export function narrativeRegexPack(variant: NarrativeRegexVariant): NarrativeReg
   return pack
 }
 
-export function narrativeRegexScripts(variant: NarrativeRegexVariant): NarrativeRegexScript[] {
+export function narrativeRegexScripts(variant: NarrativeRegexVariant, colorMode: SurfaceColorMode = 'realistic'): NarrativeRegexScript[] {
   if (DRAMATIC_CUTAWAY_PACK.type !== 'lumiverse_regex_scripts' || DRAMATIC_CUTAWAY_PACK.scripts.length !== 1) {
     throw new Error('Invalid approved Dramatic Cutaway Regex asset')
   }
   if (PLOT_SPARKS_PACK.type !== 'lumiverse_regex_scripts' || PLOT_SPARKS_PACK.scripts.length !== 1) {
     throw new Error('Invalid approved Plot Sparks Regex asset')
   }
-  const bundledPresentationScripts = narrativeRegexPack(variant).scripts.filter(script => script.disabled !== true)
+  // Presentation and body color are independent settings. Glass Mode selects
+  // the complete Glass visual source, then the requested presentation adapter
+  // keeps Inline/Button/Sparkling/Glass Button ownership on the outer shell.
+  const sourceVariant: NarrativeRegexVariant = colorMode === 'glass' ? 'glass' : variant
+  const bundledPresentationScripts = narrativeRegexPack(sourceVariant).scripts.filter(script => script.disabled !== true)
   const scripts = [
     CHARACTER_PHONE_OPTIONAL_WALLPAPER_NORMALIZER,
     ...bundledPresentationScripts,
-    ...(variant === 'glass' ? [] : PLOT_SPARKS_PACK.scripts.filter(script => script.disabled !== true)),
-    ...(variant === 'glass' ? [] : DRAMATIC_CUTAWAY_PACK.scripts.filter(script => script.disabled !== true)),
+    ...(sourceVariant === 'glass' ? [] : PLOT_SPARKS_PACK.scripts.filter(script => script.disabled !== true)),
+    ...(sourceVariant === 'glass' ? [] : DRAMATIC_CUTAWAY_PACK.scripts.filter(script => script.disabled !== true)),
   ]
   const ids = scripts.map(script => script.script_id)
   if (new Set(ids).size !== ids.length) throw new Error(`Duplicate active Narrative Regex script IDs in ${variant}`)
@@ -544,10 +549,10 @@ function withLorebookExportAction(
   return rendered.replace(/<\/section>\s*<\/details>\s*$/i, `${action}</section></details>`)
 }
 
-export function renderNarrativeRegex(markup: string, variant: NarrativeRegexVariant, messageId = 'narrative', context: NarrativeRenderContext = {}): string {
+export function renderNarrativeRegex(markup: string, variant: NarrativeRegexVariant, messageId = 'narrative', context: NarrativeRenderContext = {}, colorMode: SurfaceColorMode = 'realistic'): string {
   let output = normalizeNarrativeMarkupForRendering(markup)
   const macro = safeMessageId(messageId)
-  for (const script of narrativeRegexScripts(variant).filter(script => {
+  for (const script of narrativeRegexScripts(variant, colorMode).filter(script => {
     const targets = Array.isArray(script.target) ? script.target : [script.target || 'display']
     return targets.includes('display')
   })) {

@@ -32,15 +32,15 @@ export function applyNarrativeSurfacePresentation(replacement: string, variant: 
   let claimedRoot = false
   // `$<name>` is Regex replacement syntax and may legally occur inside an
   // attribute. Treat it as one token so its `>` cannot terminate the tag.
-  const normalized = String(replacement || '').replace(/<(details|div) class="([^"]+)"((?:\$<[^>]+>|[^>])*)>/gi, (opening, tag: string, className: string, rawAttributes: string) => {
+  const normalized = String(replacement || '').replace(/<(details|div)\b((?:\$<[^>]+>|[^>])*?)\bclass="([^"]+)"((?:\$<[^>]+>|[^>])*)>/gi, (opening, tag: string, leadingAttributes: string, className: string, trailingAttributes: string) => {
     if (claimedRoot) return opening
     const classes = className.split(/\s+/).filter(Boolean)
     if (!classes.some((candidate: string) => NARRATIVE_PRESENTATION_ROOT_CLASSES.has(candidate))) return opening
     claimedRoot = true
     const nextClasses = [...classes.filter((candidate: string) => !/^rr-surface-presentation-(?:inline|button|sparkling)$/.test(candidate)), modeClass]
-    let attributes = rawAttributes.replace(/\sopen(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '')
+    let attributes = `${leadingAttributes}class="${nextClasses.join(' ')}"${trailingAttributes}`.replace(/\sopen(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '')
     if (tag.toLowerCase() === 'details' && mode === 'inline') attributes += ' open'
-    return `<${tag} class="${nextClasses.join(' ')}"${attributes}>`
+    return `<${tag}${attributes}>`
   })
   if (!claimedRoot) return replacement
   return `${SHIPPED_SURFACE_PRESENTATION_CSS}${normalized}`

@@ -2897,7 +2897,7 @@ if (typeof registerMessageContentProcessor === 'function') {
       // become runtime HTML; otherwise strict owners see Relay's own rrl-card
       // markup as author text and fail closed around it.
       if (narrativeCandidate && shouldRelayRenderNarrativeMarkup(source, renderContext.rendererMode)) {
-        const narrativeRendered = renderNarrativeRegex(renderedContent, snapshot.narrativeVariant, context.messageId || 'narrative', { chatId: context.chatId, swipeId: renderSwipeId })
+        const narrativeRendered = renderNarrativeRegex(renderedContent, snapshot.narrativeVariant, context.messageId || 'narrative', { chatId: context.chatId, swipeId: renderSwipeId }, snapshot.studio.colorMode)
         if (narrativeRendered !== renderedContent) renderedCount += 1
         renderedContent = narrativeRendered
       }

@@ -3,6 +3,7 @@ import {
   NARRATIVE_UTILITY_FORMAT_CONTRACTS,
   narrativeRegexPack,
   narrativeRegexScripts,
+  renderNarrativeRegex,
 } from '../src/narrativeRegexAssets'
 import {
   R45_ACTIVE_ROOTS,
@@ -91,5 +92,14 @@ assert(phoneShell?.replace_string.includes('.rrcp-page-body') && phoneShell.repl
 assert(plotSparks?.replace_string.includes('.ch-og .ch-panel') && plotSparks.replace_string.includes('data-reverie-glass-authority="narrative-glass"'), 'Plot Sparks must carry complete Glass body authority')
 assert(parallelScene?.replace_string.includes('width:1px!important;height:1px!important'), 'Parallel Scene Glass sparkles must stay restrained')
 assert(narrativeVisual.every(script => !script.replace_string.includes('background:linear-gradient(180deg,color-mix(in srgb,var(--rr-glass-deep) 8%')), 'Glass roots must not paint a black bar behind compact buttons')
+
+const plotVectors = ['detonation', 'heartknife', 'wrongness', 'crash-in', 'matchstrike', 'reputation-fire', 'wildcard-collision']
+const plotFixture = `[Plot_Sparks][ID]glass-mode-routing[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${plotVectors.map((vector, index) => `[Spark][Key]${String.fromCharCode(97 + index)}[/Key][Vector]${vector}[/Vector][Text]Glass branch ${index + 1}.[/Text][Media]media-${index + 1}[/Media][/Spark]`).join('')}[/Plot_Sparks]`
+for (const [presentation, presentationClass] of [['inline', 'rr-surface-presentation-inline'], ['plain-button', 'rr-surface-presentation-button'], ['sparkle-button', 'rr-surface-presentation-sparkling']] as const) {
+  const rendered = renderNarrativeRegex(plotFixture, presentation, `plot-glass-${presentation}`, {}, 'glass')
+  assert(rendered.includes('data-reverie-glass-authority="narrative-glass"') && rendered.includes('[data-reverie-glass-authority].ch-og .ch-panel'), `Plot Sparks/${presentation}: Glass Mode did not select the complete Glass body`)
+  assert(rendered.includes(presentationClass), `Plot Sparks/${presentation}: Glass Mode overwrote the independently selected presentation`)
+  assert(!rendered.includes('[Plot_Sparks]'), `Plot Sparks/${presentation}: Glass Mode left the source block unrendered`)
+}
 
 console.log(`Glass authority smoke passed: ${R45_ACTIVE_ROOTS.length} + ${Object.keys(NARRATIVE_UTILITY_FORMAT_CONTRACTS).length} = 59 Surfaces, R4.5 138/138/138, standalone active ${activeNarrativeGlass.length}, no Sparkling runtime fallback.`)
