@@ -37,6 +37,7 @@ class FakeElement {
   className = ''
   classList = new FakeClassList()
   dataset: Record<string, string> = {}
+  attributes: Record<string, string> = {}
   style = new FakeStyle()
   textContent = ''
   innerHTML = ''
@@ -85,8 +86,9 @@ class FakeElement {
     }
     return descendants.filter(node => selectors.some(candidate => matches(node, candidate)))
   }
-  setAttribute(): void {}
-  removeAttribute(): void {}
+  setAttribute(name: string, value: string): void { this.attributes[name] = String(value) }
+  getAttribute(name: string): string | null { return this.attributes[name] ?? null }
+  removeAttribute(name: string): void { delete this.attributes[name] }
   addEventListener(name: string, handler: () => void): void { this.listeners.set(name, [...(this.listeners.get(name) || []), handler]) }
   click(): void { if (!this.disabled) for (const handler of this.listeners.get('click') || []) handler() }
   removeEventListener(): void {}
@@ -308,6 +310,7 @@ backendHandler!({
   records: [mountedRecord],
   config: { ...bootState.config, generationPlaceholderEffect: 'glitter' },
 })
+assert(body.querySelector('.dg-relay-orb')?.getAttribute('aria-busy') === 'true', 'Orb must animate while Relay generation is actively running')
 assert(mountedRoot.contains(mountedCard) && mountedCard.contains(mountedMedia) && mountedMedia.contains(mountedPlaceholder), 'mounted active lifecycle reservation was remounted or removed')
 const mountedLifecycleStyle = mountedRoot.querySelector('style')
 assert(mountedLifecycleStyle?.textContent.includes('.rrl-card') && mountedLifecycleStyle.textContent.includes('.rrl-media-slot'), 'mounted message scope did not receive extension-owned lifecycle CSS')
@@ -315,6 +318,9 @@ assert(mountedCard.contains(mountedMain) && mountedStatus.textContent === 'Gener
 assert(mountedPlaceholder.dataset.rrPlaceholderEffect === 'glitter', 'mounted active placeholder did not hydrate the selected effect')
 const mountedGlitter = mountedPlaceholder.querySelector('.rr-regex-particles')
 assert(mountedGlitter && mountedGlitter.children.length === 24, 'mounted active placeholder did not hydrate the 24-particle glitter layer')
+
+backendHandler!({ type: 'queue_abort_ack', abortedQueued: 0, abortedActive: 1, remoteCancelRequested: 0, alreadyStopped: 0 })
+assert(body.querySelector('.dg-relay-orb')?.getAttribute('aria-busy') === 'false', 'Abort acknowledgement must stop the Orb immediately instead of allowing optimistic state to restart it')
 
 backendHandler!({
   ...bootState,
@@ -324,6 +330,13 @@ backendHandler!({
 })
 assert(!mountedCard.querySelector('.rrl-generation-placeholder'), 'completed mounted lifecycle retained active placeholder UI')
 assert(!mountedCard.querySelector('.rrl-main'), 'completed mounted lifecycle retained active Status Card chrome')
+
+backendHandler!({
+  ...bootState,
+  revision: 4,
+  records: [{ ...mountedRecord, status: 'placement-pending', updatedAt: Date.now() + 2 }],
+})
+assert(body.querySelector('.dg-relay-orb')?.getAttribute('aria-busy') === 'false', 'placement-pending is waiting on the user and must not animate the Orb as Relay work')
 
 for (let tick = 0; tick < 8; tick += 1) await Promise.resolve()
 assert(backendPayloads.some((payload: any) => payload?.type === 'list_state' && payload.chatId === 'boot-chat'), 'frontend setup must begin backend state synchronization')

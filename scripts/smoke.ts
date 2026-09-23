@@ -801,6 +801,8 @@ assert(backendSource.includes('isHandsOffProseMode') && backendSource.includes('
 assert(frontendSource.includes("'Prompt Profile',") && frontendSource.includes('config?.promptProfiles') && !frontendSource.includes("textInput('Prompt Profile', settings.defaultPromptProfileId"), 'expected Illustrator Prompt Profile dropdown')
 
 assert(backendSource.includes('purgeOwnedMessageState') && backendSource.includes('sourceDeletedAt') && backendSource.includes('image retained in Relay History'), 'expected deleted-message cleanup to archive completed images first')
+assert(backendSource.includes('deletedMessageWasLatest') && backendSource.includes("abortAllRelayWork(chatId, userId, 'latest-message-deleted')"), 'deleting the latest observed message must invoke the same global Abort All lifecycle')
+assert(backendSource.includes("batch.status = 'discarded'") && backendSource.includes("candidate.status = 'discarded'"), 'Abort All must terminalize processing candidate batches so the Orb cannot restart from stale state')
 assert(frontendSource.includes("['deleted-message-images', 'Deleted Message Images']"), 'expected deleted-message image archive UI')
 assert(backendSource.includes('assetLibrary') && backendSource.includes('versionTrees') && backendSource.includes('reuse_asset_in_slot'), 'expected persistent media archive and version trees')
 assert(frontendSource.includes('Slot Version History') && frontendSource.includes('Compare Assets'), 'expected archive reuse and comparison UI')

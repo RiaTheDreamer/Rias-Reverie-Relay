@@ -161,6 +161,9 @@ assert(frontendSource.includes('ensureSyntheticProseProjection(record, root)') &
 assert(frontendSource.includes("slotImage.loading = 'eager'") && frontendSource.includes("slotImage.setAttribute('fetchpriority', 'high')"), 'generated images must begin loading immediately instead of waiting on lazy-load heuristics')
 assert(frontendSource.includes('applyStoredProseImagePresentation(image, record)') && frontendSource.includes('data-dgir-prose-size="full"'), 'completed prose images must retain their per-record width, including true full width')
 assert(frontendSource.includes('.dg-relay-orb-image-design[aria-busy="true"] .dg-relay-orb-icon') && frontendSource.includes('animation: dg-relay-orb-icon-spin'), 'image-design Orb must spin throughout every busy Relay phase')
+assert(frontendSource.includes('records.some(record => isGenerationActiveStatus(record.status))') && !frontendSource.includes("candidateBatches.some(batch => batch.chatId === activeChatId && batch.status === 'processing') || records.some(record => isProcessing(record))"), 'placement-pending records must not animate the Orb as active Relay work')
+assert(frontendSource.includes("item.source === 'analysis'") && frontendSource.includes("!['completed', 'failed', 'cancelled'].includes(item.stage)"), 'Sidecar Orb activity must come from the live Relay queue rather than stale historical logs')
+assert(frontendSource.includes("message.type === 'queue_abort_ack'") && frontendSource.includes("status: 'discarded' as const"), 'Abort acknowledgement must terminalize optimistic Orb state immediately')
 
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
 assert(backendSource.includes('activeStreamingSurfaceChats.add(chatId)') && backendSource.includes('activeStreamingSurfaceChats.has(chatId)'), 'Surface discovery must wait until assistant streaming finishes')

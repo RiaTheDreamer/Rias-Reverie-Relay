@@ -11,6 +11,7 @@ import {
   type NarrativeRegexVariant,
 } from './narrativeRegexAssets'
 import { PLOT_SPARK_VECTOR_BY_KEY } from './contracts'
+import type { SurfaceColorMode } from './contracts'
 
 export const NARRATIVE_DLC_FOLDER = 'Reverie Relay · Narrative DLC'
 export const NARRATIVE_DLC_NAMESPACE = 'reverie-relay:narrative-dlc'
@@ -38,7 +39,7 @@ function selectedTarget(script: NarrativeRegexScript): 'prompt' | 'response' | '
   return target === 'prompt' || target === 'response' ? target : 'display'
 }
 
-export function narrativeRegexCreateInput(script: NarrativeRegexScript, variant: NarrativeRegexVariant): NarrativeRegexMutationInput {
+export function narrativeRegexCreateInput(script: NarrativeRegexScript, variant: NarrativeRegexVariant, colorMode: SurfaceColorMode = 'realistic'): NarrativeRegexMutationInput {
   return {
     name: applyNarrativeDisplayNames(String(script.name || script.script_id)),
     script_id: script.script_id,
@@ -64,6 +65,7 @@ export function narrativeRegexCreateInput(script: NarrativeRegexScript, variant:
       reverie_namespace: NARRATIVE_DLC_NAMESPACE,
       reverie_narrative_dlc: true,
       reverie_narrative_variant: variant,
+      reverie_narrative_color_mode: colorMode,
       reverie_narrative_source_version: NARRATIVE_DLC_VERSION,
     },
     actions: (script.actions || []).map(action => ({ ...action })),
@@ -158,9 +160,9 @@ function healthMessage(health: Omit<NarrativeDlcHealth, 'message'>): string {
   return `${health.installed}/${health.expected} Narrative scripts are installed; ${health.drifted} require repair.`
 }
 
-export async function inspectNarrativeRegex(api: NarrativeRegexApi, variant: NarrativeRegexVariant, userId?: string): Promise<NarrativeDlcHealth> {
+export async function inspectNarrativeRegex(api: NarrativeRegexApi, variant: NarrativeRegexVariant, userId?: string, colorMode: SurfaceColorMode = 'realistic'): Promise<NarrativeDlcHealth> {
   const all = await listAllScripts(api, userId)
-  const desired = narrativeRegexScripts(variant).map(script => narrativeRegexCreateInput(script, variant))
+  const desired = narrativeRegexScripts(variant, colorMode).map(script => narrativeRegexCreateInput(script, variant, colorMode))
   const owned = all.filter(isOwnedNarrativeScript)
   let healthy = 0
   let drifted = 0
@@ -187,10 +189,10 @@ export async function inspectNarrativeRegex(api: NarrativeRegexApi, variant: Nar
   return { ...base, message: healthMessage(base) }
 }
 
-export async function reconcileNarrativeRegex(api: NarrativeRegexApi, variant: NarrativeRegexVariant, userId?: string): Promise<NarrativeDlcHealth> {
+export async function reconcileNarrativeRegex(api: NarrativeRegexApi, variant: NarrativeRegexVariant, userId?: string, colorMode: SurfaceColorMode = 'realistic'): Promise<NarrativeDlcHealth> {
   if (!NARRATIVE_REGEX_VARIANTS.includes(variant)) throw new Error(`Unsupported Narrative Regex variant: ${variant}`)
   const all = await listAllScripts(api, userId)
-  const desired = narrativeRegexScripts(variant).map(script => narrativeRegexCreateInput(script, variant))
+  const desired = narrativeRegexScripts(variant, colorMode).map(script => narrativeRegexCreateInput(script, variant, colorMode))
   const desiredIds = new Set(desired.map(script => String(script.script_id)))
   const blocked = desired.filter(input => {
     return all.some(script => script.script_id === input.script_id && !isOwnedNarrativeScript(script))
@@ -228,7 +230,7 @@ export async function reconcileNarrativeRegex(api: NarrativeRegexApi, variant: N
     }
     throw error
   }
-  return inspectNarrativeRegex(api, variant, userId)
+  return inspectNarrativeRegex(api, variant, userId, colorMode)
 }
 
 export async function removeNarrativeRegex(api: NarrativeRegexApi, variant: NarrativeRegexVariant, userId?: string): Promise<NarrativeDlcHealth> {

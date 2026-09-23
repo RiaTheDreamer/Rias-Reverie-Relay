@@ -1621,6 +1621,7 @@ export const ILLUSTRATOR_RUNTIME_CACHE_POLICY = { maxEntries: 128, ttlMs: 15 * 6
 const latestIllustratorRuntimeByChat = new BoundedLruCache<{ directive: string; createdAt: number }>(ILLUSTRATOR_RUNTIME_CACHE_POLICY)
 const extensionMessageMutations = new Set<string>()
 const latestMessageSnapshots = new Map<string, ChatMessage>()
+const latestObservedMessageIdByChat = new Map<string, string>()
 const deferredScans = new Map<string, Parameters<typeof scanAndGenerate>>()
 type AppearanceSidecarMode = 'normal' | 'reconcile' | 'enrichment'
 type AppearanceReadyInput = {
@@ -1999,6 +2000,7 @@ export function cleanupStaleChatWork(chatId: string, userId?: string, reason = '
     scheduledStateBroadcasts.delete(key)
   }
   for (const key of [...latestMessageSnapshots.keys()]) if (key.startsWith(`${chatId}:`)) latestMessageSnapshots.delete(key)
+  latestObservedMessageIdByChat.delete(chatId)
   for (const key of [...pendingGenerationContent.keys()]) if (key.startsWith(`${chatId}:`)) pendingGenerationContent.delete(key)
 
   spindle.log.warn(`[ReverieRelay:stale_chat_cleanup] ${JSON.stringify({ ...summary, reason })}`)
@@ -3310,7 +3312,10 @@ runtimePermissionEvents?.onChanged?.((detail: { extensionId: string; permission:
 spindle.on('MESSAGE_SENT', (payload: any, userId?: string) => {
   const chatId = cleanString(payload?.chatId || payload?.chat_id)
   const message = payload?.message as ChatMessage | undefined
-  if (chatId && message?.id) rememberMessageSnapshot(chatId, message)
+  if (chatId && message?.id) {
+    rememberMessageSnapshot(chatId, message)
+    latestObservedMessageIdByChat.set(chatId, message.id)
+  }
   if (!chatId || !message?.id || !isAssistantMessage(message) || isOwnMessage(message)) return
   scheduleAssistantScan({
     chatId,
@@ -3345,8 +3350,10 @@ const lifecycleOn = spindle.on as unknown as (event: string, handler: (payload: 
 for (const eventName of ['MESSAGE_DELETED', 'MESSAGE_REMOVED', 'CHAT_MESSAGE_DELETED']) {
   lifecycleOn(eventName, (payload: any, userId?: string) => {
     const { chatId, messageId } = deletedMessageIdentity(payload)
+    const latestDeleted = deletedMessageWasLatest(payload, chatId, messageId)
     if (chatId && messageId) {
       latestMessageSnapshots.delete(messageSnapshotKey(chatId, messageId))
+      if (latestObservedMessageIdByChat.get(chatId) === messageId) latestObservedMessageIdByChat.delete(chatId)
       const batchPrefix = `${relayQueueScope(userId)}:${chatId}:${messageId}:`
       for (const key of [...pendingPlacementBatches.keys()]) if (key.startsWith(batchPrefix)) {
         const batch = pendingPlacementBatches.get(key)
@@ -3354,7 +3361,7 @@ for (const eventName of ['MESSAGE_DELETED', 'MESSAGE_REMOVED', 'CHAT_MESSAGE_DEL
         pendingPlacementBatches.delete(key)
       }
     }
-    void handleMessageDeleted(payload, userId).catch(error => spindle.log.error(`[Reverie Relay:${eventName.toLocaleLowerCase()}] ${error instanceof Error ? error.message : String(error)}`))
+    void handleMessageDeleted(payload, userId, latestDeleted).catch(error => spindle.log.error(`[Reverie Relay:${eventName.toLocaleLowerCase()}] ${error instanceof Error ? error.message : String(error)}`))
   })
 }
 
@@ -4553,6 +4560,20 @@ function deletedMessageIdentity(payload: any): { chatId: string; messageId: stri
   }
 }
 
+function deletedMessageWasLatest(payload: any, chatId: string, messageId: string): boolean {
+  if (!chatId || !messageId) return false
+  const message = payload?.message || payload?.deletedMessage || payload?.item || {}
+  const explicit = [payload?.isLatest, payload?.wasLatest, payload?.is_latest, payload?.was_latest, message?.isLatest, message?.wasLatest]
+    .find(value => typeof value === 'boolean')
+  if (typeof explicit === 'boolean') return explicit
+  const latestId = cleanString(payload?.latestMessageId || payload?.latest_message_id || payload?.lastMessageId || payload?.last_message_id)
+  if (latestId) return latestId === messageId
+  const index = Number(payload?.messageIndex ?? payload?.message_index ?? payload?.deletedIndex ?? payload?.deleted_index)
+  const count = Number(payload?.messageCount ?? payload?.message_count ?? payload?.previousMessageCount ?? payload?.previous_message_count)
+  if (Number.isInteger(index) && Number.isInteger(count) && count > 0) return index === count - 1
+  return latestObservedMessageIdByChat.get(chatId) === messageId
+}
+
 function purgeOwnedMessageState(state: StateFile, chatId: string, messageId: string): { slots: number; opportunities: number; plans: number; records: number; batches: number; archivedAssets: number } {
   const now = Date.now()
   let archivedAssets = 0
@@ -4601,9 +4622,13 @@ function purgeOwnedMessageState(state: StateFile, chatId: string, messageId: str
   return { slots: ownedSlots.length, opportunities, plans, records, batches, archivedAssets }
 }
 
-async function handleMessageDeleted(payload: any, userId?: string): Promise<void> {
+async function handleMessageDeleted(payload: any, userId?: string, latestDeleted = false): Promise<void> {
   const { chatId, messageId } = deletedMessageIdentity(payload)
   if (!chatId || !messageId) return
+  if (latestDeleted) {
+    const { aborted, cancelledRecords } = await abortAllRelayWork(chatId, userId, 'latest-message-deleted')
+    sendAbortAllAcknowledgement(aborted, cancelledRecords, userId, 'Latest message deleted; Relay Abort All acknowledged')
+  }
   pendingGenerationContent.delete(pendingContentKey(chatId, messageId))
 
   for (const [key, scheduled] of [...scheduledAssistantScans.entries()]) {
@@ -4778,10 +4803,10 @@ async function reconcileInstalledNarrativeOnStartup(userId?: string): Promise<vo
   if (!current.narrativeDlcEnabled || !current.narrativeDlcLastSync?.installed) return
   const variant = narrativeVariantForSurfaceShellMode(current.surfaceDefaultShellMode)
   try {
-    const inspected = await inspectNarrativeRegex(spindle.regex_scripts, variant, userId)
+    const inspected = await inspectNarrativeRegex(spindle.regex_scripts, variant, userId, current.surfaceColorMode)
     const health = inspected.status === 'healthy'
       ? inspected
-      : await reconcileNarrativeRegex(spindle.regex_scripts, variant, userId)
+      : await reconcileNarrativeRegex(spindle.regex_scripts, variant, userId, current.surfaceColorMode)
     await setConfig({ narrativeDlcVariant: variant, narrativeDlcLastSync: health }, userId)
     narrativeStartupReconciledUsers.add(scope)
   } catch (error) {
@@ -4902,8 +4927,8 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
         const health = payload.action === 'remove'
           ? await removeNarrativeRegex(spindle.regex_scripts, variant, userId)
           : payload.action === 'inspect'
-            ? await inspectNarrativeRegex(spindle.regex_scripts, variant, userId)
-            : await reconcileNarrativeRegex(spindle.regex_scripts, variant, userId)
+            ? await inspectNarrativeRegex(spindle.regex_scripts, variant, userId, current.surfaceColorMode)
+            : await reconcileNarrativeRegex(spindle.regex_scripts, variant, userId, current.surfaceColorMode)
         await setConfig({
           narrativeDlcEnabled: payload.action === 'remove' ? false : current.narrativeDlcEnabled || payload.action === 'install',
           narrativeDlcVariant: variant,
@@ -9184,48 +9209,67 @@ async function discardRelayCandidate(chatId: string, batchId: string, candidateK
   await sendState(userId, chatId)
 }
 
+async function abortAllRelayWork(initiatingChatId: string, userId?: string, operationSource = 'global-abort-all'): Promise<{ aborted: GlobalAbortSummary; cancelledRecords: number }> {
+  const aborted = freezeAndCancelUserRuntime(initiatingChatId, userId)
+  let cancelledRecords = 0
+  for (const chatId of aborted.chatIds) {
+    await mutateState(chatId, userId, state => {
+      const now = Date.now()
+      state.backgroundQueue.abortRequestedAt = now
+      state.backgroundQueue.updatedAt = now
+      for (const record of Object.values(state.slots)) {
+        if (!isGenerationActiveStatus(record.status) && !['paused-backlog', 'awaiting-native-settings'].includes(record.status)) continue
+        cancelledJobs.add(jobCancellationKey(record))
+        if (record.status !== 'cancelled') { state.stats.cancelledTotal += 1; cancelledRecords += 1 }
+        record.status = 'cancelled'
+        record.cancelledAt = now
+        record.updatedAt = now
+        finishAttempt(record, 'cancelled', now, 'Cancelled by global Abort All.')
+        const lease = state.dispatchLeases[canonicalDispatchKey(record)]
+        if (lease) Object.assign(lease, { status: 'cancelled', cancellationEpoch: aborted.epoch })
+      }
+      for (const batch of Object.values(state.candidateBatches)) {
+        if (batch.status !== 'processing') continue
+        batch.status = 'discarded'
+        batch.updatedAt = now
+        for (const candidate of batch.candidates) {
+          if (!['preflight', 'parsing', 'provider-waiting', 'generating'].includes(candidate.status)) continue
+          candidate.status = 'discarded'
+          candidate.error = 'Cancelled by Abort All.'
+        }
+      }
+      for (const item of Object.values(state.backgroundQueue.items)) {
+        if (['completed','failed','cancelled'].includes(item.stage)) continue
+        updateBackgroundTask(state, item.id, { stage: 'cancelled', statusText: 'Cancelled by Abort All', etaSeconds: null })
+      }
+      state.stats.updatedAt = now
+      updateQueueSafetySummary(state, now)
+      appendStateLog(state, {
+        severity: 'warning', stage: 'background-queue', eventType: 'abort_all', chatId,
+        message: 'Global Abort All froze provider handoff and cancelled Relay work for this user across chats.',
+        details: { ...aborted, operationSource, startsAuthorizedAfterAbort: 0 },
+      })
+    })
+    await sendState(userId, chatId)
+  }
+  return { aborted, cancelledRecords }
+}
+
+function sendAbortAllAcknowledgement(aborted: GlobalAbortSummary, cancelledRecords: number, userId?: string, reason = 'Global Abort All acknowledged'): void {
+  spindle.sendToFrontend({
+    type: 'queue_abort_ack',
+    abortedQueued: aborted.providerWaiters + aborted.nativeSettingsWaiters + aborted.deferredWork + aborted.scheduledScans,
+    abortedActive: aborted.activeAttempts + aborted.providerStreams,
+    remoteCancelRequested: 0,
+    alreadyStopped: cancelledRecords + aborted.activeAttempts + aborted.providerStreams + aborted.providerWaiters === 0 ? 1 : 0,
+  }, userId)
+  spindle.sendToFrontend({ type: 'relay_notice', level: 'info', message: `${reason}: ${cancelledRecords} slot${cancelledRecords === 1 ? '' : 's'} stopped across ${aborted.chatIds.length} chat${aborted.chatIds.length === 1 ? '' : 's'}. Relay will not hand off another provider request without new user work.` }, userId)
+}
+
 async function handleQueueAction(payload: Extract<FrontendMessage, { type: 'queue_action' }>, nativeSnapshot?: NativeSettingsSnapshot, userId?: string): Promise<void> {
   if (payload.action === 'abort_all') {
-    const aborted = freezeAndCancelUserRuntime(payload.chatId, userId)
-    let cancelledRecords = 0
-    for (const chatId of aborted.chatIds) {
-      await mutateState(chatId, userId, state => {
-        const now = Date.now()
-        state.backgroundQueue.abortRequestedAt = now
-        state.backgroundQueue.updatedAt = now
-        for (const record of Object.values(state.slots)) {
-          if (!isGenerationActiveStatus(record.status) && !['paused-backlog', 'awaiting-native-settings'].includes(record.status)) continue
-          cancelledJobs.add(jobCancellationKey(record))
-          if (record.status !== 'cancelled') { state.stats.cancelledTotal += 1; cancelledRecords += 1 }
-          record.status = 'cancelled'
-          record.cancelledAt = now
-          record.updatedAt = now
-          finishAttempt(record, 'cancelled', now, 'Cancelled by global Abort All.')
-          const lease = state.dispatchLeases[canonicalDispatchKey(record)]
-          if (lease) Object.assign(lease, { status: 'cancelled', cancellationEpoch: aborted.epoch })
-        }
-        for (const item of Object.values(state.backgroundQueue.items)) {
-          if (['completed','failed','cancelled'].includes(item.stage)) continue
-          updateBackgroundTask(state, item.id, { stage: 'cancelled', statusText: 'Cancelled by Abort All', etaSeconds: null })
-        }
-        state.stats.updatedAt = now
-        updateQueueSafetySummary(state, now)
-        appendStateLog(state, {
-          severity: 'warning', stage: 'background-queue', eventType: 'abort_all', chatId,
-          message: 'Global Abort All froze provider handoff and cancelled Relay work for this user across chats.',
-          details: { ...aborted, operationSource: 'global-abort-all', startsAuthorizedAfterAbort: 0 },
-        })
-      })
-      await sendState(userId, chatId)
-    }
-    spindle.sendToFrontend({
-      type: 'queue_abort_ack',
-      abortedQueued: aborted.providerWaiters + aborted.nativeSettingsWaiters + aborted.deferredWork + aborted.scheduledScans,
-      abortedActive: aborted.activeAttempts + aborted.providerStreams,
-      remoteCancelRequested: 0,
-      alreadyStopped: cancelledRecords + aborted.activeAttempts + aborted.providerStreams + aborted.providerWaiters === 0 ? 1 : 0,
-    }, userId)
-    spindle.sendToFrontend({ type: 'relay_notice', level: 'info', message: `Global Abort All acknowledged: ${cancelledRecords} slot${cancelledRecords === 1 ? '' : 's'} stopped across ${aborted.chatIds.length} chat${aborted.chatIds.length === 1 ? '' : 's'}. Relay will not hand off another provider request without new user work.` }, userId)
+    const { aborted, cancelledRecords } = await abortAllRelayWork(payload.chatId, userId)
+    sendAbortAllAcknowledgement(aborted, cancelledRecords, userId)
     return
   }
   if (payload.action === 'generate_pending' || payload.action === 'generate_all_pending') {
@@ -12060,14 +12104,13 @@ async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { typ
     configPatch.surfacePreferencesInitialized = true
     configPatch.globalSurfaceStudio = globalStudio
     let savedConfig = await setConfig(configPatch, userId)
-    // Narrative Utilities inherit the single Surface presentation choice. When
-    // their Relay-owned scripts are installed, reconcile their variant now so
-    // existing messages change with the same preference rather than waiting for
-    // a manual reinstall or a later chat.
+    // Narrative Utilities inherit both independent Surface choices: outer
+    // presentation and body Color Mode. Reconcile installed host Regex now so
+    // existing messages update without a manual reinstall or a later chat.
     const previousNarrativeHealth = savedConfig.narrativeDlcLastSync
-    if (payload.action === 'set_default_shell_mode' && previousNarrativeHealth?.installed) {
+    if ((payload.action === 'set_default_shell_mode' || payload.action === 'set_color_mode') && previousNarrativeHealth?.installed) {
       try {
-        const health = await reconcileNarrativeRegex(spindle.regex_scripts, narrativeVariantForSurfaceShellMode(savedConfig.surfaceDefaultShellMode), userId)
+        const health = await reconcileNarrativeRegex(spindle.regex_scripts, narrativeVariantForSurfaceShellMode(savedConfig.surfaceDefaultShellMode), userId, savedConfig.surfaceColorMode)
         savedConfig = await setConfig({ narrativeDlcLastSync: health }, userId)
       } catch (error) {
         savedConfig = await setConfig({
@@ -16169,10 +16212,10 @@ function relaySettingsPatchWarnings(patch: RelaySettingsPatch): string[] {
 async function handleRelaySettingsPatch(payload: Extract<FrontendMessage, { type: 'relay_settings_patch' }>, userId?: string): Promise<void> {
   try {
     let saved = await mutateConfigAtomic(current => applyRelaySettingsPatchToConfig(current, payload.patch, payload.expectedRevision), userId)
-    if (payload.patch.kind === 'surface-preferences' && payload.patch.defaultShellMode !== undefined && saved.narrativeDlcLastSync?.installed) {
+    if (payload.patch.kind === 'surface-preferences' && (payload.patch.defaultShellMode !== undefined || payload.patch.colorMode !== undefined) && saved.narrativeDlcLastSync?.installed) {
       const previousNarrativeHealth = saved.narrativeDlcLastSync
       try {
-        const health = await reconcileNarrativeRegex(spindle.regex_scripts, narrativeVariantForSurfaceShellMode(saved.surfaceDefaultShellMode), userId)
+        const health = await reconcileNarrativeRegex(spindle.regex_scripts, narrativeVariantForSurfaceShellMode(saved.surfaceDefaultShellMode), userId, saved.surfaceColorMode)
         saved = await setConfig({ narrativeDlcLastSync: health }, userId)
       } catch (error) {
         saved = await setConfig({

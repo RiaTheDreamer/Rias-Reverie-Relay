@@ -120,6 +120,12 @@ assert(switched.status === 'healthy' && switched.variant === 'plain-button', 'va
 assert(api.rows.every(row => row.metadata.reverie_narrative_variant === 'plain-button'), 'variant switch must update every owned script without parallel installs')
 assert(api.rows.length === activeScriptCount, 'variant switch must remain mutually exclusive and active-only')
 
+const glassColor = await reconcileNarrativeRegex(api as any, 'plain-button', undefined, 'glass')
+const installedGlassPlotSparks = api.rows.find(row => row.script_id === 'ria_plot_sparks_og_sparkle_tabs_bulletproof_v7')
+assert(glassColor.status === 'healthy' && installedGlassPlotSparks?.replace_string.includes('data-reverie-glass-authority="narrative-glass"'), 'installed Plot Sparks Regex must receive the Glass Color Mode makeover, not only Relay direct rendering')
+assert(api.rows.every(row => row.metadata.reverie_narrative_color_mode === 'glass'), 'installed Narrative scripts must record and reconcile the selected Color Mode')
+await reconcileNarrativeRegex(api as any, 'plain-button')
+
 api.rows[0].replace_string = 'user drift'
 const drift = await inspectNarrativeRegex(api as any, 'plain-button')
 assert(drift.status === 'drifted' && drift.drifted === 1, 'health inspection must detect changed owned scripts')
@@ -396,7 +402,7 @@ const root = path.resolve(new URL('..', import.meta.url).pathname.replace(/^\/([
 const backend = fs.readFileSync(path.join(root, 'src/backend.ts'), 'utf8')
 const narrativeLorebook = fs.readFileSync(path.join(root, 'src/narrativeLorebook.ts'), 'utf8')
 assert(backend.includes('const automaticNarrative = routerConfig.narrativeDlcEnabled') && backend.includes('buildResolvedNarrativeUtilityPrompt(routerConfig)'), 'Story Model interceptor must resolve Narrative Utilities through the runtime source path')
-assert(backend.includes('await reconcileInstalledNarrativeOnStartup(userId)') && backend.includes("const inspected = await inspectNarrativeRegex(spindle.regex_scripts, variant, userId)") && backend.includes("await reconcileNarrativeRegex(spindle.regex_scripts, variant, userId)"), 'already-enabled Narrative installs must reconcile their owned Regex source once after an extension update')
+assert(backend.includes('await reconcileInstalledNarrativeOnStartup(userId)') && backend.includes('current.surfaceColorMode') && backend.includes('savedConfig.surfaceColorMode') && backend.includes('saved.surfaceColorMode'), 'already-enabled Narrative installs and both settings paths must reconcile the installed Regex pack against Color Mode')
 assert(backend.includes("name: 'reverie_narrative'") && backend.includes('NARRATIVE_MACRO_MARKER'), 'placed Narrative macro path must be registered and expanded')
 assert(backend.includes('renderNarrativeRegex(renderedContent, snapshot.narrativeVariant') && backend.includes('shouldRelayRenderNarrativeMarkup(source, renderContext.rendererMode)'), 'all renderer modes must execute the isolated bundled Narrative renderer without depending on host Regex hydration')
 assert(backend.includes("type: 'export_narrative_lorebook'") && narrativeLorebook.includes('reverie_relay_lorebook_chat_id') && narrativeLorebook.includes('chat_world_book_ids'), 'Lorebook export must create a chat-owned archive and preserve existing chat bindings')

@@ -1436,6 +1436,43 @@ export function setup(ctx: SpindleFrontendContext) {
       }
       return
     }
+    if (message.type === 'queue_abort_ack') {
+      // The acknowledgement is a terminal UI boundary. Do not let an older
+      // optimistic action, placement state, or processing candidate batch
+      // repaint the Orb as busy while the terminal state broadcast settles.
+      rescanInProgress = false
+      localSidecarAnalysisStartedAt = 0
+      optimisticSlotActions.clear()
+      records = records.map(record => isGenerationActiveStatus(record.status)
+        ? { ...record, status: 'cancelled' as const, updatedAt: Date.now() }
+        : record)
+      recordByKey = new Map(records.map(record => [record.key, record]))
+      candidateBatches = candidateBatches.map(batch => batch.status === 'processing'
+        ? {
+            ...batch,
+            status: 'discarded' as const,
+            updatedAt: Date.now(),
+            candidates: batch.candidates.map(candidate => ['preflight', 'parsing', 'provider-waiting', 'generating'].includes(candidate.status)
+              ? { ...candidate, status: 'discarded' as const, error: 'Cancelled by Abort All.' }
+              : candidate),
+          }
+        : batch)
+      backgroundQueue = {
+        ...backgroundQueue,
+        items: Object.fromEntries(Object.entries(backgroundQueue.items || {}).map(([id, item]) => [id,
+          ['completed', 'failed', 'cancelled'].includes(item.stage)
+            ? item
+            : { ...item, stage: 'cancelled' as const, statusText: 'Cancelled by Abort All', etaSeconds: null, updatedAt: Date.now() },
+        ])),
+      }
+      for (const [key, preview] of streamPreviews) {
+        if (preview.streaming) streamPreviews.set(key, { ...preview, streaming: false, statusText: 'Generation stopped.', updatedAt: Date.now() })
+      }
+      updateSidecarTicker()
+      renderPanel()
+      renderRelayOrb()
+      return
+    }
     if (message.type === 'prose_opportunities_ready') {
       if (message.chatId !== activeChatId) return
       localSidecarAnalysisStartedAt = 0
@@ -3305,28 +3342,17 @@ export function setup(ctx: SpindleFrontendContext) {
 
   function sidecarAnalysisInProgress(): { messageId?: string; swipeId?: number; startedAt: number } | null {
     if (!activeChatId) return null
-    const terminalEvents = new Set([
-      'prose_opportunity_analysis_completed',
-      'prose_opportunity_analysis_failed',
-      'prose_opportunity_limit_reached',
-      'prose_sidecar_unavailable',
-    ])
-    const relevant = logs.filter(log => log.chatId === activeChatId && log.stage === 'prose-opportunity-discovery')
-    const latestStart = relevant
-      .filter(log => log.eventType === 'prose_opportunity_analysis_started')
-      .sort((a, b) => b.timestamp - a.timestamp)[0]
-    if (latestStart) {
-      const terminalAfter = relevant.some(log => terminalEvents.has(log.eventType)
-        && log.timestamp >= latestStart.timestamp
-        && (!latestStart.messageId || log.messageId === latestStart.messageId)
-        && (latestStart.swipeId === undefined || log.swipeId === latestStart.swipeId))
-      if (!terminalAfter && Date.now() - latestStart.timestamp < 5 * 60 * 1000) {
-        return { messageId: latestStart.messageId, swipeId: latestStart.swipeId, startedAt: latestStart.timestamp }
-      }
-    }
-    const localActive = localSidecarAnalysisStartedAt && Date.now() - localSidecarAnalysisStartedAt < 90 * 1000
-    const localTerminal = relevant.some(log => terminalEvents.has(log.eventType) && log.timestamp >= localSidecarAnalysisStartedAt)
-    return localActive && !localTerminal ? { startedAt: localSidecarAnalysisStartedAt } : null
+    // Logs are historical evidence, not a live-work signal. A missing terminal
+    // log used to resurrect the Orb on an unrelated user send, including after
+    // Abort All. Only a currently active Relay analysis task may animate it.
+    const active = Object.values(backgroundQueue.items || {})
+      .filter(item => item.chatId === activeChatId
+        && item.source === 'analysis'
+        && !['completed', 'failed', 'cancelled'].includes(item.stage))
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    return active
+      ? { messageId: active.requestId, startedAt: active.startedAt || active.createdAt }
+      : null
   }
 
   function renderSidecarAnalyzingIndicator(state: { messageId?: string; swipeId?: number; startedAt: number }): HTMLElement {
@@ -3531,7 +3557,9 @@ export function setup(ctx: SpindleFrontendContext) {
         if (orb.dataset.reverieRelayOrbOwner === documentRuntimeOwnerId) orb.remove()
       }
     }
-    const busy = candidateBatches.some(batch => batch.chatId === activeChatId && batch.status === 'processing') || records.some(record => isProcessing(record))
+    // Placement-pending is user work, not Relay work. It must not keep the Orb
+    // spinning or wake it again when an unrelated message is sent.
+    const busy = candidateBatches.some(batch => batch.chatId === activeChatId && batch.status === 'processing') || records.some(record => isGenerationActiveStatus(record.status))
     const scanning = rescanInProgress
     const sidecarAnalyzing = sidecarAnalysisInProgress()
     const ready = candidateBatches.reduce((sum, batch) => sum + (batch.chatId === activeChatId && batch.status === 'review' ? batch.candidates.filter(candidate => candidate.status === 'ready').length : 0), 0)
