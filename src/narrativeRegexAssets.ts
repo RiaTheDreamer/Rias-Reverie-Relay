@@ -320,15 +320,48 @@ function normalizeElsewhereMarkup(markup: string): string {
 }
 
 const WORLD_OWNER_RANGE = /(\[WORLD\|[^\]\r\n]{1,500}\|[^\]\r\n]{1,500}\])((?:(?!\[WORLD\|)[\s\S])*?)(\[\/WORLD\])/gi
+const WORLD_MISSING_ROOT_RANGE = /(\[WORLD\|[^\]\r\n]{1,500}\|[^\]\r\n]{1,500}\])((?:(?!\[WORLD\|)[\s\S])*?\[\/world_context\])(?=\s*(?:\[Plot_Sparks\]|\[SCENE(?:\||\])|\[PARALLEL\||\[NPC:|\[SECRET\||\[WHATIF\||\[(?:character_phone|private_phone|dossier_ui|dramatic_parallel)\]|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b))/gi
 const WORLD_BODY_SHELL = /^\s*\[world_media\]([\s\S]{1,24000}?)\[\/world_media\]\s*\[world_detail\]([\s\S]{1,12000}?)\[\/world_detail\]\s*\[world_context\]([\s\S]{1,16000}?)\[\/world_context\]\s*$/i
+const WORLD_CONTEXT_SHELL = /^\s*\[why_it_matters\]([\s\S]{1,4000}?)\[\/why_it_matters\]\s*\[future_use\]([\s\S]{1,4000}?)\[\/future_use\]\s*$/i
+const WORLD_MEDIA_CONTROL = /(?:<image_request\b|<reverie-illustration\b|<img\b|<!--\s*reverie-relay:image\b)/i
 const NESTED_NARRATIVE_OWNER = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i
+
+/** Recover a World whose model omitted only the root closer. A following,
+ * independently recognized Narrative owner is the completion boundary: an
+ * otherwise complete World at end-of-input may still be an unfinished stream
+ * and remains untouched. Exactly one unmatched World root is required so a
+ * nested or multiply-owned payload cannot be guessed into shape. */
+function normalizeMissingWorldRoot(markup: string): string {
+  const source = String(markup || '')
+  const openerCount = (source.match(/\[WORLD\|/gi) || []).length
+  const closerCount = (source.match(/\[\/WORLD\]/gi) || []).length
+  if (openerCount !== closerCount + 1) return source
+
+  const candidates = [...source.matchAll(new RegExp(WORLD_MISSING_ROOT_RANGE.source, WORLD_MISSING_ROOT_RANGE.flags))]
+  if (candidates.length !== 1) return source
+  const candidate = candidates[0]
+  const full = candidate[0]
+  const body = candidate[2]
+  for (const field of ['world_media', 'world_detail', 'world_context', 'why_it_matters', 'future_use']) {
+    if ((body.match(new RegExp(`\\[${field}\\]`, 'gi')) || []).length !== 1) return source
+    if ((body.match(new RegExp(`\\[\\/${field}\\]`, 'gi')) || []).length !== 1) return source
+  }
+  const shell = WORLD_BODY_SHELL.exec(body)
+  if (!shell || NESTED_NARRATIVE_OWNER.test(body) || !WORLD_MEDIA_CONTROL.test(shell[1])) return source
+  const context = WORLD_CONTEXT_SHELL.exec(shell[3])
+  if (!context || !context[1].trim() || !context[2].trim()) return source
+
+  const start = candidate.index ?? -1
+  if (start < 0) return source
+  return `${source.slice(0, start)}${full}\n[/WORLD]${source.slice(start + full.length)}`
+}
 
 /** Repair one observed Setting the Scene contract violation inside a complete,
  * otherwise canonical World owner. The first future-use closer is only changed
  * when the following, separately opened future-use field is complete, leaving
  * canonical and ambiguous payloads byte-identical. */
 export function normalizeWorldMarkup(markup: string): string {
-  return String(markup || '').replace(WORLD_OWNER_RANGE, (full, opening: string, body: string, closing: string) => {
+  return normalizeMissingWorldRoot(String(markup || '')).replace(WORLD_OWNER_RANGE, (full, opening: string, body: string, closing: string) => {
     const shell = WORLD_BODY_SHELL.exec(body)
     if (!shell || NESTED_NARRATIVE_OWNER.test(body)) return full
     const context = shell[3]

@@ -29,10 +29,20 @@ const result = (id: string) => ({ slot: id, imageId: id, imageUrl: `/${id}.png` 
 const ids = ['scene-a', 'scene-b', 'scene-c']
 let latestContent = `Opening prose.\n${request(ids[0])}\nMiddle prose.\n${request(ids[1])}\nMore prose.\n${request(ids[2])}\nClosing prose.`
 
-// Request-scoped ownership removes the message-wide sibling barrier while the
-// message/swipe mutation lock still serializes writes against latest content.
-assert.notEqual(backend.placementBatchKey(job('scene-a'), 'u'), backend.placementBatchKey(job('scene-b'), 'u'))
-assert.equal(backend.initialPlacementBatchCommitGate({ entries: [] } as any, { hasGenerationSibling: true, hasVisibleFrontend: false }), 'ready')
+// Progressive reveal stays request-local, but durable persistence is one
+// message/swipe transaction after every initial sibling becomes terminal.
+assert.equal(backend.placementBatchKey(job('scene-a'), 'u'), backend.placementBatchKey(job('scene-b'), 'u'), 'initial sibling requests must share one message/swipe persistence batch')
+assert.equal(backend.initialPlacementBatchCommitGate({ entries: [] } as any, { hasGenerationSibling: true, hasVisibleFrontend: false }), 'generation-pending')
+assert.equal(backend.initialPlacementBatchCommitGate({ entries: [] } as any, { hasGenerationSibling: false, hasVisibleFrontend: false }), 'ready')
+const siblingBatch = { chatId: 'progressive-chat', messageId: 'progressive-message', swipeId: 0, sourceFingerprint: 'source', entries: [{ job: job('scene-a'), results: [result('scene-a')] }] } as any
+assert.equal(backend.hasPendingInitialPlacementSibling({ slots: {
+  a: { ...job('scene-a'), status: 'placement-pending', triggerType: 'initial' },
+  b: { ...job('scene-b'), status: 'generating', triggerType: 'initial' },
+} } as any, siblingBatch), true, 'a still-generating initial sibling must hold the one durable message transaction')
+assert.equal(backend.hasPendingInitialPlacementSibling({ slots: {
+  a: { ...job('scene-a'), status: 'placement-pending', triggerType: 'initial' },
+  b: { ...job('scene-b'), status: 'failed', triggerType: 'initial' },
+} } as any, siblingBatch), false, 'a terminal failed sibling must release successful initial placements')
 
 const deferred = () => {
   let resolve!: (value?: unknown) => void

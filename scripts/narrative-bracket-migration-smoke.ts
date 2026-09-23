@@ -237,6 +237,36 @@ const canonicalWorld = `[WORLD|🌿 ENVIRONMENT|Basalt Sea Cave South of Jeju]
 [/WORLD]`
 assert(normalizeNarrativeMarkupForRendering(canonicalWorld) === canonicalWorld, 'canonical World normalization must remain byte-for-byte unchanged')
 
+const missingRootWorld = canonicalWorld.replace('\n[/WORLD]', '')
+// The live missing-root response continued directly into Plot Sparks. That
+// next independently valid owner is the boundary that makes recovery safe.
+const worldBoundarySibling = plotSparks
+const missingRootBeforeSibling = `${missingRootWorld}\n${worldBoundarySibling}`
+const recoveredMissingRoot = normalizeNarrativeMarkupForRendering(missingRootBeforeSibling)
+assert(recoveredMissingRoot === `${missingRootWorld}\n[/WORLD]\n${worldBoundarySibling}`, 'complete World before a proven sibling boundary did not recover only its missing root closer')
+for (const variant of NARRATIVE_REGEX_VARIANTS) {
+  const rendered = renderNarrativeRegex(missingRootBeforeSibling, variant, `world-missing-root-${variant}`)
+  assert(rendered.includes('Setting the Scene') && rendered.includes('class="ch-og'), `${variant}: missing-root World and its Plot Sparks sibling did not both render`)
+  assert(!rendered.includes('[WORLD|') && !rendered.includes('Relay Surface needs repair'), `${variant}: missing-root World leaked raw markup or fell through to repair`)
+}
+
+const resolvedWorldMedia = `<!-- reverie-relay:image chatId="world-chat" messageId="world-message" swipeId="0" requestId="world-resolved" target="custom.artifact-media" slot="world-resolved" -->
+<img src="/api/v1/image-gen/results/world-image" alt="Resolved World image" class="reverie-artifact-media" data-reverie-artifact-media="true" data-dgir-request-id="world-resolved" data-dgir-slot="world-resolved" loading="lazy" decoding="async">`
+const resolvedMissingRootWorld = `${missingRootWorld.replace(/\[world_media\][\s\S]*?\[\/world_media\]/i, `[world_media]${resolvedWorldMedia}[/world_media]`)}\n${worldBoundarySibling}`
+const recoveredResolvedWorld = normalizeNarrativeMarkupForRendering(resolvedMissingRootWorld)
+assert(recoveredResolvedWorld.includes(`${resolvedWorldMedia}[/world_media]`) && recoveredResolvedWorld.includes('[/world_context]\n[/WORLD]'), 'missing-root recovery changed or rejected resolved Relay World media')
+for (const variant of NARRATIVE_REGEX_VARIANTS) {
+  const rendered = renderNarrativeRegex(resolvedMissingRootWorld, variant, `world-resolved-root-${variant}`)
+  assert(rendered.includes('Setting the Scene') && rendered.includes('/api/v1/image-gen/results/world-image'), `${variant}: resolved-media World did not render after missing-root recovery`)
+  assert(!rendered.includes('[WORLD|'), `${variant}: resolved-media World leaked its missing-root scaffold`)
+}
+
+assert(normalizeNarrativeMarkupForRendering(missingRootWorld) === missingRootWorld, 'complete inner World shell at end-of-input was closed before streaming completion became authoritative')
+const ambiguousMissingRoot = missingRootBeforeSibling.replace('[future_use]The cave can conceal', '[future_use]First possibility.[/future_use]\n[future_use]The cave can conceal')
+assert(normalizeNarrativeMarkupForRendering(ambiguousMissingRoot) === ambiguousMissingRoot, 'ambiguous missing-root World with repeated context fields was guessed at')
+const multiplyOwnedMissingRoot = `${missingRootWorld}\n${missingRootBeforeSibling}`
+assert(normalizeNarrativeMarkupForRendering(multiplyOwnedMissingRoot) === multiplyOwnedMissingRoot, 'multiply-owned missing-root World payload was partially consumed')
+
 const malformedBasaltWorld = `[WORLD|🌿 ENVIRONMENT|Basalt Sea Cave South of Jeju]
 [world_media]<image_request id="world-detail-basalt-sea-cave-01" target="custom.artifact-media" slot="world-detail-basalt-sea-cave-01" aspect="16:9" alt="Interior of half-submerged basalt sea cave with glowing lichen and salvaged human artifacts"><scene_brief>Secluded volcanic sea cave interior, dark basalt columns and damp stone shelves, glowing emerald bioluminescent moss on walls, black tide pool reflecting faint green light, shelves littered with salvaged rusted watch casings and maritime tags, no people visible.</scene_brief></image_request>[/world_media]
 [world_detail]Formed by ancient volcanic activity, this thermal cave pocket stays warm despite freezing winter sea currents, providing an undetectable air chamber shielded by basalt rifts from siren sonar networks.[/world_detail]
@@ -311,6 +341,6 @@ assert(worldIsolated.includes('rr-scene-compass'), 'malformed World poisoned val
 assert(worldIsolated.includes('class="ch-og') && !worldIsolated.includes('[Plot_Sparks]'), 'malformed World poisoned valid Plot Sparks')
 
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
-assert(packageJson.version === '0.2.8.6.2', `version changed: ${packageJson.version}`)
+assert(packageJson.version === '0.2.8.6.3', `version changed: ${packageJson.version}`)
 
 console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} Utilities, ${renderCases} dedicated presentation renders, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone three-variant regression passed, malformed-sibling isolation passed, Stella absent.`)

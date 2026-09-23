@@ -429,7 +429,6 @@ export type InitialPlacementBatch = {
   chatId: string
   messageId: string
   swipeId: number
-  requestId: string
   sourceFingerprint: string
   entries: InitialPlacementBatchEntry[]
   visualFallbackTimer?: ReturnType<typeof setTimeout>
@@ -2042,8 +2041,8 @@ export function stageStaleChatCleanupRegressionFixture(chatId: string, userId?: 
   deferredReparseRequests.set(`${chatId}:fixture-retry`, { key: `${chatId}:fixture-retry`, userId, attempts: 0, abortEpoch: currentUserAbortEpoch(userId), timer: retryTimer })
   addNativeSettingsWaiters(nativeSettingsBroker(userId).waiters, chatId, [`${chatId}:fixture-waiter`])
   const scope = relayQueueScope(userId)
-  pendingPlacementBatches.set(`${scope}:${chatId}:fixture-message:0:fixture-request`, {
-    chatId, messageId: 'fixture-message', swipeId: 0, requestId: 'fixture-request', sourceFingerprint: 'fixture', entries: [],
+  pendingPlacementBatches.set(`${scope}:${chatId}:fixture-message:0`, {
+    chatId, messageId: 'fixture-message', swipeId: 0, sourceFingerprint: 'fixture', entries: [],
   })
 }
 
@@ -3568,13 +3567,14 @@ function relayPlannedJson(raw: string, label: string): Record<string, unknown> {
   return parsed as Record<string, unknown>
 }
 
-function relayPlannedSubjectStates(
+export function relayPlannedSubjectStates(
   state: StateFile,
   chatId: string,
   content: string,
   settings: ProseIllustratorSettings,
 ): RelayPlannedSubjectState[] {
-  if (!settings.appearanceMemoryEnabled) return []
+  const strength = effectiveIllustratorAppearanceStrength(settings, state.continuityVault.strength)
+  if (strength === 'off') return []
   const facts = allAppearanceFacts(state.continuityVault)
   const candidates = new Set(extractCharacterCandidates(content).map(name => name.toLocaleLowerCase()))
   for (const fact of facts) {
@@ -3587,14 +3587,12 @@ function relayPlannedSubjectStates(
     .map(fact => fact.canonicalCharacterName))]
   for (const candidate of extractCharacterCandidates(content)) if (!names.some(name => name.toLocaleLowerCase() === candidate.toLocaleLowerCase())) names.push(candidate)
   return names.slice(0, 24).map(name => {
-    const subjectFacts = facts.filter(fact => fact.canonicalCharacterName.toLocaleLowerCase() === name.toLocaleLowerCase())
-    const active = subjectFacts.filter(fact => fact.status === 'active' && fact.active !== false)
+    const active = selectContinuityForSubjects(state.continuityVault, { subjectNames: [name], chatId, sceneBrief: content, strength }).included
     const identity = active.filter(fact => fact.layer === 'visual-identity').map(appearanceFactDescriptor).filter(Boolean)
     const current = active.filter(fact => fact.layer !== 'visual-identity').map(appearanceFactDescriptor).filter(Boolean)
     const pinned = active.filter(fact => fact.pinned).map(appearanceFactDescriptor).filter(Boolean)
-    const superseded = subjectFacts.filter(fact => fact.status === 'superseded').map(appearanceFactDescriptor).filter(Boolean)
     const animal = [...identity, ...current].some(value => /\b(?:dog|cat|horse|animal|canine|feline|retriever|wolf|fox)\b/i.test(value))
-    return { name, role: animal ? 'animal' : 'character', identity, current, pinned, superseded, activeFactIds: active.map(fact => fact.factId) }
+    return { name, role: animal ? 'animal' : 'character', identity, current, pinned, superseded: [], activeFactIds: active.map(fact => fact.factId) }
   })
 }
 
@@ -4237,6 +4235,11 @@ function enforceMaximumCharacters(subjects: string[], maximum: number): { kept: 
   return { kept: clean.slice(0, maximum), omitted: clean.slice(maximum) }
 }
 
+export function effectiveIllustratorAppearanceStrength(settings: Pick<ProseIllustratorSettings, 'appearanceMemoryEnabled' | 'appearanceMemoryOverride'>, globalStrength: ContinuityStrength): ContinuityStrength {
+  if (!settings.appearanceMemoryEnabled) return 'off'
+  return settings.appearanceMemoryOverride === 'global' ? globalStrength : settings.appearanceMemoryOverride
+}
+
 function selectProseContinuityFacts(
   state: StateFile,
   chatId: string,
@@ -4244,14 +4247,15 @@ function selectProseContinuityFacts(
   namedSubjects: string[] = [],
   projection?: { sceneBrief: string; expectedPeopleCount?: number },
 ): ContinuityFact[] {
-  if (!settings.appearanceMemoryEnabled || settings.continuityStrength === 'off' || state.continuityVault.strength === 'off') return []
+  const strength = effectiveIllustratorAppearanceStrength(settings, state.continuityVault.strength)
+  if (strength === 'off') return []
   expireCurrentAppearance(state.continuityVault)
   if (projection) {
     return projectContinuityForGeneration(state.continuityVault, {
       subjectNames: namedSubjects,
       chatId,
       sceneBrief: projection.sceneBrief,
-      strength: settings.continuityStrength,
+      strength,
       framingMode: settings.perspectiveMode,
       expectedPeopleCount: projection.expectedPeopleCount,
     }).included
@@ -4260,7 +4264,7 @@ function selectProseContinuityFacts(
     subjectNames: namedSubjects,
     chatId,
     sceneBrief: '',
-    strength: settings.continuityStrength,
+    strength,
   }).included
 }
 
@@ -5994,7 +5998,7 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
   if (!config.enabled || (!cleanString(input.content) && mode !== 'enrichment' && !input.refreshField)) return false
   const state = await getState(input.chatId, input.userId)
   const settings = proseSettingsForChat(state, input.chatId)
-  if (!settings.appearanceMemoryEnabled || settings.continuityStrength === 'off') return false
+  if (effectiveIllustratorAppearanceStrength(settings, state.continuityVault.strength) === 'off') return false
   const cooldownKey = `${input.chatId}:${input.messageId}:${input.swipeId}`
   if (mode === 'normal') {
     const failedAt = appearanceFailureCooldownByTurn.get(cooldownKey) || 0
@@ -8538,12 +8542,27 @@ export function hasUnsettledVisiblePlacement(batch: InitialPlacementBatch): bool
 }
 
 export function initialPlacementBatchCommitGate(batch: InitialPlacementBatch, options: { hasGenerationSibling: boolean; hasVisibleFrontend: boolean; allowSafetyFallback?: boolean; healthyStartedVisual?: boolean }): 'generation-pending' | 'visual-pending' | 'ready' {
+  if (options.hasGenerationSibling) return 'generation-pending'
   // Reveal lifecycle is presentation telemetry, not a persistence prerequisite.
   // Waiting for animationend here left a generated, gallery-linked asset in
   // placement-pending limbo on real mobile sessions.
   void batch
   void options
   return 'ready'
+}
+
+const INITIAL_PLACEMENT_GENERATION_STATUSES = new Set<SlotRecord['status']>([
+  'preparing', 'queued', 'awaiting-native-settings', 'parsing', 'provider-waiting', 'generating', 'previewing', 'placement-pending',
+])
+
+export function hasPendingInitialPlacementSibling(state: Pick<StateFile, 'slots'>, batch: InitialPlacementBatch): boolean {
+  const stagedRequestIds = new Set(batch.entries.map(entry => entry.job.requestId))
+  return Object.values(state.slots).some(record => record.chatId === batch.chatId
+    && record.messageId === batch.messageId
+    && record.swipeId === batch.swipeId
+    && record.triggerType === 'initial'
+    && !stagedRequestIds.has(record.requestId)
+    && INITIAL_PLACEMENT_GENERATION_STATUSES.has(record.status))
 }
 
 async function markInitialPlacementBatchForRepair(batch: InitialPlacementBatch, reason: string, currentContent: string, userId?: string, entries = batch.entries): Promise<void> {
@@ -8660,8 +8679,8 @@ async function commitInitialPlacementBatch(batch: InitialPlacementBatch, userId?
   }
 }
 
-export function placementBatchKey(job: Pick<RouterJob, 'chatId' | 'messageId' | 'swipeId' | 'requestId'>, userId?: string): string {
-  return `${relayQueueScope(userId)}:${job.chatId}:${job.messageId}:${job.swipeId}:${job.requestId}`
+export function placementBatchKey(job: Pick<RouterJob, 'chatId' | 'messageId' | 'swipeId'>, userId?: string): string {
+  return `${relayQueueScope(userId)}:${job.chatId}:${job.messageId}:${job.swipeId}`
 }
 
 function clearInitialPlacementVisualFallback(batch: InitialPlacementBatch): void {
@@ -8669,13 +8688,15 @@ function clearInitialPlacementVisualFallback(batch: InitialPlacementBatch): void
   batch.visualFallbackTimer = undefined
 }
 
-async function maybeCommitInitialPlacementBatch(job: Pick<RouterJob, 'chatId' | 'messageId' | 'swipeId' | 'requestId'>, userId?: string, allowSafetyFallback = false): Promise<boolean> {
+async function maybeCommitInitialPlacementBatch(job: Pick<RouterJob, 'chatId' | 'messageId' | 'swipeId'>, userId?: string, allowSafetyFallback = false): Promise<boolean> {
   return withPlacementMutationLock(job, async () => {
     const key = placementBatchKey(job, userId)
     const batch = pendingPlacementBatches.get(key)
     if (!batch) return false
     const placementLockAcquiredAt = Date.now()
+    let hasGenerationSibling = false
     await mutateState(batch.chatId, userId, state => {
+      hasGenerationSibling = hasPendingInitialPlacementSibling(state, batch)
       for (const { job: entryJob, results } of batch.entries) for (const result of results) {
         const record = state.slots[slotKey({ ...entryJob, slot: result.slot })]
         if (!record || !placementFailureCanReplaceRecord(record, result)) continue
@@ -8685,7 +8706,7 @@ async function maybeCommitInitialPlacementBatch(job: Pick<RouterJob, 'chatId' | 
       }
     })
     const gate = initialPlacementBatchCommitGate(batch, {
-      hasGenerationSibling: false,
+      hasGenerationSibling,
       hasVisibleFrontend: hasConnectedFrontendForChat(batch.chatId, userId),
       allowSafetyFallback,
       healthyStartedVisual: false,
@@ -8763,7 +8784,7 @@ async function stageGeneratedPlacement(job: RouterJob, results: SlotGenerationRe
     if (!batch) {
       const message = await resolveHostMessage(job.chatId, job.messageId)
       const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : ''
-      batch = { chatId: job.chatId, messageId: job.messageId, swipeId: job.swipeId, requestId: job.requestId, sourceFingerprint: contentFingerprint(content), entries: [] }
+      batch = { chatId: job.chatId, messageId: job.messageId, swipeId: job.swipeId, sourceFingerprint: contentFingerprint(content), entries: [] }
       pendingPlacementBatches.set(key, batch)
     }
     await stageInitialPlacementBatchEntry(batch, job, results, replaceExisting, requireVisualSettlement, userId)
@@ -14273,6 +14294,9 @@ async function buildParserContext(
   const identityFallbacks: string[] = []
   const sidecarFallbackSubjectKeys = new Set<string>()
   const identityKey = (value: unknown) => cleanString(value).toLocaleLowerCase().replace(/[\s_-]+/g, '')
+  const illustratorAppearanceStrength = job.target === 'prose.illustration'
+    ? effectiveIllustratorAppearanceStrength(proseSettingsForChat(state, job.chatId), state.continuityVault.strength)
+    : state.continuityVault.strength
   const continuityFramingMode = job.prosePromptComposition?.perspectiveMode
     || (job.target === 'prose.illustration' ? proseSettingsForChat(state, job.chatId).perspectiveMode : '')
   const continuityExpectedPeopleCount = Math.max(
@@ -14280,9 +14304,9 @@ async function buildParserContext(
     job.cast === 'char+user' ? 2 : job.cast === 'char' || job.cast === 'user' ? 1 : 0,
   )
   const continuityPromptFor = (name: string): string => {
-    if (!name) return ''
+    if (!name || illustratorAppearanceStrength === 'off') return ''
     const selected = projectContinuityForGeneration(state.continuityVault, {
-      subjectNames: [name], chatId: job.chatId, sceneBrief: job.originalSceneBrief, strength: state.continuityVault.strength,
+      subjectNames: [name], chatId: job.chatId, sceneBrief: job.originalSceneBrief, strength: illustratorAppearanceStrength,
       framingMode: continuityFramingMode, expectedPeopleCount: continuityExpectedPeopleCount,
     }).included
     return selected.map(appearanceFactDescriptor).filter(Boolean).join(', ')
@@ -14385,7 +14409,7 @@ async function buildParserContext(
   if (recent) blocks.push(`Nearest relevant visual continuity only:\n${recent}`)
   const continuity = humanPolicy.allowHumanContext
     ? selectContinuityForJob(state, job, classification, visualSubjects.map(subject => subject.name))
-    : { included: [], projectedIncluded: [], excluded: [], projectedExcluded: [], projectedNegativePrompt: '', projectionNotes: [], attachedReferenceAssetIds: [], conflicts: [], strength: state.continuityVault.strength }
+    : { included: [], projectedIncluded: [], excluded: [], projectedExcluded: [], projectedNegativePrompt: '', projectionNotes: [], attachedReferenceAssetIds: [], conflicts: [], strength: illustratorAppearanceStrength }
   const projectedContinuityIncludedOnce = continuity.projectedIncluded.filter(fact => {
     if (!sidecarFallbackSubjectKeys.size) return true
     return !sidecarFallbackSubjectKeys.has(identityKey(fact.canonicalCharacterId)) && !sidecarFallbackSubjectKeys.has(identityKey(fact.canonicalCharacterName))
@@ -16784,14 +16808,17 @@ function selectContinuityForJob(state: StateFile, job: RouterJob, _classificatio
   strength: ContinuityStrength
 } {
   const vault = state.continuityVault || emptyContinuityVault(job.chatId)
+  const strength = job.target === 'prose.illustration'
+    ? effectiveIllustratorAppearanceStrength(proseSettingsForChat(state, job.chatId), vault.strength)
+    : vault.strength
   const key = slotKey({ ...job, slot: job.slots[0] || 'image' })
-  if (vault.strength === 'off' || vault.ignoredForSlotKeys.includes(key)) {
+  if (strength === 'off' || vault.ignoredForSlotKeys.includes(key)) {
     return {
       included: [], projectedIncluded: [],
-      excluded: allAppearanceFacts(vault).map(fact => ({ factId: fact.factId, included: false, reason: vault.strength === 'off' ? 'Appearance Memory is off.' : 'Appearance Memory is ignored for this slot.' })),
-      projectedExcluded: allAppearanceFacts(vault).map(fact => ({ factId: fact.factId, included: false, reason: vault.strength === 'off' ? 'Appearance Memory is off.' : 'Appearance Memory is ignored for this slot.' })),
+      excluded: allAppearanceFacts(vault).map(fact => ({ factId: fact.factId, included: false, reason: strength === 'off' ? 'Appearance Memory is off for the active Illustrator policy.' : 'Appearance Memory is ignored for this slot.' })),
+      projectedExcluded: allAppearanceFacts(vault).map(fact => ({ factId: fact.factId, included: false, reason: strength === 'off' ? 'Appearance Memory is off for the active Illustrator policy.' : 'Appearance Memory is ignored for this slot.' })),
       projectedNegativePrompt: '', projectionNotes: [],
-      attachedReferenceAssetIds: [], conflicts: [], strength: vault.strength,
+      attachedReferenceAssetIds: [], conflicts: [], strength,
     }
   }
   expireCurrentAppearance(vault)
@@ -16801,7 +16828,7 @@ function selectContinuityForJob(state: StateFile, job: RouterJob, _classificatio
       excluded: allAppearanceFacts(vault).map(fact => ({ factId: fact.factId, included: false, reason: 'Authoritative scene explicitly forbids visible people.' })),
       projectedExcluded: allAppearanceFacts(vault).map(fact => ({ factId: fact.factId, included: false, reason: 'Authoritative scene explicitly forbids visible people.' })),
       projectedNegativePrompt: '', projectionNotes: [],
-      attachedReferenceAssetIds: [], conflicts: [], strength: vault.strength,
+      attachedReferenceAssetIds: [], conflicts: [], strength,
     }
   }
   const proseSubjects = job.prosePromptComposition?.namedSubjects || []
@@ -16814,8 +16841,8 @@ function selectContinuityForJob(state: StateFile, job: RouterJob, _classificatio
     Number(job.prosePromptComposition?.expectedPeopleCount || 0),
     job.cast === 'char+user' ? 2 : job.cast === 'char' || job.cast === 'user' ? 1 : 0,
   )
-  const selection = selectContinuityForSubjects(vault, { subjectNames: subjects, chatId: job.chatId, sceneBrief, strength: vault.strength })
-  const projected = projectContinuityForGeneration(vault, { subjectNames: subjects, chatId: job.chatId, sceneBrief, strength: vault.strength, framingMode, expectedPeopleCount })
+  const selection = selectContinuityForSubjects(vault, { subjectNames: subjects, chatId: job.chatId, sceneBrief, strength })
+  const projected = projectContinuityForGeneration(vault, { subjectNames: subjects, chatId: job.chatId, sceneBrief, strength, framingMode, expectedPeopleCount })
   const attachedReferenceAssetIds = [...new Set(projected.included.flatMap(fact => fact.referenceAssetIds))]
   return {
     ...selection,
@@ -16824,7 +16851,7 @@ function selectContinuityForJob(state: StateFile, job: RouterJob, _classificatio
     projectedNegativePrompt: projected.negativeTags.join(', '),
     projectionNotes: projected.notes,
     attachedReferenceAssetIds,
-    strength: vault.strength,
+    strength,
   }
 }
 

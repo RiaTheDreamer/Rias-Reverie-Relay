@@ -4378,8 +4378,8 @@ function summarizeRelayHealth(checks) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.6.2";
-var BUILD_ID = "20260922-0.2.8.6.2";
+var EXTENSION_VERSION = "0.2.8.6.3";
+var BUILD_ID = "20260923-0.2.8.6.3";
 
 // src/orbIconData.ts
 var ORB_IMAGE_DESIGNS = [
@@ -137827,6 +137827,54 @@ ${message.prompt}`;
     clearTimeout(longPressTimer);
     longPressKey = "";
   };
+  const surfaceInteractionState = new Map;
+  const interactiveSurfaceControlSelector = 'input[type="radio"], input.rrcp-launch-toggle, input.rrcp-app-toggle';
+  const mountedMessageForNode = (node) => {
+    for (const messageId of new Set(records.map((record) => record.messageId))) {
+      const root = ctx.dom.findMessageElement(messageId);
+      if (root && (root === node || root.contains(node)))
+        return { messageId, root };
+    }
+    return null;
+  };
+  const surfaceInteractionScope = (messageId) => `${activeChatId || ""}:${messageId}:${activeSwipeByMessage.get(messageId) ?? 0}`;
+  const disclosureStateKey = (root, disclosure) => {
+    const rows = deepQueryAll(root, "details");
+    return `${rows.indexOf(disclosure)}:${disclosure.className}`;
+  };
+  const controlStateKey = (root, control) => {
+    const rows = deepQueryAll(root, interactiveSurfaceControlSelector);
+    return `${rows.indexOf(control)}:${control.type}:${control.name}:${control.id}:${control.className}`;
+  };
+  const onSurfaceDisclosureToggle = (event) => {
+    const disclosure = event.target instanceof HTMLDetailsElement ? event.target : null;
+    if (!disclosure)
+      return;
+    const mounted = mountedMessageForNode(disclosure);
+    if (!mounted)
+      return;
+    const scope = surfaceInteractionScope(mounted.messageId);
+    const snapshot = surfaceInteractionState.get(scope) || { disclosures: {}, controls: {} };
+    snapshot.disclosures[disclosureStateKey(mounted.root, disclosure)] = disclosure.open;
+    rememberBoundedMap(surfaceInteractionState, scope, snapshot, C5B_CACHE_LIMITS.messageSnapshots);
+  };
+  const onSurfaceControlChange = (event) => {
+    const control = event.target instanceof HTMLInputElement && event.target.matches(interactiveSurfaceControlSelector) ? event.target : null;
+    if (!control)
+      return;
+    const mounted = mountedMessageForNode(control);
+    if (!mounted)
+      return;
+    const scope = surfaceInteractionScope(mounted.messageId);
+    const snapshot = surfaceInteractionState.get(scope) || { disclosures: {}, controls: {} };
+    if (control.type === "radio" && control.name) {
+      for (const sibling of deepQueryAll(mounted.root, `input[type="radio"][name="${cssEscape(control.name)}"]`)) {
+        snapshot.controls[controlStateKey(mounted.root, sibling)] = sibling.checked;
+      }
+    } else
+      snapshot.controls[controlStateKey(mounted.root, control)] = control.checked;
+    rememberBoundedMap(surfaceInteractionState, scope, snapshot, C5B_CACHE_LIMITS.messageSnapshots);
+  };
   document.addEventListener("click", onNativeSurfaceActionClick, true);
   document.addEventListener("click", onClick, true);
   document.addEventListener("click", onRegexArtifactImageClick, true);
@@ -137834,6 +137882,8 @@ ${message.prompt}`;
   document.addEventListener("pointerdown", onPointerDown, true);
   document.addEventListener("pointerup", clearLongPress, true);
   document.addEventListener("pointercancel", clearLongPress, true);
+  document.addEventListener("toggle", onSurfaceDisclosureToggle, true);
+  document.addEventListener("change", onSurfaceControlChange, true);
   lifecycle.track(() => document.removeEventListener("click", onNativeSurfaceActionClick, true), "listener");
   lifecycle.track(() => document.removeEventListener("click", onClick, true), "listener");
   lifecycle.track(() => document.removeEventListener("click", onRegexArtifactImageClick, true), "listener");
@@ -137841,6 +137891,8 @@ ${message.prompt}`;
   lifecycle.track(() => document.removeEventListener("pointerdown", onPointerDown, true), "listener");
   lifecycle.track(() => document.removeEventListener("pointerup", clearLongPress, true), "listener");
   lifecycle.track(() => document.removeEventListener("pointercancel", clearLongPress, true), "listener");
+  lifecycle.track(() => document.removeEventListener("toggle", onSurfaceDisclosureToggle, true), "listener");
+  lifecycle.track(() => document.removeEventListener("change", onSurfaceControlChange, true), "listener");
   const stopMediaObserver = observeRelayMediaMounts(document.body, () => {
     scheduleBindInlineImages();
     scheduleActiveChatSync();
@@ -138384,6 +138436,23 @@ ${message.prompt}`;
       bindNarrativeInteractiveControls();
       for (const row of deepQueryAll(document, "[data-rr-kakao-color]"))
         applyKakaoColorBinding(row);
+    }
+    const interactionMessageIds = messageId ? [messageId] : [...new Set(records.map((record) => record.messageId))];
+    for (const interactionMessageId of interactionMessageIds) {
+      const root = ctx.dom.findMessageElement(interactionMessageId);
+      const snapshot = surfaceInteractionState.get(surfaceInteractionScope(interactionMessageId));
+      if (!root || !snapshot)
+        continue;
+      for (const disclosure of deepQueryAll(root, "details")) {
+        const open = snapshot.disclosures[disclosureStateKey(root, disclosure)];
+        if (open !== undefined && disclosure.open !== open)
+          disclosure.open = open;
+      }
+      for (const control of deepQueryAll(root, interactiveSurfaceControlSelector)) {
+        const checked = snapshot.controls[controlStateKey(root, control)];
+        if (checked !== undefined && control.checked !== checked)
+          control.checked = checked;
+      }
     }
     const now = Date.now();
     for (const record of records) {

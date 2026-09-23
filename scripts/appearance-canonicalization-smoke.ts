@@ -428,6 +428,47 @@ for (const tag of ['glasses', 'lavender_hair', 'messy_hair']) {
   assert((parserPrompt.match(new RegExp(tag, 'g')) || []).length === 1, `provider-bound parser prompt should contain ${tag} once through clean Sidecar fallback: ${parserPrompt}`)
 }
 
+const policySettings = (mode: 'model-placed' | 'relay-planned', override: 'global' | 'off' | 'low' | 'medium' | 'strong') => ({
+  ...(config.proseIllustratorSettings as any), mode, enabled: true, appearanceMemoryEnabled: true,
+  appearanceMemoryOverride: override, continuityStrength: override === 'global' ? 'medium' : override,
+})
+for (const [globalStrength, override, expected] of [
+  ['off', 'global', 'off'], ['strong', 'global', 'strong'], ['strong', 'off', 'off'],
+  ['strong', 'low', 'low'], ['strong', 'medium', 'medium'], ['off', 'strong', 'strong'],
+] as const) {
+  for (const mode of ['model-placed', 'relay-planned'] as const) {
+    assert(backend.effectiveIllustratorAppearanceStrength(policySettings(mode, override), globalStrength) === expected, `${mode}/${globalStrength}/${override}: effective Appearance policy drifted`)
+  }
+}
+const relayPolicyState = { continuityVault: refreshedState.continuityVault } as any
+assert(backend.relayPlannedSubjectStates(relayPolicyState, 'prompt-once', 'Prime Beta waits for a portrait.', policySettings('relay-planned', 'off')).length === 0, 'Relay-Planned Director input leaked Vault facts through explicit Off')
+const relayStrengthCounts = (['low', 'medium', 'strong'] as const).map(strength => backend.relayPlannedSubjectStates(relayPolicyState, 'prompt-once', 'Prime Beta waits for a portrait.', policySettings('relay-planned', strength))[0]?.activeFactIds.length || 0)
+assert(relayStrengthCounts[0] > 0 && relayStrengthCounts[0] <= relayStrengthCounts[1] && relayStrengthCounts[1] <= relayStrengthCounts[2], `Relay-Planned Director strength selection is not monotonic: ${relayStrengthCounts.join('/')}`)
+
+const prosePolicyJob = (chatId: string, requestId: string) => ({
+  requestId, chatId, messageId: 'm1', swipeId: 0, target: 'prose.illustration', slots: ['illustration'], count: 1,
+  originalSceneBrief: 'Prime Beta waits for a portrait.', originalRequestXml: '', alt: 'Prime Beta portrait', caption: '', aspect: '3:4', cast: 'user', promptSource: 'visual_prompt', originalNegativePrompt: '',
+  prosePromptComposition: { perspectiveMode: 'scene-snapshot', peoplePolicy: 'required', expectedPeopleCount: 1, namedSubjects: ['Prime Beta'] },
+} as any)
+for (const mode of ['model-placed', 'relay-planned'] as const) {
+  for (const [globalStrength, override, expected, cap] of [
+    ['off', 'global', 'off', 0], ['strong', 'off', 'off', 0], ['strong', 'low', 'low', 3],
+    ['strong', 'medium', 'medium', 5], ['off', 'strong', 'strong', 6],
+  ] as const) {
+    const chatId = `policy-${mode}-${globalStrength}-${override}`
+    const policyVault = structuredClone(refreshedState.continuityVault)
+    policyVault.chatId = chatId
+    policyVault.strength = globalStrength
+    for (const fact of [...Object.values(policyVault.visualIdentity), ...Object.values(policyVault.wardrobe), ...Object.values(policyVault.currentAppearance)] as any[]) fact.chatId = chatId
+    await backend.setConfig({ enabled: true, vaultStrength: globalStrength, proseIllustratorSettings: policySettings(mode, override) }, 'offline')
+    backendState.set(`states/${chatId}.json`, { chatId, continuityVault: policyVault, proseIllustrator: { settings: { [chatId]: policySettings(mode, override) } }, slots: {}, logs: [] })
+    const result = await backend.parseSlotPrompt(prosePolicyJob(chatId, `${chatId}-request`), 'illustration', backendMessages as any, 0, config, 'offline', {})
+    const projectedCount = result.promptPipeline.projectedContinuityFactCount || 0
+    assert(result.promptPipeline.continuityStrength === expected, `${mode}/${globalStrength}/${override}: final generation used ${result.promptPipeline.continuityStrength}, expected ${expected}`)
+    assert(expected === 'off' ? projectedCount === 0 && result.promptPipeline.includedContinuityFacts.length === 0 : projectedCount > 0 && projectedCount <= cap, `${mode}/${globalStrength}/${override}: final generation projected ${projectedCount} Vault facts`)
+  }
+}
+
 const sleepingVault = emptyContinuityVault('sleeping-prompt')
 sleepingVault.strength = 'strong'
 const sleepingPersona = registerCanonicalCharacter(sleepingVault, { name: 'Prime Beta', canonicalCharacterId: 'persona-beta', sourceType: 'native-visual-preset', userConfirmed: true })

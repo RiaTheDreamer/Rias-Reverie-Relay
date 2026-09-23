@@ -8557,8 +8557,8 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.6.2";
-var BUILD_ID = "20260922-0.2.8.6.2";
+var EXTENSION_VERSION = "0.2.8.6.3";
+var BUILD_ID = "20260923-0.2.8.6.3";
 
 // src/providerPromptSafety.ts
 class ProviderPromptSafetyError extends Error {
@@ -155481,10 +155481,43 @@ function normalizeElsewhereMarkup(markup) {
   });
 }
 var WORLD_OWNER_RANGE = /(\[WORLD\|[^\]\r\n]{1,500}\|[^\]\r\n]{1,500}\])((?:(?!\[WORLD\|)[\s\S])*?)(\[\/WORLD\])/gi;
+var WORLD_MISSING_ROOT_RANGE = /(\[WORLD\|[^\]\r\n]{1,500}\|[^\]\r\n]{1,500}\])((?:(?!\[WORLD\|)[\s\S])*?\[\/world_context\])(?=\s*(?:\[Plot_Sparks\]|\[SCENE(?:\||\])|\[PARALLEL\||\[NPC:|\[SECRET\||\[WHATIF\||\[(?:character_phone|private_phone|dossier_ui|dramatic_parallel)\]|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b))/gi;
 var WORLD_BODY_SHELL = /^\s*\[world_media\]([\s\S]{1,24000}?)\[\/world_media\]\s*\[world_detail\]([\s\S]{1,12000}?)\[\/world_detail\]\s*\[world_context\]([\s\S]{1,16000}?)\[\/world_context\]\s*$/i;
+var WORLD_CONTEXT_SHELL = /^\s*\[why_it_matters\]([\s\S]{1,4000}?)\[\/why_it_matters\]\s*\[future_use\]([\s\S]{1,4000}?)\[\/future_use\]\s*$/i;
+var WORLD_MEDIA_CONTROL = /(?:<image_request\b|<reverie-illustration\b|<img\b|<!--\s*reverie-relay:image\b)/i;
 var NESTED_NARRATIVE_OWNER = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i;
+function normalizeMissingWorldRoot(markup) {
+  const source = String(markup || "");
+  const openerCount = (source.match(/\[WORLD\|/gi) || []).length;
+  const closerCount = (source.match(/\[\/WORLD\]/gi) || []).length;
+  if (openerCount !== closerCount + 1)
+    return source;
+  const candidates = [...source.matchAll(new RegExp(WORLD_MISSING_ROOT_RANGE.source, WORLD_MISSING_ROOT_RANGE.flags))];
+  if (candidates.length !== 1)
+    return source;
+  const candidate = candidates[0];
+  const full = candidate[0];
+  const body = candidate[2];
+  for (const field of ["world_media", "world_detail", "world_context", "why_it_matters", "future_use"]) {
+    if ((body.match(new RegExp(`\\[${field}\\]`, "gi")) || []).length !== 1)
+      return source;
+    if ((body.match(new RegExp(`\\[\\/${field}\\]`, "gi")) || []).length !== 1)
+      return source;
+  }
+  const shell = WORLD_BODY_SHELL.exec(body);
+  if (!shell || NESTED_NARRATIVE_OWNER.test(body) || !WORLD_MEDIA_CONTROL.test(shell[1]))
+    return source;
+  const context = WORLD_CONTEXT_SHELL.exec(shell[3]);
+  if (!context || !context[1].trim() || !context[2].trim())
+    return source;
+  const start = candidate.index ?? -1;
+  if (start < 0)
+    return source;
+  return `${source.slice(0, start)}${full}
+[/WORLD]${source.slice(start + full.length)}`;
+}
 function normalizeWorldMarkup(markup) {
-  return String(markup || "").replace(WORLD_OWNER_RANGE, (full, opening, body, closing) => {
+  return normalizeMissingWorldRoot(String(markup || "")).replace(WORLD_OWNER_RANGE, (full, opening, body, closing) => {
     const shell = WORLD_BODY_SHELL.exec(body);
     if (!shell || NESTED_NARRATIVE_OWNER.test(body))
       return full;
@@ -157047,11 +157080,10 @@ function stageStaleChatCleanupRegressionFixture(chatId, userId) {
   deferredReparseRequests.set(`${chatId}:fixture-retry`, { key: `${chatId}:fixture-retry`, userId, attempts: 0, abortEpoch: currentUserAbortEpoch(userId), timer: retryTimer });
   addNativeSettingsWaiters(nativeSettingsBroker(userId).waiters, chatId, [`${chatId}:fixture-waiter`]);
   const scope = relayQueueScope(userId);
-  pendingPlacementBatches.set(`${scope}:${chatId}:fixture-message:0:fixture-request`, {
+  pendingPlacementBatches.set(`${scope}:${chatId}:fixture-message:0`, {
     chatId,
     messageId: "fixture-message",
     swipeId: 0,
-    requestId: "fixture-request",
     sourceFingerprint: "fixture",
     entries: []
   });
@@ -158486,7 +158518,8 @@ function relayPlannedJson(raw, label) {
   return parsed;
 }
 function relayPlannedSubjectStates(state, chatId, content, settings) {
-  if (!settings.appearanceMemoryEnabled)
+  const strength = effectiveIllustratorAppearanceStrength(settings, state.continuityVault.strength);
+  if (strength === "off")
     return [];
   const facts = allAppearanceFacts(state.continuityVault);
   const candidates = new Set(extractCharacterCandidates(content).map((name) => name.toLocaleLowerCase()));
@@ -158504,14 +158537,12 @@ function relayPlannedSubjectStates(state, chatId, content, settings) {
     if (!names.some((name) => name.toLocaleLowerCase() === candidate.toLocaleLowerCase()))
       names.push(candidate);
   return names.slice(0, 24).map((name) => {
-    const subjectFacts = facts.filter((fact) => fact.canonicalCharacterName.toLocaleLowerCase() === name.toLocaleLowerCase());
-    const active = subjectFacts.filter((fact) => fact.status === "active" && fact.active !== false);
+    const active = selectContinuityForSubjects(state.continuityVault, { subjectNames: [name], chatId, sceneBrief: content, strength }).included;
     const identity = active.filter((fact) => fact.layer === "visual-identity").map(appearanceFactDescriptor).filter(Boolean);
     const current = active.filter((fact) => fact.layer !== "visual-identity").map(appearanceFactDescriptor).filter(Boolean);
     const pinned = active.filter((fact) => fact.pinned).map(appearanceFactDescriptor).filter(Boolean);
-    const superseded = subjectFacts.filter((fact) => fact.status === "superseded").map(appearanceFactDescriptor).filter(Boolean);
     const animal = [...identity, ...current].some((value) => /\b(?:dog|cat|horse|animal|canine|feline|retriever|wolf|fox)\b/i.test(value));
-    return { name, role: animal ? "animal" : "character", identity, current, pinned, superseded, activeFactIds: active.map((fact) => fact.factId) };
+    return { name, role: animal ? "animal" : "character", identity, current, pinned, superseded: [], activeFactIds: active.map((fact) => fact.factId) };
   });
 }
 function relayPlannedContextForResponse(input) {
@@ -159062,8 +159093,14 @@ function enforceMaximumCharacters(subjects, maximum) {
     return { kept: clean, omitted: [] };
   return { kept: clean.slice(0, maximum), omitted: clean.slice(maximum) };
 }
+function effectiveIllustratorAppearanceStrength(settings, globalStrength) {
+  if (!settings.appearanceMemoryEnabled)
+    return "off";
+  return settings.appearanceMemoryOverride === "global" ? globalStrength : settings.appearanceMemoryOverride;
+}
 function selectProseContinuityFacts(state, chatId, settings, namedSubjects = [], projection) {
-  if (!settings.appearanceMemoryEnabled || settings.continuityStrength === "off" || state.continuityVault.strength === "off")
+  const strength = effectiveIllustratorAppearanceStrength(settings, state.continuityVault.strength);
+  if (strength === "off")
     return [];
   expireCurrentAppearance(state.continuityVault);
   if (projection) {
@@ -159071,7 +159108,7 @@ function selectProseContinuityFacts(state, chatId, settings, namedSubjects = [],
       subjectNames: namedSubjects,
       chatId,
       sceneBrief: projection.sceneBrief,
-      strength: settings.continuityStrength,
+      strength,
       framingMode: settings.perspectiveMode,
       expectedPeopleCount: projection.expectedPeopleCount
     }).included;
@@ -159080,7 +159117,7 @@ function selectProseContinuityFacts(state, chatId, settings, namedSubjects = [],
     subjectNames: namedSubjects,
     chatId,
     sceneBrief: "",
-    strength: settings.continuityStrength
+    strength
   }).included;
 }
 function selectProseReferenceAssets(state, chatId, settings, locationOnly) {
@@ -160832,7 +160869,7 @@ async function runAppearanceSidecar(input) {
     return false;
   const state = await getState(input.chatId, input.userId);
   const settings = proseSettingsForChat(state, input.chatId);
-  if (!settings.appearanceMemoryEnabled || settings.continuityStrength === "off")
+  if (effectiveIllustratorAppearanceStrength(settings, state.continuityVault.strength) === "off")
     return false;
   const cooldownKey = `${input.chatId}:${input.messageId}:${input.swipeId}`;
   if (mode === "normal") {
@@ -163694,7 +163731,23 @@ function hasUnsettledVisiblePlacement(batch) {
   return batch.entries.some((entry) => (entry.visualSettlements || []).some((settlement) => settlement.required && !settlement.settled));
 }
 function initialPlacementBatchCommitGate(batch, options) {
+  if (options.hasGenerationSibling)
+    return "generation-pending";
   return "ready";
+}
+var INITIAL_PLACEMENT_GENERATION_STATUSES = new Set([
+  "preparing",
+  "queued",
+  "awaiting-native-settings",
+  "parsing",
+  "provider-waiting",
+  "generating",
+  "previewing",
+  "placement-pending"
+]);
+function hasPendingInitialPlacementSibling(state, batch) {
+  const stagedRequestIds = new Set(batch.entries.map((entry) => entry.job.requestId));
+  return Object.values(state.slots).some((record) => record.chatId === batch.chatId && record.messageId === batch.messageId && record.swipeId === batch.swipeId && record.triggerType === "initial" && !stagedRequestIds.has(record.requestId) && INITIAL_PLACEMENT_GENERATION_STATUSES.has(record.status));
 }
 async function markInitialPlacementBatchForRepair(batch, reason, currentContent, userId, entries = batch.entries) {
   await mutateState(batch.chatId, userId, (state) => {
@@ -163851,7 +163904,7 @@ async function commitInitialPlacementBatch(batch, userId) {
   }
 }
 function placementBatchKey(job, userId) {
-  return `${relayQueueScope(userId)}:${job.chatId}:${job.messageId}:${job.swipeId}:${job.requestId}`;
+  return `${relayQueueScope(userId)}:${job.chatId}:${job.messageId}:${job.swipeId}`;
 }
 function clearInitialPlacementVisualFallback(batch) {
   if (batch.visualFallbackTimer)
@@ -163865,7 +163918,9 @@ async function maybeCommitInitialPlacementBatch(job, userId, allowSafetyFallback
     if (!batch)
       return false;
     const placementLockAcquiredAt = Date.now();
+    let hasGenerationSibling = false;
     await mutateState(batch.chatId, userId, (state) => {
+      hasGenerationSibling = hasPendingInitialPlacementSibling(state, batch);
       for (const { job: entryJob, results } of batch.entries)
         for (const result of results) {
           const record = state.slots[slotKey({ ...entryJob, slot: result.slot })];
@@ -163878,7 +163933,7 @@ async function maybeCommitInitialPlacementBatch(job, userId, allowSafetyFallback
         }
     });
     const gate = initialPlacementBatchCommitGate(batch, {
-      hasGenerationSibling: false,
+      hasGenerationSibling,
       hasVisibleFrontend: hasConnectedFrontendForChat(batch.chatId, userId),
       allowSafetyFallback,
       healthyStartedVisual: false
@@ -163966,7 +164021,7 @@ async function stageGeneratedPlacement(job, results, replaceExisting, requireVis
     if (!batch) {
       const message = await resolveHostMessage(job.chatId, job.messageId);
       const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : "";
-      batch = { chatId: job.chatId, messageId: job.messageId, swipeId: job.swipeId, requestId: job.requestId, sourceFingerprint: contentFingerprint(content), entries: [] };
+      batch = { chatId: job.chatId, messageId: job.messageId, swipeId: job.swipeId, sourceFingerprint: contentFingerprint(content), entries: [] };
       pendingPlacementBatches.set(key, batch);
     }
     await stageInitialPlacementBatchEntry(batch, job, results, replaceExisting, requireVisualSettlement, userId);
@@ -169589,16 +169644,17 @@ async function buildParserContext(job, messages, targetIndex, config, _userId, n
   const identityFallbacks = [];
   const sidecarFallbackSubjectKeys = new Set;
   const identityKey = (value) => cleanString(value).toLocaleLowerCase().replace(/[\s_-]+/g, "");
+  const illustratorAppearanceStrength = job.target === "prose.illustration" ? effectiveIllustratorAppearanceStrength(proseSettingsForChat(state, job.chatId), state.continuityVault.strength) : state.continuityVault.strength;
   const continuityFramingMode = job.prosePromptComposition?.perspectiveMode || (job.target === "prose.illustration" ? proseSettingsForChat(state, job.chatId).perspectiveMode : "");
   const continuityExpectedPeopleCount = Math.max(Number(job.prosePromptComposition?.expectedPeopleCount || 0), job.cast === "char+user" ? 2 : job.cast === "char" || job.cast === "user" ? 1 : 0);
   const continuityPromptFor = (name) => {
-    if (!name)
+    if (!name || illustratorAppearanceStrength === "off")
       return "";
     const selected = projectContinuityForGeneration(state.continuityVault, {
       subjectNames: [name],
       chatId: job.chatId,
       sceneBrief: job.originalSceneBrief,
-      strength: state.continuityVault.strength,
+      strength: illustratorAppearanceStrength,
       framingMode: continuityFramingMode,
       expectedPeopleCount: continuityExpectedPeopleCount
     }).included;
@@ -169705,7 +169761,7 @@ ${lorebookVisualFacts}`);
   if (recent)
     blocks.push(`Nearest relevant visual continuity only:
 ${recent}`);
-  const continuity = humanPolicy.allowHumanContext ? selectContinuityForJob(state, job, classification, visualSubjects.map((subject) => subject.name)) : { included: [], projectedIncluded: [], excluded: [], projectedExcluded: [], projectedNegativePrompt: "", projectionNotes: [], attachedReferenceAssetIds: [], conflicts: [], strength: state.continuityVault.strength };
+  const continuity = humanPolicy.allowHumanContext ? selectContinuityForJob(state, job, classification, visualSubjects.map((subject) => subject.name)) : { included: [], projectedIncluded: [], excluded: [], projectedExcluded: [], projectedNegativePrompt: "", projectionNotes: [], attachedReferenceAssetIds: [], conflicts: [], strength: illustratorAppearanceStrength };
   const projectedContinuityIncludedOnce = continuity.projectedIncluded.filter((fact) => {
     if (!sidecarFallbackSubjectKeys.size)
       return true;
@@ -171998,18 +172054,19 @@ function updateContinuityFromAcceptedAsset(state, record, result, now) {
 }
 function selectContinuityForJob(state, job, _classification, resolvedSubjectNames = []) {
   const vault = state.continuityVault || emptyContinuityVault(job.chatId);
+  const strength = job.target === "prose.illustration" ? effectiveIllustratorAppearanceStrength(proseSettingsForChat(state, job.chatId), vault.strength) : vault.strength;
   const key = slotKey({ ...job, slot: job.slots[0] || "image" });
-  if (vault.strength === "off" || vault.ignoredForSlotKeys.includes(key)) {
+  if (strength === "off" || vault.ignoredForSlotKeys.includes(key)) {
     return {
       included: [],
       projectedIncluded: [],
-      excluded: allAppearanceFacts(vault).map((fact) => ({ factId: fact.factId, included: false, reason: vault.strength === "off" ? "Appearance Memory is off." : "Appearance Memory is ignored for this slot." })),
-      projectedExcluded: allAppearanceFacts(vault).map((fact) => ({ factId: fact.factId, included: false, reason: vault.strength === "off" ? "Appearance Memory is off." : "Appearance Memory is ignored for this slot." })),
+      excluded: allAppearanceFacts(vault).map((fact) => ({ factId: fact.factId, included: false, reason: strength === "off" ? "Appearance Memory is off for the active Illustrator policy." : "Appearance Memory is ignored for this slot." })),
+      projectedExcluded: allAppearanceFacts(vault).map((fact) => ({ factId: fact.factId, included: false, reason: strength === "off" ? "Appearance Memory is off for the active Illustrator policy." : "Appearance Memory is ignored for this slot." })),
       projectedNegativePrompt: "",
       projectionNotes: [],
       attachedReferenceAssetIds: [],
       conflicts: [],
-      strength: vault.strength
+      strength
     };
   }
   expireCurrentAppearance(vault);
@@ -172023,7 +172080,7 @@ function selectContinuityForJob(state, job, _classification, resolvedSubjectName
       projectionNotes: [],
       attachedReferenceAssetIds: [],
       conflicts: [],
-      strength: vault.strength
+      strength
     };
   }
   const proseSubjects = job.prosePromptComposition?.namedSubjects || [];
@@ -172032,8 +172089,8 @@ function selectContinuityForJob(state, job, _classification, resolvedSubjectName
   const sceneBrief = [job.originalSceneBrief, job.prosePromptComposition?.sceneBrief, job.prosePromptComposition?.framing, job.caption, job.alt].map(cleanString).filter(Boolean).join(" ");
   const framingMode = job.prosePromptComposition?.perspectiveMode || (job.target === "prose.illustration" ? proseSettingsForChat(state, job.chatId).perspectiveMode : "");
   const expectedPeopleCount = Math.max(Number(job.prosePromptComposition?.expectedPeopleCount || 0), job.cast === "char+user" ? 2 : job.cast === "char" || job.cast === "user" ? 1 : 0);
-  const selection = selectContinuityForSubjects(vault, { subjectNames: subjects, chatId: job.chatId, sceneBrief, strength: vault.strength });
-  const projected = projectContinuityForGeneration(vault, { subjectNames: subjects, chatId: job.chatId, sceneBrief, strength: vault.strength, framingMode, expectedPeopleCount });
+  const selection = selectContinuityForSubjects(vault, { subjectNames: subjects, chatId: job.chatId, sceneBrief, strength });
+  const projected = projectContinuityForGeneration(vault, { subjectNames: subjects, chatId: job.chatId, sceneBrief, strength, framingMode, expectedPeopleCount });
   const attachedReferenceAssetIds = [...new Set(projected.included.flatMap((fact) => fact.referenceAssetIds))];
   return {
     ...selection,
@@ -172042,7 +172099,7 @@ function selectContinuityForJob(state, job, _classification, resolvedSubjectName
     projectedNegativePrompt: projected.negativeTags.join(", "),
     projectionNotes: projected.notes,
     attachedReferenceAssetIds,
-    strength: vault.strength
+    strength
   };
 }
 function appendStateLog(state, entry) {
@@ -174290,6 +174347,7 @@ export {
   disciplineParsedPositivePrompt,
   disciplineParserNegativeAdditions,
   effectiveGenerationProfile,
+  effectiveIllustratorAppearanceStrength,
   enforceDirectSurfaceFraming,
   enforceVisualSubjectIdentity,
   ensureInterceptorRegistered,
@@ -174305,6 +174363,7 @@ export {
   generationTimingForRecord,
   getConfig,
   hasExplicitNoHumanIntent,
+  hasPendingInitialPlacementSibling,
   hasUnrequestedExplicitEscalation,
   hasUnsettledVisiblePlacement,
   imageWorkerRecoveryState,
@@ -174342,6 +174401,7 @@ export {
   proseAnalysisText,
   registerDirectHostAppearanceSources,
   relayMediaPersistencePatch,
+  relayPlannedSubjectStates,
   removeConflictingHumanNegatives,
   repairSelfieDeviceContamination,
   replaceCharacterMacro,

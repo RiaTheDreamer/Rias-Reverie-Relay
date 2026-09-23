@@ -85,7 +85,7 @@ const entry = (id: string, suffix = '1') => ({
   results: [{ slot: id, imageId: `${id}-${suffix}`, imageUrl: `/${id}-${suffix}.png` }],
   visualSettlements: [visual(id, suffix)],
 })
-const batch = (...entries: any[]) => ({ chatId: 'chat', messageId: 'message', swipeId: 0, requestId: entries[0]?.job.requestId || 'fixture', sourceFingerprint: 'source', entries })
+const batch = (...entries: any[]) => ({ chatId: 'chat', messageId: 'message', swipeId: 0, sourceFingerprint: 'source', entries })
 const ack = (id: string, suffix = '1') => ({ chatId: 'chat', messageId: 'message', swipeId: 0, key: `chat:message:0:${id}:${id}`, requestId: id, slot: id, imageUrl: `/${id}-${suffix}.png`, imageId: `${id}-${suffix}` })
 const gate = (fixture: any, hasGenerationSibling = false, hasVisibleFrontend = true, allowSafetyFallback = false, healthyStartedVisual = false) => backend.initialPlacementBatchCommitGate(fixture, { hasGenerationSibling, hasVisibleFrontend, allowSafetyFallback, healthyStartedVisual })
 
@@ -95,8 +95,8 @@ assert(backend.markInitialPlacementVisualSettled(one, ack('a')) === 'settled' &&
 
 const siblings = batch(entry('a'), entry('b'))
 assert(backend.markInitialPlacementVisualSettled(siblings, ack('a')) === 'settled', 'Test B: A ACK was not recorded')
-assert(gate(siblings, true) === 'ready', 'Test B: unrelated sibling generation blocked this request-scoped placement')
-assert(gate(siblings, false) === 'ready', 'Test B: visual settlement remained a persistence barrier')
+assert(gate(siblings, true) === 'generation-pending', 'Test B: durable placement committed before the initial sibling generation became terminal')
+assert(gate(siblings, false) === 'ready', 'Test B: terminal siblings or visual settlement remained a persistence barrier')
 assert(backend.markInitialPlacementVisualSettled(siblings, ack('b')) === 'settled' && gate(siblings) === 'ready', 'Test B: B ACK changed the non-blocking gate')
 
 const failedSibling = batch(entry('a'), entry('c'))
