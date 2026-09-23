@@ -2845,13 +2845,7 @@ if (typeof registerMessageContentProcessor === 'function') {
         .filter(record => !context.messageId || record.messageId === context.messageId)
         .filter(record => renderSwipeId === undefined || record.swipeId === renderSwipeId)
       const narrativeCandidate = containsNarrativeRegexMarkup(source)
-      const syntheticProseRecords = messageRecords.filter(record => record.target === 'prose.illustration'
-        && record.proseSynthetic === true
-        && Boolean(record.proseAnchor)
-        && Boolean(record.originalRequestXml)
-        && !record.orphaned
-        && record.status !== 'superseded')
-      if (!NATIVE_RENDER_TAG_RE.test(source) && !narrativeCandidate && !syntheticProseRecords.length) return
+      if (!NATIVE_RENDER_TAG_RE.test(source) && !narrativeCandidate) return
       // Slot lifecycle changes are patched into the existing media island by the
       // frontend. A state fingerprint prevents a later host render from reusing
       // stale pending markup, while the host message itself remains untouched.
@@ -2880,14 +2874,10 @@ if (typeof registerMessageContentProcessor === 'function') {
       }
       let renderedContent = source
       let renderedCount = 0
-      // Synthetic Relay-Planned illustrations are a presentation projection,
-      // not a host-message edit. Insert their owned marker into the render copy
-      // only, preserving the authored prose and the host's scroll anchor.
-      for (const record of syntheticProseRecords) {
-        if (!record.proseAnchor || !record.originalRequestXml || renderedContent.includes(slotComment(record, record.slot))) continue
-        const projected = insertProseMarker(renderedContent, record.proseAnchor, record.originalRequestXml)
-        if (projected.content && !projected.ambiguous) renderedContent = projected.content
-      }
+      // Relay-Planned prose reservations are mounted and updated in place by
+      // the frontend. Projecting them through the host content processor made
+      // every lifecycle tick a different message body, which remounted the
+      // prose, moved the scroll anchor, and could briefly paint an empty root.
       const nativeCandidate = NATIVE_RENDER_TAG_RE.test(renderedContent)
       // Narrative Utilities are not part of the 46 built-in registry. Relay
       // executes their approved, bundled display transformations through this
@@ -14334,15 +14324,24 @@ async function buildParserContext(
   const suppressIdentityContext = profileDecision.suppressedContext.some(item => item.source.includes('character/persona'))
   // Explicit cast always wins over profile suppression. A profile can shape the
   // photograph, but it cannot silently remove a requested active identity.
-  const characterCandidate = humanPolicy.allowHumanContext && (castRequirements.character || (!job.cast && !suppressIdentityContext && requestDepictsCharacter(classification, job.originalSceneBrief)))
-  const personaApplicable = humanPolicy.allowHumanContext && (castRequirements.persona || (!job.cast && !suppressIdentityContext && requestDepictsPersona(classification, job.originalSceneBrief)))
+  const visibleIdentityRequest = humanPolicy.allowHumanContext && requestHasVisibleFace(classification)
   const nativeIncludeCharacters = typeof nativeSettings?.includeCharacters === 'boolean' ? nativeSettings.includeCharacters : config.nativeIncludeCharacters
   const nativeIncludePersona = typeof nativeSettings?.includePersona === 'boolean' ? nativeSettings.includePersona : config.nativeIncludePersona
   const promptPresets = clonePromptPresets(nativeSettings?.promptPresets ?? config.nativePromptPresets)
   const [activeCharacter, activePersona] = await Promise.all([
-    characterCandidate ? readChatCharacterIdentity(job.chatId, _userId).catch(() => null) : Promise.resolve(null),
-    personaApplicable ? readCurrentHostPersona(_userId, job.chatId) : Promise.resolve(null),
+    visibleIdentityRequest || castRequirements.character ? readChatCharacterIdentity(job.chatId, _userId).catch(() => null) : Promise.resolve(null),
+    visibleIdentityRequest || castRequirements.persona ? readCurrentHostPersona(_userId, job.chatId) : Promise.resolve(null),
   ])
+  const characterNamed = requestReferencesActiveIdentity(job, activeCharacter)
+  const personaNamed = requestReferencesActiveIdentity(job, activePersona)
+  const personaExplicit = requestDepictsPersona(classification, job.originalSceneBrief) || personaNamed
+  const characterCandidate = humanPolicy.allowHumanContext && (castRequirements.character || (!job.cast
+    && !suppressIdentityContext
+    && requestDepictsCharacter(classification, job.originalSceneBrief)
+    && (!personaExplicit || characterNamed)))
+  const personaApplicable = humanPolicy.allowHumanContext && (castRequirements.persona || (!job.cast
+    && !suppressIdentityContext
+    && personaExplicit))
   const characterOwnership = resolveActiveCharacterOwnership(job, classification, activeCharacter)
   const characterApplicable = characterCandidate && characterOwnership.applies
   const state = await getState(job.chatId, _userId)
@@ -18554,6 +18553,19 @@ function requestDepictsCharacter(classification: RequestClassification, brief: s
 
 function normalizeIdentityOwner(value: unknown): string {
   return cleanString(value).toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
+function requestReferencesActiveIdentity(
+  job: Pick<RouterJob, 'originalSceneBrief' | 'caption' | 'alt' | 'prosePromptComposition'>,
+  subject: { id?: string; name?: string; aliases?: string[] } | null | undefined,
+): boolean {
+  if (!subject) return false
+  const candidates = [subject.id, subject.name, ...(subject.aliases || [])].map(cleanString).filter(Boolean)
+  const candidateKeys = new Set(candidates.map(normalizeIdentityOwner).filter(Boolean))
+  const namedSubjects = job.prosePromptComposition?.namedSubjects || []
+  if (namedSubjects.some(name => candidateKeys.has(normalizeIdentityOwner(name)))) return true
+  const authoritative = [job.originalSceneBrief, job.caption, job.alt].map(cleanString).filter(Boolean).join('\n')
+  return candidates.some(candidate => new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(candidate)}(?:$|[^\\p{L}\\p{N}])`, 'iu').test(authoritative))
 }
 
 export function explicitPortraitSubjectName(job: Pick<RouterJob, 'originalSceneBrief' | 'caption' | 'alt'>): string {

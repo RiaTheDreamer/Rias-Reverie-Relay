@@ -975,6 +975,9 @@ export function setup(ctx: SpindleFrontendContext) {
       text-align: var(--dgir-prose-image-text-align, center) !important;
       overflow: visible !important;
     }
+    [data-component="MessageContent"] p:has(img[data-dgir-app="prose"][data-dgir-prose-size="full"]) {
+      --dgir-bubble-image-inner-width: 100%;
+    }
     [data-component="MessageContent"] p:has(img[alt="reverie-relay"]) > span:has(> img[alt="reverie-relay"]),
     [data-component="MessageContent"] p:has(img[alt="reverie-relay"]) > a:has(img[alt="reverie-relay"]) {
       display: block !important;
@@ -996,6 +999,7 @@ export function setup(ctx: SpindleFrontendContext) {
     scene_image[data-dgir-prose-align], scene_image:has(img[data-dgir-app="prose"]), .dgir-prose-image-frame { display: flex !important; justify-content: var(--dgir-prose-image-justify, center) !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; margin: 10px 0 !important; }
     scene_image[data-dgir-prose-align] > img[data-dgir-app="prose"], scene_image:has(img[data-dgir-app="prose"]) > img[data-dgir-app="prose"], .dgir-prose-image-frame > img[data-dgir-app="prose"] { flex: 0 1 var(--dgir-prose-image-width, 66%) !important; width: var(--dgir-prose-image-width, 66%) !important; max-width: var(--dgir-prose-image-max-width, 720px) !important; min-width: min(100%, 220px) !important; }
     img[data-dgir-app="prose"] { display: block !important; width: var(--dgir-prose-image-width, 66%) !important; max-width: var(--dgir-prose-image-max-width, 720px) !important; height: auto !important; object-fit: contain !important; margin-left: var(--dgir-prose-image-margin-left, auto) !important; margin-right: var(--dgir-prose-image-margin-right, auto) !important; }
+    img[data-dgir-app="prose"][data-dgir-prose-size="full"] { width: 100% !important; max-width: none !important; }
     .dg-router-panel .dg-meta-tabs { display: flex; gap: 5px; }
     .dg-router-panel .dg-meta-grid { display: grid; grid-template-columns: minmax(110px, .32fr) minmax(0, 1fr); gap: 7px 10px; font-size: 11px; }
     .dg-router-panel .dg-meta-label { color: var(--dgir-text-muted); font-weight: 800; }
@@ -2843,6 +2847,39 @@ export function setup(ctx: SpindleFrontendContext) {
     else root.appendChild(projection)
   }
 
+  function applyStoredProseImagePresentation(image: HTMLImageElement, record: SlotRecord): void {
+    if (record.target !== 'prose.illustration' && record.targetApp !== 'prose') return
+    const fallback = currentProseSettings()
+    const size = ['small', 'medium', 'large', 'full'].includes(String(record.proseImageSize))
+      ? record.proseImageSize as 'small' | 'medium' | 'large' | 'full'
+      : fallback.imageSize || 'medium'
+    const alignment = ['left', 'center', 'right'].includes(String(record.proseImageAlignment))
+      ? record.proseImageAlignment as 'left' | 'center' | 'right'
+      : fallback.imageAlignment || 'center'
+    const width = size === 'small' ? '48%' : size === 'large' ? '84%' : size === 'full' ? '100%' : '66%'
+    const maxWidth = size === 'small' ? '420px' : size === 'large' ? '920px' : size === 'full' ? 'none' : '720px'
+    const justify = alignment === 'left' ? 'flex-start' : alignment === 'right' ? 'flex-end' : 'center'
+    const marginLeft = alignment === 'left' ? '0' : 'auto'
+    const marginRight = alignment === 'right' ? '0' : 'auto'
+    image.dataset.dgirProseSize = size
+    image.dataset.dgirProseAlign = alignment
+    const owners = new Set<HTMLElement>([image])
+    for (const owner of [
+      image.closest<HTMLElement>('scene_image'),
+      image.closest<HTMLElement>('.dgir-prose-image-frame'),
+      image.closest<HTMLElement>('.dgir-prose-lifecycle-projection'),
+      image.closest<HTMLElement>('p'),
+      image.parentElement,
+    ]) if (owner) owners.add(owner)
+    for (const owner of owners) {
+      owner.style.setProperty('--dgir-prose-image-width', width)
+      owner.style.setProperty('--dgir-prose-image-max-width', maxWidth)
+      owner.style.setProperty('--dgir-prose-image-justify', justify)
+      owner.style.setProperty('--dgir-prose-image-margin-left', marginLeft)
+      owner.style.setProperty('--dgir-prose-image-margin-right', marginRight)
+    }
+  }
+
   function bindInlineImages(messageId?: string): void {
     if (!messageId) {
       bindNarrativeInteractiveControls()
@@ -2943,8 +2980,10 @@ export function setup(ctx: SpindleFrontendContext) {
             if (ratio) mediaSlot.style.setProperty('--reverie-media-aspect', `${Number(ratio[1])} / ${Number(ratio[2])}`)
           }
           if (visualImageUrl && slotImage) {
-            slotImage.loading = 'lazy'
+            slotImage.loading = 'eager'
+            slotImage.setAttribute('fetchpriority', 'high')
             slotImage.decoding = 'async'
+            applyStoredProseImagePresentation(slotImage, record)
             const imageChanged = !urlMatches(slotImage.currentSrc || slotImage.src, visualImageUrl)
             const shouldReveal = imageChanged
               && update.sawActiveLifecycle
@@ -3081,6 +3120,7 @@ export function setup(ctx: SpindleFrontendContext) {
         image.dataset.dgirMessageId = record.messageId
         image.dataset.dgirSwipeId = String(record.swipeId)
         image.dataset.dgirBound = 'true'
+        applyStoredProseImagePresentation(image, record)
         image.title = 'Open image'
         if (image.dataset.dgirLightboxBound !== 'true') {
           image.dataset.dgirLightboxBound = 'true'

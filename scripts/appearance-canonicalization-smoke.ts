@@ -427,6 +427,15 @@ assert(!parserPrompt.includes('Relay Appearance Memory'), 'Sidecar fallback subj
 for (const tag of ['glasses', 'lavender_hair', 'messy_hair']) {
   assert((parserPrompt.match(new RegExp(tag, 'g')) || []).length === 1, `provider-bound parser prompt should contain ${tag} once through clean Sidecar fallback: ${parserPrompt}`)
 }
+const namedPersonaWithoutCast = await backend.parseSlotPrompt({
+  requestId: 'named-persona-no-cast', chatId: 'prompt-once', messageId: 'm1', swipeId: 0,
+  target: 'prose.illustration', slots: ['illustration'], count: 1,
+  originalSceneBrief: 'Prime Beta waits beneath the window.', originalRequestXml: '', alt: 'Prime Beta by the window', caption: '', aspect: '3:4',
+  promptSource: 'visual_prompt', originalNegativePrompt: '',
+  prosePromptComposition: { perspectiveMode: 'scene-snapshot', peoplePolicy: 'required', expectedPeopleCount: 1, namedSubjects: ['Prime Beta'] },
+} as any, 'illustration', backendMessages as any, 0, config, 'offline', {})
+assert(namedPersonaWithoutCast.promptPipeline.effectiveIncludePersona === true, 'a named active Persona must receive Persona Vault appearance without requiring cast="user" shorthand')
+assert(namedPersonaWithoutCast.promptPipeline.personaContext?.includes('glasses'), `named active Persona lost its Vault appearance in prompt assembly: ${namedPersonaWithoutCast.promptPipeline.personaContext}`)
 
 const policySettings = (mode: 'model-placed' | 'relay-planned', override: 'global' | 'off' | 'low' | 'medium' | 'strong') => ({
   ...(config.proseIllustratorSettings as any), mode, enabled: true, appearanceMemoryEnabled: true,

@@ -85,6 +85,8 @@ assert(syntheticProsePending.includes('data-dgir-prose-align="right"') && synthe
 assert(syntheticProsePending.includes('--dgir-prose-image-width:48%') && syntheticProsePending.includes('--dgir-prose-image-max-width:420px'), 'small prose setting must constrain the lifecycle reservation instead of expanding full width')
 const syntheticProseCompleted = rendered(syntheticProseMarker, [{ ...syntheticProseRecord, status: 'completed', imageUrl: '/mock/synthetic-prose.jpg', imageId: 'synthetic-prose-image' }])
 assert(syntheticProseCompleted.includes('/mock/synthetic-prose.jpg') && syntheticProseCompleted.includes('--dgir-prose-image-width:48%'), 'completed synthetic prose image must retain the user-selected size')
+const syntheticProseFull = rendered(syntheticProseMarker, [{ ...syntheticProseRecord, proseImageAlignment: 'center', proseImageSize: 'full' }])
+assert(syntheticProseFull.includes('data-dgir-prose-size="full"') && syntheticProseFull.includes('--dgir-prose-image-width:100%') && syntheticProseFull.includes('--dgir-prose-image-max-width:100%'), 'full prose setting must reserve the complete message width')
 
 const phone = definitions.find(definition => definition.baseSurfaceId === 'smartphone')!
 const phoneRendered = rendered(phone.sampleXml)
@@ -156,6 +158,8 @@ assert(frontendSource.includes("!image.closest('[data-rrn-native-request]')") &&
 assert(frontendSource.includes('invalidateDisplayIfContractChanged') && (frontendSource.match(/ctx\.display\?\.invalidate\(\['\*'\]\)/g) || []).length === 1, 'slot-state updates must not wholesale-invalidate and remount every Surface')
 assert(frontendSource.includes('ensureMountedLifecycleStyle(root)') && frontendSource.includes('reverieLifecycleStyleHost'), 'mounted Status Cards must receive extension-owned lifecycle CSS without transporting styles in message content')
 assert(frontendSource.includes('ensureSyntheticProseProjection(record, root)') && frontendSource.includes('root.appendChild(projection)'), 'synthetic prose reservations must mount in-place without a host-message edit')
+assert(frontendSource.includes("slotImage.loading = 'eager'") && frontendSource.includes("slotImage.setAttribute('fetchpriority', 'high')"), 'generated images must begin loading immediately instead of waiting on lazy-load heuristics')
+assert(frontendSource.includes('applyStoredProseImagePresentation(image, record)') && frontendSource.includes('data-dgir-prose-size="full"'), 'completed prose images must retain their per-record width, including true full width')
 assert(frontendSource.includes('.dg-relay-orb-image-design[aria-busy="true"] .dg-relay-orb-icon') && frontendSource.includes('animation: dg-relay-orb-icon-spin'), 'image-design Orb must spin throughout every busy Relay phase')
 
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
@@ -176,7 +180,8 @@ assert(renderProcessor.includes('recordFingerprint') && renderProcessor.includes
 assert(backendSource.includes('renderConfigurationFingerprint(current) !== renderConfigurationFingerprint(next)'), 'unrelated settings writes must not invalidate every rendered message')
 const proseGenerationSource = backendSource.slice(backendSource.indexOf('async function generateProseIllustrationPlan'), backendSource.indexOf('async function removeProseIllustration'))
 assert(!proseGenerationSource.includes('await patchSwipeContent(chatId, message, plan.swipeId, placement.content)'), 'Relay-Planned start must not rewrite and remount the host prose')
-assert(renderProcessor.includes('syntheticProseRecords') && renderProcessor.includes('insertProseMarker(renderedContent, record.proseAnchor, record.originalRequestXml)'), 'render processor must project synthetic prose markers from durable state')
+assert(!renderProcessor.includes('syntheticProseRecords') && !renderProcessor.includes('insertProseMarker(renderedContent, record.proseAnchor, record.originalRequestXml)'), 'synthetic prose lifecycle ticks must never rewrite the host render body or remount the prose')
 assert(backendSource.includes("job.target === 'prose.illustration' && job.synthetic && job.proseAnchor"), 'synthetic placement verification must resolve its stored prose anchor when no persisted marker exists')
+assert(nativeSource.includes('.dgir-prose-lifecycle-projection[data-dgir-prose-size="full"]>.rrl-island{flex:1 1 100%;width:100%;max-width:none}'), 'full-width synthetic prose reservations must not retain the narrower flex/max-width clamp')
 
 console.log('streaming layout stability smoke passed: stable reserved slots, state geometry, multi-image/aspect coverage, and frontend in-place binding verified.')
