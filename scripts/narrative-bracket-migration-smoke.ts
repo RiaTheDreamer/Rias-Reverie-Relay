@@ -13,6 +13,7 @@ import {
   normalizeNarrativeClosingDelimiters,
   normalizeNarrativeMarkupForRendering,
   normalizeParallelSceneMarkup,
+  normalizePlotSparksFieldDelimiters,
   renderNarrativeRegex,
 } from '../src/narrativeRegexAssets'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
@@ -181,6 +182,21 @@ for (const variant of NARRATIVE_REGEX_VARIANTS) {
 const plotRendered = renderNarrativeRegex(plotSparks, 'sparkle-button', 'batch-d-plot-ownership')
 assert((plotRendered.match(/class="ch-media"/g) || []).length === 7, 'Plot Sparks did not preserve seven dedicated [Media] owners')
 assert((plotRendered.match(/<reverie-illustration\b/g) || []).length === 7, 'Plot Sparks XML illustrations left their [Media] owners')
+
+// Exact structural shape from the live failure: one Text opener and one Vector
+// closer used an angle bracket. Repair is allowed only because all seven
+// canonical key/vector/text/media owners and illustrations remain unambiguous.
+const angleDelimiterPlotSparks = plotSparks
+  .replace('[Text]Branch 4.', '[Text>Branch 4.')
+  .replace('[Vector]reputation-fire[/Vector]', '[Vector]reputation-fire[/Vector>')
+const repairedAngleDelimiters = normalizeNarrativeMarkupForRendering(angleDelimiterPlotSparks)
+assert(repairedAngleDelimiters.includes('[Text]Branch 4.') && repairedAngleDelimiters.includes('[Vector]reputation-fire[/Vector]'), 'bounded Plot Sparks angle-delimiter repair did not restore the two live malformed fields')
+const angleDelimiterRendered = renderNarrativeRegex(angleDelimiterPlotSparks, 'glass', 'live-plot-sparks-angle-delimiters', {}, 'glass')
+assert(angleDelimiterRendered.includes('class="ch-og') && !angleDelimiterRendered.includes('[Plot_Sparks]'), 'repaired angle-delimiter Plot Sparks did not render')
+assert((angleDelimiterRendered.match(/class="ch-media"/g) || []).length === 7, 'angle-delimiter repair lost one or more Plot Sparks cards')
+const ambiguousAngleDelimiter = angleDelimiterPlotSparks.replace('[Text>Branch 4.', '[Text]Canonical.[/Text][Text>Branch 4.')
+assert(normalizePlotSparksFieldDelimiters(ambiguousAngleDelimiter) === ambiguousAngleDelimiter, 'ambiguous Plot Sparks Text delimiter was guessed instead of failing closed')
+assert(normalizePlotSparksFieldDelimiters('Outside [Text>must remain untouched[/Text]') === 'Outside [Text>must remain untouched[/Text]', 'Plot Sparks delimiter repair escaped its owner')
 
 // Exact live regression: the model emitted one unambiguous illustration with
 // the legacy scene_brief child and omitted only its illustration closer. Repair

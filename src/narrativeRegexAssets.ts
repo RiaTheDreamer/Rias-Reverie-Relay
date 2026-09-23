@@ -8,7 +8,7 @@ import plotSparksPack from '../regex-packs/narrative-final/Reverie-Plot-Sparks-B
 import { sceneCompassPresentation } from './sceneCompassPresentation'
 import { normalizeRegisteredHybridClosingDelimiters } from './surfaceStructuralRepair'
 import { applyNarrativeSurfacePresentation, type NarrativeSurfacePresentationVariant } from './surfacePresentation'
-import type { SurfaceColorMode } from './contracts'
+import { PLOT_SPARK_VECTOR_BY_KEY, type PlotSparkKey, type SurfaceColorMode } from './contracts'
 
 export type NarrativeRegexVariant = NarrativeSurfacePresentationVariant
 
@@ -287,6 +287,60 @@ function normalizeFlatArchiveDossiers(markup: string): string {
   })
 }
 
+const PLOT_SPARKS_OWNER_RANGE = /(\[Plot_Sparks\])([\s\S]*?)(\[\/Plot_Sparks\])/gi
+
+/** Repair only the two observed bracket/angle delimiter typos inside an
+ * otherwise complete canonical seven-Spark owner. This is deliberately not a
+ * general permissive bracket repair: every key/vector/text/media field and
+ * every complete illustration must validate before either byte is changed. */
+export function normalizePlotSparksFieldDelimiters(markup: string): string {
+  return String(markup || '').replace(PLOT_SPARKS_OWNER_RANGE, (full, opening: string, body: string, closing: string) => {
+    const sparkPattern = /\[Spark\]([\s\S]*?)\[\/Spark\]/gi
+    const sparks = [...body.matchAll(sparkPattern)]
+    if (sparks.length !== 7 || (body.match(/\[Spark\]/gi) || []).length !== 7 || (body.match(/\[\/Spark\]/gi) || []).length !== 7) return full
+
+    const keys = new Set<PlotSparkKey>()
+    let changed = false
+    const repairedSparks: string[] = []
+    for (const match of sparks) {
+      let spark = match[0]
+      const badTextOpen = spark.match(/\[Text>/gi) || []
+      if (badTextOpen.length) {
+        if (badTextOpen.length !== 1 || /\[Text\]/i.test(spark) || (spark.match(/\[\/Text\]/gi) || []).length !== 1) return full
+        spark = spark.replace(/\[Text>/i, '[Text]')
+        changed = true
+      }
+      const badVectorClose = spark.match(/\[\/Vector>/gi) || []
+      if (badVectorClose.length) {
+        if (badVectorClose.length !== 1 || /\[\/Vector\]/i.test(spark) || (spark.match(/\[Vector\]/gi) || []).length !== 1) return full
+        spark = spark.replace(/\[\/Vector>/i, '[/Vector]')
+        changed = true
+      }
+      if (/\[(?:\/)?(?:Key|Vector|Text|Media)>/i.test(spark)) return full
+
+      const fields: Record<'Key' | 'Vector' | 'Text' | 'Media', string> = { Key: '', Vector: '', Text: '', Media: '' }
+      for (const field of Object.keys(fields) as Array<keyof typeof fields>) {
+        if ((spark.match(new RegExp(`\\[${field}\\]`, 'gi')) || []).length !== 1) return full
+        if ((spark.match(new RegExp(`\\[\\/${field}\\]`, 'gi')) || []).length !== 1) return full
+        fields[field] = new RegExp(`\\[${field}\\]([\\s\\S]*?)\\[\\/${field}\\]`, 'i').exec(spark)?.[1].trim() || ''
+        if (!fields[field]) return full
+      }
+      const key = fields.Key.toLocaleLowerCase() as PlotSparkKey
+      if (!(key in PLOT_SPARK_VECTOR_BY_KEY) || keys.has(key) || fields.Vector.toLocaleLowerCase() !== PLOT_SPARK_VECTOR_BY_KEY[key]) return full
+      keys.add(key)
+      if ((fields.Media.match(/<reverie-illustration\b/gi) || []).length !== 1
+        || (fields.Media.match(/<\/reverie-illustration\s*>/gi) || []).length !== 1
+        || !/<visual_prompt>[^<][\s\S]*?<\/visual_prompt>/i.test(fields.Media)) return full
+      repairedSparks.push(spark)
+    }
+    if (!changed || keys.size !== 7) return full
+
+    let index = 0
+    const repairedBody = body.replace(sparkPattern, () => repairedSparks[index++])
+    return `${opening}${repairedBody}${closing}`
+  })
+}
+
 /** Repair only the unambiguous known-owner blend inside Plot Sparks Media. */
 export function normalizePlotSparksMediaMarkup(markup: string): string {
   return String(markup || '').replace(/\[Media\]((?:(?!\[Media\])[\s\S])*?)\[\/Media\]/gi, (full, media: string) => {
@@ -421,7 +475,7 @@ export function normalizeWorldMarkup(markup: string): string {
 }
 
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
-  const structurallyNormalized = normalizeNarrativeClosingDelimiters(String(markup || ''))
+  const structurallyNormalized = normalizeNarrativeClosingDelimiters(normalizePlotSparksFieldDelimiters(String(markup || '')))
   return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeParallelSceneMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(structurallyNormalized))))))
     .replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root: string, body: string) => {
       // A second observed phone drift uses an XML root around otherwise
