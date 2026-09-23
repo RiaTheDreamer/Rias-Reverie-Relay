@@ -10,9 +10,13 @@ import bracketSparklingRealistic from '../regex-packs/r45/Reverie-Surfaces-R4.5-
 import glassRealistic from '../regex-packs/r45/Reverie-Surfaces-R4.5-GLASS-REALISTIC.json'
 import glassPrimary from '../regex-packs/r45/Reverie-Surfaces-R4.5-GLASS-PRIMARY.json'
 import bracketGlassRealistic from '../regex-packs/r45/Reverie-Surfaces-R4.5-BRACKET-GLASS-REALISTIC.json'
+import inlineGlass from '../regex-packs/r45/Reverie-Surfaces-R4.5-INLINE-GLASS.json'
+import plainGlass from '../regex-packs/r45/Reverie-Surfaces-R4.5-COLLAPSIBLE-PLAIN-GLASS.json'
+import sparklingGlass from '../regex-packs/r45/Reverie-Surfaces-R4.5-COLLAPSIBLE-SPARKLING-GLASS.json'
+import glassButtonGlass from '../regex-packs/r45/Reverie-Surfaces-R4.5-GLASS-BUTTON-GLASS.json'
 
 export type R45PresentationMode = 'inline' | 'plain' | 'sparkling' | 'glass'
-export type R45ColorMode = 'realistic' | 'primary'
+export type R45ColorMode = 'realistic' | 'primary' | 'glass'
 
 export type R45RegexScript = {
   script_id: string
@@ -45,6 +49,10 @@ const LEGACY_XML_PACKS: Record<`${R45PresentationMode}:${R45ColorMode}`, R45Pack
   'plain:primary': plainPrimary as R45Pack,
   'sparkling:primary': sparklingPrimary as R45Pack,
   'glass:primary': glassPrimary as unknown as R45Pack,
+  'inline:glass': inlineGlass as unknown as R45Pack,
+  'plain:glass': plainGlass as unknown as R45Pack,
+  'sparkling:glass': sparklingGlass as unknown as R45Pack,
+  'glass:glass': glassButtonGlass as unknown as R45Pack,
 }
 const BRACKET_MATCHER_PACKS: Record<R45PresentationMode, R45Pack> = {
   inline: bracketInlineRealistic as R45Pack,

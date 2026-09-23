@@ -11364,7 +11364,7 @@ function normalizeCustomSurfaceStudio(value: unknown): CustomSurfaceStudioState 
     defaultShellMode: ['inline', 'plain', 'sparkling', 'glass'].includes(cleanString(raw.defaultShellMode))
       ? cleanString(raw.defaultShellMode) as SurfaceShellMode
       : cleanString(raw.defaultShellMode) === 'collapsible' ? 'plain' : defaults.defaultShellMode,
-    colorMode: cleanString(raw.colorMode) === 'primary' ? 'primary' : 'realistic',
+    colorMode: ['realistic', 'primary', 'glass'].includes(cleanString(raw.colorMode)) ? cleanString(raw.colorMode) as SurfaceColorMode : 'realistic',
     utilityInjectionEnabled: automaticSurfaceInjectionEnabled,
     utilityInjectionPosition: validInjectionPositions.includes(injectionPosition as SurfaceUtilityInjectionPosition) ? injectionPosition as SurfaceUtilityInjectionPosition : defaults.utilityInjectionPosition,
     utilityTemplate: canonicalSurfaceUtilityTemplate(raw.utilityTemplate),
@@ -12043,7 +12043,7 @@ async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { typ
       configPatch.narrativeDlcVariant = narrativeVariantForSurfaceShellMode(payload.shellMode)
       globalStudio.defaultShellMode = payload.shellMode
     } else if (payload.action === 'set_color_mode') {
-      if (!payload.colorMode || !['realistic', 'primary'].includes(payload.colorMode)) throw new Error('Surface color mode is invalid.')
+      if (!payload.colorMode || !['realistic', 'primary', 'glass'].includes(payload.colorMode)) throw new Error('Surface color mode is invalid.')
       configPatch.surfaceColorMode = payload.colorMode
       globalStudio.colorMode = payload.colorMode
     } else {
@@ -12101,7 +12101,7 @@ async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { typ
       configPatch.narrativeDlcVariant = narrativeVariantForSurfaceShellMode(payload.shellMode)
       configPatch.surfacePreferencesInitialized = true
     } else if (payload.action === 'set_color_mode') {
-      if (!payload.colorMode || !['realistic', 'primary'].includes(payload.colorMode)) throw new Error('Surface color mode is invalid.')
+      if (!payload.colorMode || !['realistic', 'primary', 'glass'].includes(payload.colorMode)) throw new Error('Surface color mode is invalid.')
       studio.colorMode = payload.colorMode
       configPatch.surfaceColorMode = payload.colorMode
       configPatch.surfacePreferencesInitialized = true
@@ -15043,7 +15043,7 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     surfaceDefaultShellMode: ['inline', 'plain', 'sparkling', 'glass'].includes(String(raw.surfaceDefaultShellMode))
       ? raw.surfaceDefaultShellMode as SurfaceShellMode
       : raw.surfaceDefaultShellMode === 'collapsible' ? 'plain' : DEFAULT_CONFIG.surfaceDefaultShellMode,
-    surfaceColorMode: raw.surfaceColorMode === 'primary' ? 'primary' : 'realistic',
+    surfaceColorMode: ['realistic', 'primary', 'glass'].includes(cleanString(raw.surfaceColorMode)) ? cleanString(raw.surfaceColorMode) as SurfaceColorMode : 'realistic',
     surfaceUtilityInjectionEnabled: automaticSurfaceInjectionEnabled,
     surfacePreferencesInitialized: raw.surfacePreferencesInitialized === true,
     settingsRevision: Math.max(0, Math.floor(Number(raw.settingsRevision) || 0)),
@@ -16080,7 +16080,7 @@ export function applyRelaySettingsPatchToConfig(current: RouterConfig, patch: Re
       next.narrativeDlcVariant = narrativeVariantForSurfaceShellMode(patch.defaultShellMode)
     }
     if (patch.colorMode !== undefined) {
-      if (!['realistic', 'primary'].includes(patch.colorMode)) throw new Error('Surface color mode is invalid.')
+      if (!['realistic', 'primary', 'glass'].includes(patch.colorMode)) throw new Error('Surface color mode is invalid.')
       studio.colorMode = patch.colorMode
       next.surfaceColorMode = patch.colorMode
     }

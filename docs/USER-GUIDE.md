@@ -6,7 +6,7 @@ Open **Reverie Relay → Surfaces → Library** to enable individual Surface Uti
 
 **View Exact Injected Prompt** is at the top of the Library. It resolves every enabled Surface and Narrative Utility together without sending anything to a model.
 
-Presentation is global: choose Inline, Button, Sparkling Button, or Glass under Surface Defaults. Existing Surfaces refresh when this setting changes, and all 59 shipped Surfaces inherit the same choice.
+Presentation is global: choose Inline, Button, Sparkling Button, or Glass Button under Surface Defaults. App and UI Surface body styling is selected separately under Color Mode: Realistic, Lumiverse Primary, or Glass Mode. Existing Surfaces refresh when either setting changes.
 
 ## Character Phone
 
@@ -26,7 +26,7 @@ Appearance Memory stores stable visual identity separately from current outfits 
 
 Enable the desired global Surface definitions in Library, then save that collection under Presets. One collection may be the global default. A chat may bind another preset; removing the binding returns it to the global default. Custom Surface definitions remain globally available.
 
-Presentation selects Inline, Button, Sparkling Button, or Glass. Inline has no top-level launcher. The other modes start closed behind one centered launcher and retain internal state where the host preserves the DOM. Glass uses an almost-transparent blurred launcher and body with reduced-motion-aware sparkle movement. Color selects Realistic or Lumiverse Primary without changing bracket-native semantic content. Legacy XML remains compatibility input: safely recoverable XML is normalized, while ambiguous structures retain source and show Reparse/Rescan instead of invented content. The Relationship Map inner design is unchanged. Dossier tabs switch panels without replacing its media node, Gallery images use full-frame fitting, and newly authored Album Covers require the actual release title.
+Presentation selects Inline, Button, Sparkling Button, or Glass Button. Inline has no top-level launcher. The other modes start closed behind one centered launcher and retain internal state across image placement. Glass Button applies only the almost-transparent reduced-motion-aware launcher. Color independently selects Realistic, Lumiverse Primary, or Glass Mode for App and UI Surface bodies without changing bracket-native semantic content. Narrative Glass authorities, including Plot Sparks, retain their complete Glass presentation. Legacy XML remains compatibility input: safely recoverable XML is normalized, while ambiguous structures retain source and show Reparse/Rescan instead of invented content. The Relationship Map inner design is unchanged. Dossier tabs switch panels without replacing its media node, Gallery images use full-frame fitting, and newly authored Album Covers require the actual release title.
 
 Each of the 59 shipped Surfaces includes a plain-language overview next to its toggle. `View Exact Injected Prompt` stays above the complete Utility list and resolves all enabled Utilities together without calling a model or provider.
 

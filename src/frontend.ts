@@ -2145,10 +2145,19 @@ export function setup(ctx: SpindleFrontendContext) {
   type SurfaceInteractionSnapshot = { disclosures: Record<string, boolean>; controls: Record<string, boolean> }
   const surfaceInteractionState = new Map<string, SurfaceInteractionSnapshot>()
   const interactiveSurfaceControlSelector = 'input[type="radio"], input.rrcp-launch-toggle, input.rrcp-app-toggle'
+  const nodeBelongsToMountedRoot = (root: Element, node: Node): boolean => {
+    let current: Node | null = node
+    while (current) {
+      if (current === root || root.contains(current)) return true
+      const owner = current.getRootNode?.()
+      current = owner instanceof ShadowRoot ? owner.host : null
+    }
+    return false
+  }
   const mountedMessageForNode = (node: Node): { messageId: string; root: Element } | null => {
     for (const messageId of new Set(records.map(record => record.messageId))) {
       const root = ctx.dom.findMessageElement(messageId)
-      if (root && (root === node || root.contains(node))) return { messageId, root }
+      if (root && nodeBelongsToMountedRoot(root, node)) return { messageId, root }
     }
     return null
   }
@@ -2162,7 +2171,7 @@ export function setup(ctx: SpindleFrontendContext) {
     return `${rows.indexOf(control)}:${control.type}:${control.name}:${control.id}:${control.className}`
   }
   const onSurfaceDisclosureToggle = (event: Event) => {
-    const disclosure = event.target instanceof HTMLDetailsElement ? event.target : null
+    const disclosure = event.composedPath().find(node => node instanceof HTMLDetailsElement) as HTMLDetailsElement | undefined
     if (!disclosure) return
     const mounted = mountedMessageForNode(disclosure)
     if (!mounted) return
@@ -2172,7 +2181,7 @@ export function setup(ctx: SpindleFrontendContext) {
     rememberBoundedMap(surfaceInteractionState, scope, snapshot, C5B_CACHE_LIMITS.messageSnapshots)
   }
   const onSurfaceControlChange = (event: Event) => {
-    const control = event.target instanceof HTMLInputElement && event.target.matches(interactiveSurfaceControlSelector) ? event.target : null
+    const control = event.composedPath().find(node => node instanceof HTMLInputElement && node.matches(interactiveSurfaceControlSelector)) as HTMLInputElement | undefined
     if (!control) return
     const mounted = mountedMessageForNode(control)
     if (!mounted) return
@@ -2726,7 +2735,7 @@ export function setup(ctx: SpindleFrontendContext) {
   }
   const boundNarrativeControls = new WeakSet<HTMLElement>()
   function bindNarrativeInteractiveControls(): void {
-    for (const launcher of deepQueryAll<HTMLElement>(document, '.rrcp-presentation-sparkling > .rrcp-launch, .rrcp-presentation-plain > .rrcp-launch')) {
+    for (const launcher of deepQueryAll<HTMLElement>(document, '.rrcp-presentation-sparkling > .rrcp-launch, .rrcp-presentation-plain > .rrcp-launch, .rrcp-presentation-glass > .rrcp-launch')) {
       if (boundNarrativeControls.has(launcher)) continue
       const wrap = launcher.parentElement
       const toggle = launcher.querySelector<HTMLInputElement>('.rrcp-launch-toggle')
@@ -6017,7 +6026,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const installation = document.createElement('div')
     installation.className = 'dg-field-stack'
     installation.append(
-      (() => { const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = `All installed Surfaces inherit the global presentation above: ${current.surfaceDefaultShellMode === 'sparkling' ? 'Sparkling Button' : current.surfaceDefaultShellMode === 'plain' ? 'Button' : current.surfaceDefaultShellMode === 'glass' ? 'Glass' : 'Inline'}.`; return note })(),
+      (() => { const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = `All installed Surfaces inherit the global presentation above: ${current.surfaceDefaultShellMode === 'sparkling' ? 'Sparkling Button' : current.surfaceDefaultShellMode === 'plain' ? 'Button' : current.surfaceDefaultShellMode === 'glass' ? 'Glass Button' : 'Inline'}.`; return note })(),
       narrativeStatus,
       narrativeActions,
     )
@@ -6144,7 +6153,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       { id: 'inline', label: 'Inline', description: 'Open in the message.' },
       { id: 'plain', label: 'Button', description: 'Centered launcher without particles.' },
       { id: 'sparkling', label: 'Sparkling Button', description: 'Centered launcher with outer sparkles.' },
-      { id: 'glass', label: 'Glass', description: 'Almost-transparent glass launcher and body.' },
+      { id: 'glass', label: 'Glass Button', description: 'Almost-transparent glass launcher.' },
     ]
     for (const option of presentationOptions) {
       const control = document.createElement('button')
@@ -6159,10 +6168,11 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     }
 
     const color = document.createElement('div')
-    color.className = 'dg-illustrator-mode-grid dg-choice-compact dg-choice-two'
+    color.className = 'dg-illustrator-mode-grid dg-choice-compact dg-choice-three'
     const colorOptions: Array<{ id: SurfaceColorMode; label: string; description: string }> = [
       { id: 'realistic', label: 'Realistic', description: 'Platform-authentic Surface colors.' },
       { id: 'primary', label: 'Lumiverse Primary', description: 'Theme-primary Surface accents.' },
+      { id: 'glass', label: 'Glass Mode', description: 'Almost-transparent Glass bodies for Apps and UI Surfaces.' },
     ]
     for (const option of colorOptions) {
       const control = document.createElement('button')
@@ -6695,7 +6705,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       '.my-surface { ... }',
     )
 
-    const shell = selectField('Shell Mode', existing?.shellMode === 'collapsible' ? 'plain' : existing?.shellMode || 'inline', [['inline', 'Inline'], ['plain', 'Button'], ['sparkling', 'Sparkling Button'], ['glass', 'Glass']], () => {})
+    const shell = selectField('Shell Mode', existing?.shellMode === 'collapsible' ? 'plain' : existing?.shellMode || 'inline', [['inline', 'Inline'], ['plain', 'Button'], ['sparkling', 'Sparkling Button'], ['glass', 'Glass Button']], () => {})
     const density = selectField('Density', existing?.density || 'comfortable', [['compact', 'Compact'], ['comfortable', 'Comfortable'], ['spacious', 'Spacious']], () => {})
     const fit = selectField('Media Fit', existing?.mediaFit || 'contain', [['contain', 'Contain'], ['cover', 'Cover']], () => {})
     const typography = selectField('Typography', existing?.typography || 'mixed', [['system', 'System'], ['editorial', 'Editorial'], ['mono', 'Mono'], ['mixed', 'Mixed']], () => {})

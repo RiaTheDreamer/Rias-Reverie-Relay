@@ -26,31 +26,33 @@ assert(R45_ACTIVE_ROOTS.length + Object.keys(NARRATIVE_UTILITY_FORMAT_CONTRACTS)
 assert(NARRATIVE_REGEX_VARIANTS.includes('glass'), 'Glass must be first-class in the presentation variant inventory')
 assert(narrativeVariantForSurfaceShellMode('glass') === 'glass' && surfaceShellModeForNarrativeVariant('glass') === 'glass', 'the one global Glass preference must map both directions')
 
-const sparkleR45 = {
-  realistic: r45LegacyXmlSurfaceAuthorityPack('sparkling', 'realistic'),
-  primary: r45LegacyXmlSurfaceAuthorityPack('sparkling', 'primary'),
-}
-
 for (const color of ['realistic', 'primary'] as const) {
   const legacy = r45LegacyXmlSurfaceAuthorityPack('glass', color)
   const current = r45SurfaceAuthorityPack('glass', color)
-  assert(legacy.scripts.length === 138 && current.scripts.length === 138, `Glass/${color}: both complete authorities must contain 138 scripts`)
-  assert(current.scripts.every(script => script.disabled !== true), `Glass/${color}: authority contains a disabled script`)
+  assert(legacy.scripts.length === 138 && current.scripts.length === 138, `Glass Button/${color}: both complete authorities must contain 138 scripts`)
+  assert(current.scripts.every(script => script.disabled !== true), `Glass Button/${color}: authority contains a disabled script`)
+  const buttonBodies = legacy.scripts.filter(script => script.replace_string.includes('data-reverie-glass-button='))
+  assert(buttonBodies.length >= 40, `Glass Button/${color}: complete launcher replacements are missing`)
+  assert(buttonBodies.every(script => !script.replace_string.includes(GLASS_SOURCE)), `Glass Button/${color}: launcher choice must not force Glass body color`)
+  assert(buttonBodies.every(script => script.replace_string.includes('prefers-reduced-motion:reduce')), `Glass Button/${color}: reduced-motion launcher contract missing`)
+}
+
+for (const presentation of ['inline', 'plain', 'sparkling', 'glass'] as const) {
+  const legacy = r45LegacyXmlSurfaceAuthorityPack(presentation, 'glass')
+  const current = r45SurfaceAuthorityPack(presentation, 'glass')
+  assert(legacy.scripts.length === 138 && current.scripts.length === 138, `${presentation}/Glass Mode: both complete authorities must contain 138 scripts`)
   const visual = legacy.scripts.filter(script => GLASS_VISUAL.test(script.replace_string))
-  assert(visual.length === 98, `Glass/${color}: expected 98 independently inspectable visual replacement bodies, found ${visual.length}`)
-  assert(visual.filter(script => script.replace_string.includes(GLASS_ROOT)).length > 70, `Glass/${color}: complete Surface roots are not marked as Glass authority`)
-  for (const script of visual) {
-    assert(script.replace_string.includes(GLASS_SOURCE), `Glass/${color}/${script.script_id}: replacement is not self-contained Glass source`)
-    assert(script.replace_string.includes('prefers-reduced-motion:reduce'), `Glass/${color}/${script.script_id}: reduced-motion contract missing`)
-    const sourceIndex = legacy.scripts.indexOf(script)
-    assert(script.replace_string !== sparkleR45[color].scripts[sourceIndex]?.replace_string, `Glass/${color}/${script.script_id}: silently reused the Sparkling body`)
-  }
+  assert(visual.length > 90, `${presentation}/Glass Mode: independently inspectable visual bodies are missing`)
+  assert(visual.filter(script => script.replace_string.includes(GLASS_ROOT)).length > 70, `${presentation}/Glass Mode: complete Surface roots are not marked as Glass authority`)
+  assert(visual.every(script => script.replace_string.includes(GLASS_SOURCE)), `${presentation}/Glass Mode: replacement is not self-contained Glass source`)
+  if (presentation === 'glass') assert(visual.some(script => script.replace_string.includes('data-reverie-glass-button=')), 'Glass Button + Glass Mode must preserve both independent contracts')
 }
 
 const bracketGlass = r45BracketSurfaceAuthorityPack('glass', 'realistic')
 assert(bracketGlass.scripts.length === 138, 'Glass bracket-native authority must contain 138 scripts')
-assert(bracketGlass.scripts.filter(script => GLASS_VISUAL.test(script.replace_string)).length === 98, 'Glass bracket-native authority must retain all visual bodies')
-assert(bracketGlass.scripts.filter(script => GLASS_VISUAL.test(script.replace_string)).every(script => script.replace_string.includes('r45-bracket-glass')), 'Glass bracket-native replacements must identify their dedicated authority')
+assert(bracketGlass.scripts.filter(script => GLASS_VISUAL.test(script.replace_string)).length > 90, 'Glass Button bracket-native authority must retain all visual bodies')
+const bracketGlassButtons = bracketGlass.scripts.filter(script => script.replace_string.includes('data-reverie-glass-button="1"'))
+assert(bracketGlassButtons.length >= 40 && bracketGlassButtons.every(script => script.replace_string.includes('r45-bracket-glass')), 'Glass Button bracket-native launcher replacements must identify their dedicated authority')
 
 const narrativeGlass = narrativeRegexPack('glass')
 const activeNarrativeGlass = narrativeRegexScripts('glass')
@@ -68,10 +70,26 @@ for (const script of narrativeVisual) {
   const sparkling = narrativeSparkle.scripts.find(candidate => candidate.script_id === script.script_id)
   if (sparkling) assert(script.replace_string !== sparkling.replace_string, `standalone Glass/${script.script_id}: silently reused the Sparkling body`)
 }
+const narrativeGlassLaunchers = narrativeVisual.filter(script => /class="[^"]*(?:r65-launch|ra66-launch|rrcp-launch|dg-compact-launch)\b/i.test(script.replace_string))
+assert(narrativeGlassLaunchers.length === 16, `standalone Glass launcher inventory changed: expected 16, found ${narrativeGlassLaunchers.length}`)
+for (const script of narrativeGlassLaunchers) {
+  const sparkfield = /<(?:span|div)\b[^>]*class="[^"]*\brr-narrative-glass-sparks\b[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div)>/i.exec(script.replace_string)
+  assert(sparkfield, `standalone Glass/${script.script_id}: Narrative launcher did not receive the shared App/UI sparkle field`)
+  assert((sparkfield[1].match(/<i><\/i>/g) || []).length === 13, `standalone Glass/${script.script_id}: Narrative launcher must match the App/UI eight moving plus five static micro-sparkles`)
+  assert(script.replace_string.includes('width:1px!important;height:1px!important'), `standalone Glass/${script.script_id}: Narrative particles do not match App/UI micro-sparkle sizing`)
+  assert(script.replace_string.includes('box-shadow:0 0 2px #fff,0 0 4px'), `standalone Glass/${script.script_id}: Narrative particles do not match App/UI restrained glow`)
+  assert(script.replace_string.includes('display:block!important'), `standalone Glass/${script.script_id}: mobile rules may still hide Narrative micro-sparkles`)
+}
 assert(!activeNarrativeGlass.some(script => script.replace_string.includes('data-reverie-surface-presentation-contract="global"')), 'Glass must not use the runtime launcher adapter')
 const phonePin = narrativeGlass.scripts.find(script => script.script_id === 'rrcp_final_presentation_pin')
 const phoneShell = narrativeGlass.scripts.find(script => script.script_id === 'rrpp_proto_shell_v31')
+const plotSparks = narrativeGlass.scripts.find(script => script.script_id === 'ria_plot_sparks_og_sparkle_tabs_bulletproof_v7')
+const parallelScene = narrativeGlass.scripts.find(script => script.script_id === 'reverie_parallel_tracker_images_v1')
 assert(phonePin?.replace_string.includes('[cp_presentation]glass[/cp_presentation]'), 'Character Phone Glass presentation pin missing')
 assert(phoneShell?.find_regex.includes('sparkling|plain|glass') && phoneShell.replace_string.includes('rrcp-presentation-glass'), 'Character Phone Glass matcher/shell authority missing')
+assert(phoneShell?.replace_string.includes('.rrcp-page-body') && phoneShell.replace_string.includes('color:var(--text)!important'), 'Character Phone Glass contrast contract missing')
+assert(plotSparks?.replace_string.includes('.ch-og .ch-panel') && plotSparks.replace_string.includes('data-reverie-glass-authority="narrative-glass"'), 'Plot Sparks must carry complete Glass body authority')
+assert(parallelScene?.replace_string.includes('width:1px!important;height:1px!important'), 'Parallel Scene Glass sparkles must stay restrained')
+assert(narrativeVisual.every(script => !script.replace_string.includes('background:linear-gradient(180deg,color-mix(in srgb,var(--rr-glass-deep) 8%')), 'Glass roots must not paint a black bar behind compact buttons')
 
 console.log(`Glass authority smoke passed: ${R45_ACTIVE_ROOTS.length} + ${Object.keys(NARRATIVE_UTILITY_FORMAT_CONTRACTS).length} = 59 Surfaces, R4.5 138/138/138, standalone active ${activeNarrativeGlass.length}, no Sparkling runtime fallback.`)

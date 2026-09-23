@@ -20,7 +20,13 @@ const authorityRoot = new URL('regex-packs/r45/', root)
 const authorityManifest = json('regex-packs/r45/AUTHORITY-MANIFEST.json')
 assert.equal(authorityManifest.relayProductVersion, '0.2.8')
 const packFiles = readdirSync(authorityRoot).filter(name => /^Reverie-Surfaces-R4\.5-.*\.json$/.test(name))
-assert.equal(packFiles.length, 12)
+assert.equal(packFiles.length, 16)
+for (const filename of [
+  'Reverie-Surfaces-R4.5-INLINE-GLASS.json',
+  'Reverie-Surfaces-R4.5-COLLAPSIBLE-PLAIN-GLASS.json',
+  'Reverie-Surfaces-R4.5-COLLAPSIBLE-SPARKLING-GLASS.json',
+  'Reverie-Surfaces-R4.5-GLASS-BUTTON-GLASS.json',
+]) assert.ok(packFiles.includes(filename), `${filename} independent Glass Mode authority missing`)
 for (const filename of packFiles) {
   const pack = json(`regex-packs/r45/${filename}`)
   if (Object.prototype.hasOwnProperty.call(pack, 'relay_product_version')) assert.equal(pack.relay_product_version, '0.2.8', `${filename} product version`)

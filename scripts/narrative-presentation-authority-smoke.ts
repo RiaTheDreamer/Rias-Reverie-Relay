@@ -31,18 +31,19 @@ const EXPECTED: Record<NarrativeRegexVariant, { raw: string; assembled: string }
     assembled: '7c524ddd1863db5c8c949085b51c75d6705ab940ff6f31bb6e1ed1c4711f94a2',
   },
   glass: {
-    raw: '378c183336c568564c77fe6d2ec4ef4239bcdb42d4f0c59e1e8732d8305e218d',
-    assembled: '3a04faf744d7dd43969ec7218732c75b65f5dab8769fca18b4f7da788ab843e2',
+    raw: '7494a34bf123aaae1b58900810b7cb1c3ac3bdd2d7d12c0fbe3292ec0657074a',
+    assembled: '5ec0af94883f6fea28fd0f93e88560621aff80ab3c6e86412af238eebb4f83f8',
   },
 }
 
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   const raw = narrativeRegexPack(variant).scripts
   const assembled = narrativeRegexScripts(variant)
+  const rawHash = presentationHash(raw)
+  const assembledHash = presentationHash(assembled)
   assert(raw.length === (variant === 'glass' ? 95 : 93), `${variant}: raw Narrative authority inventory changed`)
   assert(assembled.length === 56, `${variant}: assembled Narrative authority inventory changed`)
-  assert(presentationHash(raw) === EXPECTED[variant].raw, `${variant}: raw Narrative replace_string authority drifted`)
-  assert(presentationHash(assembled) === EXPECTED[variant].assembled, `${variant}: assembled Narrative presentation authority drifted`)
+  assert(rawHash === EXPECTED[variant].raw && assembledHash === EXPECTED[variant].assembled, `${variant}: Narrative presentation authority drifted (raw ${rawHash}, assembled ${assembledHash})`)
 }
 
 console.log('Narrative presentation authority lock passed: 4 variants, 374 raw scripts and 224 assembled active scripts, replace_string/presentation drift 0.')

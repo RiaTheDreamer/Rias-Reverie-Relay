@@ -158,8 +158,8 @@ The 2026-09-23 Mokdong response emitted a complete Setting the Scene owner and c
 - A final outer-shell adapter applies Inline, Button, or Sparkling Button where the historical packs require normalization without rewriting their internal design.
 - Inline roots are explicitly open with the launcher hidden; Button roots start closed with launcher spark decoration suppressed; Sparkling Button roots start closed with their approved animation intact.
 - Old persisted `narrativeDlcVariant` values no longer override the global Surface choice during configuration normalization.
-- Glass is a first-class fourth presentation with committed standalone sources: three aligned 138-script authorities and one complete 56-active-script authority covering Character Phone, Plot Sparks, and Dramatic Cutaway.
-- Glass replacements carry their own full-body styling and do not use the historical outer-shell adapter or fall back to Sparkling/Plain at runtime.
+- Glass Button is a first-class fourth launcher presentation. App and UI body styling is independently selected as Realistic, Lumiverse Primary, or Glass Mode through four complete 138-script Glass color authorities.
+- Narrative Glass remains a complete 56-active-script authority covering Character Phone, Plot Sparks, and Dramatic Cutaway; it does not fall back to Sparkling/Plain at runtime.
 
 **Acceptance evidence**
 
