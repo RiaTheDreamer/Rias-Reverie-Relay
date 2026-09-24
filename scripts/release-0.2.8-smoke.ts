@@ -10,8 +10,8 @@ const json = (relative: string) => JSON.parse(read(relative))
 
 const pkg = json('package.json')
 const manifest = json('spindle.json')
-assert.equal(pkg.version, '0.2.8.7.10')
-assert.equal(manifest.version, '0.2.8.7.10')
+assert.equal(pkg.version, '0.2.8.7.11')
+assert.equal(manifest.version, '0.2.8.7.11')
 assert.match(read('README.md'), /\*\*Version:\*\* `0\.2\.8`/)
 assert.match(read('src/build.ts'), /EXTENSION_VERSION = '0\.2\.8\.7\.8'/)
 assert.match(read('src/build.ts'), /BUILD_ID = '20260924-0\.2\.8\.7\.8'/)
@@ -85,4 +85,4 @@ assert.ok(migrated.stats.completedTotal >= 1, 'lifetime Completed count survives
 assert.equal(migrated.proseIllustrator.opportunities['legacy-opportunity'].plannerVersion, 'prose-opportunity-v1')
 assert.ok(migrated.logs.some((row: any) => row.eventType === 'state_migrated'), 'schema 34 migration is recorded')
 
-console.log('0.2.8.7.10 release smoke passed: version metadata aligned, authority hashes verified, and a 0.2.7.5-era schema-34 completed image/state snapshot migrated without losing historical media.')
+console.log('0.2.8.7.11 release smoke passed: version metadata aligned, authority hashes verified, and a 0.2.7.5-era schema-34 completed image/state snapshot migrated without losing historical media.')

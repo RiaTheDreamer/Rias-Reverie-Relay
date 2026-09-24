@@ -32,6 +32,9 @@ for (const selector of ['.r65.r65>summary.r65-launch', '.ra66.ra66>summary.ra66-
   assert(mountedGlassRules.includes(selector), `mounted Glass authority omitted ${selector}`)
 }
 assert(mountedGlassRules.includes('.rrcp-wrap .rrcp-launch-toggle{position:absolute!important'), 'mounted Glass authority must hide only the Character Phone state input')
+assert(mountedGlassRules.includes('>summary::before,[data-reverie-narrative-glass-button]>summary::after{content:none!important'), 'mounted Glass authority must remove inherited launcher sheen layers')
+assert(mountedGlassRules.includes('.rr-narrative-glass-sparks i:nth-child(n+9){display:none!important}'), 'mounted Glass authority must hide historical static sparkle nodes')
+assert(mountedGlassRules.includes('.ch-og .ch-launch-emoji{display:none!important}'), 'mounted Glass authority must remove the oversized Plot Sparks launcher particle')
 const frontendSource = await (globalThis as any).Bun.file(new URL('../src/frontend.ts', import.meta.url)).text()
 assert(frontendSource.includes('ensureMountedNarrativePresentationStyle(document)') && frontendSource.includes('narrativeGlassButtonPresentationCss()'), 'existing shadow-mounted Narrative cards must receive the current Glass authority at runtime')
 
@@ -83,6 +86,7 @@ for (const selector of ['.r65.r65>summary.r65-launch', '.ra66.ra66>summary.ra66-
   assert(activeNarrativeGlass.some(script => script.replace_string.includes(selector)), `Glass Button + Glass Mode must target the visible ${selector} launcher, not an internal control`)
 }
 assert(activeNarrativeGlass.some(script => script.replace_string.includes('.rrcp-wrap .rrcp-launch-toggle{position:absolute!important;inline-size:1px!important')), 'Character Phone Glass Button must preserve the hidden state control while styling its visible label launcher')
+assert(activeNarrativeGlass.every(script => !script.replace_string.includes('nth-child(n+9){animation:none!important')), 'Glass Button must not reintroduce static white sparkle nodes')
 for (const [root, selector] of [
   ['r65', '.r65.r65>summary.r65-launch'],
   ['ra66', '.ra66.ra66>summary.ra66-launch'],
@@ -110,9 +114,9 @@ assert(narrativeGlassLaunchers.length === 16, `standalone Glass launcher invento
 for (const script of narrativeGlassLaunchers) {
   const sparkfield = /<(?:span|div)\b[^>]*class="[^"]*\brr-narrative-glass-sparks\b[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div)>/i.exec(script.replace_string)
   assert(sparkfield, `standalone Glass/${script.script_id}: Narrative launcher did not receive the shared App/UI sparkle field`)
-  assert((sparkfield[1].match(/<i><\/i>/g) || []).length === 13, `standalone Glass/${script.script_id}: Narrative launcher must match the App/UI eight moving plus five static micro-sparkles`)
+  assert((sparkfield[1].match(/<i><\/i>/g) || []).length === 8, `standalone Glass/${script.script_id}: Narrative launcher must use only the eight shared moving micro-sparkles`)
   assert(script.replace_string.includes('width:1px!important;height:1px!important'), `standalone Glass/${script.script_id}: Narrative particles do not match App/UI micro-sparkle sizing`)
-  assert(script.replace_string.includes('box-shadow:0 0 2px #fff,0 0 4px'), `standalone Glass/${script.script_id}: Narrative particles do not match App/UI restrained glow`)
+  assert(script.replace_string.includes('box-shadow:0 0 3px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 20%,transparent)'), `standalone Glass/${script.script_id}: Narrative particles do not match the shared muted Glass glow`)
   assert(script.replace_string.includes('display:block!important'), `standalone Glass/${script.script_id}: mobile rules may still hide Narrative micro-sparkles`)
 }
 assert(!activeNarrativeGlass.some(script => script.replace_string.includes('data-reverie-surface-presentation-contract="global"')), 'Glass Button must not use the generic runtime launcher adapter')
