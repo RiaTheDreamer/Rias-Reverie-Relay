@@ -4402,8 +4402,8 @@ function summarizeRelayHealth(checks) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.7.8";
-var BUILD_ID = "20260924-0.2.8.7.8";
+var EXTENSION_VERSION = "0.2.8.7.9";
+var BUILD_ID = "20260924-0.2.8.7.9";
 
 // src/orbIconData.ts
 var ORB_IMAGE_DESIGNS = [

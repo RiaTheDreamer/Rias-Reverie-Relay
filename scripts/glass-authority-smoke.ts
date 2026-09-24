@@ -71,6 +71,21 @@ assert(activeNarrativeGlassButton.length === 56, 'standalone Glass Button must i
 assert(activeNarrativeGlassButton.some(script => script.replace_string.includes('data-reverie-narrative-glass-button-source="1"')), 'Glass Button with a normal body must use its dedicated generated shell authority')
 assert(!activeNarrativeGlassButton.some(script => script.replace_string.includes('data-reverie-glass-authority="narrative-glass"')), 'Glass Button must not force the Glass body authority when Color Mode is normal')
 assert(activeNarrativeGlass.some(script => script.replace_string.includes('data-reverie-narrative-glass-button-runtime="1"')), 'Glass Button + Glass Mode must adapt the complete Glass body with a trailing Glass Button shell')
+for (const selector of ['.r65.r65>summary.r65-launch', '.ra66.ra66>summary.ra66-launch', '.rrcp-wrap.rrcp-wrap>.rrcp-launch', '.ch-og.ch-og>summary.dg-compact-launch', '.dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch']) {
+  assert(activeNarrativeGlass.some(script => script.replace_string.includes(selector)), `Glass Button + Glass Mode must target the visible ${selector} launcher, not an internal control`)
+}
+assert(activeNarrativeGlass.some(script => script.replace_string.includes('.rrcp-wrap .rrcp-launch-toggle{position:absolute!important;inline-size:1px!important')), 'Character Phone Glass Button must preserve the hidden state control while styling its visible label launcher')
+for (const [root, selector] of [
+  ['r65', '.r65.r65>summary.r65-launch'],
+  ['ra66', '.ra66.ra66>summary.ra66-launch'],
+  ['rrcp-wrap', '.rrcp-wrap.rrcp-wrap>.rrcp-launch'],
+  ['ch-og', '.ch-og.ch-og>summary.dg-compact-launch'],
+  ['dg-dramatic-cutaway', '.dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch'],
+] as const) {
+  const claimed = activeNarrativeGlass.filter(script => new RegExp(`class="[^"]*\\b${root}\\b`, 'i').test(script.replace_string) && script.replace_string.includes('data-reverie-narrative-glass-button="1"'))
+  assert(claimed.length > 0, `Glass Button + Glass Mode lost the ${root} surface family`)
+  assert(claimed.every(script => script.replace_string.includes(selector)), `Glass Button + Glass Mode left a ${root} launcher on legacy opaque styling`)
+}
 assert(narrativeGlass.metadata?.standalone_glass_authority === true, 'standalone Glass authority metadata missing')
 for (const id of ['ria_plot_sparks_og_sparkle_tabs_bulletproof_v7', 'ria_dramatic_cutaway_lumiverse_native_bulletproof_v8']) {
   assert(narrativeGlass.scripts.some(script => script.script_id === id), `standalone Glass source omitted ${id}`)
