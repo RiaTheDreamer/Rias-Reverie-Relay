@@ -31,10 +31,12 @@ const EXPECTED: Record<NarrativeRegexVariant, { raw: string; assembled: string }
     assembled: '7c524ddd1863db5c8c949085b51c75d6705ab940ff6f31bb6e1ed1c4711f94a2',
   },
   glass: {
-    raw: '7494a34bf123aaae1b58900810b7cb1c3ac3bdd2d7d12c0fbe3292ec0657074a',
-    assembled: '5ec0af94883f6fea28fd0f93e88560621aff80ab3c6e86412af238eebb4f83f8',
+    raw: 'd0830906511f48e3aadcc194bc2fbacd43aa5d837ef97e69120aa7732506e94b',
+    assembled: 'ab7c7bbcc638a37172fce2fe36036f1cb7bc6cd7261560d8cbdbc3fa3b9f7faa',
   },
 }
+
+const GLASS_BODY_ASSEMBLED = '11f8d237bf45001859cc0608407165fc827363b7cb5f39a60abd5161cfb787ef'
 
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   const raw = narrativeRegexPack(variant).scripts
@@ -45,5 +47,7 @@ for (const variant of NARRATIVE_REGEX_VARIANTS) {
   assert(assembled.length === 56, `${variant}: assembled Narrative authority inventory changed`)
   assert(rawHash === EXPECTED[variant].raw && assembledHash === EXPECTED[variant].assembled, `${variant}: Narrative presentation authority drifted (raw ${rawHash}, assembled ${assembledHash})`)
 }
+
+assert(presentationHash(narrativeRegexScripts('glass', 'glass')) === GLASS_BODY_ASSEMBLED, 'Glass Color Mode must retain its complete independent body authority')
 
 console.log('Narrative presentation authority lock passed: 4 variants, 374 raw scripts and 224 assembled active scripts, replace_string/presentation drift 0.')

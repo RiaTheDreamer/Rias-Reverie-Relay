@@ -53,6 +53,7 @@ const destination = {
   sparklingGlass: 'regex-packs/r45/Reverie-Surfaces-R4.5-COLLAPSIBLE-SPARKLING-GLASS.json',
   glassGlass: 'regex-packs/r45/Reverie-Surfaces-R4.5-GLASS-BUTTON-GLASS.json',
   narrative: 'regex-packs/narrative-final/Reverie-Narrative-Surfaces-FINAL-Glass.json',
+  narrativeGlassButton: 'regex-packs/narrative-final/Reverie-Narrative-Surfaces-FINAL-Glass-Button.json',
 } as const
 
 const readPack = (path: string): RegexPack => JSON.parse(readFileSync(resolve(root, path), 'utf8')) as RegexPack
@@ -83,8 +84,13 @@ const GLASS_FOUNDATION = `
 [data-reverie-glass-authority]>summary [class*="spark"]>*:nth-child(2),[data-reverie-glass-authority]>summary [class*="particle"]>*:nth-child(2){animation-delay:-3s!important}[data-reverie-glass-authority]>summary [class*="spark"]>*:nth-child(3),[data-reverie-glass-authority]>summary [class*="particle"]>*:nth-child(3){animation-delay:-6s!important}
 [data-reverie-glass-authority].r65>.r65-launch .r65-sparks i{width:1px!important;height:1px!important;box-shadow:0 0 2px #fff,0 0 4px color-mix(in srgb,var(--rr-glass-primary) 24%,transparent)!important}
 [data-reverie-glass-authority].ch-og .ch-shell,[data-reverie-glass-authority].ch-og .ch-stage,[data-reverie-glass-authority].ch-og .ch-panel{border-color:color-mix(in srgb,var(--rr-glass-primary) 10%,transparent)!important;background:color-mix(in srgb,var(--rr-glass-deep) 5%,transparent)!important;box-shadow:0 0 0 1px rgba(255,255,255,.008) inset!important;-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)}
-[data-reverie-glass-authority].rrcp-wrap{--text:var(--lumiverse-text,#f5f7fb);--text-soft:color-mix(in srgb,var(--lumiverse-text,#f5f7fb) 86%,transparent);--muted:color-mix(in srgb,var(--lumiverse-text,#f5f7fb) 68%,transparent)}
+[data-reverie-glass-authority].rrcp-wrap{--text:var(--lumiverse-text,#f5f7fb);--text-soft:color-mix(in srgb,var(--lumiverse-text,#f5f7fb) 86%,transparent);--muted:color-mix(in srgb,var(--lumiverse-text,#f5f7fb) 68%,transparent);--rrcp-glass-readable-text:color-mix(in srgb,var(--lumiverse-text,#f5f7fb) 94%,#fff 6%)}
 [data-reverie-glass-authority].rrcp-wrap .rrcp-page,[data-reverie-glass-authority].rrcp-wrap .rrcp-page-body,[data-reverie-glass-authority].rrcp-wrap .rrcp-msg-bubble,[data-reverie-glass-authority].rrcp-wrap .rrcp-row,[data-reverie-glass-authority].rrcp-wrap .rrcp-note,[data-reverie-glass-authority].rrcp-wrap .rrcp-draft{color:var(--text)!important}
+[data-reverie-glass-authority].rrcp-wrap .rrcp-msg-bubble{background:color-mix(in srgb,var(--rr-glass-deep) 84%,var(--lumiverse-bg-deep,#090812) 16%)!important;color:var(--rrcp-glass-readable-text)!important;border-color:color-mix(in srgb,var(--rrcp-glass-readable-text) 16%,transparent)!important;text-shadow:none!important}
+[data-reverie-glass-authority].rrcp-wrap .rrcp-msg-self .rrcp-msg-bubble{background:color-mix(in srgb,#2563eb 74%,var(--rr-glass-deep) 26%)!important;color:var(--rrcp-glass-readable-text)!important;border-color:color-mix(in srgb,#8ab4ff 46%,transparent)!important}
+[data-reverie-glass-authority].rrcp-wrap .rrcp-msg-other .rrcp-msg-bubble{background:color-mix(in srgb,var(--rr-glass-deep) 90%,var(--lumiverse-bg-elevated,#181522) 10%)!important;color:var(--rrcp-glass-readable-text)!important}
+[data-reverie-glass-authority].rrcp-wrap .rrcp-msg-bubble :where(p,span,b,strong,em,a,small,time){color:inherit!important;opacity:1!important}
+[data-reverie-glass-authority].rrcp-wrap .rrcp-msg-who,[data-reverie-glass-authority].rrcp-wrap .rrcp-msg time{color:var(--text-soft)!important;text-shadow:none!important}
 @media(prefers-reduced-motion:reduce){[data-reverie-glass-authority] [class*="spark"]>*,[data-reverie-glass-authority] [class*="particle"]>*{animation:none!important;opacity:.26!important}}
 `.trim()
 
@@ -93,6 +99,12 @@ const GLASS_BUTTON_STYLE = `<style data-reverie-glass-button-source="1">
 [data-reverie-glass-button]>summary{position:relative!important;isolation:isolate!important;display:flex!important;width:max-content!important;max-width:min(calc(100% - 24px),360px)!important;min-height:40px!important;margin:14px auto 0!important;padding:9px 20px!important;overflow:hidden!important;align-items:center!important;justify-content:center!important;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 28%,var(--lumiverse-border,transparent) 72%)!important;border-radius:13px!important;background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 5%,transparent)!important;color:var(--lumiverse-primary-text,var(--lumiverse-text,#f6f1f7))!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.18em!important;text-transform:uppercase!important;box-shadow:0 0 0 1px rgba(255,255,255,.008) inset,0 0 14px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 8%,transparent)!important;-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)}
 [data-reverie-glass-button]>summary [class*="spark"]>*,[data-reverie-glass-button]>summary [class*="particle"]>*{width:1px!important;height:1px!important;box-shadow:0 0 2px #fff,0 0 4px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 24%,transparent)!important}
 @media(prefers-reduced-motion:reduce){[data-reverie-glass-button]>summary [class*="spark"]>*,[data-reverie-glass-button]>summary [class*="particle"]>*{animation:none!important;opacity:.26!important}}
+</style>`
+
+const NARRATIVE_GLASS_BUTTON_STYLE = `<style data-reverie-narrative-glass-button-source="1">
+[data-reverie-narrative-glass-button]>summary,[data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle{position:relative!important;isolation:isolate!important;display:flex!important;align-items:center!important;justify-content:center!important;width:max-content!important;max-width:min(calc(100% - 24px),360px)!important;min-height:40px!important;margin:14px auto 0!important;padding:9px 20px!important;overflow:hidden!important;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 28%,var(--lumiverse-border,transparent) 72%)!important;border-radius:13px!important;background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 5%,transparent)!important;color:var(--lumiverse-primary-text,var(--lumiverse-text,#f6f1f7))!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.18em!important;text-transform:uppercase!important;text-align:center!important;box-shadow:0 0 0 1px rgba(255,255,255,.008) inset,0 0 14px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 8%,transparent)!important;-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)}
+[data-reverie-narrative-glass-button]>summary [class*="spark"]>*,[data-reverie-narrative-glass-button]>summary [class*="particle"]>*,[data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle [class*="spark"]>*,[data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle [class*="particle"]>*{width:1px!important;height:1px!important;box-shadow:0 0 2px #fff,0 0 4px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 24%,transparent)!important}
+@media(prefers-reduced-motion:reduce){[data-reverie-narrative-glass-button]>summary [class*="spark"]>*,[data-reverie-narrative-glass-button]>summary [class*="particle"]>*,[data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle [class*="spark"]>*,[data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle [class*="particle"]>*{animation:none!important;opacity:.26!important}}
 </style>`
 
 const NARRATIVE_GLASS_SPARK_CLASS = 'rr-narrative-glass-sparks'
@@ -173,6 +185,18 @@ function glassButtonReplacement(replacement: string, authority: string): string 
   return `${GLASS_BUTTON_STYLE}${withRoot}`
 }
 
+function narrativeGlassButtonReplacement(replacement: string): string {
+  let marked = false
+  const output = String(replacement || '')
+    .replace(/Collapsible Sparkling|Sparkling Button|Sparkle Button/gi, 'Glass Button')
+    .replace(/<(details|div)\b([^>]*\bclass="[^"]*\b(?:r65|ra66|rrcp-wrap|ch-og|dg-dramatic-cutaway)\b[^"]*"[^>]*)>/i, (opening, tag: string, attributes: string) => {
+      if (marked || /data-reverie-narrative-glass-button=/i.test(attributes)) return opening
+      marked = true
+      return `<${tag} data-reverie-narrative-glass-button="1"${attributes}>`
+    })
+  return marked ? `${NARRATIVE_GLASS_BUTTON_STYLE}${output}` : output
+}
+
 function glassButtonScript(script: RegexScript, authority: string): RegexScript {
   return {
     ...script,
@@ -215,6 +239,30 @@ function glassifyScript(script: RegexScript, authority: string): RegexScript {
       glass_authority: authority,
       standalone_replacement: true,
     },
+  }
+}
+
+function narrativeGlassButtonScript(script: RegexScript): RegexScript {
+  let findRegex = script.find_regex
+  let replacement = script.replace_string
+  if (script.script_id === 'rrcp_final_presentation_pin') {
+    findRegex = findRegex.replace(/sparkling\|plain\|inline/g, 'sparkling|plain|inline|glass')
+    replacement = replacement.replace(/\[cp_presentation\][\s\S]*?\[\/cp_presentation\]/i, '[cp_presentation]glass[/cp_presentation]')
+  }
+  if (/^rrpp_proto_shell_/i.test(script.script_id)) {
+    findRegex = findRegex.replace(/sparkling\|plain\|inline/g, 'sparkling|plain|inline|glass')
+    if (script.script_id === 'rrpp_proto_shell_v31') findRegex = findRegex.replace(/sparkling\|plain/g, 'sparkling|plain|glass')
+    replacement = replacement
+      .replace(/\.rrcp-presentation-sparkling>(\.rrcp-shell),\.rrcp-presentation-plain>\1/g, '.rrcp-presentation-sparkling>$1,.rrcp-presentation-plain>$1,.rrcp-presentation-glass>$1')
+      .replace(/\.rrcp-presentation-plain>(\.rrcp-shell)/g, '.rrcp-presentation-plain>$1,.rrcp-presentation-glass>$1')
+  }
+  return {
+    ...script,
+    name: String(script.name || script.script_id).replace(/Collapsible Sparkling|Sparkling Button|Sparkle Button/gi, 'Glass Button'),
+    find_regex: findRegex,
+    replace_string: narrativeGlassButtonReplacement(replacement),
+    folder: script.folder?.replace(/Collapsible Sparkling|Sparkling Button|Sparkle Button/gi, 'Glass Button'),
+    metadata: { ...(script.metadata || {}), presentation: 'glass-button', color_mode: 'realistic', standalone_replacement: true },
   }
 }
 
@@ -274,6 +322,33 @@ function makeNarrativePack(): RegexPack {
   }
 }
 
+function makeNarrativeGlassButtonPack(): RegexPack {
+  const pack = readPack(source.narrative)
+  const plot = readPack(source.plot)
+  const dramatic = readPack(source.dramatic)
+  if (pack.scripts.length !== 93 || plot.scripts.length !== 1 || dramatic.scripts.length !== 1) {
+    throw new Error('Narrative Glass Button source inventory changed')
+  }
+  const scripts = [...pack.scripts, ...plot.scripts, ...dramatic.scripts]
+    .map(narrativeGlassButtonScript)
+  if (new Set(scripts.map(script => script.script_id)).size !== scripts.length) throw new Error('Narrative Glass Button script IDs must be unique')
+  return {
+    ...pack,
+    name: 'Reverie Narrative Surfaces — Glass Button — Normal Body',
+    notes: 'Standalone Narrative Glass Button authority. It changes only the outer shell and preserves the normal body source.',
+    metadata: {
+      ...(pack.metadata || {}),
+      final_bundle: true,
+      archive_variant: 'glass-button',
+      character_phone_variant: 'glass',
+      standalone_glass_button_authority: true,
+      includes_plot_sparks: true,
+      includes_dramatic_cutaway: true,
+    },
+    scripts,
+  }
+}
+
 const outputs: Array<[string, RegexPack]> = [
   [destination.realistic, makeGlassButtonPack('realistic')],
   [destination.primary, makeGlassButtonPack('primary')],
@@ -283,6 +358,7 @@ const outputs: Array<[string, RegexPack]> = [
   [destination.sparklingGlass, makeGlassColorPack('sparkling')],
   [destination.glassGlass, makeGlassColorPack('glass')],
   [destination.narrative, makeNarrativePack()],
+  [destination.narrativeGlassButton, makeNarrativeGlassButtonPack()],
 ]
 
 for (const [path, pack] of outputs) {

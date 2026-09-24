@@ -146,29 +146,41 @@ for (const untouched of [
 ]) assert(normalizeNarrativeClosingDelimiters(untouched) === untouched, `unsafe closer repair changed fail-closed source: ${untouched}`)
 
 let renderCases = 0
+const presentationMatrix = [
+  { variant: 'inline', shell: 'inline' },
+  { variant: 'plain-button', shell: 'button' },
+  { variant: 'sparkle-button', shell: 'sparkling' },
+  { variant: 'glass', shell: 'glass button' },
+] as const
 for (const [name, fixture] of Object.entries(fixtures)) {
   assert(containsNarrativeRegexMarkup(fixture.source), `${name}: canonical bracket root is not detected`)
-  for (const variant of NARRATIVE_REGEX_VARIANTS) {
-    const rendered = renderNarrativeRegex(fixture.source, variant, `batch-d-${name}-${variant}`)
-    assert(rendered.includes(fixture.rendered), `${name}/${variant}: dedicated presentation did not render`)
+  for (const { variant, shell } of presentationMatrix) for (const colorMode of ['realistic', 'glass'] as const) {
+    const caseName = `${name} / ${shell} shell / ${colorMode} body`
+    const rendered = renderNarrativeRegex(fixture.source, variant, `batch-d-${name}-${variant}-${colorMode}`, {}, colorMode)
+    assert(rendered.includes(fixture.rendered), `${caseName}: dedicated presentation did not render`)
     const expectedMode = variant === 'inline' ? 'inline' : variant === 'plain-button' ? 'button' : 'sparkling'
     const presentationRoot = variant === 'glass'
-      ? /<(details|div)\b[^>]*data-reverie-glass-authority="narrative-glass"[^>]*>/i.exec(rendered)
-      : new RegExp(`<(details|div) class="[^"]*\\brr-surface-presentation-${expectedMode}\\b[^"]*"([^>]*)>`, 'i').exec(rendered)
-    assert(presentationRoot, `${name}/${variant}: global Surface presentation did not reach the Narrative root`)
+      ? new RegExp(`<(${fixture.rendered === 'rrcp-wrap' ? 'div' : 'details'})\\b[^>]*${colorMode === 'glass' ? 'data-reverie-glass-authority="narrative-glass"' : 'data-reverie-narrative-glass-button="1"'}[^>]*>`, 'i').exec(rendered)
+      : new RegExp(`<(details|div)\\b[^>]*class="[^"]*\\brr-surface-presentation-${expectedMode}\\b[^"]*"[^>]*>`, 'i').exec(rendered)
+    assert(presentationRoot, `${caseName}: global Surface presentation did not reach the Narrative root`)
+    if (colorMode === 'glass') {
+      assert(rendered.includes('data-reverie-glass-authority="narrative-glass"'), `${caseName}: Glass body source was not selected`)
+    } else {
+      assert(!rendered.includes('data-reverie-glass-authority="narrative-glass"'), `${caseName}: normal body was replaced with Glass authority`)
+    }
     if (variant === 'inline') {
       if (presentationRoot[1].toLowerCase() === 'details') assert(/\bopen(?:\s|=|>)/i.test(presentationRoot[0]), `${name}/${variant}: inline details root is closed and would disappear`)
-      assert(rendered.includes('.rr-surface-presentation-inline>summary{display:none!important}'), `${name}/${variant}: inline launcher is not suppressed`)
+      assert(rendered.includes('.rr-surface-presentation-inline>summary{display:none!important}'), `${caseName}: inline launcher is not suppressed`)
     } else if (variant !== 'glass') {
-      if (presentationRoot[1].toLowerCase() === 'details') assert(!/\bopen(?:\s|=|>)/i.test(presentationRoot[0]), `${name}/${variant}: button root must start closed`)
-      if (variant === 'plain-button') assert(rendered.includes('.rr-surface-presentation-button>summary .dg-unified-sparks'), `${name}/${variant}: plain Button did not suppress sparkling launcher decoration`)
+      if (presentationRoot[1].toLowerCase() === 'details') assert(!/\bopen(?:\s|=|>)/i.test(presentationRoot[0]), `${caseName}: button root must start closed`)
+      if (variant === 'plain-button') assert(rendered.includes('.rr-surface-presentation-button>summary .dg-unified-sparks'), `${caseName}: plain Button did not suppress sparkling launcher decoration`)
     }
-    assert(!rendered.includes('Relay Surface needs repair'), `${name}/${variant}: canonical fixture fell into generic repair UI`)
+    assert(!rendered.includes('Relay Surface needs repair'), `${caseName}: canonical fixture fell into generic repair UI`)
     const requestCount = (fixture.source.match(/<(?:image_request|reverie-illustration)\b/gi) || []).length
-    const hydrated = renderNativeSurfaceMarkup(rendered, nativeStudio, { chatId: 'batch-d', messageId: `batch-d-${name}-${variant}`, swipeId: 0, records: [] }).content
+    const hydrated = renderNativeSurfaceMarkup(rendered, { ...nativeStudio, colorMode }, { chatId: 'batch-d', messageId: `batch-d-${name}-${variant}-${colorMode}`, swipeId: 0, records: [] }).content
     const cardCount = (hydrated.match(/data-reverie-lifecycle-card="true"/g) || []).length
-    assert(requestCount > 0 && cardCount === requestCount, `${name}/${variant}: pending request/Status Card mismatch (${requestCount}/${cardCount})`)
-    assert(!/<(?:image_request|reverie-illustration)\b/i.test(hydrated), `${name}/${variant}: raw pending image control survived lifecycle hydration`)
+    assert(requestCount > 0 && cardCount === requestCount, `${caseName}: pending request/Status Card mismatch (${requestCount}/${cardCount})`)
+    assert(!/<(?:image_request|reverie-illustration)\b/i.test(hydrated), `${caseName}: raw pending image control survived lifecycle hydration`)
     renderCases += 1
   }
 }
@@ -404,6 +416,6 @@ assert(worldIsolated.includes('rr-scene-compass'), 'malformed World poisoned val
 assert(worldIsolated.includes('class="ch-og') && !worldIsolated.includes('[Plot_Sparks]'), 'malformed World poisoned valid Plot Sparks')
 
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
-assert(packageJson.version === '0.2.8.7.6', `version changed: ${packageJson.version}`)
+assert(packageJson.version === '0.2.8.7.7', `version changed: ${packageJson.version}`)
 
-console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} Surfaces, ${renderCases} dedicated presentation renders, ${narrativeClosingDelimiterMutationCases} closer mutations, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone four-variant regression passed, malformed-sibling isolation passed, Stella absent.`)
+console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} named Surfaces × 4 shells × 2 body modes = ${renderCases} deterministic renders, ${narrativeClosingDelimiterMutationCases} closer mutations, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone four-variant regression passed, malformed-sibling isolation passed, Stella absent.`)

@@ -2,6 +2,7 @@ import inlinePack from '../regex-packs/narrative-final/Reverie-Narrative-Surface
 import plainPack from '../regex-packs/narrative-final/Reverie-Narrative-Surfaces-FINAL-Plain-Button.json'
 import sparklePack from '../regex-packs/narrative-final/Reverie-Narrative-Surfaces-FINAL-Sparkle-Button.json'
 import glassPack from '../regex-packs/narrative-final/Reverie-Narrative-Surfaces-FINAL-Glass.json'
+import glassButtonPack from '../regex-packs/narrative-final/Reverie-Narrative-Surfaces-FINAL-Glass-Button.json'
 import utilityPack from '../regex-packs/narrative-final/Reverie-Narrative-Utilities-v6.3-FINAL-with-Character-Phone.json'
 import dramaticCutawayPack from '../regex-packs/narrative-final/Reverie-Dramatic-Cutaway-BULLETPROOF-V8.json'
 import plotSparksPack from '../regex-packs/narrative-final/Reverie-Plot-Sparks-BULLETPROOF-V7.json'
@@ -11,6 +12,7 @@ import { applyNarrativeSurfacePresentation, type NarrativeSurfacePresentationVar
 import { PLOT_SPARK_VECTOR_BY_KEY, type PlotSparkKey, type SurfaceColorMode } from './contracts'
 
 export type NarrativeRegexVariant = NarrativeSurfacePresentationVariant
+type NarrativeRegexSourceVariant = NarrativeRegexVariant | 'glass-button'
 
 export type NarrativeRegexScript = {
   script_id: string
@@ -50,11 +52,12 @@ export type NarrativeUtilityPack = {
   extras?: Record<string, unknown>
 }
 
-const PACKS: Record<NarrativeRegexVariant, NarrativeRegexPack> = {
+const PACKS: Record<NarrativeRegexSourceVariant, NarrativeRegexPack> = {
   'sparkle-button': sparklePack as unknown as NarrativeRegexPack,
   'plain-button': plainPack as unknown as NarrativeRegexPack,
   inline: inlinePack as unknown as NarrativeRegexPack,
   glass: glassPack as unknown as NarrativeRegexPack,
+  'glass-button': glassButtonPack as unknown as NarrativeRegexPack,
 }
 
 const EXPECTED_PIN: Record<NarrativeRegexVariant, string> = {
@@ -497,18 +500,23 @@ export function normalizeNarrativeMarkupForRendering(markup: string): string {
     .replace(/\[parallel_media\]\s*\[\/parallel_media\]/gi, '[parallel_media][/parallel_media]')
 }
 
-export function narrativeRegexPack(variant: NarrativeRegexVariant): NarrativeRegexPack {
+function narrativeRegexSourcePack(variant: NarrativeRegexSourceVariant): NarrativeRegexPack {
   const pack = PACKS[variant]
-  const expectedCount = variant === 'glass' ? 95 : 93
+  const expectedCount = variant === 'glass' || variant === 'glass-button' ? 95 : 93
   if (!pack || pack.type !== 'lumiverse_regex_scripts' || pack.scripts.length !== expectedCount) {
     throw new Error(`Invalid Narrative Regex variant: ${variant}`)
   }
   const ids = pack.scripts.map(script => script.script_id)
   if (new Set(ids).size !== ids.length) throw new Error(`Duplicate Narrative Regex script IDs in ${variant}`)
   const pin = pack.scripts.find(script => script.script_id === 'rrcp_final_presentation_pin')
-  if (!pin?.replace_string?.includes(EXPECTED_PIN[variant])) throw new Error(`Narrative Character Phone presentation pin mismatch: ${variant}`)
+  const expectedPin = variant === 'glass-button' ? EXPECTED_PIN.glass : EXPECTED_PIN[variant]
+  if (!pin?.replace_string?.includes(expectedPin)) throw new Error(`Narrative Character Phone presentation pin mismatch: ${variant}`)
   if (/<scenecard\b|\[scenecard\]/i.test(JSON.stringify(pack))) throw new Error(`Stella Scene Card contract present in ${variant}`)
   return pack
+}
+
+export function narrativeRegexPack(variant: NarrativeRegexVariant): NarrativeRegexPack {
+  return narrativeRegexSourcePack(variant)
 }
 
 export function narrativeRegexScripts(variant: NarrativeRegexVariant, colorMode: SurfaceColorMode = 'realistic'): NarrativeRegexScript[] {
@@ -521,13 +529,20 @@ export function narrativeRegexScripts(variant: NarrativeRegexVariant, colorMode:
   // Presentation and body color are independent settings. Glass Mode selects
   // the complete Glass visual source, then the requested presentation adapter
   // keeps Inline/Button/Sparkling/Glass Button ownership on the outer shell.
-  const sourceVariant: NarrativeRegexVariant = colorMode === 'glass' ? 'glass' : variant
-  const bundledPresentationScripts = narrativeRegexPack(sourceVariant).scripts.filter(script => script.disabled !== true)
+  // The Glass Button is an outer shell, not a body-color choice. Its normal
+  // body authority is a dedicated generated pack; Glass Mode remains the only
+  // selector that chooses the complete Glass visual body source.
+  const sourceVariant: NarrativeRegexSourceVariant = colorMode === 'glass'
+    ? 'glass'
+    : variant === 'glass'
+      ? 'glass-button'
+      : variant
+  const bundledPresentationScripts = narrativeRegexSourcePack(sourceVariant).scripts.filter(script => script.disabled !== true)
   const scripts = [
     CHARACTER_PHONE_OPTIONAL_WALLPAPER_NORMALIZER,
     ...bundledPresentationScripts,
-    ...(sourceVariant === 'glass' ? [] : PLOT_SPARKS_PACK.scripts.filter(script => script.disabled !== true)),
-    ...(sourceVariant === 'glass' ? [] : DRAMATIC_CUTAWAY_PACK.scripts.filter(script => script.disabled !== true)),
+    ...(['glass', 'glass-button'].includes(sourceVariant) ? [] : PLOT_SPARKS_PACK.scripts.filter(script => script.disabled !== true)),
+    ...(['glass', 'glass-button'].includes(sourceVariant) ? [] : DRAMATIC_CUTAWAY_PACK.scripts.filter(script => script.disabled !== true)),
   ]
   const ids = scripts.map(script => script.script_id)
   if (new Set(ids).size !== ids.length) throw new Error(`Duplicate active Narrative Regex script IDs in ${variant}`)

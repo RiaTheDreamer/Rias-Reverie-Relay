@@ -181,8 +181,9 @@ const raw = `[SCENE|Station concourse|Evening|Rain easing]
 [scene_context][reason]The journey reaches the station.[/reason][continuity]The same travel bag remains by the bench.[/continuity][/scene_context][/SCENE]`
 const fixtures: Record<string, string> = {}
 for (const variant of ['inline', 'plain-button', 'sparkle-button', 'glass'] as const) {
+  const colorMode = variant === 'glass' ? 'glass' : 'realistic'
   const originals = narrativeRegexPack(variant).scripts
-  for (const script of narrativeRegexScripts(variant)) {
+  for (const script of narrativeRegexScripts(variant, colorMode)) {
     const original = originals.find(row => row.script_id === script.script_id)
     if (original && script.script_id !== 'reverie_scene_tracker_images_v1') {
       const suppliedReplacement = script.replace_string.startsWith(NARRATIVE_MEDIA_COMPATIBILITY_STYLE)
@@ -204,7 +205,7 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button', 'glass'] as c
       assert.equal(suppliedBase, original.replace_string, `${script.script_id}: supplied Narrative styling changed`)
     }
   }
-  fixtures[variant] = renderNarrativeRegex(renderNativeSurfaceMarkup(raw, { definitions: {}, activePresetIds: {}, rendererMode: 'relay' } as any, { chatId: 'browser', messageId: 'm', swipeId: 0, autoGenerate: false }).content, variant, 'm')
+  fixtures[variant] = renderNarrativeRegex(renderNativeSurfaceMarkup(raw, { definitions: {}, activePresetIds: {}, rendererMode: 'relay' } as any, { chatId: 'browser', messageId: 'm', swipeId: 0, autoGenerate: false }).content, variant, 'm', {}, colorMode)
   assert(fixtures[variant].includes('rr-scene-compass') && fixtures[variant].includes('data-rrn-native-request="compass"'))
   assert(!fixtures[variant].includes('[SCENE|'), 'Compass with lifecycle card failed to render')
 }
