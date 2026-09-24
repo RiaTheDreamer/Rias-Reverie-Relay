@@ -212,7 +212,7 @@ assert(containsNarrativeRegexMarkup(dramaticFixture), 'Relay Narrative detection
 const dramaticRendered = renderNarrativeRegex(dramaticFixture, 'sparkle-button', 'dramatic-runtime')
 assert(dramaticRendered.includes('dg-dramatic-cutaway') && !dramaticRendered.includes('[dramatic_parallel]'), 'approved Dramatic Cutaway renderer must execute in the shared Narrative adapter')
 assert(dramaticRendered.includes('data-reverie-narrative-media-compat="1"'), 'Dramatic Cutaway must install the shared resolved-media compatibility sizing')
-assert(dramaticRendered.includes('data-reverie-narrative-block-spacing="1"') && dramaticRendered.includes('{margin:0 auto!important}'), 'Narrative launcher roots must leave only the host-level gutter between adjacent Surface cards')
+assert(dramaticRendered.includes('data-reverie-narrative-block-spacing="1"') && dramaticRendered.includes('{margin:6px auto!important}'), 'Narrative launcher roots must preserve one compact, uniform gutter between adjacent Surface cards')
 for (const owner of ['dg-dramatic-media', 'r65-media', 'rv6-media', 'ru-media', 'ru-portrait', 'ru-secret-media', 'ru-thread-media', 'ra66-archive-media', 'rrcp-media', 'rrcp-photo-media', 'rrcp-wallpaper']) {
   assert(dramaticRendered.includes(owner), `${owner}: shared Narrative media compatibility coverage is missing`)
   assert(dramaticRendered.includes(`.${owner}>.rrl-island`), `${owner}: unresolved Relay lifecycle islands are not forced visible at full owner width`)

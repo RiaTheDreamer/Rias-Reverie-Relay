@@ -111,9 +111,9 @@ export const NARRATIVE_MEDIA_COMPATIBILITY_STYLE = `<style data-reverie-narrativ
 </style>`
 
 /** The approved surfaces intentionally own their internal presentation. This
- * adapter keeps their wrappers neutral so Lumiverse owns the single outer gutter. */
+ * adapter supplies one compact, shared gutter between adjacent launcher roots. */
 export const NARRATIVE_BLOCK_SPACING_STYLE = `<style data-reverie-narrative-block-spacing="1">
-.r65,.ra66,.rrcp-wrap,.ch-og.dg-compact-launch-host,.dg-dramatic-cutaway.dg-compact-launch-host{margin:0 auto!important}
+.r65,.ra66,.rrcp-wrap,.ch-og.dg-compact-launch-host,.dg-dramatic-cutaway.dg-compact-launch-host{margin:6px auto!important}
 </style>`
 
 const safeMessageId = (value: string): string => String(value || 'narrative').replace(/[^A-Za-z0-9_-]+/g, '-') || 'narrative'
