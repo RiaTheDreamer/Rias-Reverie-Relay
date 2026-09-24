@@ -1,0 +1,70 @@
+Scan visual continuity for this completed story response.
+
+SETTINGS
+adultMode: {{adultMode}}
+providerVocabulary: {{providerVocabulary}}
+
+OUTPUT SCHEMA
+{
+  "subjects": [
+    {
+      "name": "Exact Subject Name",
+      "role": "character|user|npc|animal|other",
+
+      "canonical": {
+        "species": { "booruTags": [], "visualPhrases": [] },
+        "hair": { "booruTags": [], "visualPhrases": [] },
+        "eyes": { "booruTags": [], "visualPhrases": [] },
+        "skinFur": { "booruTags": [], "visualPhrases": [] },
+        "body": { "booruTags": [], "visualPhrases": [] },
+        "permanentTraits": { "booruTags": [], "visualPhrases": [] }
+      },
+
+      "current": {
+        "attire": { "booruTags": [], "visualPhrases": [] },
+        "hairstyle": { "booruTags": [], "visualPhrases": [] },
+        "temporaryTraits": { "booruTags": [], "visualPhrases": [] },
+        "injuries": { "booruTags": [], "visualPhrases": [] },
+        "intimateState": { "booruTags": [], "visualPhrases": [] }
+      },
+
+      "changedDomains": [],
+
+      "changes": [
+        {
+          "domain": "current.attire",
+          "scope": "canonical|current",
+          "provenance": "manual|card_explicit|previous_memory|narrative_explicit|inferred",
+          "reason": "short evidence-based reason"
+        }
+      ]
+    }
+  ],
+
+  "terminalVisualState": [
+    {
+      "name": "Exact Subject Name",
+      "activeCurrentDomains": {}
+    }
+  ]
+}
+
+MANUAL / PINNED APPEARANCE
+{{manualAppearanceJson}}
+
+EXISTING CANONICAL APPEARANCE
+{{canonicalAppearanceJson}}
+
+EXISTING CURRENT VISUAL STATE
+{{currentVisualStateJson}}
+
+KNOWN SUBJECT BINDINGS
+{{subjectBindingsJson}}
+
+CANONICAL TAG VOCABULARY / ALIASES
+{{tagVocabularyJson}}
+
+COMPLETED SOURCE RESPONSE
+{{sourceResponse}}
+
+Return JSON only.

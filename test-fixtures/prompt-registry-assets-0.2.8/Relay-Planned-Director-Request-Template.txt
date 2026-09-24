@@ -1,0 +1,93 @@
+Design illustrations for this completed story response.
+
+SETTINGS
+maximumIllustrations: {{maximumIllustrations}}
+maximumCharacters: {{maximumCharacters}}
+perspectiveMode: {{perspectiveMode}}
+defaultAspectRatio: {{defaultAspectRatio}}
+promptStyle: {{promptStyle}}
+adultMode: {{adultMode}}
+
+ALLOWED ASPECT RATIOS
+["1:1","4:3","3:4","16:9","9:16","4:5"]
+
+OUTPUT SCHEMA
+{
+  "shouldIllustrate": true,
+  "reason": "short overall decision reason",
+  "illustrations": [
+    {
+      "rank": 1,
+      "title": "short human-readable label",
+      "reason": "why this beat deserves an image",
+      "anchor": {
+        "paragraphIndex": 0,
+        "insertionSide": "after",
+        "anchorExcerpt": "short exact excerpt from the source paragraph"
+      },
+      "aspectRatio": "4:3",
+      "expectedPeopleCount": 2,
+      "namedSubjects": ["Exact Name A", "Exact Name B"],
+      "omittedSubjects": [],
+      "subjectDirectives": [
+        {
+          "name": "Exact Name A",
+          "role": "character",
+          "appearanceOverrides": [],
+          "attireOverrides": [],
+          "temporaryTraits": [],
+          "expression": "specific expression",
+          "pose": "specific pose/body orientation",
+          "action": "specific current action",
+          "gaze": "specific gaze target",
+          "contact": "specific contact ownership, or empty string"
+        }
+      ],
+      "composition": {
+        "shotType": "medium two-shot",
+        "cameraAngle": "eye level",
+        "framing": "waist-up",
+        "blocking": "precise spatial arrangement",
+        "foreground": "",
+        "background": "",
+        "location": "exact story location",
+        "timeOfDay": "",
+        "lighting": "",
+        "mood": "",
+        "importantProps": [],
+        "backgroundPeople": ""
+      },
+      "promptCore": "concise scene-specific visual phrases",
+      "negativeCore": "scene-specific exclusions only",
+      "referenceAssetIds": [],
+      "locationReferenceAssetIds": []
+    }
+  ]
+}
+
+If no image is worthwhile, return:
+{
+  "shouldIllustrate": false,
+  "reason": "why no image is warranted",
+  "illustrations": []
+}
+
+CHARACTER / APPEARANCE STATE
+{{characterContextJson}}
+
+LOCATION STATE
+{{locationContextJson}}
+
+AVAILABLE REFERENCE ASSETS
+{{referenceAssetsJson}}
+
+ALREADY PLANNED OR COMMITTED ILLUSTRATIONS IN THIS RESPONSE
+{{priorIllustrationsJson}}
+
+GLOBAL NEGATIVE REQUIREMENTS
+{{globalNegativeRequirementsJson}}
+
+SOURCE PARAGRAPHS
+{{paragraphsJson}}
+
+Return JSON only.

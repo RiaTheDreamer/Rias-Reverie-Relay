@@ -34,7 +34,7 @@ let parserCalls = 0
 }
 
 const backend = await import('../src/backend')
-const assetRoot = new URL('../../tmp/handover/Reverie-Relay-0.2.8-Cody-Handover-FULL/Reverie-Relay-0.2.8-Cody-Handover/assets/', import.meta.url)
+const assetRoot = new URL('../test-fixtures/prompt-registry-assets-0.2.8/', import.meta.url)
 const authoredAssets = [
   ['Appearance-Sidecar-System-Prompt.txt', APPEARANCE_SIDECAR_SYSTEM_PROMPT],
   ['Appearance-Sidecar-Request-Template.txt', APPEARANCE_SIDECAR_REQUEST_TEMPLATE],

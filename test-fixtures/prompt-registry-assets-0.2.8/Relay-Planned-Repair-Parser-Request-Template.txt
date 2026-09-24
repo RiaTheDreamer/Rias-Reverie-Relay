@@ -1,0 +1,18 @@
+Repair this Relay-Planned illustration object.
+
+VALIDATION ERRORS
+{{validationErrorsJson}}
+
+AUTHORITATIVE SOURCE PARAGRAPHS
+{{sourceParagraphsJson}}
+
+AUTHORITATIVE SUBJECT STATE
+{{subjectStateJson}}
+
+ALLOWED REFERENCE ASSETS
+{{referenceAssetsJson}}
+
+PROPOSED ILLUSTRATION
+{{proposedIllustrationJson}}
+
+Return JSON only.
