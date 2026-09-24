@@ -861,6 +861,7 @@ type ImageGenerationStreamContext = {
   attemptSignal?: AbortSignal
   laneWaitTimeoutMs?: number
   drainTimeoutMs?: number
+  acceptedStallThresholdMs?: number
   onProviderWaiting?: () => void | Promise<void>
   onProviderStarted?: () => void | Promise<void>
   onProviderCompleted?: (completedAt: number) => void | Promise<void>
@@ -930,6 +931,9 @@ export type ProviderAttemptDiagnostic = {
   providerSubscriptionTeardownStartedAt: number
   providerSubscriptionTeardownCompletedAt: number
   providerStreamCloseMode?: 'natural-complete' | 'explicit-cancel' | 'transport-error'
+  swarmAcceptedStallObservedAt?: number
+  swarmAcceptedStallElapsedMs?: number
+  swarmAcceptedStallLastProgressAt?: number
   activeProviderSubscriptionsAfterTeardown: number
   invocationFinalizationStartedAt: number
   invocationFinalizationCompletedAt: number
@@ -1253,6 +1257,7 @@ export const IMAGE_GENERATION_TIMEOUT_MS: number | undefined = undefined
 export const IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS: number | undefined = undefined
 export const IMAGE_GENERATION_DRAIN_TIMEOUT_MS = 2 * 60_000
 export const SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS = 2 * 60_000
+export const SWARM_ACCEPTED_STALL_THRESHOLD_MS = 2 * 60_000
 export const GALLERY_LINK_OPERATION_LEASE_MS = 2 * 60_000
 
 export function isChatNotFoundError(error: unknown): boolean {
@@ -15878,6 +15883,43 @@ export async function generateWithOptionalStream(
         const iterator = stream[Symbol.asyncIterator]()
         let iteratorNaturallyCompleted = false
         let terminalPayloadReceived = false
+        let acceptedStallTimer: ReturnType<typeof setTimeout> | undefined
+        const clearAcceptedStallTimer = () => {
+          if (acceptedStallTimer) clearTimeout(acceptedStallTimer)
+          acceptedStallTimer = undefined
+        }
+        const observeAcceptedStall = () => {
+          if (!isSwarmUiProvider(plan.provider) || acceptedStallTimer || terminalPayloadReceived) return
+          const thresholdMs = Number.isFinite(context.acceptedStallThresholdMs)
+            ? Math.max(1, Math.floor(context.acceptedStallThresholdMs!))
+            : SWARM_ACCEPTED_STALL_THRESHOLD_MS
+          acceptedStallTimer = setTimeout(() => {
+            acceptedStallTimer = undefined
+            if (terminalPayloadReceived || controller.signal.aborted) return
+            const observedAt = Date.now()
+            diagnostic.swarmAcceptedStallObservedAt ||= observedAt
+            diagnostic.swarmAcceptedStallElapsedMs = Math.max(0, observedAt - diagnostic.swarmRequestAcceptedAt)
+            diagnostic.swarmAcceptedStallLastProgressAt = diagnostic.lastProviderProgressAt
+            const evidence = {
+              generationId: context.generationId,
+              chatId: context.chatId || null,
+              requestId: context.requestId || null,
+              providerRequestId: diagnostic.swarmRequestId || null,
+              acceptedAt: diagnostic.swarmRequestAcceptedAt,
+              lastProgressAt: diagnostic.lastProviderProgressAt,
+              elapsedMs: diagnostic.swarmAcceptedStallElapsedMs,
+              thresholdMs,
+              providerStreamCloseMode: diagnostic.providerStreamCloseMode || null,
+            }
+            spindle.log.warn(`[ReverieRelay:image_provider_accepted_stall] ${JSON.stringify(evidence)}`)
+            sendImageStreamEvent(userId, context, {
+              event: 'status',
+              streaming: true,
+              statusText: 'SwarmUI accepted this request but has not returned a terminal result. Relay is still waiting.',
+            })
+          }, thresholdMs)
+          ;(acceptedStallTimer as any).unref?.()
+        }
         activeProviderSubscriptions.add(context.generationId)
         diagnostic.providerSubscriptionRegisteredAt ||= Date.now()
         try {
@@ -15897,6 +15939,7 @@ export async function generateWithOptionalStream(
           diagnostic.lastProviderProgressAt = progressAt
           if (isSwarmUiProvider(plan.provider)) diagnostic.swarmRequestAcceptedAt ||= progressAt
           if (normalizedEvent.providerRequestId) diagnostic.swarmRequestId ||= normalizedEvent.providerRequestId
+          observeAcceptedStall()
           const { type, previewImageDataUrl, step, totalSteps, nodeId } = normalizedEvent
 
           if (previewImageDataUrl && !['done', 'complete', 'completed', 'finished', 'result'].includes(type)) {
@@ -15923,6 +15966,7 @@ export async function generateWithOptionalStream(
           if (['done', 'complete', 'completed', 'finished', 'result'].includes(type) && normalizedEvent.result) {
             if (terminalPayloadReceived) throw new Error('ImageGen stream emitted more than one terminal result.')
             terminalPayloadReceived = true
+            clearAcceptedStallTimer()
             result = normalizedEvent.result
             diagnostic.providerPayloadReceivedAt ||= Date.now()
             const finalPreview = previewImageDataUrl || streamImageValue(result)
@@ -15944,6 +15988,7 @@ export async function generateWithOptionalStream(
           }
         }
         } finally {
+          clearAcceptedStallTimer()
           diagnostic.providerSubscriptionTeardownStartedAt ||= Date.now()
           try {
             if (!iteratorNaturallyCompleted && !terminalPayloadReceived) {

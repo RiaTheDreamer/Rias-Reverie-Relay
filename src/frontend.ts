@@ -968,20 +968,28 @@ export function setup(ctx: SpindleFrontendContext) {
     :where(*):has(> img[data-dgir-custom-target])::before,
     :where(*):has(> img[data-dgir-custom-target])::after { pointer-events: none !important; }
     :where(*):has(> img[data-dgir-custom-target]) :is([class*="overlay"], [class*="gradient"], [class*="sparkle"], [class*="glow"], [class*="decoration"]) { pointer-events: none !important; }
-    [data-component="MessageContent"] p > :is(span, a):has(> img[data-dgir-app="prose"]) {
+    [data-component="BubbleMessage"] > div[class*="bubble"] > div[class*="content"]:has(:is(img[alt="reverie-relay"], img[data-dgir-app="prose"])) {
+      width: 100% !important;
+      max-width: 100% !important;
+    }
+    [data-component="MessageContent"] p:has(:is(img[alt="reverie-relay"], img[data-dgir-app="prose"])) {
+      --dgir-bubble-image-inner-width: calc(100% - (2 * clamp(18px, 3vw, 38px)));
+      --prose-image-max-width: var(--dgir-bubble-image-inner-width);
+      --prose-image-max-height: none;
+      text-align: var(--dgir-prose-image-text-align, center) !important;
+      overflow: visible !important;
+    }
+    [data-component="MessageContent"] p:has(:is(img[alt="reverie-relay"], img[data-dgir-app="prose"])) > span:has(> :is(img[alt="reverie-relay"], img[data-dgir-app="prose"])),
+    [data-component="MessageContent"] p:has(:is(img[alt="reverie-relay"], img[data-dgir-app="prose"])) > a:has(:is(img[alt="reverie-relay"], img[data-dgir-app="prose"])) {
       display: block !important;
-      width: min(100%, var(--dgir-prose-image-width, 66%)) !important;
-      max-width: var(--dgir-prose-image-max-width, 720px) !important;
+      width: min(var(--dgir-prose-image-width, 66%), var(--dgir-bubble-image-inner-width)) !important;
+      max-width: 100% !important;
       max-height: none !important;
       overflow: visible !important;
       margin-left: var(--dgir-prose-image-margin-left, auto) !important;
       margin-right: var(--dgir-prose-image-margin-right, auto) !important;
     }
-    [data-component="MessageContent"] p > :is(span, a):has(> img[data-dgir-app="prose"][data-dgir-prose-size="full"]) {
-      width: 100% !important;
-      max-width: none !important;
-    }
-    [data-component="MessageContent"] p > :is(span, a) > img[data-dgir-app="prose"] {
+    [data-component="MessageContent"] p:has(:is(img[alt="reverie-relay"], img[data-dgir-app="prose"])) :is(img[alt="reverie-relay"], img[data-dgir-app="prose"]) {
       display: block !important;
       width: 100% !important;
       height: auto !important;
@@ -1287,6 +1295,7 @@ export function setup(ctx: SpindleFrontendContext) {
       .dg-router-panel .dg-lora-toolbar, .dg-router-panel .dg-lora-grid, .dg-router-panel .dg-lora-card, .dg-router-panel .dg-lora-stack-row, .dg-router-panel .dg-lab-param-grid { grid-template-columns: 1fr; }
       .dg-lab-edit-controls, .dg-lab-edit-media { grid-template-columns: 1fr; }
       .dg-router-panel .dg-lora-preview { width: 100%; height: auto; aspect-ratio: 1 / 1; }
+      [data-component="MessageContent"] p:has(:is(img[alt="reverie-relay"], img[data-dgir-app="prose"])) { --dgir-bubble-image-inner-width: calc(100% - 28px); }
       scene_image[data-dgir-prose-align] > img[data-dgir-app="prose"], scene_image:has(img[data-dgir-app="prose"]) > img[data-dgir-app="prose"], .dgir-prose-image-frame > img[data-dgir-app="prose"], img[data-dgir-app="prose"] { width: min(100%, var(--dgir-prose-image-width, 66%)) !important; min-width: 0 !important; }
     }
     @media (prefers-reduced-motion: reduce) {

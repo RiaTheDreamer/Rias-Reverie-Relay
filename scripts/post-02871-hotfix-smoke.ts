@@ -24,13 +24,12 @@ const frontend = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'u
 const overview = frontend.slice(frontend.indexOf('function countStatuses'), frontend.indexOf('function canReparse'))
 assert(overview.includes('countCurrentChatOverview(records, activeChatId)'), 'Current Chat Overview is not scoped through lifecycle semantics')
 assert(!overview.includes('stats.completedTotal'), 'Current Chat Overview still uses the lifetime archive total')
-assert(!frontend.includes('setProperty(\'--dgir-prose-bubble-inner-width\''), 'Image Size still widens the prose bubble contract')
-assert(!frontend.includes('[data-component="BubbleMessage"] > div[class*="bubble"] > div[class*="content"]:has(img'), 'Relay still overrides BubbleMessage/content width for prose images')
+assert(frontend.includes('[data-component="BubbleMessage"] > div[class*="bubble"] > div[class*="content"]:has(:is(img[alt="reverie-relay"], img[data-dgir-app="prose"]))'), 'pre-Glass Relay-image content-owner width rule was not restored')
 assert(frontend.includes('img[data-dgir-app="prose"][data-dgir-prose-size="full"] { flex-basis: 100% !important; width: 100% !important; max-width: none !important;'), 'Full Width lacks an image-only 100% rule')
-assert(frontend.includes(':is(span, a):has(> img[data-dgir-app="prose"][data-dgir-prose-size="full"])'), 'Full Width lacks a realistic sanitized image-wrapper rule')
+assert(frontend.includes('width: min(var(--dgir-prose-image-width, 66%), var(--dgir-bubble-image-inner-width)) !important;'), 'pre-Glass image-wrapper sizing formula was not restored')
 assert(frontend.includes('image.dataset.dgirProseSize = size') && frontend.includes('applyLiveProseImagePresentation(image)'), 'mounted prose images do not receive live size metadata')
 
 const nativeSurfaces = readFileSync(new URL('../src/nativeSurfaces.ts', import.meta.url), 'utf8')
 assert(nativeSurfaces.includes('.rrn-media img{width:100%;height:100%;object-fit:var(--rrn-fit,contain)}'), 'Surface media sizing contract changed or disappeared')
 
-console.log('post-0.2.8.7.1 hotfix smoke passed: current-chat buckets are exclusive and chat-scoped; lifetime completion is excluded; Full Width targets only live-bound prose images/wrappers; Surface media sizing remains unchanged.')
+console.log('post-0.2.8.7.1 hotfix smoke passed: current-chat buckets are exclusive and chat-scoped; lifetime completion is excluded; pre-Glass Relay-image owner geometry is restored; Surface media sizing remains unchanged.')

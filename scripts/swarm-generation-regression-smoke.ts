@@ -135,6 +135,64 @@ try {
   globalThis.setTimeout = nativeSetTimeout
 }
 
+// A Swarm request that is accepted but returns no terminal result remains
+// timeoutless, while Relay records the distinct stall boundary in live
+// diagnostics instead of mislabelling it as a cancel or transport failure.
+advertiseSwarmStream()
+let releaseAcceptedStall!: () => void
+imageApi.generateStream = async function* (input: any) {
+  yield { type: 'status', status: 'accepted', requestId: 'accepted-stall-provider-request' }
+  await new Promise<void>(resolve => { releaseAcceptedStall = resolve })
+  yield { type: 'done', result: { imageId: `image-${input.prompt}`, imageUrl: `/image-${input.prompt}` } }
+}
+const acceptedStall = backend.generateWithOptionalStream(
+  { prompt: 'accepted then delayed terminal' },
+  swarmPlan,
+  'swarm-accepted-stall',
+  context('accepted-stall', { chatId: 'accepted-stall-chat', acceptedStallThresholdMs: 10 }),
+)
+for (let attempt = 0; attempt < 50 && !logs.some(entry => entry.message.includes('[ReverieRelay:image_provider_accepted_stall]')); attempt += 1) await delay(2)
+const liveAcceptedStall: any = backend.inspectProviderAttemptDiagnostics('accepted-stall')
+assert(liveAcceptedStall.swarmAcceptedStallObservedAt > liveAcceptedStall.swarmRequestAcceptedAt)
+assert(liveAcceptedStall.swarmAcceptedStallElapsedMs >= 10)
+assert.equal(liveAcceptedStall.terminalState, undefined)
+assert.equal(liveAcceptedStall.providerStreamCloseMode, undefined)
+assert(logs.some(entry => entry.message.includes('[ReverieRelay:image_provider_accepted_stall]') && entry.message.includes('accepted-stall-provider-request')))
+assert(frontendEvents.some(event => event?.generationId === 'accepted-stall' && event?.event === 'status' && /accepted.*terminal result/i.test(event?.statusText || '')))
+releaseAcceptedStall()
+assert.equal((await acceptedStall).imageId, 'image-accepted then delayed terminal')
+const acceptedStallDiagnostic: any = assertExactlyOnce('accepted-stall', 'success')
+assert.equal(acceptedStallDiagnostic.providerStreamCloseMode, 'natural-complete')
+
+// Deterministic host-wrapper stress catches subscription/lane accumulation.
+// It is deliberately not reported as real Swarm or Lumiverse live proof.
+imageApi.generateStream = async function* (input: any) {
+  yield { type: 'status', status: 'accepted', requestId: `stress-${input.relay_generation_id}` }
+  yield { type: 'done', result: { imageId: `stress-${input.relay_generation_id}`, imageUrl: `/stress-${input.relay_generation_id}` } }
+}
+for (let index = 0; index < 24; index += 1) {
+  const generationId = `long-run-${index}`
+  const result = await backend.generateWithOptionalStream(
+    { prompt: generationId, relay_generation_id: generationId },
+    swarmPlan,
+    'swarm-long-run',
+    context(generationId, { chatId: 'long-run-chat' }),
+  )
+  assert.equal(result.imageId, `stress-${generationId}`)
+  assert.equal(assertExactlyOnce(generationId, 'success').providerStreamCloseMode, 'natural-complete')
+}
+for (const [generationId, chatId] of [['aba-a1', 'chat-a'], ['aba-b', 'chat-b'], ['aba-a2', 'chat-a']]) {
+  await backend.generateWithOptionalStream(
+    { prompt: generationId, relay_generation_id: generationId },
+    swarmPlan,
+    'swarm-aba',
+    context(generationId, { chatId }),
+  )
+  assert.equal(assertExactlyOnce(generationId, 'success').providerStreamCloseMode, 'natural-complete')
+}
+assert.equal(backend.inspectImageGenerationLaneDiagnostics('swarm-long-run'), null)
+assert.equal(backend.inspectImageGenerationLaneDiagnostics('swarm-aba'), null)
+
 // Global Abort All is user-scoped because the provider lane is user-scoped.
 // It rejects cross-chat waiters and pre-abort deferred work before aborting the
 // active transport, then keeps the lane quarantined until that transport ends.
