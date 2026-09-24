@@ -300,6 +300,12 @@ backend.stageGlobalAbortRegressionFixture('global-chat-a', 'global-chat-b', glob
 const globalAbort = backend.freezeAndCancelUserRuntime('global-chat-a', globalUser)
 assert.equal(globalAbort.providerWaiters, 2)
 assert.equal(globalAbort.deferredWork, 2)
+// An automatic continuation captured before Abort All, or one observing the
+// terminal cancelled record after it, has no authority to restart provider
+// work. A genuinely new automatic request in the new epoch remains valid.
+assert.equal(backend.automaticDispatchIsAuthorized(globalAbort.epoch - 1, globalUser, [{ status: 'queued' }]), false)
+assert.equal(backend.automaticDispatchIsAuthorized(globalAbort.epoch, globalUser, [{ status: 'cancelled' }]), false)
+assert.equal(backend.automaticDispatchIsAuthorized(globalAbort.epoch, globalUser, [{ status: 'queued' }]), true)
 await Promise.all([
   assert.rejects(globalA, /abort|cancel/i),
   assert.rejects(globalB, /abort|cancel/i),

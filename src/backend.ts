@@ -1238,6 +1238,18 @@ function currentUserAbortEpoch(userId?: string): number {
   return abortRuntimeForUser(userId).epoch
 }
 
+/** Automatic continuations may never cross an Abort All boundary or revive a
+ * record already made terminal by that boundary. Explicit user retries use a
+ * separate dispatch path and remain permitted. */
+export function automaticDispatchIsAuthorized(
+  expectedAbortEpoch: number,
+  userId?: string,
+  records: ReadonlyArray<Pick<SlotRecord, 'status'>> = [],
+): boolean {
+  return expectedAbortEpoch === currentUserAbortEpoch(userId)
+    && !records.some(record => record.status === 'cancelled')
+}
+
 function assertDispatchEpoch(context: ImageGenerationStreamContext, userId?: string): void {
   const runtime = abortRuntimeForUser(userId)
   if (runtime.aborting || (context.cancellationEpoch ?? runtime.epoch) !== runtime.epoch) {
@@ -5903,6 +5915,10 @@ async function markJobsAwaitingNativeSettings(jobs: RouterJob[], userId?: string
 
 async function resumeNativeSettingsWaiters(snapshot: NativeSettingsSnapshot, userId?: string): Promise<void> {
   if (!Object.keys(snapshot.settings || {}).length) return
+  // A settings snapshot can arrive while Abort All is unwinding its broker
+  // waiters. Retain the epoch that owned this resume so a late snapshot cannot
+  // turn cancelled records back into provider work after the global freeze.
+  const resumeAbortEpoch = currentUserAbortEpoch(userId)
   const broker = nativeSettingsBroker(userId)
   if (broker.refreshWatchdog) clearTimeout(broker.refreshWatchdog)
   broker.refreshWatchdog = undefined
@@ -5911,7 +5927,9 @@ async function resumeNativeSettingsWaiters(snapshot: NativeSettingsSnapshot, use
   broker.refreshRetryCount = 0
   const resumptions: Promise<void>[] = []
   for (const [chatId, registeredKeys] of [...broker.waiters.entries()]) {
+    if (resumeAbortEpoch !== currentUserAbortEpoch(userId)) break
     const state = await getState(chatId, userId)
+    if (resumeAbortEpoch !== currentUserAbortEpoch(userId)) break
     const waiting = Object.values(state.slots).filter(record => record.status === 'awaiting-native-settings' && registeredKeys.has(canonicalDispatchKey(record)))
     if (!waiting.length) {
       removeNativeSettingsWaiters(broker.waiters, chatId)
@@ -5921,7 +5939,9 @@ async function resumeNativeSettingsWaiters(snapshot: NativeSettingsSnapshot, use
     const validJobs: RouterJob[] = []
     const supersededKeys = new Set<string>()
     for (const job of groupRecordsIntoJobs(waiting)) {
+      if (resumeAbortEpoch !== currentUserAbortEpoch(userId)) break
       const message = await resolveMessage(job.chatId, job.messageId)
+      if (resumeAbortEpoch !== currentUserAbortEpoch(userId)) break
       const content = message ? getAuthoritativeSwipeContent(message, job.swipeId) : ''
       const active = message ? activeSwipeId(message) === job.swipeId : false
       const authored = Boolean(job.originalRequestXml && content.includes(job.originalRequestXml))
@@ -5932,6 +5952,7 @@ async function resumeNativeSettingsWaiters(snapshot: NativeSettingsSnapshot, use
       }
       validJobs.push(job)
     }
+    if (resumeAbortEpoch !== currentUserAbortEpoch(userId)) break
     const connectedCurrentSession = hasConnectedFrontendForChat(chatId, userId)
     const currentSessionKeys = connectedCurrentSession
       ? new Set(validJobs.flatMap(dispatchKeysForJob))
@@ -5977,12 +5998,14 @@ async function resumeNativeSettingsWaiters(snapshot: NativeSettingsSnapshot, use
     const processedKeys = new Set([...supersededKeys, ...priorSessionKeys, ...dispatchableJobs.flatMap(dispatchKeysForJob)])
     removeNativeSettingsWaiters(broker.waiters, chatId, processedKeys)
     if (supersededKeys.size || (decision.pause && priorSessionKeys.size)) await sendState(userId, chatId)
+    if (resumeAbortEpoch !== currentUserAbortEpoch(userId)) break
     for (const job of dispatchableJobs) resumptions.push(dispatchRelayJob(job, {
       replaceExisting: false,
       reparse: true,
       triggerType: 'initial',
       nativeSnapshot: snapshot,
       automaticDispatch: true,
+      userAbortEpoch: resumeAbortEpoch,
       settingsSource: 'fresh-after-coalesced-refresh',
       settingsAgeMs: Math.max(0, Date.now() - snapshot.capturedAt),
       dispatchReason: connectedCurrentSession ? 'native-settings-restored-current-session' : 'native-settings-restored-recent-small-backlog',
@@ -6019,6 +6042,23 @@ async function dispatchRelayJob(job: RouterJob, options: RunJobOptions, userId?:
     if (epoch !== currentQueueCancellationEpoch(job.chatId, userId)) return
     const now = Date.now()
     const dispatchAllowed = await mutateState(job.chatId, userId, state => {
+      const jobRecords = job.slots
+        .map(slot => state.slots[slotKey({ ...job, slot })])
+        .filter((record): record is SlotRecord => Boolean(record))
+      // Automatic work is allowed to create a newly discovered slot, but it
+      // must never reinterpret a user-cancelled record as pending work. This
+      // is the final state gate for a native-settings snapshot or other
+      // automatic continuation that began before Abort All completed.
+      if (options.automaticDispatch && !automaticDispatchIsAuthorized(userAbortEpoch, userId, jobRecords)) {
+        appendStateLog(state, {
+          severity: 'info', stage: 'provider-dispatch', eventType: 'automatic_dispatch_cancelled_suppressed', chatId: job.chatId,
+          messageId: job.messageId, swipeId: job.swipeId, requestId: job.requestId,
+          message: 'Suppressed automatic provider dispatch because the request was cancelled.',
+          details: { dispatchKeys: dispatchKeysForJob(job), cancellationEpoch: userAbortEpoch, dispatchReason: options.dispatchReason || '' },
+        })
+        updateQueueSafetySummary(state, now)
+        return false
+      }
       for (const slot of job.slots) {
         const record = state.slots[slotKey({ ...job, slot })]
         if (!record || record.status === 'completed') continue
