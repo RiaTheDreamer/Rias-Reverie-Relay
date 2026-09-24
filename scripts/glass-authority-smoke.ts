@@ -37,10 +37,11 @@ assert(mountedGlassRules.includes('.rrcp-wrap .rrcp-launch-toggle{position:absol
 assert(mountedGlassRules.includes('.dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch::after{content:none!important'), 'mounted Glass authority must remove inherited Dramatic Cutaway sheen layers')
 assert(mountedGlassRules.includes('.rr-narrative-glass-sparks i:nth-child(n+9){display:none!important}'), 'mounted Glass authority must hide historical static sparkle nodes')
 assert(mountedGlassRules.includes('.ch-og.ch-og>summary.dg-compact-launch>.ch-launch-emoji') && mountedGlassRules.includes('.dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch>.dg-unified-emoji'), 'mounted Glass authority must remove the Plot Sparks and Dramatic Cutaway launcher emoji')
-assert(mountedGlassRules.includes('.bf-particles-summary{display:none!important}') && mountedGlassRules.includes('width:2.05px!important;height:2.05px!important'), 'mounted Glass authority must replace duplicate Cutaway particles with the shared layered sparkle field')
-assert(mountedGlassRules.includes('@keyframes rrNarrativeGlassSpark') && mountedGlassRules.includes('scale(.72)') && mountedGlassRules.includes('width:1.8px!important;height:1.8px!important') && mountedGlassRules.includes('margin:6px auto!important') && mountedGlassRules.includes('border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 7%,transparent)'), 'mounted Glass authority must own compact launcher spacing, visible shared particle motion, and its quieter edge inside every shadow root')
+assert(mountedGlassRules.includes('.bf-particles-summary{display:none!important}') && mountedGlassRules.includes('width:1.35px!important;height:1.35px!important'), 'mounted Glass authority must replace duplicate Cutaway particles with the shared layered sparkle field')
+assert(mountedGlassRules.includes('@keyframes rrNarrativeGlassSpark') && mountedGlassRules.includes('scale(.8)') && mountedGlassRules.includes('width:1.1px!important;height:1.1px!important') && mountedGlassRules.includes('0 0 7px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 24%,transparent)') && mountedGlassRules.includes('margin:6px auto!important') && mountedGlassRules.includes('border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 7%,transparent)'), 'mounted Glass authority must own compact launcher spacing, fine layered sparkle motion, and its quieter edge inside every shadow root')
 const frontendSource = await (globalThis as any).Bun.file(new URL('../src/frontend.ts', import.meta.url)).text()
 assert(frontendSource.includes('ensureMountedNarrativePresentationStyle(document)') && frontendSource.includes('narrativeGlassButtonPresentationCss()'), 'existing shadow-mounted Narrative cards must receive the current Glass authority at runtime')
+assert(mountedGlassRules.includes(':host([data-reverie-narrative-surface-stack]){display:flex!important;flex-direction:column!important;gap:12px!important;margin:0 0 12px!important') && frontendSource.includes('syncNarrativeSurfaceStack(scope)') && frontendSource.includes("scope.host.toggleAttribute('data-reverie-narrative-surface-stack', onlySurfaceContent)"), 'Surface-only Lumiverse islands must own one uniform inter-launcher gap while prose-containing islands remain untouched')
 
 for (const color of ['realistic', 'primary'] as const) {
   const legacy = r45LegacyXmlSurfaceAuthorityPack('glass', color)
@@ -51,6 +52,14 @@ for (const color of ['realistic', 'primary'] as const) {
   assert(buttonBodies.length >= 40, `Glass Button/${color}: complete launcher replacements are missing`)
   assert(buttonBodies.every(script => !script.replace_string.includes(GLASS_SOURCE)), `Glass Button/${color}: launcher choice must not force Glass body color`)
   assert(buttonBodies.every(script => script.replace_string.includes('prefers-reduced-motion:reduce')), `Glass Button/${color}: reduced-motion launcher contract missing`)
+  const instagramProfile = legacy.scripts.find(script => script.name?.includes('Instagram Profile — Contained Post Viewer'))
+  const instagramStories = legacy.scripts.find(script => script.name?.includes('Instagram Stories — Three-Story Viewer'))
+  const instagramApp = legacy.scripts.find(script => script.name?.includes('Living Social Surface'))
+  for (const [name, script] of [['Instagram Profile', instagramProfile], ['Instagram Stories', instagramStories], ['Instagram App', instagramApp]] as const) {
+    assert(script, `Glass Button/${color}: ${name} source is missing`)
+    assert(script.replace_string.includes('data-reverie-glass-button="1"'), `Glass Button/${color}: ${name} launcher was left outside the shared Glass authority`)
+    assert(script.replace_string.includes('[data-reverie-glass-button] .dg-compact-launch'), `Glass Button/${color}: ${name} must apply Glass authority to nested App launchers as well as outer Surface launchers`)
+  }
 }
 
 for (const presentation of ['inline', 'plain', 'sparkling', 'glass'] as const) {
@@ -115,12 +124,13 @@ for (const script of narrativeVisual) {
 }
 const narrativeGlassLaunchers = narrativeVisual.filter(script => /class="[^"]*(?:r65-launch|ra66-launch|rrcp-launch|dg-compact-launch)\b/i.test(script.replace_string))
 assert(narrativeGlassLaunchers.length === 16, `standalone Glass launcher inventory changed: expected 16, found ${narrativeGlassLaunchers.length}`)
+assert(narrativeGlassLaunchers.every(script => script.replace_string.includes('width:1.1px!important;height:1.1px!important') && script.replace_string.includes('width:1.35px!important;height:1.35px!important') && script.replace_string.includes('0 0 7px color-mix(in srgb,var(--rr-glass-primary) 24%,transparent)')), 'the shared Glass foundation must give every launcher the same fine core-plus-glow particle language')
 for (const script of narrativeGlassLaunchers) {
   const sparkfield = /<(?:span|div)\b[^>]*class="[^"]*\brr-narrative-glass-sparks\b[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div)>/i.exec(script.replace_string)
   assert(sparkfield, `standalone Glass/${script.script_id}: Narrative launcher did not receive the shared App/UI sparkle field`)
   assert((sparkfield[1].match(/<i><\/i>/g) || []).length === 8, `standalone Glass/${script.script_id}: Narrative launcher must use only the eight shared moving micro-sparkles`)
-  assert(script.replace_string.includes('width:1.8px!important;height:1.8px!important'), `standalone Glass/${script.script_id}: Narrative particles do not retain the deliberately visible micro-sparkle sizing`)
-  assert(script.replace_string.includes('box-shadow:0 0 4px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 38%,transparent)'), `standalone Glass/${script.script_id}: Narrative particles do not retain the shared layered Glass glow`)
+  assert(script.replace_string.includes('width:1.1px!important;height:1.1px!important'), `standalone Glass/${script.script_id}: Narrative particles do not retain the refined micro-sparkle sizing`)
+  assert(script.replace_string.includes('0 0 7px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 24%,transparent)'), `standalone Glass/${script.script_id}: Narrative particles do not retain the shared layered Glass glow`)
   assert(script.replace_string.includes('display:block!important'), `standalone Glass/${script.script_id}: mobile rules may still hide Narrative micro-sparkles`)
 }
 assert(!activeNarrativeGlass.some(script => script.replace_string.includes('data-reverie-surface-presentation-contract="global"')), 'Glass Button must not use the generic runtime launcher adapter')
@@ -135,7 +145,7 @@ assert(phoneShell?.replace_string.includes('--rrcp-glass-readable-text') && phon
 assert(phoneShell?.replace_string.includes('background:color-mix(in srgb,#2563eb 74%,var(--rr-glass-deep) 26%)!important') && phoneShell.replace_string.includes('background:color-mix(in srgb,var(--rr-glass-deep) 90%,var(--lumiverse-bg-elevated,#181522) 10%)!important'), 'Character Phone Glass bubble surfaces must be opaque enough for contrast instead of the generic 8% transparent conversion')
 assert(phoneShell?.replace_string.includes('.rrcp-msg-bubble :where(p,span,b,strong,em,a,small,time){color:inherit!important;opacity:1!important}'), 'Character Phone Glass must protect nested bubble text from host or inherited color overrides')
 assert(plotSparks?.replace_string.includes('.ch-og .ch-panel') && plotSparks.replace_string.includes('data-reverie-glass-authority="narrative-glass"'), 'Plot Sparks must carry complete Glass body authority')
-assert(parallelScene?.replace_string.includes('width:1px!important;height:1px!important'), 'Parallel Scene Glass sparkles must stay restrained')
+assert(parallelScene?.replace_string.includes('width:1.1px!important;height:1.1px!important') && parallelScene?.replace_string.includes('0 0 7px color-mix(in srgb,var(--rr-glass-primary) 24%,transparent)'), 'Parallel Scene Glass sparkles must use the shared fine core-plus-glow recipe')
 assert(narrativeVisual.every(script => !script.replace_string.includes('background:linear-gradient(180deg,color-mix(in srgb,var(--rr-glass-deep) 8%')), 'Glass roots must not paint a black bar behind compact buttons')
 
 const plotVectors = ['detonation', 'heartknife', 'wrongness', 'crash-in', 'matchstrike', 'reputation-fire', 'wildcard-collision']

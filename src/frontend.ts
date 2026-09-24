@@ -2674,6 +2674,17 @@ export function setup(ctx: SpindleFrontendContext) {
   const mountedLifecycleStyles = new WeakMap<Element | ShadowRoot, HTMLStyleElement>()
   const mountedLifecycleStyleNodes = new Set<HTMLStyleElement>()
   const mountedNarrativePresentationStyles = new WeakMap<Element | ShadowRoot, HTMLStyleElement>()
+  const narrativeGlassRootSelector = '[data-reverie-narrative-glass-button]'
+
+  function syncNarrativeSurfaceStack(scope: Element | ShadowRoot): void {
+    if (!(scope instanceof ShadowRoot) || !(scope.host instanceof HTMLElement)) return
+    const directSurfaceRoots = Array.from(scope.children).filter(element => element.matches(narrativeGlassRootSelector))
+    const onlySurfaceContent = directSurfaceRoots.length > 0 && Array.from(scope.childNodes).every(node => {
+      if (node.nodeType === Node.TEXT_NODE) return !node.textContent?.trim()
+      return node instanceof HTMLStyleElement || (node instanceof HTMLElement && node.matches(narrativeGlassRootSelector))
+    })
+    scope.host.toggleAttribute('data-reverie-narrative-surface-stack', onlySurfaceContent)
+  }
 
   function ensureMountedNarrativePresentationStyle(root: ParentNode): void {
     // Completed host messages retain the CSS that was emitted at generation
@@ -2687,6 +2698,7 @@ export function setup(ctx: SpindleFrontendContext) {
       scopes.add(owner instanceof ShadowRoot ? owner : document.head)
     }
     for (const scope of scopes) {
+      syncNarrativeSurfaceStack(scope)
       const existing = mountedNarrativePresentationStyles.get(scope)
       if (existing && scope.contains(existing)) continue
       const style = document.createElement('style')

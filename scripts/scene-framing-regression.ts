@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { NARRATIVE_BLOCK_SPACING_STYLE, NARRATIVE_MEDIA_COMPATIBILITY_STYLE, renderNarrativeRegex, narrativeRegexPack, narrativeRegexScripts } from '../src/narrativeRegexAssets'
 import { DEFAULT_PROMPT_REGISTRY } from '../src/protocols'
-import { SHIPPED_SURFACE_PRESENTATION_CSS } from '../src/surfacePresentation'
+import { NARRATIVE_GLASS_BUTTON_PRESENTATION_CSS, SHIPPED_SURFACE_PRESENTATION_CSS } from '../src/surfacePresentation'
 
 const storage = new Map<string, unknown>()
 const requests: any[] = []
@@ -192,7 +192,15 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button', 'glass'] as c
       const compatibilityBase = suppliedReplacement.startsWith(NARRATIVE_BLOCK_SPACING_STYLE)
         ? suppliedReplacement.slice(NARRATIVE_BLOCK_SPACING_STYLE.length)
         : suppliedReplacement
-      const adaptedPresentationBase = compatibilityBase
+      // Glass Button has an intentional generated trailing presentation layer
+      // and one root marker. Remove only those exact generated additions before
+      // proving the supplied author-owned Surface body stayed byte-identical.
+      const suppliedBody = variant === 'glass'
+        ? compatibilityBase
+          .replace(NARRATIVE_GLASS_BUTTON_PRESENTATION_CSS, '')
+          .replace(/\sdata-reverie-narrative-glass-button="1"(?=\sclass=)/, '')
+        : compatibilityBase
+      const adaptedPresentationBase = suppliedBody
         .replace(SHIPPED_SURFACE_PRESENTATION_CSS, '')
         .replace(/ rr-surface-presentation-(?:inline|button|sparkling)/, '')
       const presentationBase = variant === 'inline'

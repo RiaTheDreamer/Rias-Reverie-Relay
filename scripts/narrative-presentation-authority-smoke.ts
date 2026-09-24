@@ -20,23 +20,23 @@ function presentationHash(scripts: NarrativeRegexScript[]): string {
 const EXPECTED: Record<NarrativeRegexVariant, { raw: string; assembled: string }> = {
   inline: {
     raw: 'fedb87a76b45236206c498243a86d160f3b53921c2382a35fc04ac1b7c9f9d77',
-    assembled: '88d8c83c84ec342b7160e47d732117fd328b6295e8b795ce4128ffde5d1c4362',
+    assembled: '7ce7ce2c7f24defe04c9c2312e28f89c73d5c904234279adfb7a461af1f21c13',
   },
   'plain-button': {
     raw: '2fc76fd965435f4d50ed2772cdc6145efe982a9bb3afc1327444e724b49d6b0e',
-    assembled: '1c66269582be5691dc00ed912225db6c02cb757f5bf802b36d8718bbff5f5fc3',
+    assembled: 'ee3de1ce1ff2d05bee22b3a3e8a7657b0c2a6476e27ff1d93a7201ce074c3a9b',
   },
   'sparkle-button': {
     raw: '866e8351a2455f9c9754135c2c114a37a73292368f6f0db867d11920796e2c6b',
-    assembled: '7c524ddd1863db5c8c949085b51c75d6705ab940ff6f31bb6e1ed1c4711f94a2',
+    assembled: '4e8a3c21a9521686aa8f1c00047f796d4617a77e0c54802c6c1080a0e4cd3e47',
   },
   glass: {
-    raw: 'd0830906511f48e3aadcc194bc2fbacd43aa5d837ef97e69120aa7732506e94b',
-    assembled: 'b5504c18efefb78925bc054a433aaa3c033fc410c063684be6fdc1ef0b10b658',
+    raw: 'e91c242f9ffd7c336562802cc5c766aafc30bf925b0cd7a380afd761fe89c6cb',
+    assembled: 'e852440da3b1a15d109ece6efa88275ed9e2c1e0826ae2a5af8e4e57c3b9e006',
   },
 }
 
-const GLASS_BODY_ASSEMBLED = 'b2d73c5c7a9cd966a29b4c38c786524487813e8dfbfe0aee7492a1d5a1a812b7'
+const GLASS_BODY_ASSEMBLED = '65c143df732843598c11a9914ffb61614245ccc39d88c07eed35435eb0b774a8'
 
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   const raw = narrativeRegexPack(variant).scripts

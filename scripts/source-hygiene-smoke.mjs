@@ -2,7 +2,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const root = path.resolve(process.argv[2] || process.cwd())
-const excluded = new Set(['.git', '.cptr', '.push-git', 'node_modules', 'artifacts', 'authority-source', 'output', 'tmp'])
+// Captured live diagnostics are intentionally untracked evidence, not source.
+// They can legitimately contain machine-local paths and must not make a clean
+// source release fail its hygiene scan.
+const excluded = new Set(['.git', '.cptr', '.push-git', 'node_modules', 'artifacts', 'authority-source', 'output', 'tmp', 'live-evidence'])
 const textExtensions = new Set(['.ts', '.mjs', '.js', '.json', '.md', '.txt', '.jsonl', '.ps1', '.buildmeta', '.gitignore'])
 const files = []
 function walk(directory) {
