@@ -973,7 +973,7 @@ export function setup(ctx: SpindleFrontendContext) {
       max-width: 100% !important;
     }
     [data-component="MessageContent"] p:has(img[alt="reverie-relay"]) {
-      --dgir-bubble-image-inner-width: calc(100% - (2 * clamp(18px, 3vw, 38px)));
+      --dgir-bubble-image-inner-width: var(--dgir-prose-bubble-inner-width, calc(100% - (2 * clamp(18px, 3vw, 38px))));
       --prose-image-max-width: var(--dgir-bubble-image-inner-width);
       --prose-image-max-height: none;
       text-align: var(--dgir-prose-image-text-align, center) !important;
@@ -1267,7 +1267,7 @@ export function setup(ctx: SpindleFrontendContext) {
       .dg-router-panel .dg-surface-grid { grid-template-columns: 1fr; }
       .dg-router-panel .dg-surface-card { grid-template-columns: 34px minmax(0, 1fr); }
       .dg-router-panel .dg-surface-card > .dg-chip { grid-column: 2; justify-self: start; }
-      [data-component="MessageContent"] p:has(img[alt="reverie-relay"]) { --dgir-bubble-image-inner-width: calc(100% - 28px); }
+      [data-component="MessageContent"] p:has(img[alt="reverie-relay"]) { --dgir-bubble-image-inner-width: var(--dgir-prose-bubble-inner-width, calc(100% - 28px)); }
       .dg-router-panel { padding: 9px; }
       .dg-router-panel .dg-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .dg-router-panel .dg-head-top { flex-direction: column; }
@@ -2736,6 +2736,7 @@ export function setup(ctx: SpindleFrontendContext) {
   const revealedFinalImageByRecord = new Map<string, string>()
   const startedPlacementVisuals = new Map<string, string>()
   const acknowledgedPlacementVisuals = new Map<string, string>()
+  const requestedProjectionInvalidations = new Map<string, number>()
 
   function revealFinalImageWhenReady(
     card: HTMLElement,
@@ -2752,20 +2753,23 @@ export function setup(ctx: SpindleFrontendContext) {
       && mediaCardUpdates.get(card) === update
       && urlMatches(image.currentSrc || image.src, expectedUrl)
 
-    const isCurrentPendingPlacement = () => {
+    const isCurrentPlacementVersion = () => {
       const current = recordByKey.get(expectedRecordKey)
       const pending = current?.pendingPlacement
+      const currentUrl = pending?.imageUrl || current?.imageUrl || ''
+      const currentImageId = pending?.imageId || current?.imageId || ''
       const visibleSwipe = activeSwipeByMessage.get(record.messageId)
       return activeChatId === record.chatId
-        && Boolean(current && current.status === 'placement-pending' && pending)
+        && Boolean(current && (current.status === 'placement-pending' || current.status === 'completed') && currentUrl)
         && current?.requestId === record.requestId
         && current?.slot === record.slot
         && current?.swipeId === record.swipeId
         && (visibleSwipe === undefined || visibleSwipe === record.swipeId)
-        && urlMatches(pending?.imageUrl || '', expectedUrl)
-        && (!record.pendingPlacement?.imageId || !pending?.imageId || record.pendingPlacement.imageId === pending.imageId)
+        && urlMatches(currentUrl, expectedUrl)
+        && (!(record.pendingPlacement?.imageId || record.imageId) || !currentImageId || (record.pendingPlacement?.imageId || record.imageId) === currentImageId)
     }
-    const visualVersionKey = JSON.stringify([record.chatId, record.messageId, record.swipeId, expectedRecordKey, expectedUrl, record.pendingPlacement?.imageId || ''])
+    const visualImageId = record.pendingPlacement?.imageId || record.imageId
+    const visualVersionKey = JSON.stringify([record.chatId, record.messageId, record.swipeId, expectedRecordKey, expectedUrl, visualImageId || ''])
     const visualMessage = {
       chatId: record.chatId,
       messageId: record.messageId,
@@ -2774,10 +2778,10 @@ export function setup(ctx: SpindleFrontendContext) {
       requestId: record.requestId,
       slot: record.slot,
       imageUrl: expectedUrl,
-      imageId: record.pendingPlacement?.imageId,
+      imageId: visualImageId,
       sessionId: frontendSessionId,
     }
-    const visualLifecycleTracked = isCurrentPendingPlacement()
+    const visualLifecycleTracked = isCurrentPlacementVersion()
     if (visualLifecycleTracked) {
       beginPlacementVisualHeartbeat(visualVersionKey)
       if (!startedPlacementVisuals.has(visualVersionKey)) {
@@ -2789,7 +2793,7 @@ export function setup(ctx: SpindleFrontendContext) {
       if (!isCurrentFinalImage()) return
       update.revealedImageUrl = expectedUrl
       rememberBoundedMap(revealedFinalImageByRecord, expectedRecordKey, expectedUrl, C5B_CACHE_LIMITS.messageSnapshots)
-      if (!isCurrentPendingPlacement()) return
+      if (!isCurrentPlacementVersion()) return
       if (acknowledgedPlacementVisuals.has(visualVersionKey)) return
       rememberBoundedMap(acknowledgedPlacementVisuals, visualVersionKey, expectedUrl, C5B_CACHE_LIMITS.messageSnapshots)
       ctx.sendToBackend({ type: 'placement_visual_settled', ...visualMessage })
@@ -2801,7 +2805,7 @@ export function setup(ctx: SpindleFrontendContext) {
       onSettled,
     }).then(outcome => {
       if (visualLifecycleTracked) finishPlacementVisualHeartbeat(visualVersionKey)
-      if ((outcome === 'failed' || outcome === 'stale') && isCurrentFinalImage() && isCurrentPendingPlacement()) {
+      if ((outcome === 'failed' || outcome === 'stale') && isCurrentFinalImage() && isCurrentPlacementVersion()) {
         ctx.sendToBackend({
           type: 'placement_visual_unavailable',
           ...visualMessage,
@@ -2955,6 +2959,19 @@ export function setup(ctx: SpindleFrontendContext) {
       // persistence transaction commits. Hydrate that preserved asset directly
       // into the mounted slot so sibling completions never require a host remount.
       const visualImageUrl = record.pendingPlacement?.imageUrl || record.imageUrl
+      if (visualImageUrl && requestCards.length === 0) {
+        const versionKey = JSON.stringify([record.key, visualImageUrl, record.pendingPlacement?.imageId || record.imageId || ''])
+        const alreadyMounted = deepQueryAll<HTMLImageElement>(root as ParentNode, 'img')
+          .some(image => urlMatches(image.currentSrc || image.src, visualImageUrl))
+        if (!alreadyMounted && !requestedProjectionInvalidations.has(versionKey)) {
+          rememberBoundedMap(requestedProjectionInvalidations, versionKey, Date.now(), C5B_CACHE_LIMITS.messageSnapshots)
+          // A state update cannot hydrate a card that the host no longer has
+          // mounted. Invalidate this message only; the hot render snapshot now
+          // contains the exact completed asset, so the next paint materializes
+          // it without a page reload or a document-wide Surface remount.
+          ctx.display?.invalidate([record.messageId])
+        }
+      }
       const lastActivityAt = Math.max(record.updatedAt || record.createdAt || now, stream?.updatedAt || 0)
       const stalled = stallEligible && now - lastActivityAt > 90_000
       const needsPlacementRepair = record.status === 'placement-repair-needed'
@@ -3239,6 +3256,9 @@ export function setup(ctx: SpindleFrontendContext) {
     document.documentElement.style.setProperty('--dgir-prose-image-margin-left', marginLeft)
     document.documentElement.style.setProperty('--dgir-prose-image-margin-right', marginRight)
     document.documentElement.style.setProperty('--dgir-prose-image-text-align', textAlign)
+    document.documentElement.dataset.dgirProseImageSize = imageSize
+    if (imageSize === 'full') document.documentElement.style.setProperty('--dgir-prose-bubble-inner-width', '100%')
+    else document.documentElement.style.removeProperty('--dgir-prose-bubble-inner-width')
   }
 
   function renderQuickStartOverview(onFinish?: () => void): HTMLElement {

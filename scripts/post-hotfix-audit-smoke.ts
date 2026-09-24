@@ -126,5 +126,5 @@ for (const owner of ['dg-dramatic-media', 'r65-media', 'rv6-media', 'ru-media', 
   assert(narrative.includes(`.${owner}>.rrl-island`), `${owner}: lifecycle reservation visibility selector missing`)
 }
 
-assert.equal(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version, '0.2.8.7', 'audit follow-up version is not the authorized release')
+assert.equal(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version, '0.2.8.7.1', 'audit follow-up version is not the authorized release')
 console.log('Post-hotfix audit smoke passed: global abort ordering, complete provider origins, gallery-only durable retry, and reservation visibility are enforced.')

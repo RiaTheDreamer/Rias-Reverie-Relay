@@ -4381,8 +4381,8 @@ function summarizeRelayHealth(checks) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.7";
-var BUILD_ID = "20260923-0.2.8.7";
+var EXTENSION_VERSION = "0.2.8.7.1";
+var BUILD_ID = "20260924-0.2.8.7.1";
 
 // src/orbIconData.ts
 var ORB_IMAGE_DESIGNS = [
@@ -250674,7 +250674,7 @@ function setup(ctx) {
       max-width: 100% !important;
     }
     [data-component="MessageContent"] p:has(img[alt="reverie-relay"]) {
-      --dgir-bubble-image-inner-width: calc(100% - (2 * clamp(18px, 3vw, 38px)));
+      --dgir-bubble-image-inner-width: var(--dgir-prose-bubble-inner-width, calc(100% - (2 * clamp(18px, 3vw, 38px))));
       --prose-image-max-width: var(--dgir-bubble-image-inner-width);
       --prose-image-max-height: none;
       text-align: var(--dgir-prose-image-text-align, center) !important;
@@ -250968,7 +250968,7 @@ function setup(ctx) {
       .dg-router-panel .dg-surface-grid { grid-template-columns: 1fr; }
       .dg-router-panel .dg-surface-card { grid-template-columns: 34px minmax(0, 1fr); }
       .dg-router-panel .dg-surface-card > .dg-chip { grid-column: 2; justify-self: start; }
-      [data-component="MessageContent"] p:has(img[alt="reverie-relay"]) { --dgir-bubble-image-inner-width: calc(100% - 28px); }
+      [data-component="MessageContent"] p:has(img[alt="reverie-relay"]) { --dgir-bubble-image-inner-width: var(--dgir-prose-bubble-inner-width, calc(100% - 28px)); }
       .dg-router-panel { padding: 9px; }
       .dg-router-panel .dg-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .dg-router-panel .dg-head-top { flex-direction: column; }
@@ -252458,16 +252458,20 @@ ${message.prompt}`;
   const revealedFinalImageByRecord = new Map;
   const startedPlacementVisuals = new Map;
   const acknowledgedPlacementVisuals = new Map;
+  const requestedProjectionInvalidations = new Map;
   function revealFinalImageWhenReady(card, image, expectedUrl, record, update) {
     const expectedRecordKey = record.key;
     const isCurrentFinalImage = () => card.isConnected && image.isConnected && card.contains(image) && card.dataset.rrnRecordKey === expectedRecordKey && mediaCardUpdates.get(card) === update && urlMatches(image.currentSrc || image.src, expectedUrl);
-    const isCurrentPendingPlacement = () => {
+    const isCurrentPlacementVersion = () => {
       const current = recordByKey.get(expectedRecordKey);
       const pending = current?.pendingPlacement;
+      const currentUrl = pending?.imageUrl || current?.imageUrl || "";
+      const currentImageId = pending?.imageId || current?.imageId || "";
       const visibleSwipe = activeSwipeByMessage.get(record.messageId);
-      return activeChatId === record.chatId && Boolean(current && current.status === "placement-pending" && pending) && current?.requestId === record.requestId && current?.slot === record.slot && current?.swipeId === record.swipeId && (visibleSwipe === undefined || visibleSwipe === record.swipeId) && urlMatches(pending?.imageUrl || "", expectedUrl) && (!record.pendingPlacement?.imageId || !pending?.imageId || record.pendingPlacement.imageId === pending.imageId);
+      return activeChatId === record.chatId && Boolean(current && (current.status === "placement-pending" || current.status === "completed") && currentUrl) && current?.requestId === record.requestId && current?.slot === record.slot && current?.swipeId === record.swipeId && (visibleSwipe === undefined || visibleSwipe === record.swipeId) && urlMatches(currentUrl, expectedUrl) && (!(record.pendingPlacement?.imageId || record.imageId) || !currentImageId || (record.pendingPlacement?.imageId || record.imageId) === currentImageId);
     };
-    const visualVersionKey = JSON.stringify([record.chatId, record.messageId, record.swipeId, expectedRecordKey, expectedUrl, record.pendingPlacement?.imageId || ""]);
+    const visualImageId = record.pendingPlacement?.imageId || record.imageId;
+    const visualVersionKey = JSON.stringify([record.chatId, record.messageId, record.swipeId, expectedRecordKey, expectedUrl, visualImageId || ""]);
     const visualMessage = {
       chatId: record.chatId,
       messageId: record.messageId,
@@ -252476,10 +252480,10 @@ ${message.prompt}`;
       requestId: record.requestId,
       slot: record.slot,
       imageUrl: expectedUrl,
-      imageId: record.pendingPlacement?.imageId,
+      imageId: visualImageId,
       sessionId: frontendSessionId
     };
-    const visualLifecycleTracked = isCurrentPendingPlacement();
+    const visualLifecycleTracked = isCurrentPlacementVersion();
     if (visualLifecycleTracked) {
       beginPlacementVisualHeartbeat(visualVersionKey);
       if (!startedPlacementVisuals.has(visualVersionKey)) {
@@ -252492,7 +252496,7 @@ ${message.prompt}`;
         return;
       update.revealedImageUrl = expectedUrl;
       rememberBoundedMap(revealedFinalImageByRecord, expectedRecordKey, expectedUrl, C5B_CACHE_LIMITS.messageSnapshots);
-      if (!isCurrentPendingPlacement())
+      if (!isCurrentPlacementVersion())
         return;
       if (acknowledgedPlacementVisuals.has(visualVersionKey))
         return;
@@ -252507,7 +252511,7 @@ ${message.prompt}`;
     }).then((outcome) => {
       if (visualLifecycleTracked)
         finishPlacementVisualHeartbeat(visualVersionKey);
-      if ((outcome === "failed" || outcome === "stale") && isCurrentFinalImage() && isCurrentPendingPlacement()) {
+      if ((outcome === "failed" || outcome === "stale") && isCurrentFinalImage() && isCurrentPlacementVersion()) {
         ctx.sendToBackend({
           type: "placement_visual_unavailable",
           ...visualMessage,
@@ -252675,6 +252679,14 @@ ${message.prompt}`;
       const stallEligible = ["preparing", "parsing", "generating", "previewing", "placement-pending"].includes(record.status);
       const stream = streamPreviews.get(record.key);
       const visualImageUrl = record.pendingPlacement?.imageUrl || record.imageUrl;
+      if (visualImageUrl && requestCards.length === 0) {
+        const versionKey = JSON.stringify([record.key, visualImageUrl, record.pendingPlacement?.imageId || record.imageId || ""]);
+        const alreadyMounted = deepQueryAll(root, "img").some((image) => urlMatches(image.currentSrc || image.src, visualImageUrl));
+        if (!alreadyMounted && !requestedProjectionInvalidations.has(versionKey)) {
+          rememberBoundedMap(requestedProjectionInvalidations, versionKey, Date.now(), C5B_CACHE_LIMITS.messageSnapshots);
+          ctx.display?.invalidate([record.messageId]);
+        }
+      }
       const lastActivityAt = Math.max(record.updatedAt || record.createdAt || now, stream?.updatedAt || 0);
       const stalled = stallEligible && now - lastActivityAt > 90000;
       const needsPlacementRepair = record.status === "placement-repair-needed";
@@ -252954,6 +252966,11 @@ ${message.prompt}`;
     document.documentElement.style.setProperty("--dgir-prose-image-margin-left", marginLeft);
     document.documentElement.style.setProperty("--dgir-prose-image-margin-right", marginRight);
     document.documentElement.style.setProperty("--dgir-prose-image-text-align", textAlign);
+    document.documentElement.dataset.dgirProseImageSize = imageSize;
+    if (imageSize === "full")
+      document.documentElement.style.setProperty("--dgir-prose-bubble-inner-width", "100%");
+    else
+      document.documentElement.style.removeProperty("--dgir-prose-bubble-inner-width");
   }
   function renderQuickStartOverview(onFinish) {
     const sections = [

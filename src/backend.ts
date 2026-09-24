@@ -908,6 +908,11 @@ export type ProviderAttemptDiagnostic = {
   laneResetCount: number
   lastLaneResetAt?: number
   destinationAvailable: boolean
+  frontendSessionIdAtRequest: string | null
+  frontendSessionId: string | null
+  frontendSessionChatId: string | null
+  frontendSessionLastSeenAt: number
+  frontendSessionIdAtFinalization?: string | null
   createdAt: number
   providerLaneAcquireRequestedAt: number
   providerLaneAcquiredAt: number
@@ -921,6 +926,12 @@ export type ProviderAttemptDiagnostic = {
   providerPayloadReceivedAt: number
   providerInvocationResolvedAt: number
   providerInvocationRejectedAt: number
+  providerSubscriptionRegisteredAt: number
+  providerSubscriptionTeardownStartedAt: number
+  providerSubscriptionTeardownCompletedAt: number
+  activeProviderSubscriptionsAfterTeardown: number
+  invocationFinalizationStartedAt: number
+  invocationFinalizationCompletedAt: number
   abortRequestedAt: number
   abortPropagatedAt: number
   providerLaneReleasedAt: number
@@ -1108,6 +1119,7 @@ type UserAbortRuntime = { epoch: number; aborting: boolean; lastAbortAllAt?: num
 const userAbortRuntime = new Map<string, UserAbortRuntime>()
 const providerImageResultClaims = new Map<string, { generationId: string; claimedAt: number }>()
 const providerAttemptDiagnostics = new Map<string, ProviderAttemptDiagnostic>()
+const activeProviderSubscriptions = new Set<string>()
 type ChatDestinationDiagnostic = {
   chatId: string
   userId: string
@@ -8610,6 +8622,13 @@ function hasConnectedFrontendForChat(chatId: string, userId?: string): boolean {
   return [...nativeSettingsBroker(userId).frontendSessions.values()].some(session => session.connected && session.chatId === chatId)
 }
 
+function latestFrontendSessionForChat(chatId: string | undefined, userId?: string): { sessionId: string; chatId: string | null; lastSeenAt: number } | null {
+  if (!chatId) return null
+  return [...nativeSettingsBroker(userId).frontendSessions.values()]
+    .filter(session => session.connected && session.chatId === chatId)
+    .sort((left, right) => right.lastSeenAt - left.lastSeenAt)[0] || null
+}
+
 function visualSettlementsForResults(job: RouterJob, results: SlotGenerationResult[], required: boolean): InitialPlacementVisualSettlement[] {
   return results.map(result => ({
     key: slotKey({ ...job, slot: result.slot }),
@@ -15637,6 +15656,7 @@ export async function generateWithOptionalStream(
   timeoutMs: number | undefined = IMAGE_GENERATION_TIMEOUT_MS,
 ): Promise<any> {
   const controller = new AbortController()
+  const frontendSession = latestFrontendSessionForChat(context.chatId, userId)
   const diagnostic = rememberProviderAttempt({
     generationId: context.generationId,
     chatId: context.chatId || null,
@@ -15660,6 +15680,10 @@ export async function generateWithOptionalStream(
     laneResetCount: providerLaneResetDiagnostics.get(imageGenerationLaneKey(userId))?.laneResetCount || 0,
     lastLaneResetAt: providerLaneResetDiagnostics.get(imageGenerationLaneKey(userId))?.lastLaneResetAt,
     destinationAvailable: destinationAvailable(context, userId),
+    frontendSessionIdAtRequest: frontendSession?.sessionId || null,
+    frontendSessionId: frontendSession?.sessionId || null,
+    frontendSessionChatId: frontendSession?.chatId || null,
+    frontendSessionLastSeenAt: frontendSession?.lastSeenAt || 0,
     createdAt: Date.now(),
     providerLaneAcquireRequestedAt: 0,
     providerLaneAcquiredAt: 0,
@@ -15672,6 +15696,12 @@ export async function generateWithOptionalStream(
     providerPayloadReceivedAt: 0,
     providerInvocationResolvedAt: 0,
     providerInvocationRejectedAt: 0,
+    providerSubscriptionRegisteredAt: 0,
+    providerSubscriptionTeardownStartedAt: 0,
+    providerSubscriptionTeardownCompletedAt: 0,
+    activeProviderSubscriptionsAfterTeardown: 0,
+    invocationFinalizationStartedAt: 0,
+    invocationFinalizationCompletedAt: 0,
     abortRequestedAt: 0,
     abortPropagatedAt: 0,
     providerLaneReleasedAt: 0,
@@ -15709,6 +15739,10 @@ export async function generateWithOptionalStream(
     // before this attempt is permitted to spend provider capacity.
     diagnostic.destinationAvailable = await revalidateChatDestination(context.chatId, userId)
     if (!diagnostic.destinationAvailable) throw new ImageGenerationDestinationUnavailableError(context.chatId)
+    const providerStartSession = latestFrontendSessionForChat(context.chatId, userId)
+    diagnostic.frontendSessionId = providerStartSession?.sessionId || null
+    diagnostic.frontendSessionChatId = providerStartSession?.chatId || null
+    diagnostic.frontendSessionLastSeenAt = providerStartSession?.lastSeenAt || 0
 
     const standardInput = { ...finalRequest, userId }
     const streamInput = { ...standardInput, signal: controller.signal }
@@ -15733,16 +15767,10 @@ export async function generateWithOptionalStream(
     }
     const settleProviderLifecycleReporting = async (): Promise<void> => {
       if (!providerLifecycleReporting) return
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const boundedWait = new Promise<void>(resolve => {
-        timer = setTimeout(resolve, 250)
-        ;(timer as any).unref?.()
-      })
-      await Promise.race([providerLifecycleReporting, boundedWait])
-      if (timer) clearTimeout(timer)
+      await providerLifecycleReporting
     }
-    const reportProviderCompleted = (): void => {
-      Promise.resolve(context.onProviderCompleted?.(Date.now())).catch(error => {
+    const reportProviderCompleted = async (): Promise<void> => {
+      await Promise.resolve(context.onProviderCompleted?.(Date.now())).catch(error => {
         spindle.log.warn(`[ReverieRelay:provider_completion_reporting_failure] ${context.generationId}: ${error instanceof Error ? error.message : String(error)}`)
         if (handleChatBoundAsyncError('provider_completion_reporting', context.chatId, userId, error)) diagnostic.destinationAvailable = false
       })
@@ -15788,7 +15816,7 @@ export async function generateWithOptionalStream(
         diagnostic.providerInvocationResolvedAt ||= completedAt
         await settleProviderLifecycleReporting()
         assertDestinationAvailable()
-        reportProviderCompleted()
+        await reportProviderCompleted()
         return result
       } catch (error) {
         diagnostic.providerInvocationRejectedAt ||= Date.now()
@@ -15814,7 +15842,7 @@ export async function generateWithOptionalStream(
         : canStream
           ? 'documented-provider-capability'
           : 'no-proven-stream-contract'
-    spindle.log.info(`[ReverieRelay:image_transport] ${JSON.stringify({ provider: diagnostic.provider, transport: diagnostic.providerTransport, streamingAllowed: canStream, reason: transportReason, generationId: context.generationId, requestId: context.requestId || null })}`)
+    spindle.log.info(`[ReverieRelay:image_transport] ${JSON.stringify({ provider: diagnostic.provider, transport: diagnostic.providerTransport, streamingAllowed: canStream, reason: transportReason, generationId: context.generationId, chatId: context.chatId || null, requestId: context.requestId || null, frontendSessionIdAtRequest: diagnostic.frontendSessionIdAtRequest, frontendSessionIdAtProviderStart: diagnostic.frontendSessionId })}`)
     sendImageStreamEvent(userId, context, { event: 'started', streaming: canStream, statusText: canStream ? 'Connecting to live preview…' : 'Starting generation…' })
     assertDestinationAvailable()
 
@@ -15846,7 +15874,14 @@ export async function generateWithOptionalStream(
         throw error
       }
       providerOperation = (async () => {
-        for await (const rawEvent of stream) {
+        const iterator = stream[Symbol.asyncIterator]()
+        activeProviderSubscriptions.add(context.generationId)
+        diagnostic.providerSubscriptionRegisteredAt ||= Date.now()
+        try {
+          while (true) {
+            const next = await iterator.next()
+            if (next.done) break
+            const rawEvent = next.value
           if (controller.signal.aborted) throw abortError()
           const normalizedEvent = normalizeImageGenerationStreamEvent(rawEvent)
           if (!normalizedEvent) continue
@@ -15893,6 +15928,21 @@ export async function generateWithOptionalStream(
                 nodeId,
               })
             }
+            // A terminal payload completes Relay's ownership of this stream.
+            // Stop iteration explicitly so AsyncIterator.return() tears down the
+            // host listener/session subscription before the serialized lane can
+            // be granted to the next request or chat.
+            break
+          }
+        }
+        } finally {
+          diagnostic.providerSubscriptionTeardownStartedAt ||= Date.now()
+          try {
+            await iterator.return?.()
+          } finally {
+            activeProviderSubscriptions.delete(context.generationId)
+            diagnostic.providerSubscriptionTeardownCompletedAt ||= Date.now()
+            diagnostic.activeProviderSubscriptionsAfterTeardown = activeProviderSubscriptions.has(context.generationId) ? 1 : 0
           }
         }
       })()
@@ -15912,7 +15962,7 @@ export async function generateWithOptionalStream(
     await settleProviderLifecycleReporting()
     assertDestinationAvailable()
     diagnostic.providerInvocationResolvedAt ||= Date.now()
-    reportProviderCompleted()
+    await reportProviderCompleted()
     sendImageStreamEvent(userId, context, { event: 'done', streaming: canStream, statusText: 'Generation complete.' })
     assertDestinationAvailable()
     resolveTerminal('success')
@@ -15951,13 +16001,16 @@ export async function generateWithOptionalStream(
     sendImageStreamEvent(userId, context, { event: 'error', streaming: false, statusText: 'Generation failed.', error: message })
     throw error
   } finally {
+    diagnostic.invocationFinalizationStartedAt ||= Date.now()
+    diagnostic.frontendSessionIdAtFinalization = latestFrontendSessionForChat(context.chatId, userId)?.sessionId || null
     context.attemptSignal?.removeEventListener('abort', abortFromAttempt)
-    laneLease?.release()
     releaseImageStream(context, controller)
     controller.signal.removeEventListener('abort', recordAbort)
     diagnostic.cleanupCount += 1
     diagnostic.completedAt = diagnostic.completedAt || Date.now()
     if (!diagnostic.terminalState) resolveTerminal(diagnostic.providerDispatchCount ? 'error' : 'preflight-error')
+    diagnostic.invocationFinalizationCompletedAt ||= Date.now()
+    laneLease?.release()
     const laneState = inspectImageGenerationLaneDiagnostics(userId)
     diagnostic.providerLaneStateSnapshot = laneState ? {
       active: laneState.active,
