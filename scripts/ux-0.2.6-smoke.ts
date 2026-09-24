@@ -13,8 +13,8 @@ const imageStreaming = read('src/imageStreaming.ts')
 const pkg = JSON.parse(read('package.json'))
 const manifest = JSON.parse(read('spindle.json'))
 
-equal(pkg.version, '0.2.8.7.17')
-equal(manifest.version, '0.2.8.7.17')
+equal(pkg.version, '0.2.8.7.18')
+equal(manifest.version, '0.2.8.7.18')
 equal(pkg.version, manifest.version, 'package and manifest versions must match')
 assert(manifest.interceptorTimeoutMs >= 30_000, 'Relay prompt assembly needs an explicit host interceptor budget')
 equal(manifest.identifier, 'reverie_relay', 'public extension identifier')
@@ -94,8 +94,7 @@ assert(backend.includes("handler: ((ctx: any) => resolvedRelayMacroValue"), 'Rel
 assert(!backend.includes("handler: (() => macro.marker)"), 'Relay macros may not expose internal marker XML')
 assert(backend.includes("const cached = read('chat', name)") && !backend.includes("buildEnabledSurfaceUtility(defaultCustomSurfaceStudio(), 'macro')"), 'missing chat macro cache must not inject all-enabled defaults or borrow another chat')
 assert(backend.includes("reverie_surfaces: '<reverie_surfaces_macro/>'") && backend.includes('await syncEnabledSurfaceMacro(chatId, state, config, userId)'), 'macro cache fallback must remain chat-resolved and toggles must synchronize before state broadcast')
-assert(backend.includes("/<reverie_surface_utility\\b/i.test(content)"), 'resolved macro content must suppress duplicate automatic Surface injection')
-assert(backend.includes('reconcileRelayOwnedNarrativeWrappers'), 'resolved Narrative macros must reconcile current configuration before suppressing automatic injection')
+assert(backend.includes('reconcileRelayOwnedPromptWrappers') && backend.includes("'surface'") && backend.includes("'narrative'"), 'all Relay-owned Surface contracts must reconcile current configuration before suppressing automatic injection')
 for (const name of ['reverie_surfaces', 'reverie_illustrator', 'reverie_narrative', 'reverie_all']) {
   assert(backend.includes(`${name}:`), `${name} is not synchronized`)
 }

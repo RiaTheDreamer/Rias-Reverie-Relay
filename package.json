@@ -1,6 +1,6 @@
 {
   "name": "reverie-relay",
-  "version": "0.2.8.7.17",
+  "version": "0.2.8.7.18",
   "type": "module",
   "scripts": {
     "build": "bun scripts/generate-brand-icon-data.mjs && bun build src/backend.ts --outfile dist/backend.js --target bun && bun build src/frontend.ts --outfile dist/frontend.js --target browser",
@@ -22,6 +22,7 @@
     "smoke:contracts": "bun scripts/action-contract-smoke.mjs",
     "smoke:narrative": "bun scripts/r46-narrative-dlc-runtime-smoke.ts",
     "smoke:narrative-stale-wrapper": "bun scripts/narrative-stale-wrapper-regression-smoke.ts",
+    "smoke:surface-prompt-authority": "bun scripts/surface-prompt-authority-regression-smoke.ts",
     "smoke:narrative-authority": "bun scripts/narrative-presentation-authority-smoke.ts",
     "smoke:glass": "bun scripts/glass-authority-smoke.ts",
     "smoke:narrative-brackets": "bun scripts/narrative-bracket-migration-smoke.ts",
@@ -36,7 +37,7 @@
     "smoke:appearance": "bun scripts/appearance-canonicalization-smoke.ts",
     "smoke:appearance-sidecar-routing": "bun scripts/appearance-sidecar-routing-smoke.ts",
     "smoke:hygiene": "bun scripts/source-hygiene-smoke.mjs",
-    "test": "bun run typecheck && bun run build && bun run smoke:dist && bun run smoke:frontend-boot && bun run smoke && bun run smoke:vault && bun run smoke:native && bun run smoke:r45-ownership && bun run smoke:core-bracket-matchers && bun run smoke:bracket-only && bun run smoke:serialized && bun run smoke:cross-chat-lifecycle && bun run smoke:post-02871-hotfix && bun run smoke:image-size-restore && bun run smoke:pre-glass-parity && bun run smoke:slot-actions && bun run smoke:contracts && bun run smoke:narrative-authority && bun run smoke:glass && bun run smoke:narrative-brackets && bun run smoke:elsewhere-parallel && bun run smoke:narrative && bun run smoke:narrative-stale-wrapper && bun run smoke:lorebook && bun run smoke:ux && bun run smoke:streaming && bun run smoke:placeholder && bun run smoke:live-regressions && bun run smoke:persona-pov && bun run smoke:character-phone && bun run smoke:appearance && bun run smoke:appearance-sidecar-routing && bun run smoke:runtime-contract && bun run smoke:swarm-generation && bun run smoke:post-hotfix-audit && bun run smoke:prompt-composition && bun run smoke:phase1 && bun run smoke:progressive-placement && bun run smoke:phase2 && bun run smoke:phase3 && bun run smoke:visual-settlement && bun run smoke:phase4 && bun run smoke:phase5 && bun run smoke:phase6 && bun run smoke:message-edit && bun run smoke:story-history && bun run smoke:main-cleanup && bun run smoke:surface-prompt-budget && bun run smoke:surface-identity && bun run smoke:novelai-streaming && bun run smoke:release && bun run smoke:hygiene",
+    "test": "bun run typecheck && bun run build && bun run smoke:dist && bun run smoke:frontend-boot && bun run smoke && bun run smoke:vault && bun run smoke:native && bun run smoke:r45-ownership && bun run smoke:core-bracket-matchers && bun run smoke:bracket-only && bun run smoke:serialized && bun run smoke:cross-chat-lifecycle && bun run smoke:post-02871-hotfix && bun run smoke:image-size-restore && bun run smoke:pre-glass-parity && bun run smoke:slot-actions && bun run smoke:contracts && bun run smoke:narrative-authority && bun run smoke:glass && bun run smoke:narrative-brackets && bun run smoke:elsewhere-parallel && bun run smoke:narrative && bun run smoke:narrative-stale-wrapper && bun run smoke:surface-prompt-authority && bun run smoke:lorebook && bun run smoke:ux && bun run smoke:streaming && bun run smoke:placeholder && bun run smoke:live-regressions && bun run smoke:persona-pov && bun run smoke:character-phone && bun run smoke:appearance && bun run smoke:appearance-sidecar-routing && bun run smoke:runtime-contract && bun run smoke:swarm-generation && bun run smoke:post-hotfix-audit && bun run smoke:prompt-composition && bun run smoke:phase1 && bun run smoke:progressive-placement && bun run smoke:phase2 && bun run smoke:phase3 && bun run smoke:visual-settlement && bun run smoke:phase4 && bun run smoke:phase5 && bun run smoke:phase6 && bun run smoke:message-edit && bun run smoke:story-history && bun run smoke:main-cleanup && bun run smoke:surface-prompt-budget && bun run smoke:surface-identity && bun run smoke:novelai-streaming && bun run smoke:release && bun run smoke:hygiene",
     "test:public": "bun run test",
     "smoke:main-cleanup": "bun scripts/main-cleanup-smoke.ts",
     "smoke:surface-prompt-budget": "bun scripts/surface-prompt-budget-smoke.ts && bun scripts/app-surface-authoring-regression-smoke.ts",

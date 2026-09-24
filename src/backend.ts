@@ -2629,6 +2629,12 @@ export function buildEnabledSurfaceUtility(studio: CustomSurfaceStudioState, sou
 
   const enabled = selectedSurfaceDefinitions(studio)
   const moduleIds = enabled.map(definition => definition.baseSurfaceId)
+  if (!moduleIds.length) {
+    const empty = { content: '', moduleIds }
+    surfaceUtilityCache.set(cacheKey, empty)
+    trimSurfaceUtilityCache()
+    return empty
+  }
   const rootRegistry = enabled.map(definition => `[${definition.canonicalOuterWrapper}]`).join(' ')
   const modules = enabled.map(definition => canonicalSurfacePromptModule(definition))
     .filter(Boolean)
@@ -3046,22 +3052,26 @@ function dedupeExactPromptContractCopies(messages: LlmMessage[], blocks: string[
   })
 }
 
-// This deliberately recognizes the complete Relay-owned bracket contract rather
-// than any user-authored mention of Narrative Utilities.  Expanded macro values
-// survive in host prompt history, so their payload is a cache of a prior config,
-// never an authority over the current config.
-function relayOwnedNarrativeWrapperPattern(): RegExp {
+// Expanded Relay contracts survive in host prompt history. They are cached
+// output from an earlier configuration, never authority over the current one.
+// Keep these ownership boundaries narrow so ordinary user markup is untouched.
+type RelayOwnedPromptWrapperKind = 'surface' | 'narrative'
+
+function relayOwnedPromptWrapperPattern(kind: RelayOwnedPromptWrapperKind): RegExp {
+  if (kind === 'surface') {
+    return /<reverie_surface_utility\b(?=[^>]*\bsource\s*=\s*(?:"(?:macro|automatic)"|'(?:macro|automatic)'))(?=[^>]*\brenderer\s*=\s*(?:"[^"]*"|'[^']*'))(?=[^>]*\bcontract\s*=\s*(?:"shared"|'shared'))(?=[^>]*\bmodules\s*=\s*(?:"[^"]*"|'[^']*'))[^>]*>[\s\S]*?<\/reverie_surface_utility>/gi
+  }
   return /\[reverie_narrative_utility\]\s*\[contract\]narrative\[\/contract\]\s*\[version\][^\[]*\[\/version\]\s*\[utilities\][\s\S]*?\[\/utilities\][\s\S]*?\[\/reverie_narrative_utility\]/gi
 }
 
-function countRelayOwnedNarrativeWrappers(messages: LlmMessage[]): number {
+function countRelayOwnedPromptWrappers(messages: LlmMessage[], kind: RelayOwnedPromptWrapperKind): number {
   return messages.reduce((count, message) => {
     const content = typeof message.content === 'string' ? message.content : ''
-    return count + (content.match(relayOwnedNarrativeWrapperPattern()) || []).length
+    return count + (content.match(relayOwnedPromptWrapperPattern(kind)) || []).length
   }, 0)
 }
 
-type NarrativeWrapperReconciliation = {
+type PromptWrapperReconciliation = {
   messages: LlmMessage[]
   detected: number
   replaced: number
@@ -3069,13 +3079,17 @@ type NarrativeWrapperReconciliation = {
   finalCount: number
 }
 
-function reconcileRelayOwnedNarrativeWrappers(messages: LlmMessage[], desiredContent: string): NarrativeWrapperReconciliation {
+function reconcileRelayOwnedPromptWrappers(
+  messages: LlmMessage[],
+  kind: RelayOwnedPromptWrapperKind,
+  desiredContent: string,
+): PromptWrapperReconciliation {
   let detected = 0
   let replaced = 0
   let removed = 0
   const reconciled = messages.map(message => {
     if (typeof message.content !== 'string') return message
-    const content = message.content.replace(relayOwnedNarrativeWrapperPattern(), () => {
+    const content = message.content.replace(relayOwnedPromptWrapperPattern(kind), () => {
       detected += 1
       // Keep the first existing owned wrapper exactly where the user placed its
       // macro. Every additional owned wrapper is stale duplication.
@@ -3093,15 +3107,15 @@ function reconcileRelayOwnedNarrativeWrappers(messages: LlmMessage[], desiredCon
     detected,
     replaced,
     removed,
-    finalCount: countRelayOwnedNarrativeWrappers(reconciled),
+    finalCount: countRelayOwnedPromptWrappers(reconciled, kind),
   }
 }
 
 function dedupePromptContractWrappers(messages: LlmMessage[]): LlmMessage[] {
   const seen = new Set<string>()
   const wrappers = [
-    { tag: 'reverie_surface_utility', pattern: /<reverie_surface_utility\b[^>]*>[\s\S]*?<\/reverie_surface_utility>/gi },
-    { tag: 'reverie_narrative_utility', pattern: relayOwnedNarrativeWrapperPattern() },
+    { tag: 'reverie_surface_utility', pattern: relayOwnedPromptWrapperPattern('surface') },
+    { tag: 'reverie_narrative_utility', pattern: relayOwnedPromptWrapperPattern('narrative') },
   ] as const
   return messages.map(message => {
     if (typeof message.content !== 'string') return message
@@ -3176,10 +3190,8 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
         let content = cleanString((message as any)?.content)
         if (!content) return message
         // Current Lumiverse resolves Relay macros before this interceptor. The
-        // Surface/Illustrator payloads can suppress their automatic companions;
-        // Relay-owned Narrative wrappers are reconciled against current config
-        // below before they receive that privilege.
-        if (/<reverie_surface_utility\b/i.test(content)) surfaceMacroExpanded = true
+        // Relay-owned Core/App/UI and Narrative wrappers are reconciled against
+        // current config below before either suppresses automatic composition.
         if (/<reverie_illustrator_runtime\b|\[?REVERIE RELAY\s+[—-]\s+(?:MODEL-PLACED|RELAY-PLANNED|INLINE PROTOCOL)/i.test(content)) illustratorMacroExpanded = true
         ALL_MACRO_MARKER.lastIndex = 0
         if (ALL_MACRO_MARKER.test(content)) {
@@ -3210,9 +3222,11 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
         }
         return { ...message, content } as LlmMessage
       })
-      const narrativeReconciliation = reconcileRelayOwnedNarrativeWrappers(macroResolvedMessages, narrativeUtility.content)
-      // A surviving/replaced owned wrapper is macro placement. Only reconcile
-      // first: a stale expanded wrapper must never suppress current composition.
+      const surfaceReconciliation = reconcileRelayOwnedPromptWrappers(macroResolvedMessages, 'surface', macroUtility.content)
+      const narrativeReconciliation = reconcileRelayOwnedPromptWrappers(surfaceReconciliation.messages, 'narrative', narrativeUtility.content)
+      // A surviving/replaced owned wrapper is macro placement. Reconcile first:
+      // stale expanded Core/App/UI or Narrative wrappers cannot suppress current composition.
+      surfaceMacroExpanded ||= surfaceReconciliation.detected > 0
       narrativeMacroExpanded ||= narrativeReconciliation.detected > 0
       const promptContractBlocks = [macroUtility.content, narrativeUtility.content, illustratorPrompt].filter(Boolean)
       const promptCopiesBefore = {
@@ -3233,7 +3247,12 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
           before: promptCopiesBefore,
           after: promptCopiesAfter,
           duplicatesRemoved: Object.values(promptCopiesBefore).reduce((sum, count) => sum + Math.max(0, count - 1), 0),
+          surfaceDesiredModuleIds: macroUtility.moduleIds,
           narrativeDesiredUtilityNames: narrativeUtility.utilityNames,
+          surfaceOwnedWrappersDetected: surfaceReconciliation.detected,
+          surfaceOwnedWrappersReplaced: surfaceReconciliation.replaced,
+          surfaceOwnedWrappersRemoved: surfaceReconciliation.removed,
+          surfaceOwnedWrappersAfterReconciliation: surfaceReconciliation.finalCount,
           narrativeOwnedWrappersDetected: narrativeReconciliation.detected,
           narrativeOwnedWrappersReplaced: narrativeReconciliation.replaced,
           narrativeOwnedWrappersRemoved: narrativeReconciliation.removed,
@@ -3280,8 +3299,10 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
           relaySurfaceContractCopies: exactBlockCopies(finalMessages, macroUtility.content),
           narrativeContractCopies: exactBlockCopies(finalMessages, narrativeUtility.content),
           illustratorContractCopies: exactBlockCopies(finalMessages, illustratorPrompt),
+          surfaceDesiredModuleIds: macroUtility.moduleIds,
           narrativeDesiredUtilityNames: narrativeUtility.utilityNames,
-          narrativeOwnedWrapperCount: countRelayOwnedNarrativeWrappers(finalMessages),
+          surfaceOwnedWrapperCount: countRelayOwnedPromptWrappers(finalMessages, 'surface'),
+          narrativeOwnedWrapperCount: countRelayOwnedPromptWrappers(finalMessages, 'narrative'),
           narrativePlacement: narrativeMacroExpanded ? 'macro' : automaticNarrative ? 'automatic' : 'none',
         },
       })
