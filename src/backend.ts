@@ -884,6 +884,7 @@ export type ProviderDispatchOrigin =
 export type ProviderAttemptDiagnostic = {
   generationId: string
   chatId: string | null
+  messageId: string | null
   requestId: string | null
   slotKey: string | null
   origin: ProviderDispatchOrigin
@@ -914,6 +915,15 @@ export type ProviderAttemptDiagnostic = {
   frontendSessionChatId: string | null
   frontendSessionLastSeenAt: number
   frontendSessionIdAtFinalization?: string | null
+  frontendSessionEventSequenceAtRequest: number
+  frontendSessionEventSequenceAtProviderStart: number
+  frontendSessionEventSequenceAtFinalization?: number
+  connectedFrontendSessionIdsAtRequest: string[]
+  connectedFrontendSessionIdsAtProviderStart: string[]
+  connectedFrontendSessionIdsAtFinalization?: string[]
+  frontendSessionChangedDuringAttempt?: boolean
+  phase: string
+  phaseUpdatedAt: number
   createdAt: number
   providerLaneAcquireRequestedAt: number
   providerLaneAcquiredAt: number
@@ -921,6 +931,8 @@ export type ProviderAttemptDiagnostic = {
   swarmHttpRequestStartedAt: number
   swarmRequestAcceptedAt: number
   swarmRequestId?: string
+  swarmSessionId?: string
+  swarmSessionChangedDuringAttempt?: boolean
   firstProviderProgressAt: number
   lastProviderProgressAt: number
   providerTransportCompletedAt: number
@@ -931,9 +943,18 @@ export type ProviderAttemptDiagnostic = {
   providerSubscriptionTeardownStartedAt: number
   providerSubscriptionTeardownCompletedAt: number
   providerStreamCloseMode?: 'natural-complete' | 'explicit-cancel' | 'transport-error'
+  hostStreamCreatedAt?: number
+  naturalStreamCompletedAt?: number
+  explicitCancelAt?: number
+  transportErrorAt?: number
+  postTerminalTransportError?: string
   swarmAcceptedStallObservedAt?: number
   swarmAcceptedStallElapsedMs?: number
   swarmAcceptedStallLastProgressAt?: number
+  swarmAcceptedStallPhase?: string
+  swarmAcceptedStallLaneOwned?: boolean
+  swarmAcceptedStallActiveSubscription?: boolean
+  swarmAcceptedStallActiveSubscriptionCount?: number
   activeProviderSubscriptionsAfterTeardown: number
   invocationFinalizationStartedAt: number
   invocationFinalizationCompletedAt: number
@@ -1285,6 +1306,11 @@ function providerAttemptFor(context: ImageGenerationStreamContext): ProviderAtte
   return providerAttemptDiagnostics.get(context.generationId)
 }
 
+function setProviderAttemptPhase(diagnostic: ProviderAttemptDiagnostic, phase: string): void {
+  diagnostic.phase = phase
+  diagnostic.phaseUpdatedAt = Date.now()
+}
+
 function rememberProviderAttempt(diagnostic: ProviderAttemptDiagnostic): ProviderAttemptDiagnostic {
   rememberBoundedMap(providerAttemptDiagnostics, diagnostic.generationId, diagnostic, 1_024)
   return diagnostic
@@ -1369,6 +1395,7 @@ function grantImageGenerationLane(key: string, lane: ImageGenerationLane, contex
   if (diagnostic) {
     diagnostic.providerLaneAcquiredAt ||= Date.now()
     diagnostic.providerLaneWaiterCountAtAcquire = lane.waiters.length
+    setProviderAttemptPhase(diagnostic, 'provider-lane-owned')
   }
   emitImageWorkerRecoveryState(lane.userId)
   return { key, leaseId, context, providerId, release: () => releaseImageGenerationLane(key, leaseId) }
@@ -1777,6 +1804,8 @@ type NativeSettingsBrokerRuntime = {
   waiters: NativeSettingsWaitersByChat
   lastRequest?: { chatId: string; messageId?: string; swipeId?: number; sourceContent?: string }
   frontendSessions: Map<string, { sessionId: string; chatId: string | null; connected: boolean; nativeSettingsAvailable: boolean; lastSeenAt: number; platformClass: 'mobile' | 'desktop' }>
+  frontendSessionEventSequence: number
+  lastFrontendSessionEventAt: number
 }
 
 const promptPreparationLanes = new Map<string, PromptPreparationLane>()
@@ -4887,6 +4916,10 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
       return
     case 'frontend_session': {
       const broker = nativeSettingsBroker(userId)
+      if (!payload.heartbeat) {
+        broker.frontendSessionEventSequence += 1
+        broker.lastFrontendSessionEventAt = Date.now()
+      }
       broker.frontendSessions.set(payload.sessionId, {
         sessionId: payload.sessionId,
         chatId: payload.chatId || null,
@@ -5769,7 +5802,14 @@ function relayExecutionKey(job: RouterJob, userId?: string): string {
 
 function nativeSettingsBroker(userId?: string): NativeSettingsBrokerRuntime {
   const scope = relayQueueScope(userId)
-  const broker = nativeSettingsBrokers.get(scope) || { refreshInFlight: false, refreshRetryCount: 0, waiters: new Map(), frontendSessions: new Map() }
+  const broker = nativeSettingsBrokers.get(scope) || {
+    refreshInFlight: false,
+    refreshRetryCount: 0,
+    waiters: new Map(),
+    frontendSessions: new Map(),
+    frontendSessionEventSequence: 0,
+    lastFrontendSessionEventAt: 0,
+  }
   nativeSettingsBrokers.set(scope, broker)
   return broker
 }
@@ -8633,6 +8673,19 @@ function latestFrontendSessionForChat(chatId: string | undefined, userId?: strin
   return [...nativeSettingsBroker(userId).frontendSessions.values()]
     .filter(session => session.connected && session.chatId === chatId)
     .sort((left, right) => right.lastSeenAt - left.lastSeenAt)[0] || null
+}
+
+function frontendSessionSnapshot(chatId: string | undefined, userId?: string): { sequence: number; connectedSessionIds: string[]; lastEventAt: number } {
+  const broker = nativeSettingsBroker(userId)
+  const connectedSessionIds = [...broker.frontendSessions.values()]
+    .filter(session => session.connected && (!chatId || session.chatId === chatId))
+    .sort((left, right) => left.sessionId.localeCompare(right.sessionId))
+    .map(session => session.sessionId)
+  return {
+    sequence: broker.frontendSessionEventSequence,
+    connectedSessionIds,
+    lastEventAt: broker.lastFrontendSessionEventAt,
+  }
 }
 
 function visualSettlementsForResults(job: RouterJob, results: SlotGenerationResult[], required: boolean): InitialPlacementVisualSettlement[] {
@@ -15630,6 +15683,7 @@ function streamGenerationResult(event: Record<string, unknown>): any {
 export function normalizeImageGenerationStreamEvent(rawEvent: unknown): {
   type: string
   providerRequestId: string
+  providerSessionId: string
   previewImageDataUrl: string
   statusText: string
   step?: number
@@ -15644,6 +15698,7 @@ export function normalizeImageGenerationStreamEvent(rawEvent: unknown): {
     type: streamEventType(event),
     providerRequestId: cleanString(event.jobId ?? event.job_id ?? event.requestId ?? event.request_id ?? event.generationId ?? event.generation_id)
       || cleanString(result?.jobId ?? result?.job_id ?? result?.requestId ?? result?.request_id),
+    providerSessionId: cleanString(event.sessionId ?? event.session_id ?? result?.sessionId ?? result?.session_id),
     previewImageDataUrl: streamImageValue(event),
     statusText: cleanString(event.status) || cleanString(event.message) || cleanString(event.text),
     step: numberOrUndefined(event.step ?? event.currentStep ?? event.current ?? event.progressStep),
@@ -15663,9 +15718,12 @@ export async function generateWithOptionalStream(
 ): Promise<any> {
   const controller = new AbortController()
   const frontendSession = latestFrontendSessionForChat(context.chatId, userId)
+  const requestSessionSnapshot = frontendSessionSnapshot(context.chatId, userId)
+  const createdAt = Date.now()
   const diagnostic = rememberProviderAttempt({
     generationId: context.generationId,
     chatId: context.chatId || null,
+    messageId: context.messageId || null,
     requestId: context.requestId || null,
     slotKey: context.slotKey || null,
     origin: context.origin || (context.source === 'relay-candidate' ? 'candidate-generation' : context.source === 'relay-illustrator' ? 'illustrator-generation' : 'automatic-recovery'),
@@ -15690,7 +15748,13 @@ export async function generateWithOptionalStream(
     frontendSessionId: frontendSession?.sessionId || null,
     frontendSessionChatId: frontendSession?.chatId || null,
     frontendSessionLastSeenAt: frontendSession?.lastSeenAt || 0,
-    createdAt: Date.now(),
+    frontendSessionEventSequenceAtRequest: requestSessionSnapshot.sequence,
+    frontendSessionEventSequenceAtProviderStart: requestSessionSnapshot.sequence,
+    connectedFrontendSessionIdsAtRequest: requestSessionSnapshot.connectedSessionIds,
+    connectedFrontendSessionIdsAtProviderStart: requestSessionSnapshot.connectedSessionIds,
+    phase: 'preflight',
+    phaseUpdatedAt: createdAt,
+    createdAt,
     providerLaneAcquireRequestedAt: 0,
     providerLaneAcquiredAt: 0,
     providerInvocationStartedAt: 0,
@@ -15738,6 +15802,7 @@ export async function generateWithOptionalStream(
     diagnostic.destinationAvailable = await revalidateChatDestination(context.chatId, userId)
     if (!diagnostic.destinationAvailable) throw new ImageGenerationDestinationUnavailableError(context.chatId)
     diagnostic.providerLaneAcquireRequestedAt = Date.now()
+    setProviderAttemptPhase(diagnostic, 'lane-wait')
     laneLease = await acquireImageGenerationLane(userId, context, controller, plan.provider)
     if (controller.signal.aborted) throw abortError()
     assertDispatchEpoch(context, userId)
@@ -15749,6 +15814,9 @@ export async function generateWithOptionalStream(
     diagnostic.frontendSessionId = providerStartSession?.sessionId || null
     diagnostic.frontendSessionChatId = providerStartSession?.chatId || null
     diagnostic.frontendSessionLastSeenAt = providerStartSession?.lastSeenAt || 0
+    const providerStartSessionSnapshot = frontendSessionSnapshot(context.chatId, userId)
+    diagnostic.frontendSessionEventSequenceAtProviderStart = providerStartSessionSnapshot.sequence
+    diagnostic.connectedFrontendSessionIdsAtProviderStart = providerStartSessionSnapshot.connectedSessionIds
 
     const standardInput = { ...finalRequest, userId }
     const streamInput = { ...standardInput, signal: controller.signal }
@@ -15793,6 +15861,7 @@ export async function generateWithOptionalStream(
       diagnostic.providerInvocationStartedAt = startedAt
       diagnostic.providerTransport = transport
       diagnostic.providerStreamingUsed = transport === 'stream'
+      setProviderAttemptPhase(diagnostic, 'host-invoked')
       if (isSwarmUiProvider(plan.provider)) diagnostic.swarmHttpRequestStartedAt = startedAt
     }
 
@@ -15861,6 +15930,7 @@ export async function generateWithOptionalStream(
       sendImageStreamEvent(userId, context, { event: 'done', streaming: false, statusText: 'Generation complete.' })
       assertDestinationAvailable()
       resolveTerminal('success')
+      setProviderAttemptPhase(diagnostic, 'success')
       return result
     }
 
@@ -15872,6 +15942,8 @@ export async function generateWithOptionalStream(
       let stream: AsyncIterable<any>
       try {
         stream = api.generateStream(streamInput)
+        diagnostic.hostStreamCreatedAt ||= Date.now()
+        setProviderAttemptPhase(diagnostic, 'host-stream-open')
       } catch (error) {
         // A synchronous setup rejection produced no iterable to drain. Relay
         // still terminates this attempt instead of guessing that a second
@@ -15883,6 +15955,7 @@ export async function generateWithOptionalStream(
         const iterator = stream[Symbol.asyncIterator]()
         let iteratorNaturallyCompleted = false
         let terminalPayloadReceived = false
+        let streamFailure: unknown
         let acceptedStallTimer: ReturnType<typeof setTimeout> | undefined
         const clearAcceptedStallTimer = () => {
           if (acceptedStallTimer) clearTimeout(acceptedStallTimer)
@@ -15900,15 +15973,25 @@ export async function generateWithOptionalStream(
             diagnostic.swarmAcceptedStallObservedAt ||= observedAt
             diagnostic.swarmAcceptedStallElapsedMs = Math.max(0, observedAt - diagnostic.swarmRequestAcceptedAt)
             diagnostic.swarmAcceptedStallLastProgressAt = diagnostic.lastProviderProgressAt
+            diagnostic.swarmAcceptedStallPhase = diagnostic.phase
+            diagnostic.swarmAcceptedStallLaneOwned = Boolean(laneLease)
+            diagnostic.swarmAcceptedStallActiveSubscription = activeProviderSubscriptions.has(context.generationId)
+            diagnostic.swarmAcceptedStallActiveSubscriptionCount = activeProviderSubscriptions.size
             const evidence = {
               generationId: context.generationId,
               chatId: context.chatId || null,
+              messageId: context.messageId || null,
               requestId: context.requestId || null,
               providerRequestId: diagnostic.swarmRequestId || null,
+              providerSessionId: diagnostic.swarmSessionId || null,
               acceptedAt: diagnostic.swarmRequestAcceptedAt,
               lastProgressAt: diagnostic.lastProviderProgressAt,
               elapsedMs: diagnostic.swarmAcceptedStallElapsedMs,
               thresholdMs,
+              phase: diagnostic.phase,
+              laneOwned: diagnostic.swarmAcceptedStallLaneOwned,
+              activeSubscription: diagnostic.swarmAcceptedStallActiveSubscription,
+              activeSubscriptionCount: diagnostic.swarmAcceptedStallActiveSubscriptionCount,
               providerStreamCloseMode: diagnostic.providerStreamCloseMode || null,
             }
             spindle.log.warn(`[ReverieRelay:image_provider_accepted_stall] ${JSON.stringify(evidence)}`)
@@ -15928,6 +16011,8 @@ export async function generateWithOptionalStream(
             if (next.done) {
               iteratorNaturallyCompleted = true
               diagnostic.providerStreamCloseMode = 'natural-complete'
+              diagnostic.naturalStreamCompletedAt ||= Date.now()
+              setProviderAttemptPhase(diagnostic, 'natural-stream-complete')
               break
             }
             const rawEvent = next.value
@@ -15939,10 +16024,16 @@ export async function generateWithOptionalStream(
           diagnostic.lastProviderProgressAt = progressAt
           if (isSwarmUiProvider(plan.provider)) diagnostic.swarmRequestAcceptedAt ||= progressAt
           if (normalizedEvent.providerRequestId) diagnostic.swarmRequestId ||= normalizedEvent.providerRequestId
+          if (normalizedEvent.providerSessionId) {
+            if (diagnostic.swarmSessionId && diagnostic.swarmSessionId !== normalizedEvent.providerSessionId) diagnostic.swarmSessionChangedDuringAttempt = true
+            diagnostic.swarmSessionId ||= normalizedEvent.providerSessionId
+          }
+          if (isSwarmUiProvider(plan.provider) && diagnostic.phase === 'host-stream-open') setProviderAttemptPhase(diagnostic, 'swarm-accepted')
           observeAcceptedStall()
           const { type, previewImageDataUrl, step, totalSteps, nodeId } = normalizedEvent
 
           if (previewImageDataUrl && !['done', 'complete', 'completed', 'finished', 'result'].includes(type)) {
+            setProviderAttemptPhase(diagnostic, 'stream-active')
             sendImageStreamEvent(userId, context, {
               event: 'preview',
               streaming: true,
@@ -15969,6 +16060,7 @@ export async function generateWithOptionalStream(
             clearAcceptedStallTimer()
             result = normalizedEvent.result
             diagnostic.providerPayloadReceivedAt ||= Date.now()
+            setProviderAttemptPhase(diagnostic, 'terminal-received')
             const finalPreview = previewImageDataUrl || streamImageValue(result)
             if (finalPreview) {
               sendImageStreamEvent(userId, context, {
@@ -15987,14 +16079,33 @@ export async function generateWithOptionalStream(
             continue
           }
         }
+        } catch (error) {
+          streamFailure = error
+          diagnostic.transportErrorAt ||= Date.now()
+          setProviderAttemptPhase(diagnostic, controller.signal.aborted ? 'explicit-cancel' : 'transport-error')
+          if (terminalPayloadReceived && result && !controller.signal.aborted) {
+            diagnostic.postTerminalTransportError = error instanceof Error ? error.message : String(error)
+            spindle.log.warn(`[ReverieRelay:image_post_terminal_transport_error] ${JSON.stringify({
+              generationId: context.generationId,
+              chatId: context.chatId || null,
+              messageId: context.messageId || null,
+              requestId: context.requestId || null,
+              providerRequestId: diagnostic.swarmRequestId || null,
+              providerSessionId: diagnostic.swarmSessionId || null,
+              terminalPayloadReceivedAt: diagnostic.providerPayloadReceivedAt,
+              transportErrorAt: diagnostic.transportErrorAt,
+              error: diagnostic.postTerminalTransportError,
+            })}`)
+          } else throw error
         } finally {
           clearAcceptedStallTimer()
           diagnostic.providerSubscriptionTeardownStartedAt ||= Date.now()
           try {
-            if (!iteratorNaturallyCompleted && !terminalPayloadReceived) {
+            if (!iteratorNaturallyCompleted && controller.signal.aborted) {
               diagnostic.providerStreamCloseMode = 'explicit-cancel'
+              diagnostic.explicitCancelAt ||= Date.now()
               await iterator.return?.()
-            } else if (!iteratorNaturallyCompleted) {
+            } else if (!iteratorNaturallyCompleted || streamFailure) {
               diagnostic.providerStreamCloseMode = 'transport-error'
             }
           } finally {
@@ -16024,6 +16135,7 @@ export async function generateWithOptionalStream(
     sendImageStreamEvent(userId, context, { event: 'done', streaming: canStream, statusText: 'Generation complete.' })
     assertDestinationAvailable()
     resolveTerminal('success')
+    setProviderAttemptPhase(diagnostic, diagnostic.postTerminalTransportError ? 'success-after-transport-reset' : 'success')
     return result
   } catch (error) {
     diagnostic.failure = error instanceof Error ? error.message : String(error)
@@ -16033,12 +16145,14 @@ export async function generateWithOptionalStream(
     }
     if (error instanceof ImageGenerationLaneWaitTimeoutError) {
       resolveTerminal('preflight-error')
+      setProviderAttemptPhase(diagnostic, 'preflight-error')
       sendImageStreamEvent(userId, context, { event: 'error', streaming: false, statusText: 'Waiting for image worker timed out.', error: error.message })
       throw error
     }
     const timeoutError = controller.signal.reason instanceof ImageGenerationTimeoutError ? controller.signal.reason : null
     if (timeoutError) {
       resolveTerminal('timeout')
+      setProviderAttemptPhase(diagnostic, 'timeout')
       diagnostic.failure = timeoutError.message
       sendImageStreamEvent(userId, context, { event: 'error', streaming: false, statusText: 'Generation timed out.', error: timeoutError.message })
       throw timeoutError
@@ -16046,21 +16160,29 @@ export async function generateWithOptionalStream(
     if (diagnostic.providerDispatchCount === 0) {
       const message = error instanceof Error ? error.message : String(error)
       resolveTerminal('preflight-error')
+      setProviderAttemptPhase(diagnostic, 'preflight-error')
       sendImageStreamEvent(userId, context, { event: 'error', streaming: false, statusText: 'Generation could not start.', error: message })
       throw error
     }
     if (isAbortError(error) || controller.signal.aborted) {
       resolveTerminal('cancelled')
+      diagnostic.explicitCancelAt ||= Date.now()
+      setProviderAttemptPhase(diagnostic, 'cancelled')
       sendImageStreamEvent(userId, context, { event: 'cancelled', streaming: false, statusText: 'Generation stopped.' })
       throw abortError(error instanceof Error ? error.message : 'Generation cancelled by user.')
     }
     const message = error instanceof Error ? error.message : String(error)
     resolveTerminal(diagnostic.providerDispatchCount ? 'error' : 'preflight-error')
+    setProviderAttemptPhase(diagnostic, diagnostic.providerDispatchCount ? 'error' : 'preflight-error')
     sendImageStreamEvent(userId, context, { event: 'error', streaming: false, statusText: 'Generation failed.', error: message })
     throw error
   } finally {
     diagnostic.invocationFinalizationStartedAt ||= Date.now()
     diagnostic.frontendSessionIdAtFinalization = latestFrontendSessionForChat(context.chatId, userId)?.sessionId || null
+    const finalSessionSnapshot = frontendSessionSnapshot(context.chatId, userId)
+    diagnostic.frontendSessionEventSequenceAtFinalization = finalSessionSnapshot.sequence
+    diagnostic.connectedFrontendSessionIdsAtFinalization = finalSessionSnapshot.connectedSessionIds
+    diagnostic.frontendSessionChangedDuringAttempt = finalSessionSnapshot.sequence !== diagnostic.frontendSessionEventSequenceAtRequest
     context.attemptSignal?.removeEventListener('abort', abortFromAttempt)
     releaseImageStream(context, controller)
     controller.signal.removeEventListener('abort', recordAbort)

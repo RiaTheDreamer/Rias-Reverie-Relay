@@ -160,7 +160,9 @@ const drawerRegistrations: any[] = []
 const inputRegistrations: any[] = []
 const backendPayloads: unknown[] = []
 const eventSubscriptions: string[] = []
+const eventHandlers = new Map<string, Array<(event: any) => void>>()
 const tagInterceptors: string[] = []
+const invalidatedMessages: string[][] = []
 let activeTagInterceptors = 0
 let backendHandler: ((payload: unknown) => void) | null = null
 let drawerActivations = 0
@@ -199,7 +201,11 @@ const ctx: any = {
     cleanup: () => {},
   },
   events: {
-    on: (event: string) => { eventSubscriptions.push(event); return () => {} },
+    on: (event: string, handler: (payload: any) => void) => {
+      eventSubscriptions.push(event)
+      eventHandlers.set(event, [...(eventHandlers.get(event) || []), handler])
+      return () => eventHandlers.set(event, (eventHandlers.get(event) || []).filter(candidate => candidate !== handler))
+    },
     emit: () => {},
   },
   ui: {
@@ -225,7 +231,7 @@ const ctx: any = {
   getActiveChat: () => ({ chatId: 'boot-chat', characterId: 'boot-character' }),
   sendToBackend: (payload: unknown) => { backendPayloads.push(payload) },
   onBackendMessage: (handler: (payload: unknown) => void) => { backendHandler = handler; return () => { backendHandler = null } },
-  display: { invalidate: () => {} },
+  display: { invalidate: (messageIds: string[]) => { invalidatedMessages.push([...messageIds]) } },
 }
 
 const moduleUrl = `${pathToFileURL(builtFrontendPath).href}?boot-smoke=${Date.now()}`
@@ -276,6 +282,10 @@ assert(body.children.some(child => child.className.includes('dg-relay-orb')), 'O
 // state/bind path. This catches DOM hydration regressions that renderer-string
 // assertions cannot see.
 const mountedRoot = new FakeElement()
+const mountedProjection = new FakeElement()
+mountedProjection.className = 'dgir-prose-lifecycle-projection'
+const mountedIsland = new FakeElement()
+mountedIsland.className = 'rrl-island'
 const mountedCard = new FakeElement()
 mountedCard.className = 'rrl-card'
 mountedCard.dataset.rrnNativeRequest = 'mounted-placeholder'
@@ -297,11 +307,13 @@ mountedStatus.className = 'rrl-status'
 mountedMain.appendChild(mountedTitle)
 mountedMain.appendChild(mountedStatus)
 mountedCard.appendChild(mountedMain)
-mountedRoot.appendChild(mountedCard)
+mountedIsland.appendChild(mountedCard)
+mountedProjection.appendChild(mountedIsland)
+mountedRoot.appendChild(mountedProjection)
 messageRoots.set('boot-message', mountedRoot)
 const mountedRecord = {
   key: mountedCard.dataset.rrnRecordKey, chatId: 'boot-chat', messageId: 'boot-message', swipeId: 0,
-  requestId: 'mounted-placeholder', slot: 'mounted-placeholder', target: 'custom.artifact-media', targetApp: 'custom',
+  requestId: 'mounted-placeholder', slot: 'mounted-placeholder', target: 'prose.illustration', targetApp: 'prose',
   status: 'generating', createdAt: Date.now(), updatedAt: Date.now(),
 }
 backendHandler!({
@@ -330,6 +342,50 @@ backendHandler!({
 })
 assert(!mountedCard.querySelector('.rrl-generation-placeholder'), 'completed mounted lifecycle retained active placeholder UI')
 assert(!mountedCard.querySelector('.rrl-main'), 'completed mounted lifecycle retained active Status Card chrome')
+const mountedFinalImage = mountedMedia.querySelector('.rrl-slot-image') as any
+assert(mountedRoot.contains(mountedProjection) && mountedProjection.contains(mountedIsland) && mountedIsland.contains(mountedCard) && mountedCard.contains(mountedMedia), 'completed prose image abandoned or remounted the stable lifecycle projection')
+assert(mountedFinalImage && mountedFinalImage.src === '/mounted-image.png' && mountedFinalImage.hidden === false, 'completed prose image did not recreate and hydrate the sanitizer-removed slot image in place')
+assert(invalidatedMessages.length === 0, 'an already-mounted prose lifecycle slot triggered a host refresh')
+
+// Missing projection repair is render-ack based, not a permanent one-shot
+// latch. The first host paint may still omit the projection; that ACK must
+// permit one bounded retry, after which the mounted slot hydrates in place.
+const retryRoot = new FakeElement()
+retryRoot.appendChild(new FakeElement('p'))
+messageRoots.set('retry-message', retryRoot)
+const retryRecord = {
+  key: 'boot-chat:retry-message:0:retry:illustration', chatId: 'boot-chat', messageId: 'retry-message', swipeId: 0,
+  requestId: 'retry', slot: 'illustration', target: 'prose.illustration', targetApp: 'prose', status: 'completed',
+  imageId: 'retry-image', imageUrl: '/retry-image.png', createdAt: Date.now(), updatedAt: Date.now(),
+}
+backendHandler!({ ...bootState, revision: 4, records: [retryRecord] })
+assert(JSON.stringify(invalidatedMessages) === JSON.stringify([['retry-message']]), 'missing prose projection did not request the first message-scoped invalidation')
+for (const handler of eventHandlers.get('CHARACTER_MESSAGE_RENDERED') || []) handler({ chatId: 'boot-chat', messageId: 'retry-message' })
+assert(JSON.stringify(invalidatedMessages) === JSON.stringify([['retry-message'], ['retry-message']]), 'failed first host paint permanently latched projection invalidation')
+const retryProjection = new FakeElement()
+retryProjection.className = 'dgir-prose-lifecycle-projection'
+const retryIsland = new FakeElement()
+retryIsland.className = 'rrl-island'
+const retryCard = new FakeElement()
+retryCard.className = 'rrl-card'
+retryCard.dataset.rrnNativeRequest = 'retry'
+retryCard.dataset.rrnRecordKey = retryRecord.key
+const retryMedia = new FakeElement()
+retryMedia.className = 'rrl-media-slot'
+retryCard.appendChild(retryMedia)
+retryIsland.appendChild(retryCard)
+retryProjection.appendChild(retryIsland)
+retryRoot.appendChild(retryProjection)
+for (const handler of eventHandlers.get('CHARACTER_MESSAGE_RENDERED') || []) handler({ chatId: 'boot-chat', messageId: 'retry-message' })
+const retryImage = retryMedia.querySelector('.rrl-slot-image') as any
+assert(retryImage?.src === '/retry-image.png' && retryImage.hidden === false, 'second host paint did not hydrate the expected final image')
+assert(invalidatedMessages.length === 2, 'successful projection mount did not clear bounded invalidation state')
+const duplicateRetryImage = new FakeElement('img') as any
+duplicateRetryImage.src = '/retry-image.png'
+duplicateRetryImage.currentSrc = '/retry-image.png'
+retryRoot.appendChild(duplicateRetryImage)
+for (const handler of eventHandlers.get('CHARACTER_MESSAGE_RENDERED') || []) handler({ chatId: 'boot-chat', messageId: 'retry-message' })
+assert(!retryRoot.contains(duplicateRetryImage) && retryRoot.querySelectorAll('img').filter((image: any) => image.src === '/retry-image.png').length === 1, 'refresh reconciliation duplicated the already-live prose image')
 
 backendHandler!({
   ...bootState,

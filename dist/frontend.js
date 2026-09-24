@@ -4402,8 +4402,8 @@ function summarizeRelayHealth(checks) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.7.3";
-var BUILD_ID = "20260924-0.2.8.7.3";
+var EXTENSION_VERSION = "0.2.8.7.4";
+var BUILD_ID = "20260924-0.2.8.7.4";
 
 // src/orbIconData.ts
 var ORB_IMAGE_DESIGNS = [
@@ -249679,7 +249679,13 @@ function renderRequestCard(input, bare = false) {
   if (completedImageUrl && liveStatus === "completed") {
     const artifactMedia = input.baseSurfaceId === "character-profile" ? ' class="reverie-artifact-media" data-reverie-artifact-media="true" data-dgir-custom-target="custom.artifact-media"' : "";
     const imageAttrs = artifactMedia || ' class="rrl-slot-image"';
-    const resolved = `<figure class="rrl-resolved" data-rrn-completed-request="${escapeAttr(input.requestId)}"${streamIslandAttr}><img src="${escapeAttr(completedImageUrl)}" alt="${escapeAttr(input.title || "Reverie media")}"${imageAttrs}${requestRecordAttributes(record)} loading="lazy" decoding="async"></figure>`;
+    const resolvedStreamIslandAttr = input.baseSurfaceId === "prose-illustration" ? "" : streamIslandAttr;
+    const resolved = `<figure class="rrl-resolved" data-rrn-completed-request="${escapeAttr(input.requestId)}"${resolvedStreamIslandAttr}><img src="${escapeAttr(completedImageUrl)}" alt="${escapeAttr(input.title || "Reverie media")}"${imageAttrs}${requestRecordAttributes(record)} loading="lazy" decoding="async"></figure>`;
+    if (input.baseSurfaceId === "prose-illustration") {
+      const mediaSlot = stableLifecycleMediaSlot(aspect, "completed", input.title, resolved, false);
+      const card = `<div class="rrl-card" data-rrn-native-request="${escapeAttr(input.requestId)}" data-rrn-record-key="${escapeAttr(record?.key || "")}" data-rrn-live-status="completed"${streamIslandAttr}>${mediaSlot}</div>`;
+      return bare ? card : lifecycleCardIsland(card);
+    }
     return bare ? resolved : lifecycleCardIsland(resolved);
   }
   const selectedEffect = input.context.generationPlaceholderEffect || "glitter";
@@ -250722,6 +250728,7 @@ function setup(ctx) {
     scene_image[data-dgir-prose-align], scene_image:has(img[data-dgir-app="prose"]), .dgir-prose-image-frame { display: flex !important; justify-content: var(--dgir-prose-image-justify, center) !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; margin: 10px 0 !important; }
     scene_image[data-dgir-prose-align] > img[data-dgir-app="prose"], scene_image:has(img[data-dgir-app="prose"]) > img[data-dgir-app="prose"], .dgir-prose-image-frame > img[data-dgir-app="prose"] { flex: 0 1 var(--dgir-prose-image-width, 66%) !important; width: var(--dgir-prose-image-width, 66%) !important; max-width: var(--dgir-prose-image-max-width, 720px) !important; min-width: min(100%, 220px) !important; }
     img[data-dgir-app="prose"] { display: block !important; width: var(--dgir-prose-image-width, 66%) !important; max-width: var(--dgir-prose-image-max-width, 720px) !important; height: auto !important; object-fit: contain !important; margin-left: var(--dgir-prose-image-margin-left, auto) !important; margin-right: var(--dgir-prose-image-margin-right, auto) !important; }
+    .dgir-prose-lifecycle-projection .rrl-media-slot img.rrl-slot-image[data-dgir-app="prose"] { width: 100% !important; max-width: none !important; height: 100% !important; min-width: 0 !important; margin: 0 !important; object-fit: contain !important; }
     scene_image > img[data-dgir-app="prose"][data-dgir-prose-size="full"], .dgir-prose-image-frame > img[data-dgir-app="prose"][data-dgir-prose-size="full"], img[data-dgir-app="prose"][data-dgir-prose-size="full"] { flex-basis: 100% !important; width: 100% !important; max-width: none !important; min-width: 0 !important; height: auto !important; }
     .dg-router-panel .dg-meta-tabs { display: flex; gap: 5px; }
     .dg-router-panel .dg-meta-grid { display: grid; grid-template-columns: minmax(110px, .32fr) minmax(0, 1fr); gap: 7px 10px; font-size: 11px; }
@@ -252481,6 +252488,47 @@ ${message.prompt}`;
   const startedPlacementVisuals = new Map;
   const acknowledgedPlacementVisuals = new Map;
   const requestedProjectionInvalidations = new Map;
+  const PROJECTION_INVALIDATION_MAX_ATTEMPTS = 3;
+  const PROJECTION_INVALIDATION_RETRY_MS = 160;
+  function clearProjectionInvalidation(versionKey) {
+    const attempt = requestedProjectionInvalidations.get(versionKey);
+    if (attempt?.timer)
+      window.clearTimeout(attempt.timer);
+    requestedProjectionInvalidations.delete(versionKey);
+  }
+  function requestProjectionInvalidation(record, visualImageUrl, versionKey) {
+    let attempt = requestedProjectionInvalidations.get(versionKey);
+    if (!attempt) {
+      if (requestedProjectionInvalidations.size >= C5B_CACHE_LIMITS.messageSnapshots) {
+        const oldestKey = requestedProjectionInvalidations.keys().next().value;
+        if (oldestKey)
+          clearProjectionInvalidation(oldestKey);
+      }
+      attempt = { messageId: record.messageId, attempts: 0 };
+    }
+    if (attempt.timer || attempt.attempts >= PROJECTION_INVALIDATION_MAX_ATTEMPTS)
+      return;
+    attempt.attempts += 1;
+    requestedProjectionInvalidations.set(versionKey, attempt);
+    ctx.display?.invalidate([record.messageId]);
+    attempt.timer = window.setTimeout(() => {
+      attempt.timer = undefined;
+      const root = ctx.dom.findMessageElement(record.messageId);
+      const mounted = root && deepQueryAll(root, "img").some((image) => urlMatches(image.currentSrc || image.src, visualImageUrl));
+      if (mounted)
+        clearProjectionInvalidation(versionKey);
+      else if (recordByKey.get(record.key))
+        requestProjectionInvalidation(record, visualImageUrl, versionKey);
+    }, PROJECTION_INVALIDATION_RETRY_MS);
+  }
+  function acknowledgeProjectionInvalidation(messageId) {
+    for (const attempt of requestedProjectionInvalidations.values()) {
+      if (attempt.messageId !== messageId || !attempt.timer)
+        continue;
+      window.clearTimeout(attempt.timer);
+      attempt.timer = undefined;
+    }
+  }
   function revealFinalImageWhenReady(card, image, expectedUrl, record, update) {
     const expectedRecordKey = record.key;
     const isCurrentFinalImage = () => card.isConnected && image.isConnected && card.contains(image) && card.dataset.rrnRecordKey === expectedRecordKey && mediaCardUpdates.get(card) === update && urlMatches(image.currentSrc || image.src, expectedUrl);
@@ -252708,13 +252756,16 @@ ${message.prompt}`;
       const stallEligible = ["preparing", "parsing", "generating", "previewing", "placement-pending"].includes(record.status);
       const stream = streamPreviews.get(record.key);
       const visualImageUrl = record.pendingPlacement?.imageUrl || record.imageUrl;
-      if (visualImageUrl && requestCards.length === 0) {
+      if (visualImageUrl) {
         const versionKey = JSON.stringify([record.key, visualImageUrl, record.pendingPlacement?.imageId || record.imageId || ""]);
-        const alreadyMounted = deepQueryAll(root, "img").some((image) => urlMatches(image.currentSrc || image.src, visualImageUrl));
-        if (!alreadyMounted && !requestedProjectionInvalidations.has(versionKey)) {
-          rememberBoundedMap(requestedProjectionInvalidations, versionKey, Date.now(), C5B_CACHE_LIMITS.messageSnapshots);
-          ctx.display?.invalidate([record.messageId]);
-        }
+        if (requestCards.length === 0) {
+          const alreadyMounted = deepQueryAll(root, "img").some((image) => urlMatches(image.currentSrc || image.src, visualImageUrl));
+          if (!alreadyMounted) {
+            requestProjectionInvalidation(record, visualImageUrl, versionKey);
+          } else
+            clearProjectionInvalidation(versionKey);
+        } else
+          clearProjectionInvalidation(versionKey);
       }
       const lastActivityAt = Math.max(record.updatedAt || record.createdAt || now, stream?.updatedAt || 0);
       const stalled = stallEligible && now - lastActivityAt > 90000;
@@ -252730,6 +252781,14 @@ ${message.prompt}`;
           syncGenerationPlaceholderEffect(card);
         const signature = JSON.stringify([record.key, record.status, stalled, visualImageUrl, record.requestAspect, record.error, stream]);
         const media = card.querySelector(".rrl-media-slot");
+        let slotImage = card.querySelector(".rrl-slot-image");
+        if (media && visualImageUrl && !slotImage && (record.target === "prose.illustration" || record.targetApp === "prose")) {
+          slotImage = document.createElement("img");
+          slotImage.className = "rrl-slot-image";
+          slotImage.alt = "Reverie illustration";
+          slotImage.hidden = true;
+          media.appendChild(slotImage);
+        }
         const previous = mediaCardUpdates.get(card);
         const update = previous?.media === media ? previous : { signature: "", media, sawActiveLifecycle: false };
         if (active)
@@ -252769,8 +252828,7 @@ ${message.prompt}`;
           title.textContent = "Image completed";
         if (stateIcon)
           stateIcon.textContent = recoverable ? "!" : record.status === "completed" ? "✓" : "✦";
-        const mediaSlot = card.querySelector(".rrl-media-slot");
-        const slotImage = card.querySelector(".rrl-slot-image");
+        const mediaSlot = media;
         if (mediaSlot) {
           mediaSlot.dataset.rrnMediaState = stalled ? "failed" : record.status;
           if (record.requestAspect && !mediaSlot.style.getPropertyValue("--reverie-media-aspect")) {
@@ -252903,14 +252961,21 @@ ${message.prompt}`;
         return (!Number.isFinite(imageSwipe) || imageSwipe === record.swipeId) && (!image.src || urlMatches(image.currentSrc || image.src, visualImageUrl));
       }) : [];
       const images = urlImages.length > 0 ? urlImages : stableImages;
-      const authoredImages = images.filter((image) => !image.closest("[data-rrn-native-request]"));
-      if (authoredImages.length) {
-        for (const card of deepQueryAll(root, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`)) {
+      const requestCards = deepQueryAll(root, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`);
+      const lifecycleImages = images.filter((image) => requestCards.some((card) => card.contains(image)));
+      const authoredImages = images.filter((image) => !lifecycleImages.includes(image));
+      const isProse = record.target === "prose.illustration" || record.targetApp === "prose";
+      if (isProse && lifecycleImages.length) {
+        for (const image of authoredImages)
+          image.remove();
+      } else if (authoredImages.length) {
+        for (const card of requestCards) {
           card.remove();
         }
       }
       cleanLegacyIllustrationControls(root);
-      for (const image of authoredImages.length ? authoredImages : images) {
+      const bindingImages = isProse && lifecycleImages.length ? lifecycleImages : authoredImages.length ? authoredImages : images;
+      for (const image of bindingImages) {
         image.dataset.dgirKey = record.key;
         image.dataset.dgirRequestId = record.requestId;
         image.dataset.dgirSlot = record.slot;
@@ -252940,6 +253005,7 @@ ${message.prompt}`;
     const root = ctx.dom.findMessageElement(messageId);
     if (!root)
       return;
+    acknowledgeProjectionInvalidation(messageId);
     const hadMountedContent = root.childNodes.length > 0;
     ensureMountedLifecycleStyle(root);
     bindInlineImages(messageId);
@@ -260078,6 +260144,10 @@ Original prompt metadata unavailable`;
     nativeSnapshotScanTimers.clear();
     nativeSnapshotScanAttempts.clear();
     nativeSnapshotScanWarned.clear();
+    for (const attempt of requestedProjectionInvalidations.values())
+      if (attempt.timer)
+        window.clearTimeout(attempt.timer);
+    requestedProjectionInvalidations.clear();
     for (const stale of Array.from(document.querySelectorAll(".dg-illustration-portal-button")))
       stale.remove();
     clearTimeout(activeChatSyncTimer);

@@ -1000,6 +1000,7 @@ export function setup(ctx: SpindleFrontendContext) {
     scene_image[data-dgir-prose-align], scene_image:has(img[data-dgir-app="prose"]), .dgir-prose-image-frame { display: flex !important; justify-content: var(--dgir-prose-image-justify, center) !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; margin: 10px 0 !important; }
     scene_image[data-dgir-prose-align] > img[data-dgir-app="prose"], scene_image:has(img[data-dgir-app="prose"]) > img[data-dgir-app="prose"], .dgir-prose-image-frame > img[data-dgir-app="prose"] { flex: 0 1 var(--dgir-prose-image-width, 66%) !important; width: var(--dgir-prose-image-width, 66%) !important; max-width: var(--dgir-prose-image-max-width, 720px) !important; min-width: min(100%, 220px) !important; }
     img[data-dgir-app="prose"] { display: block !important; width: var(--dgir-prose-image-width, 66%) !important; max-width: var(--dgir-prose-image-max-width, 720px) !important; height: auto !important; object-fit: contain !important; margin-left: var(--dgir-prose-image-margin-left, auto) !important; margin-right: var(--dgir-prose-image-margin-right, auto) !important; }
+    .dgir-prose-lifecycle-projection .rrl-media-slot img.rrl-slot-image[data-dgir-app="prose"] { width: 100% !important; max-width: none !important; height: 100% !important; min-width: 0 !important; margin: 0 !important; object-fit: contain !important; }
     scene_image > img[data-dgir-app="prose"][data-dgir-prose-size="full"], .dgir-prose-image-frame > img[data-dgir-app="prose"][data-dgir-prose-size="full"], img[data-dgir-app="prose"][data-dgir-prose-size="full"] { flex-basis: 100% !important; width: 100% !important; max-width: none !important; min-width: 0 !important; height: auto !important; }
     .dg-router-panel .dg-meta-tabs { display: flex; gap: 5px; }
     .dg-router-panel .dg-meta-grid { display: grid; grid-template-columns: minmax(110px, .32fr) minmax(0, 1fr); gap: 7px 10px; font-size: 11px; }
@@ -2737,7 +2738,47 @@ export function setup(ctx: SpindleFrontendContext) {
   const revealedFinalImageByRecord = new Map<string, string>()
   const startedPlacementVisuals = new Map<string, string>()
   const acknowledgedPlacementVisuals = new Map<string, string>()
-  const requestedProjectionInvalidations = new Map<string, number>()
+  type ProjectionInvalidationAttempt = { messageId: string; attempts: number; timer?: number }
+  const requestedProjectionInvalidations = new Map<string, ProjectionInvalidationAttempt>()
+  const PROJECTION_INVALIDATION_MAX_ATTEMPTS = 3
+  const PROJECTION_INVALIDATION_RETRY_MS = 160
+
+  function clearProjectionInvalidation(versionKey: string): void {
+    const attempt = requestedProjectionInvalidations.get(versionKey)
+    if (attempt?.timer) window.clearTimeout(attempt.timer)
+    requestedProjectionInvalidations.delete(versionKey)
+  }
+
+  function requestProjectionInvalidation(record: SlotRecord, visualImageUrl: string, versionKey: string): void {
+    let attempt = requestedProjectionInvalidations.get(versionKey)
+    if (!attempt) {
+      if (requestedProjectionInvalidations.size >= C5B_CACHE_LIMITS.messageSnapshots) {
+        const oldestKey = requestedProjectionInvalidations.keys().next().value
+        if (oldestKey) clearProjectionInvalidation(oldestKey)
+      }
+      attempt = { messageId: record.messageId, attempts: 0 }
+    }
+    if (attempt.timer || attempt.attempts >= PROJECTION_INVALIDATION_MAX_ATTEMPTS) return
+    attempt.attempts += 1
+    requestedProjectionInvalidations.set(versionKey, attempt)
+    ctx.display?.invalidate([record.messageId])
+    attempt.timer = window.setTimeout(() => {
+      attempt.timer = undefined
+      const root = ctx.dom.findMessageElement(record.messageId)
+      const mounted = root && deepQueryAll<HTMLImageElement>(root as ParentNode, 'img')
+        .some(image => urlMatches(image.currentSrc || image.src, visualImageUrl))
+      if (mounted) clearProjectionInvalidation(versionKey)
+      else if (recordByKey.get(record.key)) requestProjectionInvalidation(record, visualImageUrl, versionKey)
+    }, PROJECTION_INVALIDATION_RETRY_MS)
+  }
+
+  function acknowledgeProjectionInvalidation(messageId: string): void {
+    for (const attempt of requestedProjectionInvalidations.values()) {
+      if (attempt.messageId !== messageId || !attempt.timer) continue
+      window.clearTimeout(attempt.timer)
+      attempt.timer = undefined
+    }
+  }
 
   function revealFinalImageWhenReady(
     card: HTMLElement,
@@ -2972,18 +3013,19 @@ export function setup(ctx: SpindleFrontendContext) {
       // persistence transaction commits. Hydrate that preserved asset directly
       // into the mounted slot so sibling completions never require a host remount.
       const visualImageUrl = record.pendingPlacement?.imageUrl || record.imageUrl
-      if (visualImageUrl && requestCards.length === 0) {
+      if (visualImageUrl) {
         const versionKey = JSON.stringify([record.key, visualImageUrl, record.pendingPlacement?.imageId || record.imageId || ''])
-        const alreadyMounted = deepQueryAll<HTMLImageElement>(root as ParentNode, 'img')
-          .some(image => urlMatches(image.currentSrc || image.src, visualImageUrl))
-        if (!alreadyMounted && !requestedProjectionInvalidations.has(versionKey)) {
-          rememberBoundedMap(requestedProjectionInvalidations, versionKey, Date.now(), C5B_CACHE_LIMITS.messageSnapshots)
-          // A state update cannot hydrate a card that the host no longer has
-          // mounted. Invalidate this message only; the hot render snapshot now
-          // contains the exact completed asset, so the next paint materializes
-          // it without a page reload or a document-wide Surface remount.
-          ctx.display?.invalidate([record.messageId])
-        }
+        if (requestCards.length === 0) {
+          const alreadyMounted = deepQueryAll<HTMLImageElement>(root as ParentNode, 'img')
+            .some(image => urlMatches(image.currentSrc || image.src, visualImageUrl))
+          if (!alreadyMounted) {
+            // A state update cannot hydrate a card that the host no longer has
+            // mounted. Invalidate this message only and retry after the host's
+            // render acknowledgement. Sanitizers may discard the first hot
+            // projection; bounded retries avoid a permanent one-shot latch.
+            requestProjectionInvalidation(record, visualImageUrl, versionKey)
+          } else clearProjectionInvalidation(versionKey)
+        } else clearProjectionInvalidation(versionKey)
       }
       const lastActivityAt = Math.max(record.updatedAt || record.createdAt || now, stream?.updatedAt || 0)
       const stalled = stallEligible && now - lastActivityAt > 90_000
@@ -3011,7 +3053,18 @@ export function setup(ctx: SpindleFrontendContext) {
         if (owningKey && owningKey !== record.key) continue
         if (active) syncGenerationPlaceholderEffect(card)
         const signature = JSON.stringify([record.key, record.status, stalled, visualImageUrl, record.requestAspect, record.error, stream])
-        const media = card.querySelector('.rrl-media-slot')
+        const media = card.querySelector<HTMLElement>('.rrl-media-slot')
+        let slotImage = card.querySelector<HTMLImageElement>('.rrl-slot-image')
+        if (media && visualImageUrl && !slotImage && (record.target === 'prose.illustration' || record.targetApp === 'prose')) {
+          // Lumiverse sanitization can preserve the lifecycle reservation while
+          // dropping its hidden fallback image. Recreate that exact child and
+          // hydrate it in place; the projection owner and width never change.
+          slotImage = document.createElement('img')
+          slotImage.className = 'rrl-slot-image'
+          slotImage.alt = 'Reverie illustration'
+          slotImage.hidden = true
+          media.appendChild(slotImage)
+        }
         const previous = mediaCardUpdates.get(card)
         const update: MediaCardUpdate = previous?.media === media
           ? previous
@@ -3040,8 +3093,7 @@ export function setup(ctx: SpindleFrontendContext) {
         else if (title && record.status === 'completed') title.textContent = 'Image completed'
         if (stateIcon) stateIcon.textContent = recoverable ? '!' : record.status === 'completed' ? '✓' : '✦'
 
-        const mediaSlot = card.querySelector<HTMLElement>('.rrl-media-slot')
-        const slotImage = card.querySelector<HTMLImageElement>('.rrl-slot-image')
+        const mediaSlot = media
         if (mediaSlot) {
           mediaSlot.dataset.rrnMediaState = stalled ? 'failed' : record.status
           if (record.requestAspect && !mediaSlot.style.getPropertyValue('--reverie-media-aspect')) {
@@ -3176,14 +3228,22 @@ export function setup(ctx: SpindleFrontendContext) {
           })
         : []
       const images = urlImages.length > 0 ? urlImages : stableImages
-      const authoredImages = images.filter(image => !image.closest('[data-rrn-native-request]'))
-      if (authoredImages.length) {
-        for (const card of deepQueryAll<HTMLElement>(root as ParentNode, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`)) {
+      const requestCards = deepQueryAll<HTMLElement>(root as ParentNode, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`)
+      const lifecycleImages = images.filter(image => requestCards.some(card => card.contains(image)))
+      const authoredImages = images.filter(image => !lifecycleImages.includes(image))
+      const isProse = record.target === 'prose.illustration' || record.targetApp === 'prose'
+      if (isProse && lifecycleImages.length) {
+        // The lifecycle projection is the single canonical prose owner from
+        // status through final. Remove only exact duplicate completed images.
+        for (const image of authoredImages) image.remove()
+      } else if (authoredImages.length) {
+        for (const card of requestCards) {
           card.remove()
         }
       }
       cleanLegacyIllustrationControls(root as ParentNode)
-      for (const image of authoredImages.length ? authoredImages : images) {
+      const bindingImages = isProse && lifecycleImages.length ? lifecycleImages : (authoredImages.length ? authoredImages : images)
+      for (const image of bindingImages) {
         image.dataset.dgirKey = record.key
         image.dataset.dgirRequestId = record.requestId
         image.dataset.dgirSlot = record.slot
@@ -3211,6 +3271,7 @@ export function setup(ctx: SpindleFrontendContext) {
   function reconcileRenderedRelayMessage(messageId: string): void {
     const root = ctx.dom.findMessageElement(messageId)
     if (!root) return
+    acknowledgeProjectionInvalidation(messageId)
     const hadMountedContent = root.childNodes.length > 0
     ensureMountedLifecycleStyle(root)
     bindInlineImages(messageId)
@@ -10173,6 +10234,8 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     nativeSnapshotScanTimers.clear()
     nativeSnapshotScanAttempts.clear()
     nativeSnapshotScanWarned.clear()
+    for (const attempt of requestedProjectionInvalidations.values()) if (attempt.timer) window.clearTimeout(attempt.timer)
+    requestedProjectionInvalidations.clear()
     for (const stale of Array.from(document.querySelectorAll<HTMLElement>('.dg-illustration-portal-button'))) stale.remove()
     clearTimeout(activeChatSyncTimer)
     clearInterval(sidecarNoticeTimer)

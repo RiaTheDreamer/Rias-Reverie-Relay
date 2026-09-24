@@ -5,8 +5,10 @@ const frontendEvents: any[] = []
 const logs: Array<{ level: string; message: string }> = []
 const storage = new Map<string, any>()
 const imageApi: any = {}
+let frontendMessageHandler: ((payload: any, userId?: string) => Promise<void>) | null = null
 ;(globalThis as any).spindle = {
-  registerMessageContentProcessor() {}, registerInterceptor() { return () => {} }, registerMacro() {}, on() {}, onFrontendMessage() {},
+  registerMessageContentProcessor() {}, registerInterceptor() { return () => {} }, registerMacro() {}, on() {},
+  onFrontendMessage(handler: (payload: any, userId?: string) => Promise<void>) { frontendMessageHandler = handler },
   sendToFrontend(payload: any) { frontendEvents.push(payload) },
   permissions: { has() { return true }, onChanged() { return () => {} } },
   userStorage: {
@@ -163,6 +165,87 @@ releaseAcceptedStall()
 assert.equal((await acceptedStall).imageId, 'image-accepted then delayed terminal')
 const acceptedStallDiagnostic: any = assertExactlyOnce('accepted-stall', 'success')
 assert.equal(acceptedStallDiagnostic.providerStreamCloseMode, 'natural-complete')
+
+// A host can deliver a canonical result and then surface the Swarm close race
+// while Relay consumes natural completion. Preserve the already-received
+// result, but retain the transport reset as distinct evidence.
+advertiseSwarmStream()
+await frontendMessageHandler!({
+  type: 'frontend_session', chatId: 'transport-reset-chat', sessionId: 'transport-session-a', connected: true,
+  nativeSettingsAvailable: true, platformClass: 'desktop',
+}, 'swarm-transport-reset')
+imageApi.generateStream = async function* (input: any) {
+  if (input.prompt === 'terminal then reset') {
+    yield { type: 'status', status: 'accepted', requestId: 'transport-reset-provider-request', sessionId: 'local-a' }
+    yield { type: 'done', sessionId: 'local-b', result: { imageId: 'preserved-after-reset', imageUrl: '/preserved-after-reset.png' } }
+    throw new Error('WebSocket 10054: remote party closed without a close handshake')
+  }
+  yield { type: 'done', result: { imageId: 'successor-after-reset', imageUrl: '/successor-after-reset.png' } }
+}
+const preservedAfterReset = await backend.generateWithOptionalStream(
+  { prompt: 'terminal then reset' }, swarmPlan, 'swarm-transport-reset',
+  context('transport-reset', { chatId: 'transport-reset-chat' }),
+)
+assert.equal(preservedAfterReset.imageId, 'preserved-after-reset')
+const transportResetDiagnostic: any = assertExactlyOnce('transport-reset', 'success')
+assert.equal(transportResetDiagnostic.providerStreamCloseMode, 'transport-error')
+assert.match(transportResetDiagnostic.postTerminalTransportError, /10054/)
+assert(transportResetDiagnostic.transportErrorAt >= transportResetDiagnostic.providerPayloadReceivedAt)
+assert.equal(transportResetDiagnostic.phase, 'success-after-transport-reset')
+assert.equal(transportResetDiagnostic.swarmSessionId, 'local-a')
+assert.equal(transportResetDiagnostic.swarmSessionChangedDuringAttempt, true)
+assert.deepEqual(transportResetDiagnostic.connectedFrontendSessionIdsAtRequest, ['transport-session-a'])
+assert.equal(transportResetDiagnostic.frontendSessionChangedDuringAttempt, false)
+assert.equal(transportResetDiagnostic.activeProviderSubscriptionsAfterTeardown, 0)
+assert.equal((await backend.generateWithOptionalStream(
+  { prompt: 'successor' }, swarmPlan, 'swarm-transport-reset',
+  context('transport-reset-successor', { chatId: 'transport-reset-chat' }),
+)).imageId, 'successor-after-reset')
+assertExactlyOnce('transport-reset-successor', 'success')
+assert.equal(backend.inspectImageGenerationLaneDiagnostics('swarm-transport-reset'), null)
+
+// Accepted-without-terminal remains timeoutless. Explicit cancellation must
+// reveal the live phase/lane/subscription owner and release all three cleanly.
+let acceptedHangAbortObserved = 0
+const acceptedHangController = new AbortController()
+imageApi.generateStream = async function* (input: any) {
+  if (input.prompt === 'accepted and hanging') {
+    yield { type: 'status', status: 'accepted', requestId: 'accepted-hang-provider-request' }
+    await new Promise<void>((_resolve, reject) => {
+      const onAbort = () => {
+        acceptedHangAbortObserved += 1
+        const error = new Error('accepted hang explicitly cancelled')
+        error.name = 'AbortError'
+        reject(error)
+      }
+      if (input.signal.aborted) onAbort()
+      else input.signal.addEventListener('abort', onAbort, { once: true })
+    })
+  }
+  yield { type: 'done', result: { imageId: 'successor-after-hang', imageUrl: '/successor-after-hang.png' } }
+}
+const acceptedHang = backend.generateWithOptionalStream(
+  { prompt: 'accepted and hanging' }, swarmPlan, 'swarm-accepted-hang',
+  context('accepted-hang', { chatId: 'accepted-hang-chat', attemptSignal: acceptedHangController.signal, acceptedStallThresholdMs: 5 }),
+)
+for (let attempt = 0; attempt < 50 && !(backend.inspectProviderAttemptDiagnostics('accepted-hang') as any)?.swarmAcceptedStallObservedAt; attempt += 1) await delay(2)
+const acceptedHangLive: any = backend.inspectProviderAttemptDiagnostics('accepted-hang')
+assert.equal(acceptedHangLive.swarmAcceptedStallPhase, 'swarm-accepted')
+assert.equal(acceptedHangLive.swarmAcceptedStallLaneOwned, true)
+assert.equal(acceptedHangLive.swarmAcceptedStallActiveSubscription, true)
+assert(acceptedHangLive.swarmAcceptedStallActiveSubscriptionCount >= 1)
+acceptedHangController.abort('explicit accepted-hang cancellation')
+await assert.rejects(acceptedHang, /cancel/i)
+assert.equal(acceptedHangAbortObserved, 1)
+const acceptedHangDiagnostic: any = assertExactlyOnce('accepted-hang', 'cancelled')
+assert.equal(acceptedHangDiagnostic.providerStreamCloseMode, 'explicit-cancel')
+assert(acceptedHangDiagnostic.explicitCancelAt > 0)
+assert.equal(acceptedHangDiagnostic.activeProviderSubscriptionsAfterTeardown, 0)
+assert.equal((await backend.generateWithOptionalStream(
+  { prompt: 'successor' }, swarmPlan, 'swarm-accepted-hang', context('accepted-hang-successor', { chatId: 'accepted-hang-chat' }),
+)).imageId, 'successor-after-hang')
+assertExactlyOnce('accepted-hang-successor', 'success')
+assert.equal(backend.inspectImageGenerationLaneDiagnostics('swarm-accepted-hang'), null)
 
 // Deterministic host-wrapper stress catches subscription/lane accumulation.
 // It is deliberately not reported as real Swarm or Lumiverse live proof.

@@ -1434,7 +1434,13 @@ function renderRequestCard(input: {
       ? ' class="reverie-artifact-media" data-reverie-artifact-media="true" data-dgir-custom-target="custom.artifact-media"'
       : ''
     const imageAttrs = artifactMedia || ' class="rrl-slot-image"'
-    const resolved = `<figure class="rrl-resolved" data-rrn-completed-request="${escapeAttr(input.requestId)}"${streamIslandAttr}><img src="${escapeAttr(completedImageUrl)}" alt="${escapeAttr(input.title || 'Reverie media')}"${imageAttrs}${requestRecordAttributes(record)} loading="lazy" decoding="async"></figure>`
+    const resolvedStreamIslandAttr = input.baseSurfaceId === 'prose-illustration' ? '' : streamIslandAttr
+    const resolved = `<figure class="rrl-resolved" data-rrn-completed-request="${escapeAttr(input.requestId)}"${resolvedStreamIslandAttr}><img src="${escapeAttr(completedImageUrl)}" alt="${escapeAttr(input.title || 'Reverie media')}"${imageAttrs}${requestRecordAttributes(record)} loading="lazy" decoding="async"></figure>`
+    if (input.baseSurfaceId === 'prose-illustration') {
+      const mediaSlot = stableLifecycleMediaSlot(aspect, 'completed', input.title, resolved, false)
+      const card = `<div class="rrl-card" data-rrn-native-request="${escapeAttr(input.requestId)}" data-rrn-record-key="${escapeAttr(record?.key || '')}" data-rrn-live-status="completed"${streamIslandAttr}>${mediaSlot}</div>`
+      return bare ? card : lifecycleCardIsland(card)
+    }
     return bare ? resolved : lifecycleCardIsland(resolved)
   }
   const selectedEffect = input.context.generationPlaceholderEffect || 'glitter'

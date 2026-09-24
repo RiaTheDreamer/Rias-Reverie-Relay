@@ -133,7 +133,8 @@ const completedMixed = rendered(completedMixedSource, [
 assert(completedMixed.includes('/mock/mixed-prose.jpg') && completedMixed.includes('data-dgir-request-id="mixed-prose"'), 'adjacent bracket Surface stole the completed Prose Illustration insertion owner')
 assert(completedMixed.includes('/mock/mixed-surface.jpg') && completedMixed.includes('data-dgir-request-id="mixed-surface"'), 'completed bracket Surface media did not insert through its own owner')
 assert(completedMixed.includes('Opening prose.') && completedMixed.includes('Closing prose.'), 'mixed completed insertion damaged surrounding prose')
-assert(!completedMixed.includes('data-rrn-native-request="mixed-prose"') && !completedMixed.includes('data-rrn-native-request="mixed-surface"'), 'completed mixed media retained pending Status Cards')
+assert(completedMixed.includes('data-rrn-native-request="mixed-prose"'), 'completed prose illustration abandoned its stable lifecycle slot')
+assert(!completedMixed.includes('data-rrn-native-request="mixed-surface"'), 'completed Surface media retained a pending Status Card')
 
 const nativeSource = readFileSync(new URL('../src/nativeSurfaces.ts', import.meta.url), 'utf8')
 assert(nativeSource.includes('hydrateParityRequests(block.markup, block.spec.id, renderContext)') && !nativeSource.includes("hydrateParityRequests(bracketNormalized.markup, 'message', renderContext)"), 'bracket hydration must not consume adjacent prose illustration anchors')
@@ -156,7 +157,7 @@ assert(frontendSource.includes('hadMountedContent && root.childNodes.length === 
 assert(frontendSource.includes('bindTimer = window.requestAnimationFrame') && !frontendSource.includes('setTimeout(() => { bindTimer = 0; bindInlineImages() }, 80)'), 'newly mounted prose media must reconcile before the next paint instead of flashing stale lifecycle UI')
 assert(frontendSource.includes('tab.root.replaceChildren(root)') && !frontendSource.includes('tab.root.replaceChildren()\n    const root'), 'drawer panel replacement must be atomic instead of exposing an empty intermediate tree')
 assert(frontendSource.includes("'[data-rr-kakao-color]'") && frontendSource.includes('applyKakaoColorBinding(row)'), 'frontend must restore sanitized Kakao color properties after host sanitization')
-assert(frontendSource.includes("!image.closest('[data-rrn-native-request]')") && frontendSource.includes('stripHealthyCompletedLifecycleUi(card)'), 'frontend must strip completed reservation UI and remove the reservation when the authored image binds')
+assert(frontendSource.includes('isProse && lifecycleImages.length') && frontendSource.includes('for (const image of authoredImages) image.remove()') && frontendSource.includes('stripHealthyCompletedLifecycleUi(card)'), 'frontend must preserve the completed prose slot, remove exact duplicates, and strip lifecycle chrome')
 assert(frontendSource.includes('invalidateDisplayIfContractChanged') && (frontendSource.match(/ctx\.display\?\.invalidate\(\['\*'\]\)/g) || []).length === 1, 'slot-state updates must not wholesale-invalidate and remount every Surface')
 assert(frontendSource.includes('ensureMountedLifecycleStyle(root)') && frontendSource.includes('reverieLifecycleStyleHost'), 'mounted Status Cards must receive extension-owned lifecycle CSS without transporting styles in message content')
 assert(frontendSource.includes('ensureSyntheticProseProjection(record, root)') && frontendSource.includes('root.appendChild(projection)'), 'synthetic prose reservations must mount in-place without a host-message edit')

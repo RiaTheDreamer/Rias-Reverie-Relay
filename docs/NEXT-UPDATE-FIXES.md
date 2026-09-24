@@ -4,7 +4,7 @@ Living regression ledger for the update after `0.2.8.6.2`.
 
 - Last audited: 2026-09-23
 - Baseline: `staging` at `545b973`
-- Target release: `0.2.8.7.3`
+- Target release: `0.2.8.7.4`
 - Scope: record confirmed defects, candidate repairs, and validation evidence; automated and live evidence remain separate.
 
 ## Open
