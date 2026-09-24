@@ -22,11 +22,32 @@ export function surfaceShellModeForNarrativeVariant(variant: NarrativeSurfacePre
 
 const NARRATIVE_PRESENTATION_ROOT_CLASSES = new Set(['r65', 'ra66', 'rrcp-wrap', 'ch-og', 'dg-dramatic-cutaway'])
 
+// This is intentionally a trailing layer. The authored Narrative assets carry
+// historical compact-launch styles with !important declarations; a prefix can
+// mark a shell as Glass Button while leaving that old opaque launcher in charge.
+const NARRATIVE_GLASS_BUTTON_PRESENTATION_CSS = `<style data-reverie-narrative-glass-button-runtime="1">
+[data-reverie-narrative-glass-button][data-reverie-narrative-glass-button]>summary,[data-reverie-narrative-glass-button][data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle{position:relative!important;z-index:2!important;isolation:isolate!important;display:flex!important;align-items:center!important;justify-content:center!important;width:max-content!important;max-width:min(calc(100% - 24px),360px)!important;height:40px!important;min-height:40px!important;margin:14px auto 0!important;padding:0 20px!important;overflow:hidden!important;cursor:pointer!important;pointer-events:auto!important;list-style:none!important;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 28%,var(--lumiverse-border,transparent) 72%)!important;border-radius:13px!important;background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 5%,transparent)!important;color:var(--lumiverse-primary-text,var(--lumiverse-text,#f6f1f7))!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.18em!important;text-transform:uppercase!important;text-align:center!important;box-shadow:0 0 0 1px rgba(255,255,255,.008) inset,0 0 14px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 8%,transparent)!important;-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)}
+[data-reverie-narrative-glass-button][data-reverie-narrative-glass-button]>summary::-webkit-details-marker{display:none!important}
+</style>`
+
+function applyNarrativeGlassButtonPresentation(replacement: string): string {
+  let claimedRoot = false
+  const output = String(replacement || '').replace(/<(details|div)\b((?:\$<[^>]+>|[^>])*?)\bclass="([^"]+)"((?:\$<[^>]+>|[^>])*)>/gi, (opening, tag: string, leadingAttributes: string, className: string, trailingAttributes: string) => {
+    if (claimedRoot) return opening
+    const classes = className.split(/\s+/).filter(Boolean)
+    if (!classes.some((candidate: string) => NARRATIVE_PRESENTATION_ROOT_CLASSES.has(candidate))) return opening
+    claimedRoot = true
+    if (/data-reverie-narrative-glass-button=/i.test(`${leadingAttributes}${trailingAttributes}`)) return opening
+    return `<${tag}${leadingAttributes}data-reverie-narrative-glass-button="1" class="${classes.join(' ')}"${trailingAttributes}>`
+  })
+  return claimedRoot ? `${output}${NARRATIVE_GLASS_BUTTON_PRESENTATION_CSS}` : replacement
+}
+
 /** Normalize only the approved Narrative layout's outer presentation shell.
  * Most imported packs contain the same sparkling <details> shell in every
  * variant; this adapter makes them obey Relay's global Surface mode. */
 export function applyNarrativeSurfacePresentation(replacement: string, variant: NarrativeSurfacePresentationVariant): string {
-  if (variant === 'glass') return replacement
+  if (variant === 'glass') return applyNarrativeGlassButtonPresentation(replacement)
   const mode = surfaceShellModeForNarrativeVariant(variant)
   const modeClass = `rr-surface-presentation-${mode === 'plain' ? 'button' : mode}`
   let claimedRoot = false

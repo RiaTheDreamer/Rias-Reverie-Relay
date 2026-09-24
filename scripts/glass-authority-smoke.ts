@@ -49,6 +49,12 @@ for (const presentation of ['inline', 'plain', 'sparkling', 'glass'] as const) {
   if (presentation === 'glass') assert(visual.some(script => script.replace_string.includes('data-reverie-glass-button=')), 'Glass Button + Glass Mode must preserve both independent contracts')
 }
 
+const glassPhone = r45LegacyXmlSurfaceAuthorityPack('glass', 'glass').scripts.find(script => script.name?.includes('Full Real Phone Shell'))
+assert(glassPhone, 'Glass Smartphone source is missing')
+assert(glassPhone.replace_string.includes('data-reverie-glass-smartphone-contrast="1"'), 'Glass Smartphone must carry its dedicated readable bubble contract')
+assert(glassPhone.replace_string.includes('.rpx-msg-recv .rpx-bubble') && glassPhone.replace_string.includes('.rpx-msg-sent .rpx-bubble'), 'Glass Smartphone must keep distinct readable received and sent bubbles')
+assert(glassPhone.replace_string.lastIndexOf('data-reverie-glass-button-source="1"') > glassPhone.replace_string.indexOf('data-reverie-glass-button="1"'), 'Glass Button source must be appended after authored launcher CSS so the visual and hit-target contract wins')
+
 const bracketGlass = r45BracketSurfaceAuthorityPack('glass', 'realistic')
 assert(bracketGlass.scripts.length === 138, 'Glass bracket-native authority must contain 138 scripts')
 assert(bracketGlass.scripts.filter(script => GLASS_VISUAL.test(script.replace_string)).length > 90, 'Glass Button bracket-native authority must retain all visual bodies')
@@ -64,6 +70,7 @@ assert(activeNarrativeGlass.length === 56, 'standalone Glass presentation must i
 assert(activeNarrativeGlassButton.length === 56, 'standalone Glass Button must install the complete 56-script active authority')
 assert(activeNarrativeGlassButton.some(script => script.replace_string.includes('data-reverie-narrative-glass-button-source="1"')), 'Glass Button with a normal body must use its dedicated generated shell authority')
 assert(!activeNarrativeGlassButton.some(script => script.replace_string.includes('data-reverie-glass-authority="narrative-glass"')), 'Glass Button must not force the Glass body authority when Color Mode is normal')
+assert(activeNarrativeGlass.some(script => script.replace_string.includes('data-reverie-narrative-glass-button-runtime="1"')), 'Glass Button + Glass Mode must adapt the complete Glass body with a trailing Glass Button shell')
 assert(narrativeGlass.metadata?.standalone_glass_authority === true, 'standalone Glass authority metadata missing')
 for (const id of ['ria_plot_sparks_og_sparkle_tabs_bulletproof_v7', 'ria_dramatic_cutaway_lumiverse_native_bulletproof_v8']) {
   assert(narrativeGlass.scripts.some(script => script.script_id === id), `standalone Glass source omitted ${id}`)
@@ -85,7 +92,7 @@ for (const script of narrativeGlassLaunchers) {
   assert(script.replace_string.includes('box-shadow:0 0 2px #fff,0 0 4px'), `standalone Glass/${script.script_id}: Narrative particles do not match App/UI restrained glow`)
   assert(script.replace_string.includes('display:block!important'), `standalone Glass/${script.script_id}: mobile rules may still hide Narrative micro-sparkles`)
 }
-assert(!activeNarrativeGlass.some(script => script.replace_string.includes('data-reverie-surface-presentation-contract="global"')), 'Glass must not use the runtime launcher adapter')
+assert(!activeNarrativeGlass.some(script => script.replace_string.includes('data-reverie-surface-presentation-contract="global"')), 'Glass Button must not use the generic runtime launcher adapter')
 const phonePin = narrativeGlass.scripts.find(script => script.script_id === 'rrcp_final_presentation_pin')
 const phoneShell = narrativeGlass.scripts.find(script => script.script_id === 'rrpp_proto_shell_v31')
 const plotSparks = narrativeGlass.scripts.find(script => script.script_id === 'ria_plot_sparks_og_sparkle_tabs_bulletproof_v7')

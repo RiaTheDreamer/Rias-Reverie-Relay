@@ -32,11 +32,11 @@ const EXPECTED: Record<NarrativeRegexVariant, { raw: string; assembled: string }
   },
   glass: {
     raw: 'd0830906511f48e3aadcc194bc2fbacd43aa5d837ef97e69120aa7732506e94b',
-    assembled: 'ab7c7bbcc638a37172fce2fe36036f1cb7bc6cd7261560d8cbdbc3fa3b9f7faa',
+    assembled: 'b5504c18efefb78925bc054a433aaa3c033fc410c063684be6fdc1ef0b10b658',
   },
 }
 
-const GLASS_BODY_ASSEMBLED = '11f8d237bf45001859cc0608407165fc827363b7cb5f39a60abd5161cfb787ef'
+const GLASS_BODY_ASSEMBLED = 'b2d73c5c7a9cd966a29b4c38c786524487813e8dfbfe0aee7492a1d5a1a812b7'
 
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   const raw = narrativeRegexPack(variant).scripts

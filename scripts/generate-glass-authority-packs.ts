@@ -94,15 +94,27 @@ const GLASS_FOUNDATION = `
 @media(prefers-reduced-motion:reduce){[data-reverie-glass-authority] [class*="spark"]>*,[data-reverie-glass-authority] [class*="particle"]>*{animation:none!important;opacity:.26!important}}
 `.trim()
 
+// The generic R4.5 Smartphone has its own message renderer. It is not the
+// Narrative Character Phone, so its readable Glass bubble contract belongs in
+// the R4.5 Glass source instead of piggybacking on .rrcp selectors.
+const GLASS_R45_SMARTPHONE_CONTRAST_STYLE = `<style data-reverie-glass-smartphone-contrast="1">
+[data-reverie-glass-authority] .rpx-msg-recv .rpx-bubble{background:color-mix(in srgb,var(--rr-glass-deep) 90%,var(--lumiverse-bg-elevated,#181522) 10%)!important;color:color-mix(in srgb,var(--lumiverse-text,#f5f7fb) 94%,#fff 6%)!important;border-color:color-mix(in srgb,var(--lumiverse-text,#f5f7fb) 16%,transparent)!important;text-shadow:none!important}
+[data-reverie-glass-authority] .rpx-msg-sent .rpx-bubble{background:color-mix(in srgb,#2563eb 74%,var(--rr-glass-deep) 26%)!important;color:color-mix(in srgb,var(--lumiverse-text,#f5f7fb) 94%,#fff 6%)!important;border-color:color-mix(in srgb,#8ab4ff 46%,transparent)!important;text-shadow:none!important}
+[data-reverie-glass-authority] .rpx-bubble :where(p,span,b,strong,em,a,small,time){color:inherit!important;opacity:1!important;text-shadow:none!important}
+[data-reverie-glass-authority] .rpx-msg-meta{color:color-mix(in srgb,var(--lumiverse-text,#f5f7fb) 72%,transparent)!important;text-shadow:none!important}
+</style>`
+
 const GLASS_BUTTON_STYLE = `<style data-reverie-glass-button-source="1">
 [data-reverie-glass-button]{background:transparent!important;border-color:transparent!important;box-shadow:none!important}
-[data-reverie-glass-button]>summary{position:relative!important;isolation:isolate!important;display:flex!important;width:max-content!important;max-width:min(calc(100% - 24px),360px)!important;min-height:40px!important;margin:14px auto 0!important;padding:9px 20px!important;overflow:hidden!important;align-items:center!important;justify-content:center!important;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 28%,var(--lumiverse-border,transparent) 72%)!important;border-radius:13px!important;background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 5%,transparent)!important;color:var(--lumiverse-primary-text,var(--lumiverse-text,#f6f1f7))!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.18em!important;text-transform:uppercase!important;box-shadow:0 0 0 1px rgba(255,255,255,.008) inset,0 0 14px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 8%,transparent)!important;-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)}
+[data-reverie-glass-button][data-reverie-glass-button]>summary{position:relative!important;z-index:2!important;isolation:isolate!important;display:flex!important;width:max-content!important;max-width:min(calc(100% - 24px),360px)!important;height:40px!important;min-height:40px!important;margin:14px auto 0!important;padding:0 20px!important;overflow:hidden!important;align-items:center!important;justify-content:center!important;cursor:pointer!important;pointer-events:auto!important;list-style:none!important;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 28%,var(--lumiverse-border,transparent) 72%)!important;border-radius:13px!important;background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 5%,transparent)!important;color:var(--lumiverse-primary-text,var(--lumiverse-text,#f6f1f7))!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.18em!important;text-transform:uppercase!important;box-shadow:0 0 0 1px rgba(255,255,255,.008) inset,0 0 14px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 8%,transparent)!important;-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)}
+[data-reverie-glass-button][data-reverie-glass-button]>summary::-webkit-details-marker{display:none!important}
 [data-reverie-glass-button]>summary [class*="spark"]>*,[data-reverie-glass-button]>summary [class*="particle"]>*{width:1px!important;height:1px!important;box-shadow:0 0 2px #fff,0 0 4px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 24%,transparent)!important}
 @media(prefers-reduced-motion:reduce){[data-reverie-glass-button]>summary [class*="spark"]>*,[data-reverie-glass-button]>summary [class*="particle"]>*{animation:none!important;opacity:.26!important}}
 </style>`
 
 const NARRATIVE_GLASS_BUTTON_STYLE = `<style data-reverie-narrative-glass-button-source="1">
-[data-reverie-narrative-glass-button]>summary,[data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle{position:relative!important;isolation:isolate!important;display:flex!important;align-items:center!important;justify-content:center!important;width:max-content!important;max-width:min(calc(100% - 24px),360px)!important;min-height:40px!important;margin:14px auto 0!important;padding:9px 20px!important;overflow:hidden!important;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 28%,var(--lumiverse-border,transparent) 72%)!important;border-radius:13px!important;background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 5%,transparent)!important;color:var(--lumiverse-primary-text,var(--lumiverse-text,#f6f1f7))!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.18em!important;text-transform:uppercase!important;text-align:center!important;box-shadow:0 0 0 1px rgba(255,255,255,.008) inset,0 0 14px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 8%,transparent)!important;-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)}
+[data-reverie-narrative-glass-button][data-reverie-narrative-glass-button]>summary,[data-reverie-narrative-glass-button][data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle{position:relative!important;z-index:2!important;isolation:isolate!important;display:flex!important;align-items:center!important;justify-content:center!important;width:max-content!important;max-width:min(calc(100% - 24px),360px)!important;height:40px!important;min-height:40px!important;margin:14px auto 0!important;padding:0 20px!important;overflow:hidden!important;cursor:pointer!important;pointer-events:auto!important;list-style:none!important;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 28%,var(--lumiverse-border,transparent) 72%)!important;border-radius:13px!important;background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 5%,transparent)!important;color:var(--lumiverse-primary-text,var(--lumiverse-text,#f6f1f7))!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.18em!important;text-transform:uppercase!important;text-align:center!important;box-shadow:0 0 0 1px rgba(255,255,255,.008) inset,0 0 14px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 8%,transparent)!important;-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)}
+[data-reverie-narrative-glass-button][data-reverie-narrative-glass-button]>summary::-webkit-details-marker{display:none!important}
 [data-reverie-narrative-glass-button]>summary [class*="spark"]>*,[data-reverie-narrative-glass-button]>summary [class*="particle"]>*,[data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle [class*="spark"]>*,[data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle [class*="particle"]>*{width:1px!important;height:1px!important;box-shadow:0 0 2px #fff,0 0 4px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 24%,transparent)!important}
 @media(prefers-reduced-motion:reduce){[data-reverie-narrative-glass-button]>summary [class*="spark"]>*,[data-reverie-narrative-glass-button]>summary [class*="particle"]>*,[data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle [class*="spark"]>*,[data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle [class*="particle"]>*{animation:none!important;opacity:.26!important}}
 </style>`
@@ -168,6 +180,10 @@ function glassifyReplacement(replacement: string, authority: string): string {
     return `<style${nextAttributes}>${glassifyCss(css, includeFoundation, extraCss)}</style>`
   })
   if (authority === 'narrative-glass') output = normalizeNarrativeGlassSparkfield(output)
+  // Append after the authored Smartphone CSS. The broad Glass conversion is
+  // deliberately translucent; messages are the exception because text must
+  // remain legible over arbitrary user wallpaper and Glass backgrounds.
+  if (/\brpx-(?:device|msg|bubble)\b/i.test(output)) output += GLASS_R45_SMARTPHONE_CONTRAST_STYLE
   output = output.replace(/[ \t]+$/gm, '')
   return styled ? markFirstGlassRoot(output, authority) : output
 }
@@ -182,7 +198,10 @@ function glassButtonReplacement(replacement: string, authority: string): string 
     const authorityAttribute = /data-reverie-glass-authority=/i.test(attributes) ? '' : ` data-reverie-glass-authority="${authority}"`
     return `<details data-reverie-glass-button="1"${authorityAttribute}${attributes}>`
   })
-  return `${GLASS_BUTTON_STYLE}${withRoot}`
+  // This must come after the authored replacement. Several historical
+  // launchers use later, !important compact-shell rules; prefixing the Glass
+  // style made the mode claim succeed while its visuals and hit target lost.
+  return `${withRoot}${GLASS_BUTTON_STYLE}`
 }
 
 function narrativeGlassButtonReplacement(replacement: string): string {
@@ -194,7 +213,9 @@ function narrativeGlassButtonReplacement(replacement: string): string {
       marked = true
       return `<${tag} data-reverie-narrative-glass-button="1"${attributes}>`
     })
-  return marked ? `${NARRATIVE_GLASS_BUTTON_STYLE}${output}` : output
+  // See glassButtonReplacement: this is deliberately a trailing cascade
+  // layer, not a prefix, so legacy compact launchers cannot repaint it.
+  return marked ? `${output}${NARRATIVE_GLASS_BUTTON_STYLE}` : output
 }
 
 function glassButtonScript(script: RegexScript, authority: string): RegexScript {

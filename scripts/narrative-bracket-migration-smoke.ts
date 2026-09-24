@@ -165,6 +165,9 @@ for (const [name, fixture] of Object.entries(fixtures)) {
     assert(presentationRoot, `${caseName}: global Surface presentation did not reach the Narrative root`)
     if (colorMode === 'glass') {
       assert(rendered.includes('data-reverie-glass-authority="narrative-glass"'), `${caseName}: Glass body source was not selected`)
+      if (variant === 'glass') {
+        assert(rendered.includes('data-reverie-narrative-glass-button="1"') && rendered.includes('data-reverie-narrative-glass-button-runtime="1"'), `${caseName}: Glass Button did not override the complete Glass body's legacy launcher`)
+      }
     } else {
       assert(!rendered.includes('data-reverie-glass-authority="narrative-glass"'), `${caseName}: normal body was replaced with Glass authority`)
     }
@@ -416,6 +419,6 @@ assert(worldIsolated.includes('rr-scene-compass'), 'malformed World poisoned val
 assert(worldIsolated.includes('class="ch-og') && !worldIsolated.includes('[Plot_Sparks]'), 'malformed World poisoned valid Plot Sparks')
 
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
-assert(packageJson.version === '0.2.8.7.7', `version changed: ${packageJson.version}`)
+assert(packageJson.version === '0.2.8.7.8', `version changed: ${packageJson.version}`)
 
 console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} named Surfaces × 4 shells × 2 body modes = ${renderCases} deterministic renders, ${narrativeClosingDelimiterMutationCases} closer mutations, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone four-variant regression passed, malformed-sibling isolation passed, Stella absent.`)
