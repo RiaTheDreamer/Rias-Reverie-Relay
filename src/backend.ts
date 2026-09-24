@@ -5195,6 +5195,15 @@ export function settleGalleryLinkOperation(link: GalleryLinkRequest, payload: { 
   return 'applied'
 }
 
+export function applyGalleryLinkResultToSlot(record: SlotRecord, link: GalleryLinkRequest, now = Date.now()): void {
+  record.galleryLinkStatus = link.status
+  record.galleryItemId = link.galleryItemId
+  record.galleryLinkError = link.error
+  record.galleryLinkedAt = link.status === 'linked' ? now : undefined
+  record.galleryLinkLastAttemptAt = now
+  record.galleryLinkRetryMode = link.status === 'linked' ? undefined : 'gallery-only'
+}
+
 async function handleClaimGalleryLink(payload: Extract<FrontendMessage, { type: 'claim_gallery_link' }>, userId?: string): Promise<void> {
   const chatId = cleanString(payload.chatId)
   const sessionId = cleanString(payload.sessionId)
@@ -5227,12 +5236,7 @@ async function handleGalleryLinkResult(payload: Extract<FrontendMessage, { type:
     }
     if (link.slotKey && state.slots[link.slotKey]) {
       const record = state.slots[link.slotKey]
-      record.galleryLinkStatus = link.status
-      record.galleryItemId = link.galleryItemId
-      record.galleryLinkError = link.error
-      record.galleryLinkedAt = link.status === 'linked' ? now : undefined
-      record.galleryLinkLastAttemptAt = now
-      record.galleryLinkRetryMode = link.status === 'linked' ? undefined : 'gallery-only'
+      applyGalleryLinkResultToSlot(record, link, now)
     }
     const record = link.slotKey ? state.slots[link.slotKey] : undefined
     appendStateLog(state, {

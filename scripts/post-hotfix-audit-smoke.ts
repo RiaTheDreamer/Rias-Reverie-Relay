@@ -81,6 +81,16 @@ assert.equal(galleryLink.attempts, 1)
 assert.equal(backendModule.settleGalleryLinkOperation(galleryLink, { sessionId: 'frontend-a', operationLeaseId: firstClaim.operationLeaseId, ok: true, galleryItemId: 'gallery-item' }, 140), 'duplicate')
 assert.equal(galleryLink.attempts, 1, 'duplicate Gallery completion produced another logical attempt')
 
+const failedGalleryLink: any = { ...galleryLink, id: 'gallery-failure', status: 'pending', attempts: 0, galleryItemId: undefined, operationLeaseId: undefined, operationLeaseSessionId: undefined, operationLeaseExpiresAt: undefined }
+const failedClaim = backendModule.claimGalleryLinkOperation(failedGalleryLink, 'frontend-a', 200, 50)
+assert.equal(backendModule.settleGalleryLinkOperation(failedGalleryLink, { sessionId: 'frontend-a', operationLeaseId: failedClaim.operationLeaseId, ok: false, error: 'Gallery unavailable' }, 210), 'applied')
+const completedSlot: any = { status: 'completed', imageId: 'image', imageUrl: '/image' }
+backendModule.applyGalleryLinkResultToSlot(completedSlot, failedGalleryLink, 210)
+assert.equal(completedSlot.status, 'completed')
+assert.equal(completedSlot.imageId, 'image')
+assert.equal(completedSlot.galleryLinkStatus, 'failed')
+assert.match(completedSlot.galleryLinkError, /Gallery unavailable/)
+
 const driftedAuthoredProse = 'Before. <reverie-illustration request="generate" slot="canonical-prose-slot" aspect="4:3" cast="none"><visual_prompt>Current authored semantic request.</visual_prompt></reverie-illustration> After.'
 const driftedJob: any = {
   chatId: 'chat', messageId: 'message', swipeId: 0, requestId: 'canonical-prose-slot', target: 'prose.illustration', count: 1,

@@ -81,7 +81,9 @@ imageApi.generateStream = async function* (input: any) {
 const simultaneous = ['lane-a', 'lane-b', 'lane-c', 'lane-d'].map(id => backend.generateWithOptionalStream({
   prompt: id, relay_origin: 'reverie-relay', relay_generation_id: id, relay_request_id: `request-${id}`, relay_recipe_id: `recipe-${id}`,
 }, swarmPlan, 'swarm-serialized', context(id), false, 500))
+const fastPathStartedAt = Date.now()
 const simultaneousResults = await Promise.all(simultaneous)
+assert(Date.now() - fastPathStartedAt < 1_000, 'Relay transport wrapper added unbounded overhead to direct fast provider results')
 assert.equal(maxActive, 1, `Swarm provider concurrency reached ${maxActive}`)
 assert.deepEqual(simultaneousResults.map(result => result.imageId), ['image-lane-a', 'image-lane-b', 'image-lane-c', 'image-lane-d'])
 assert.deepEqual(correlated.map(input => [input.relay_origin, input.relay_generation_id, input.relay_request_id, input.relay_recipe_id]), [
@@ -237,12 +239,12 @@ imageApi.generateStream = async function* (input: any) {
   }
 }
 const orphaned = backend.generateWithOptionalStream({ prompt: 'orphan forever' }, swarmPlan, 'swarm-orphan', context('orphan-a', {
-  attemptSignal: orphanController.signal, drainTimeoutMs: 20,
+  attemptSignal: orphanController.signal, drainTimeoutMs: 20, slotKey: 'same-orphan-slot',
 }), false, 500)
 await delay(5)
 orphanController.abort('abandon host operation')
 await assert.rejects(orphaned, /abort|abandon/i)
-const afterOrphan = backend.generateWithOptionalStream({ prompt: 'successor after detach' }, swarmPlan, 'swarm-orphan', context('orphan-b'), false, 500)
+const afterOrphan = backend.generateWithOptionalStream({ prompt: 'successor after detach' }, swarmPlan, 'swarm-orphan', context('orphan-b', { slotKey: 'same-orphan-slot' }), false, 500)
 await delay(10)
 assert.equal(orphanSuccessorStarts, 0, 'successor started before the bounded drain deadline')
 assert.equal((backend.inspectImageGenerationLaneDiagnostics('swarm-orphan') as any).draining, true)
