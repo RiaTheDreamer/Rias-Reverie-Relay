@@ -62,7 +62,7 @@ import { CHARACTER_PHONE_APPS, characterPhoneAppLabel, normalizeCharacterPhoneDe
 import { NARRATIVE_UTILITY_OVERVIEWS, SURFACE_UTILITY_OVERVIEWS, settingHelp } from './uxCopy'
 import { bracketExampleFromXml } from './bracketSurfaceAuthoring'
 import { narrativeUtilityDisplayName } from './narrativeRegexAssets'
-import { narrativeVariantForSurfaceShellMode } from './surfacePresentation'
+import { narrativeGlassButtonPresentationCss, narrativeVariantForSurfaceShellMode } from './surfacePresentation'
 import { emptyRelayChatStats, type RelayChatStats } from './completedState'
 
 const COPYABLE_IMAGE_REQUEST_TEMPLATE = `<reverie-illustration
@@ -2673,6 +2673,29 @@ export function setup(ctx: SpindleFrontendContext) {
 
   const mountedLifecycleStyles = new WeakMap<Element | ShadowRoot, HTMLStyleElement>()
   const mountedLifecycleStyleNodes = new Set<HTMLStyleElement>()
+  const mountedNarrativePresentationStyles = new WeakMap<Element | ShadowRoot, HTMLStyleElement>()
+
+  function ensureMountedNarrativePresentationStyle(root: ParentNode): void {
+    // Completed host messages retain the CSS that was emitted at generation
+    // time. Their content may live under an isolated shadow root, where the
+    // extension-wide stylesheet cannot override an old opaque launcher.
+    // Mount the current presentation authority beside that content instead of
+    // rewriting the message or relying on a fresh model response.
+    const scopes = new Set<Element | ShadowRoot>()
+    for (const surface of deepQueryAll<HTMLElement>(root, '[data-reverie-narrative-glass-button]')) {
+      const owner = typeof surface.getRootNode === 'function' ? surface.getRootNode() : root
+      scopes.add(owner instanceof ShadowRoot ? owner : document.head)
+    }
+    for (const scope of scopes) {
+      const existing = mountedNarrativePresentationStyles.get(scope)
+      if (existing && scope.contains(existing)) continue
+      const style = document.createElement('style')
+      style.dataset.reverieNarrativePresentationHost = 'glass-button'
+      style.textContent = narrativeGlassButtonPresentationCss()
+      scope.appendChild(style)
+      mountedNarrativePresentationStyles.set(scope, style)
+    }
+  }
 
   function ensureMountedLifecycleStyle(root: Element): void {
     // Message content is not a stylesheet transport. Lumiverse may mount a
@@ -2858,6 +2881,7 @@ export function setup(ctx: SpindleFrontendContext) {
   }
   const boundNarrativeControls = new WeakSet<HTMLElement>()
   function bindNarrativeInteractiveControls(): void {
+    ensureMountedNarrativePresentationStyle(document)
     for (const launcher of deepQueryAll<HTMLElement>(document, '.rrcp-presentation-sparkling > .rrcp-launch, .rrcp-presentation-plain > .rrcp-launch, .rrcp-presentation-glass > .rrcp-launch')) {
       if (boundNarrativeControls.has(launcher)) continue
       const wrap = launcher.parentElement

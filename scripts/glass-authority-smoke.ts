@@ -11,7 +11,7 @@ import {
   r45LegacyXmlSurfaceAuthorityPack,
   r45SurfaceAuthorityPack,
 } from '../src/r45SurfaceAuthority'
-import { narrativeVariantForSurfaceShellMode, surfaceShellModeForNarrativeVariant } from '../src/surfacePresentation'
+import { narrativeGlassButtonPresentationCss, narrativeVariantForSurfaceShellMode, surfaceShellModeForNarrativeVariant } from '../src/surfacePresentation'
 
 function assert(value: unknown, reason: string): asserts value {
   if (!value) throw new Error(reason)
@@ -26,6 +26,14 @@ assert(Object.keys(NARRATIVE_UTILITY_FORMAT_CONTRACTS).length === 13, 'the stand
 assert(R45_ACTIVE_ROOTS.length + Object.keys(NARRATIVE_UTILITY_FORMAT_CONTRACTS).length === 59, 'Glass coverage must total all 59 shipped Surfaces')
 assert(NARRATIVE_REGEX_VARIANTS.includes('glass'), 'Glass must be first-class in the presentation variant inventory')
 assert(narrativeVariantForSurfaceShellMode('glass') === 'glass' && surfaceShellModeForNarrativeVariant('glass') === 'glass', 'the one global Glass preference must map both directions')
+const mountedGlassRules = narrativeGlassButtonPresentationCss()
+assert(!mountedGlassRules.includes('<style'), 'mounted Glass authority must be raw CSS, not a nested style tag')
+for (const selector of ['.r65.r65>summary.r65-launch', '.ra66.ra66>summary.ra66-launch', '.rrcp-wrap.rrcp-wrap>.rrcp-launch', '.ch-og.ch-og>summary.dg-compact-launch', '.dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch']) {
+  assert(mountedGlassRules.includes(selector), `mounted Glass authority omitted ${selector}`)
+}
+assert(mountedGlassRules.includes('.rrcp-wrap .rrcp-launch-toggle{position:absolute!important'), 'mounted Glass authority must hide only the Character Phone state input')
+const frontendSource = await (globalThis as any).Bun.file(new URL('../src/frontend.ts', import.meta.url)).text()
+assert(frontendSource.includes('ensureMountedNarrativePresentationStyle(document)') && frontendSource.includes('narrativeGlassButtonPresentationCss()'), 'existing shadow-mounted Narrative cards must receive the current Glass authority at runtime')
 
 for (const color of ['realistic', 'primary'] as const) {
   const legacy = r45LegacyXmlSurfaceAuthorityPack('glass', color)

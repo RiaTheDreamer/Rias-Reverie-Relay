@@ -25,12 +25,20 @@ const NARRATIVE_PRESENTATION_ROOT_CLASSES = new Set(['r65', 'ra66', 'rrcp-wrap',
 // This is intentionally a trailing layer. The authored Narrative assets carry
 // historical compact-launch styles with !important declarations; a prefix can
 // mark a shell as Glass Button while leaving that old opaque launcher in charge.
-const NARRATIVE_GLASS_BUTTON_PRESENTATION_CSS = `<style data-reverie-narrative-glass-button-runtime="1">
+export const NARRATIVE_GLASS_BUTTON_PRESENTATION_RULES = `
 [data-reverie-narrative-glass-button].r65.r65>summary.r65-launch,[data-reverie-narrative-glass-button].ra66.ra66>summary.ra66-launch,[data-reverie-narrative-glass-button].rrcp-wrap.rrcp-wrap>.rrcp-launch,[data-reverie-narrative-glass-button].ch-og.ch-og>summary.dg-compact-launch,[data-reverie-narrative-glass-button].dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch{position:relative!important;z-index:2!important;isolation:isolate!important;display:flex!important;align-items:center!important;justify-content:center!important;width:max-content!important;max-width:min(calc(100% - 24px),360px)!important;height:40px!important;min-height:40px!important;margin:14px auto 0!important;padding:0 20px!important;overflow:hidden!important;cursor:pointer!important;pointer-events:auto!important;list-style:none!important;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 28%,var(--lumiverse-border,transparent) 72%)!important;border-radius:13px!important;background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 5%,transparent)!important;color:var(--lumiverse-primary-text,var(--lumiverse-text,#f6f1f7))!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.18em!important;text-transform:uppercase!important;text-align:center!important;box-shadow:0 0 0 1px rgba(255,255,255,.008) inset,0 0 14px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 8%,transparent)!important;-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)}
 [data-reverie-narrative-glass-button]>summary::-webkit-details-marker{display:none!important}
 [data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle{position:absolute!important;inline-size:1px!important;block-size:1px!important;opacity:0!important;pointer-events:none!important}
 [data-reverie-narrative-glass-button].rrcp-wrap>.rrcp-launch .rrcp-label{position:relative!important;z-index:2!important}
-</style>`
+`
+
+export const NARRATIVE_GLASS_BUTTON_PRESENTATION_CSS = `<style data-reverie-narrative-glass-button-runtime="1">${NARRATIVE_GLASS_BUTTON_PRESENTATION_RULES}</style>`
+
+/** The extension also mounts these rules into host shadow roots so a saved
+ * message can adopt the current Glass Button contract without being rewritten. */
+export function narrativeGlassButtonPresentationCss(): string {
+  return NARRATIVE_GLASS_BUTTON_PRESENTATION_RULES
+}
 
 function applyNarrativeGlassButtonPresentation(replacement: string): string {
   let claimedRoot = false

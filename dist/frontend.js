@@ -4402,8 +4402,8 @@ function summarizeRelayHealth(checks) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.7.9";
-var BUILD_ID = "20260924-0.2.8.7.9";
+var EXTENSION_VERSION = "0.2.8.7.10";
+var BUILD_ID = "20260924-0.2.8.7.10";
 
 // src/orbIconData.ts
 var ORB_IMAGE_DESIGNS = [
@@ -4444,6 +4444,16 @@ function narrativeVariantForSurfaceShellMode(shellMode) {
   return "inline";
 }
 var NARRATIVE_PRESENTATION_ROOT_CLASSES = new Set(["r65", "ra66", "rrcp-wrap", "ch-og", "dg-dramatic-cutaway"]);
+var NARRATIVE_GLASS_BUTTON_PRESENTATION_RULES = `
+[data-reverie-narrative-glass-button].r65.r65>summary.r65-launch,[data-reverie-narrative-glass-button].ra66.ra66>summary.ra66-launch,[data-reverie-narrative-glass-button].rrcp-wrap.rrcp-wrap>.rrcp-launch,[data-reverie-narrative-glass-button].ch-og.ch-og>summary.dg-compact-launch,[data-reverie-narrative-glass-button].dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch{position:relative!important;z-index:2!important;isolation:isolate!important;display:flex!important;align-items:center!important;justify-content:center!important;width:max-content!important;max-width:min(calc(100% - 24px),360px)!important;height:40px!important;min-height:40px!important;margin:14px auto 0!important;padding:0 20px!important;overflow:hidden!important;cursor:pointer!important;pointer-events:auto!important;list-style:none!important;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 28%,var(--lumiverse-border,transparent) 72%)!important;border-radius:13px!important;background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 5%,transparent)!important;color:var(--lumiverse-primary-text,var(--lumiverse-text,#f6f1f7))!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.18em!important;text-transform:uppercase!important;text-align:center!important;box-shadow:0 0 0 1px rgba(255,255,255,.008) inset,0 0 14px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 8%,transparent)!important;-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)}
+[data-reverie-narrative-glass-button]>summary::-webkit-details-marker{display:none!important}
+[data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle{position:absolute!important;inline-size:1px!important;block-size:1px!important;opacity:0!important;pointer-events:none!important}
+[data-reverie-narrative-glass-button].rrcp-wrap>.rrcp-launch .rrcp-label{position:relative!important;z-index:2!important}
+`;
+var NARRATIVE_GLASS_BUTTON_PRESENTATION_CSS = `<style data-reverie-narrative-glass-button-runtime="1">${NARRATIVE_GLASS_BUTTON_PRESENTATION_RULES}</style>`;
+function narrativeGlassButtonPresentationCss() {
+  return NARRATIVE_GLASS_BUTTON_PRESENTATION_RULES;
+}
 var GALLERY_FULL_IMAGE_CSS = `<style data-reverie-gallery-fit="contain">.srv-gallery-photo img,.srv-gallery-photo .rrl-card img,.srv-gallery-photo .rrl-resolved img,.srv-gallery-photo .rrn-media img{object-fit:contain!important;object-position:center!important;background:#101014}.srv-gallery-photo .rrl-preview,.srv-gallery-photo .rrl-resolved,.srv-gallery-photo .rrn-media{overflow:visible}.srv-gallery-photo .rrn-media,.srv-gallery-photo .rrl-resolved{box-sizing:border-box;margin:0!important;width:100%!important;height:100%!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important}.srv-gallery-photo .rrn-media img,.srv-gallery-photo .rrl-resolved img{width:100%!important;height:100%!important;max-height:none!important}</style>`;
 var DOSSIER_CSS = `<style data-reverie-surface-presentation="c5b3-dossier">.rr-dossier{--case-accent:var(--lumiverse-primary,#ba4c7d);max-width:760px;margin:0 auto;padding:16px;border:1px solid var(--case-accent);border-radius:18px;background:var(--lumiverse-bg-elevated,#20151d);color:var(--lumiverse-text,#f5edf3);font:13px/1.5 system-ui,sans-serif}.rr-dossier header{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:baseline;border-bottom:1px solid #ffffff20;padding-bottom:10px}.rr-dossier h3{font:700 18px/1.25 system-ui,sans-serif;margin:0}.rr-dossier .rr-case-meta{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;opacity:.8}.rr-case-radio{position:absolute;opacity:0;width:1px;height:1px}.rr-case-tabs{display:flex;gap:8px;margin:12px 0}.rr-case-tabs label{cursor:pointer;padding:7px 13px;border:1px solid var(--case-accent);border-radius:99px;font-size:11px;font-weight:700}.rr-case-radio:nth-of-type(1):checked~.rr-case-tabs label:nth-child(1),.rr-case-radio:nth-of-type(2):checked~.rr-case-tabs label:nth-child(2),.rr-case-radio:nth-of-type(3):checked~.rr-case-tabs label:nth-child(3){background:var(--case-accent);color:white}.rr-case-radio:focus-visible~.rr-case-tabs{outline:2px solid currentColor}.rrn-case-sheet{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:14px}.rr-case-media{min-width:0}.rr-case-media figure,.rr-case-media .rrn-media,.rr-case-media .rrl-preview{box-sizing:border-box;margin:0!important;width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;overflow:visible!important}.rr-case-media img{display:block}.rr-case-media img{max-width:100%;max-height:360px;height:auto;object-fit:contain!important;aspect-ratio:auto!important}.rr-case-facts{display:grid;align-content:start;gap:6px}.rrn-case-fact{padding:7px 10px;border-left:2px solid var(--case-accent);background:#0002}.rrn-case-fact small{display:block;opacity:.65;font-size:10px;letter-spacing:.05em}.rrn-case-fact b{font-weight:600;font-size:12px}.rr-case-timeline,.rr-case-evidence-text{grid-column:1/-1;white-space:pre-line}.rr-case-timeline{display:none}.rr-case-radio:nth-of-type(2):checked~.rrn-case-sheet .rr-case-facts,.rr-case-radio:nth-of-type(3):checked~.rrn-case-sheet .rr-case-media,.rr-case-radio:nth-of-type(3):checked~.rrn-case-sheet .rr-case-facts,.rr-case-radio:nth-of-type(3):checked~.rrn-case-sheet .rr-case-evidence-text{display:none}.rr-case-radio:nth-of-type(2):checked~.rrn-case-sheet{grid-template-columns:1fr}.rr-case-radio:nth-of-type(3):checked~.rrn-case-sheet .rr-case-timeline{display:block}.rr-case-notes{margin-top:12px;padding:9px 12px;border:1px dashed #ffffff40;border-radius:10px}.rr-case-notes summary{cursor:pointer;font-weight:700}.rr-dossier .rrl-actions,.rr-dossier .rrn-actions,.rr-dossier .rrl-resolved-actions{display:flex!important;flex-wrap:wrap!important;gap:8px!important;padding:9px 0!important}.rr-dossier button,.rr-dossier [data-rrn-action]{padding:7px 10px!important;margin:3px!important;min-height:32px;border:1px solid var(--case-accent);border-radius:7px;background:#0003;color:inherit;cursor:pointer}@media(max-width:520px){.rrn-case-sheet{grid-template-columns:1fr}.rr-dossier{padding:12px}.rr-case-media{max-width:320px;margin:auto}}</style>`;
 function dossierPresentation(input) {
@@ -254777,6 +254787,24 @@ ${message.prompt}`;
   }
   const mountedLifecycleStyles = new WeakMap;
   const mountedLifecycleStyleNodes = new Set;
+  const mountedNarrativePresentationStyles = new WeakMap;
+  function ensureMountedNarrativePresentationStyle(root) {
+    const scopes = new Set;
+    for (const surface of deepQueryAll(root, "[data-reverie-narrative-glass-button]")) {
+      const owner = typeof surface.getRootNode === "function" ? surface.getRootNode() : root;
+      scopes.add(owner instanceof ShadowRoot ? owner : document.head);
+    }
+    for (const scope of scopes) {
+      const existing = mountedNarrativePresentationStyles.get(scope);
+      if (existing && scope.contains(existing))
+        continue;
+      const style = document.createElement("style");
+      style.dataset.reverieNarrativePresentationHost = "glass-button";
+      style.textContent = narrativeGlassButtonPresentationCss();
+      scope.appendChild(style);
+      mountedNarrativePresentationStyles.set(scope, style);
+    }
+  }
   function ensureMountedLifecycleStyle(root) {
     const scopes = new Set;
     for (const card of deepQueryAll(root, "[data-reverie-lifecycle-card], [data-rrn-native-request]")) {
@@ -254943,6 +254971,7 @@ ${message.prompt}`;
   }
   const boundNarrativeControls = new WeakSet;
   function bindNarrativeInteractiveControls() {
+    ensureMountedNarrativePresentationStyle(document);
     for (const launcher of deepQueryAll(document, ".rrcp-presentation-sparkling > .rrcp-launch, .rrcp-presentation-plain > .rrcp-launch, .rrcp-presentation-glass > .rrcp-launch")) {
       if (boundNarrativeControls.has(launcher))
         continue;
