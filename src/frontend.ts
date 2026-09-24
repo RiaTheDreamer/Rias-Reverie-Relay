@@ -266,6 +266,7 @@ type ImageWorkerRecoveryState = {
 type BackendMessage =
   | { type: 'state'; chatId: string | null; records: SlotRecord[]; stats: RelayChatStats; recentCompleted: Array<Record<string, unknown>>; queueSafety: { rawPendingRecords: number; uniquePendingJobs: number; duplicateRecordsCollapsed: number; oldestPendingAgeMs: number; pausedBacklog: boolean; updatedAt: number }; config: RouterConfig; parserConnections: ParserConnection[]; imageConnections: ImageConnection[]; imageProviders?: ImageProviderInfo[]; logs: RouterLogEntry[]; candidateBatches: RelayCandidateBatch[]; queueDirector: QueueDirectorState; assetLibrary: AssetLibraryState; versionTrees: VersionTree[]; continuityVault: ContinuityVaultState; customSurfaces: CustomSurfaceStudioState; proseIllustrator: ProseIllustratorState; backgroundQueue: BackgroundQueueState; galleryLinks: GalleryLinkRequest[]; lastDryRun: DryRunReport | null; lastGenerationBlockers: GenerationBlocker[]; schemaVersion: number; revision: number; build: BackendBuildInfo; imageWorkerRecovery?: ImageWorkerRecoveryState; performance?: { statePayloadBytes: number; serializationMs: number; recordsSent: number; completedLifetime: number; hotCompleted: number } }
   | { type: 'status'; status: string; requestId?: string }
+  | { type: 'gallery_link_claim'; chatId: string; linkId: string; sessionId: string; granted: boolean; operationLeaseId?: string; reason?: string }
   | { type: 'error'; source: string; message: string; key?: string; attemptNumber?: number }
   | ({ type: 'slot_action_feedback' } & SlotActionFeedback)
   | { type: 'image_generation_stream'; event: 'started' | 'status' | 'preview' | 'done' | 'cancelled' | 'error'; chatId?: string; generationId: string; source: 'relay-slot' | 'relay-illustrator' | 'relay-candidate'; slotKey?: string; requestId?: string; previewImageDataUrl?: string; statusText?: string; step?: number; totalSteps?: number; nodeId?: string; streaming?: boolean; error?: string }
@@ -434,6 +435,9 @@ export function setup(ctx: SpindleFrontendContext) {
   let lastFullCompleteDryRun: Extract<BackendMessage, { type: 'full_complete_dry_run_result' }>['report'] | null = null
   let lastGenerationBlockers: GenerationBlocker[] = []
   let galleryLinkProcessing = false
+  const galleryLinkClaimPending = new Set<string>()
+  const galleryLinkResultAwaitingAck = new Set<string>()
+  let galleryLinkLeaseRetryTimer = 0
   let nativeGuardBusy = false
   let nativeGuardToastShown = false
   let recordByKey = new Map<string, SlotRecord>()
@@ -1405,6 +1409,8 @@ export function setup(ctx: SpindleFrontendContext) {
         backgroundQueue = message.backgroundQueue || { items: {}, abortRequestedAt: 0, updatedAt: 0 }
         imageWorkerRecovery = message.imageWorkerRecovery || { active: false, draining: false, resetAvailable: false, laneResetCount: 0, waiterCount: 0 }
         galleryLinks = message.galleryLinks || []
+        for (const linkId of [...galleryLinkClaimPending]) if (!galleryLinks.some(link => link.id === linkId && link.status === 'pending')) galleryLinkClaimPending.delete(linkId)
+        for (const linkId of [...galleryLinkResultAwaitingAck]) if (!galleryLinks.some(link => link.id === linkId && link.status === 'pending')) galleryLinkResultAwaitingAck.delete(linkId)
         lastDryRun = message.lastDryRun || null
         lastGenerationBlockers = message.lastGenerationBlockers || []
         void processPendingGalleryLinks()
@@ -1430,6 +1436,13 @@ export function setup(ctx: SpindleFrontendContext) {
           }, 350)
         }
       }
+      return
+    }
+    if (message.type === 'gallery_link_claim') {
+      if (message.sessionId !== frontendSessionId) return
+      galleryLinkClaimPending.delete(message.linkId)
+      if (message.granted && message.operationLeaseId) void processClaimedGalleryLink(message.linkId, message.operationLeaseId)
+      else window.setTimeout(() => void processPendingGalleryLinks(), 250)
       return
     }
     if (message.type === 'queue_abort_ack') {
@@ -2460,99 +2473,125 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   async function processPendingGalleryLinks(): Promise<void> {
-    if (galleryLinkProcessing) return
+    if (galleryLinkProcessing || galleryLinkClaimPending.size || galleryLinkResultAwaitingAck.size) return
+    if (galleryLinkLeaseRetryTimer) {
+      window.clearTimeout(galleryLinkLeaseRetryTimer)
+      galleryLinkLeaseRetryTimer = 0
+    }
+    const now = Date.now()
     const pending = galleryLinks.filter(link => link.status === 'pending')
-    if (!pending.length) return
+    const candidate = pending.find(link => !link.operationLeaseId
+      || !link.operationLeaseExpiresAt
+      || link.operationLeaseExpiresAt <= now
+      || link.operationLeaseSessionId === frontendSessionId)
+    if (!candidate) {
+      const nextExpiry = Math.min(...pending.map(link => link.operationLeaseExpiresAt || (now + 1_000)))
+      if (Number.isFinite(nextExpiry)) galleryLinkLeaseRetryTimer = window.setTimeout(() => void processPendingGalleryLinks(), Math.max(50, nextExpiry - now + 25))
+      return
+    }
+    galleryLinkClaimPending.add(candidate.id)
+    ctx.sendToBackend({ type: 'claim_gallery_link', chatId: candidate.chatId, linkId: candidate.id, sessionId: frontendSessionId })
+  }
+
+  async function processClaimedGalleryLink(linkId: string, operationLeaseId: string): Promise<void> {
+    if (galleryLinkProcessing) return
+    const link = galleryLinks.find(candidate => candidate.id === linkId && candidate.status === 'pending')
+    if (!link) return
     galleryLinkProcessing = true
+    let ok = false
+    let galleryItemId = ''
+    let error = ''
+    const leaseHeartbeat = window.setInterval(() => {
+      sendFrontendSession(true, true)
+      ctx.sendToBackend({ type: 'claim_gallery_link', chatId: link.chatId, linkId: link.id, sessionId: frontendSessionId })
+    }, 30_000)
     try {
-      for (const link of pending) {
-        let ok = false
-        let galleryItemId = ''
-        let error = ''
-        const endpoint = `/api/v1/characters/${encodeURIComponent(link.characterId)}/gallery`
-        try {
-          let galleryRows: Array<Record<string, unknown>> = []
-          const listResponse = await fetch(endpoint, {
+      const endpoint = `/api/v1/characters/${encodeURIComponent(link.characterId)}/gallery`
+      try {
+        let galleryRows: Array<Record<string, unknown>> = []
+        const listResponse = await fetch(endpoint, {
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { Accept: 'application/json' },
+        })
+        if (listResponse.ok) {
+          const payload = await listResponse.json() as unknown
+          galleryRows = Array.isArray(payload) ? payload as Array<Record<string, unknown>> : []
+        }
+
+        const cachedId = readGalleryLinkCache()[link.id]?.galleryItemId || ''
+        const existing = galleryRows.find(row =>
+          String(row.image_id || row.imageId || '') === link.imageId
+          || Boolean(cachedId && String(row.id || '') === cachedId),
+        )
+        if (existing) {
+          ok = true
+          galleryItemId = String(existing.id || '')
+        }
+
+        let linkFailure = ''
+        if (!ok) {
+          const response = await fetch(`${endpoint}/link`, {
+            method: 'POST',
             credentials: 'same-origin',
-            cache: 'no-store',
-            headers: { Accept: 'application/json' },
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ image_id: link.imageId, caption: link.caption || undefined }),
           })
-          if (listResponse.ok) {
-            const payload = await listResponse.json() as unknown
-            galleryRows = Array.isArray(payload) ? payload as Array<Record<string, unknown>> : []
-          }
-
-          const cachedId = readGalleryLinkCache()[link.id]?.galleryItemId || ''
-          const existing = galleryRows.find(row =>
-            String(row.image_id || row.imageId || '') === link.imageId
-            || Boolean(cachedId && String(row.id || '') === cachedId),
-          )
-          if (existing) {
-            ok = true
-            galleryItemId = String(existing.id || '')
-          }
-
-          let linkFailure = ''
-          if (!ok) {
-            const response = await fetch(`${endpoint}/link`, {
-              method: 'POST',
-              credentials: 'same-origin',
-              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-              body: JSON.stringify({ image_id: link.imageId, caption: link.caption || undefined }),
-            })
-            if (response.ok) {
-              const row = await response.json() as Record<string, unknown>
-              galleryItemId = String(row.id || '')
-              ok = Boolean(galleryItemId)
-            } else {
-              const detail = await response.text().catch(() => '')
-              linkFailure = `Gallery link returned ${response.status}${detail ? `: ${detail.slice(0, 180)}` : ''}`
-            }
-          }
-
-          // Some provider result IDs are readable through /image-gen/results but
-          // are not linkable image-table IDs. In that case, upload the exact
-          // generated bytes through Lumiverse's existing Gallery endpoint. This
-          // stays entirely inside the extension and survives host updates.
-          if (!ok) {
-            const imageResponse = await fetch(link.imageUrl, { credentials: 'same-origin', cache: 'no-store' })
-            if (!imageResponse.ok) throw new Error(`${linkFailure ? `${linkFailure}; ` : ''}could not read generated image (${imageResponse.status}).`)
-            const blob = await imageResponse.blob()
-            if (!blob.size) throw new Error(`${linkFailure ? `${linkFailure}; ` : ''}generated image response was empty.`)
-            const form = new FormData()
-            form.append('image', new File([blob], galleryUploadFilename(blob, link.id), { type: blob.type || 'image/png' }))
-            if (link.caption) form.append('caption', link.caption)
-            const uploadResponse = await fetch(endpoint, {
-              method: 'POST',
-              credentials: 'same-origin',
-              headers: { Accept: 'application/json' },
-              body: form,
-            })
-            if (!uploadResponse.ok) {
-              const detail = await uploadResponse.text().catch(() => '')
-              throw new Error(`${linkFailure ? `${linkFailure}; ` : ''}Gallery upload returned ${uploadResponse.status}${detail ? `: ${detail.slice(0, 180)}` : ''}.`)
-            }
-            const row = await uploadResponse.json() as Record<string, unknown>
+          if (response.ok) {
+            const row = await response.json() as Record<string, unknown>
             galleryItemId = String(row.id || '')
             ok = Boolean(galleryItemId)
+          } else {
+            const detail = await response.text().catch(() => '')
+            linkFailure = `Gallery link returned ${response.status}${detail ? `: ${detail.slice(0, 180)}` : ''}`
           }
-
-          if (ok && galleryItemId) rememberGalleryLink(link.id, galleryItemId)
-          if (!ok) error = 'Lumiverse did not return a Character Gallery item ID.'
-        } catch (caught) {
-          error = caught instanceof Error ? caught.message : String(caught)
         }
-        ctx.sendToBackend({
-          type: 'gallery_link_result',
-          chatId: link.chatId,
-          linkId: link.id,
-          ok,
-          galleryItemId: galleryItemId || undefined,
-          error: error || undefined,
-        })
+
+        // Some provider result IDs are readable through /image-gen/results but
+        // are not linkable image-table IDs. Upload the exact generated bytes,
+        // but only after this frontend owns the backend-issued operation lease.
+        if (!ok) {
+          const imageResponse = await fetch(link.imageUrl, { credentials: 'same-origin', cache: 'no-store' })
+          if (!imageResponse.ok) throw new Error(`${linkFailure ? `${linkFailure}; ` : ''}could not read generated image (${imageResponse.status}).`)
+          const blob = await imageResponse.blob()
+          if (!blob.size) throw new Error(`${linkFailure ? `${linkFailure}; ` : ''}generated image response was empty.`)
+          const form = new FormData()
+          form.append('image', new File([blob], galleryUploadFilename(blob, link.id), { type: blob.type || 'image/png' }))
+          if (link.caption) form.append('caption', link.caption)
+          const uploadResponse = await fetch(endpoint, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' },
+            body: form,
+          })
+          if (!uploadResponse.ok) {
+            const detail = await uploadResponse.text().catch(() => '')
+            throw new Error(`${linkFailure ? `${linkFailure}; ` : ''}Gallery upload returned ${uploadResponse.status}${detail ? `: ${detail.slice(0, 180)}` : ''}.`)
+          }
+          const row = await uploadResponse.json() as Record<string, unknown>
+          galleryItemId = String(row.id || '')
+          ok = Boolean(galleryItemId)
+        }
+
+        if (ok && galleryItemId) rememberGalleryLink(link.id, galleryItemId)
+        if (!ok) error = 'Lumiverse did not return a Character Gallery item ID.'
+      } catch (caught) {
+        error = caught instanceof Error ? caught.message : String(caught)
       }
     } finally {
+      window.clearInterval(leaseHeartbeat)
       galleryLinkProcessing = false
+      galleryLinkResultAwaitingAck.add(link.id)
+      ctx.sendToBackend({
+        type: 'gallery_link_result',
+        chatId: link.chatId,
+        linkId: link.id,
+        sessionId: frontendSessionId,
+        operationLeaseId,
+        ok,
+        galleryItemId: galleryItemId || undefined,
+        error: error || undefined,
+      })
     }
   }
 

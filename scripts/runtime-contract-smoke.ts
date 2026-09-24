@@ -437,13 +437,14 @@ await assert.rejects(
   (error: any) => error?.name === 'ImageGenerationTimeoutError',
 )
 await delay(20)
+assert.equal((backend.inspectProviderAttemptDiagnostics('hung-stream') as any).providerOperationOrphaned, true)
 imageApi.generate = async () => ({ imageId: 'after-stream-timeout', imageUrl: '/after-stream-timeout' })
 const afterStreamPromise = backend.generateWithOptionalStream({ prompt: 'retry-stream' }, plan, 'u1', context('retry-stream'), true, 100)
 await delay(10)
-assert.equal((backend.inspectImageGenerationLaneDiagnostics('u1') as any).draining, true)
-releaseHungStream()
 const afterStreamTimeout = await afterStreamPromise
 assert.equal(afterStreamTimeout.imageId, 'after-stream-timeout', 'stream timeout did not release the generation lane')
+releaseHungStream()
+await Promise.resolve()
 assert(frontendEvents.some(event => event?.event === 'error' && event?.statusText === 'Generation timed out.'), 'timeout did not publish a terminal error event')
 
 // Abort All cancellation walks a key snapshot even though each cancellation
@@ -474,4 +475,4 @@ assertUtilitiesInjected(assembledText(slowStorageResult), 'slow diagnostic stora
 await new Promise(resolve => setTimeout(resolve, 10))
 assert(blockedStateWriteAttempts >= 1, 'prompt diagnostics were not scheduled after returning the injection')
 
-console.log('Runtime contract smoke passed: final assembled Story Model prompt has Core structural XML 0, Narrative structural XML 0, bracket image-control authoring 0, and canonical XML image controls; continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, one-spend streaming failure semantics, abort quarantine without provider overlap, snapshot cancellation, and deferred interceptor recovery.')
+console.log('Runtime contract smoke passed: final assembled Story Model prompt has Core structural XML 0, Narrative structural XML 0, bracket image-control authoring 0, and canonical XML image controls; continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, one-spend streaming failure semantics, bounded abort quarantine/detach, snapshot cancellation, and deferred interceptor recovery.')

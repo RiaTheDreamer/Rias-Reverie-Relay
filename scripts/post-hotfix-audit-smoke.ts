@@ -49,6 +49,9 @@ for (const origin of [
   'candidate-generation', 'illustrator-generation',
 ]) assert(backend.includes(`'${origin}'`), `missing provider-start origin: ${origin}`)
 for (const field of ['previousSlotStatus', 'cancellationEpoch', 'authorizedSlotKey', 'followedAbort', 'elapsedSinceAbortAllMs']) assert(backend.includes(field), `missing provider-start diagnostic field: ${field}`)
+assert.match(backend, /lane\.drainWatchdog = setTimeout/)
+assert.match(backend, /providerOperationOrphaned = true/)
+assert.match(backend, /automatic-drain-deadline/)
 
 const retrySlice = backend.slice(backend.indexOf('async function handleRetryGalleryLink'), backend.indexOf('function numberParameter'))
 assert.match(retrySlice, /retryMode = 'gallery-only'/)
@@ -60,6 +63,38 @@ assert.match(frontend, /Retry Gallery Link/)
 assert.match(frontend, /will not regenerate it/)
 assert.match(contracts, /retryMode\?: 'gallery-only'/)
 assert.match(contracts, /galleryLinkRetryMode\?: 'gallery-only'/)
+assert.match(frontend, /type: 'claim_gallery_link'/)
+assert.match(frontend, /operationLeaseId/)
+assert.match(backend, /add_to_gallery: false/)
+
+const galleryLink: any = {
+  id: 'gallery-lease', chatId: 'gallery-chat', characterId: 'character', imageId: 'image', imageUrl: '/image', caption: '',
+  source: 'relay-slot', slotKey: 'slot', status: 'pending', attempts: 0, createdAt: 1, updatedAt: 1,
+}
+const firstClaim = backendModule.claimGalleryLinkOperation(galleryLink, 'frontend-a', 100, 50)
+assert.equal(firstClaim.granted, true)
+assert.equal(backendModule.claimGalleryLinkOperation(galleryLink, 'frontend-b', 110, 50).granted, false, 'a second frontend claimed the same Gallery fallback')
+assert.equal(backendModule.settleGalleryLinkOperation(galleryLink, { sessionId: 'frontend-b', operationLeaseId: firstClaim.operationLeaseId, ok: true, galleryItemId: 'wrong' }, 120), 'stale')
+assert.equal(backendModule.settleGalleryLinkOperation(galleryLink, { sessionId: 'frontend-a', operationLeaseId: firstClaim.operationLeaseId, ok: true, galleryItemId: 'gallery-item' }, 130), 'applied')
+assert.equal(galleryLink.status, 'linked')
+assert.equal(galleryLink.attempts, 1)
+assert.equal(backendModule.settleGalleryLinkOperation(galleryLink, { sessionId: 'frontend-a', operationLeaseId: firstClaim.operationLeaseId, ok: true, galleryItemId: 'gallery-item' }, 140), 'duplicate')
+assert.equal(galleryLink.attempts, 1, 'duplicate Gallery completion produced another logical attempt')
+
+const driftedAuthoredProse = 'Before. <reverie-illustration request="generate" slot="canonical-prose-slot" aspect="4:3" cast="none"><visual_prompt>Current authored semantic request.</visual_prompt></reverie-illustration> After.'
+const driftedJob: any = {
+  chatId: 'chat', messageId: 'message', swipeId: 0, requestId: 'canonical-prose-slot', target: 'prose.illustration', count: 1,
+  slots: ['canonical-prose-slot'], alt: 'scene', originalSceneBrief: 'Old request body.', originalNegativePrompt: '',
+  originalRequestXml: '<reverie-illustration request="generate" slot="canonical-prose-slot"><visual_prompt>Old request body.</visual_prompt></reverie-illustration>',
+}
+const driftedResult: any = { slot: 'canonical-prose-slot', imageId: 'image-current', imageUrl: '/image-current', attemptNumber: 2 }
+const reconciled = backendModule.composeInitialPlacementBatchContent(driftedAuthoredProse, [{ job: driftedJob, results: [driftedResult], replaceExisting: true }])
+assert.equal(reconciled.failedEntries, undefined)
+assert.match(reconciled.content, /Before\./)
+assert.match(reconciled.content, /After\./)
+assert.equal((reconciled.content.match(/reverie-relay:image/g) || []).length, 1, 'canonical request/slot reconciliation did not project exactly once')
+const trulyMissing = backendModule.composeInitialPlacementBatchContent('Before. The authored request was intentionally removed. After.', [{ job: driftedJob, results: [driftedResult], replaceExisting: true }])
+assert.equal(trulyMissing.failedEntries?.length, 1, 'true missing source did not remain fail-closed')
 
 const migrated: any = backendModule.migrateRelayStateSnapshot({
   galleryLinks: {

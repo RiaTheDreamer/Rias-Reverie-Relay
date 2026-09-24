@@ -165,6 +165,9 @@ export type GalleryLinkRequest = {
   completedAt?: number
   retryMode?: 'gallery-only'
   lastOperationSource?: 'server-persistence' | 'rest-fallback' | 'explicit-gallery-retry'
+  operationLeaseId?: string
+  operationLeaseSessionId?: string
+  operationLeaseExpiresAt?: number
   galleryItemId?: string
   error?: string
 }

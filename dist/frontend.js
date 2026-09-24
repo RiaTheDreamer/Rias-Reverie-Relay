@@ -250154,6 +250154,9 @@ function setup(ctx) {
   let lastFullCompleteDryRun = null;
   let lastGenerationBlockers = [];
   let galleryLinkProcessing = false;
+  const galleryLinkClaimPending = new Set;
+  const galleryLinkResultAwaitingAck = new Set;
+  let galleryLinkLeaseRetryTimer = 0;
   let nativeGuardBusy = false;
   let nativeGuardToastShown = false;
   let recordByKey = new Map;
@@ -251094,6 +251097,12 @@ function setup(ctx) {
         backgroundQueue = message.backgroundQueue || { items: {}, abortRequestedAt: 0, updatedAt: 0 };
         imageWorkerRecovery = message.imageWorkerRecovery || { active: false, draining: false, resetAvailable: false, laneResetCount: 0, waiterCount: 0 };
         galleryLinks = message.galleryLinks || [];
+        for (const linkId of [...galleryLinkClaimPending])
+          if (!galleryLinks.some((link) => link.id === linkId && link.status === "pending"))
+            galleryLinkClaimPending.delete(linkId);
+        for (const linkId of [...galleryLinkResultAwaitingAck])
+          if (!galleryLinks.some((link) => link.id === linkId && link.status === "pending"))
+            galleryLinkResultAwaitingAck.delete(linkId);
         lastDryRun = message.lastDryRun || null;
         lastGenerationBlockers = message.lastGenerationBlockers || [];
         processPendingGalleryLinks();
@@ -251120,6 +251129,16 @@ function setup(ctx) {
           }, 350);
         }
       }
+      return;
+    }
+    if (message.type === "gallery_link_claim") {
+      if (message.sessionId !== frontendSessionId)
+        return;
+      galleryLinkClaimPending.delete(message.linkId);
+      if (message.granted && message.operationLeaseId)
+        processClaimedGalleryLink(message.linkId, message.operationLeaseId);
+      else
+        window.setTimeout(() => void processPendingGalleryLinks(), 250);
       return;
     }
     if (message.type === "queue_abort_ack") {
@@ -252185,95 +252204,120 @@ ${message.prompt}`;
     return `reverie-relay-${linkId.replace(/[^a-z0-9_-]+/gi, "-").slice(0, 64)}.${extension}`;
   }
   async function processPendingGalleryLinks() {
+    if (galleryLinkProcessing || galleryLinkClaimPending.size || galleryLinkResultAwaitingAck.size)
+      return;
+    if (galleryLinkLeaseRetryTimer) {
+      window.clearTimeout(galleryLinkLeaseRetryTimer);
+      galleryLinkLeaseRetryTimer = 0;
+    }
+    const now = Date.now();
+    const pending = galleryLinks.filter((link) => link.status === "pending");
+    const candidate = pending.find((link) => !link.operationLeaseId || !link.operationLeaseExpiresAt || link.operationLeaseExpiresAt <= now || link.operationLeaseSessionId === frontendSessionId);
+    if (!candidate) {
+      const nextExpiry = Math.min(...pending.map((link) => link.operationLeaseExpiresAt || now + 1000));
+      if (Number.isFinite(nextExpiry))
+        galleryLinkLeaseRetryTimer = window.setTimeout(() => void processPendingGalleryLinks(), Math.max(50, nextExpiry - now + 25));
+      return;
+    }
+    galleryLinkClaimPending.add(candidate.id);
+    ctx.sendToBackend({ type: "claim_gallery_link", chatId: candidate.chatId, linkId: candidate.id, sessionId: frontendSessionId });
+  }
+  async function processClaimedGalleryLink(linkId, operationLeaseId) {
     if (galleryLinkProcessing)
       return;
-    const pending = galleryLinks.filter((link) => link.status === "pending");
-    if (!pending.length)
+    const link = galleryLinks.find((candidate) => candidate.id === linkId && candidate.status === "pending");
+    if (!link)
       return;
     galleryLinkProcessing = true;
+    let ok = false;
+    let galleryItemId = "";
+    let error = "";
+    const leaseHeartbeat = window.setInterval(() => {
+      sendFrontendSession(true, true);
+      ctx.sendToBackend({ type: "claim_gallery_link", chatId: link.chatId, linkId: link.id, sessionId: frontendSessionId });
+    }, 30000);
     try {
-      for (const link of pending) {
-        let ok = false;
-        let galleryItemId = "";
-        let error = "";
-        const endpoint = `/api/v1/characters/${encodeURIComponent(link.characterId)}/gallery`;
-        try {
-          let galleryRows = [];
-          const listResponse = await fetch(endpoint, {
+      const endpoint = `/api/v1/characters/${encodeURIComponent(link.characterId)}/gallery`;
+      try {
+        let galleryRows = [];
+        const listResponse = await fetch(endpoint, {
+          credentials: "same-origin",
+          cache: "no-store",
+          headers: { Accept: "application/json" }
+        });
+        if (listResponse.ok) {
+          const payload = await listResponse.json();
+          galleryRows = Array.isArray(payload) ? payload : [];
+        }
+        const cachedId = readGalleryLinkCache()[link.id]?.galleryItemId || "";
+        const existing = galleryRows.find((row) => String(row.image_id || row.imageId || "") === link.imageId || Boolean(cachedId && String(row.id || "") === cachedId));
+        if (existing) {
+          ok = true;
+          galleryItemId = String(existing.id || "");
+        }
+        let linkFailure = "";
+        if (!ok) {
+          const response = await fetch(`${endpoint}/link`, {
+            method: "POST",
             credentials: "same-origin",
-            cache: "no-store",
-            headers: { Accept: "application/json" }
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ image_id: link.imageId, caption: link.caption || undefined })
           });
-          if (listResponse.ok) {
-            const payload = await listResponse.json();
-            galleryRows = Array.isArray(payload) ? payload : [];
-          }
-          const cachedId = readGalleryLinkCache()[link.id]?.galleryItemId || "";
-          const existing = galleryRows.find((row) => String(row.image_id || row.imageId || "") === link.imageId || Boolean(cachedId && String(row.id || "") === cachedId));
-          if (existing) {
-            ok = true;
-            galleryItemId = String(existing.id || "");
-          }
-          let linkFailure = "";
-          if (!ok) {
-            const response = await fetch(`${endpoint}/link`, {
-              method: "POST",
-              credentials: "same-origin",
-              headers: { "Content-Type": "application/json", Accept: "application/json" },
-              body: JSON.stringify({ image_id: link.imageId, caption: link.caption || undefined })
-            });
-            if (response.ok) {
-              const row = await response.json();
-              galleryItemId = String(row.id || "");
-              ok = Boolean(galleryItemId);
-            } else {
-              const detail = await response.text().catch(() => "");
-              linkFailure = `Gallery link returned ${response.status}${detail ? `: ${detail.slice(0, 180)}` : ""}`;
-            }
-          }
-          if (!ok) {
-            const imageResponse = await fetch(link.imageUrl, { credentials: "same-origin", cache: "no-store" });
-            if (!imageResponse.ok)
-              throw new Error(`${linkFailure ? `${linkFailure}; ` : ""}could not read generated image (${imageResponse.status}).`);
-            const blob = await imageResponse.blob();
-            if (!blob.size)
-              throw new Error(`${linkFailure ? `${linkFailure}; ` : ""}generated image response was empty.`);
-            const form = new FormData;
-            form.append("image", new File([blob], galleryUploadFilename(blob, link.id), { type: blob.type || "image/png" }));
-            if (link.caption)
-              form.append("caption", link.caption);
-            const uploadResponse = await fetch(endpoint, {
-              method: "POST",
-              credentials: "same-origin",
-              headers: { Accept: "application/json" },
-              body: form
-            });
-            if (!uploadResponse.ok) {
-              const detail = await uploadResponse.text().catch(() => "");
-              throw new Error(`${linkFailure ? `${linkFailure}; ` : ""}Gallery upload returned ${uploadResponse.status}${detail ? `: ${detail.slice(0, 180)}` : ""}.`);
-            }
-            const row = await uploadResponse.json();
+          if (response.ok) {
+            const row = await response.json();
             galleryItemId = String(row.id || "");
             ok = Boolean(galleryItemId);
+          } else {
+            const detail = await response.text().catch(() => "");
+            linkFailure = `Gallery link returned ${response.status}${detail ? `: ${detail.slice(0, 180)}` : ""}`;
           }
-          if (ok && galleryItemId)
-            rememberGalleryLink(link.id, galleryItemId);
-          if (!ok)
-            error = "Lumiverse did not return a Character Gallery item ID.";
-        } catch (caught) {
-          error = caught instanceof Error ? caught.message : String(caught);
         }
-        ctx.sendToBackend({
-          type: "gallery_link_result",
-          chatId: link.chatId,
-          linkId: link.id,
-          ok,
-          galleryItemId: galleryItemId || undefined,
-          error: error || undefined
-        });
+        if (!ok) {
+          const imageResponse = await fetch(link.imageUrl, { credentials: "same-origin", cache: "no-store" });
+          if (!imageResponse.ok)
+            throw new Error(`${linkFailure ? `${linkFailure}; ` : ""}could not read generated image (${imageResponse.status}).`);
+          const blob = await imageResponse.blob();
+          if (!blob.size)
+            throw new Error(`${linkFailure ? `${linkFailure}; ` : ""}generated image response was empty.`);
+          const form = new FormData;
+          form.append("image", new File([blob], galleryUploadFilename(blob, link.id), { type: blob.type || "image/png" }));
+          if (link.caption)
+            form.append("caption", link.caption);
+          const uploadResponse = await fetch(endpoint, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { Accept: "application/json" },
+            body: form
+          });
+          if (!uploadResponse.ok) {
+            const detail = await uploadResponse.text().catch(() => "");
+            throw new Error(`${linkFailure ? `${linkFailure}; ` : ""}Gallery upload returned ${uploadResponse.status}${detail ? `: ${detail.slice(0, 180)}` : ""}.`);
+          }
+          const row = await uploadResponse.json();
+          galleryItemId = String(row.id || "");
+          ok = Boolean(galleryItemId);
+        }
+        if (ok && galleryItemId)
+          rememberGalleryLink(link.id, galleryItemId);
+        if (!ok)
+          error = "Lumiverse did not return a Character Gallery item ID.";
+      } catch (caught) {
+        error = caught instanceof Error ? caught.message : String(caught);
       }
     } finally {
+      window.clearInterval(leaseHeartbeat);
       galleryLinkProcessing = false;
+      galleryLinkResultAwaitingAck.add(link.id);
+      ctx.sendToBackend({
+        type: "gallery_link_result",
+        chatId: link.chatId,
+        linkId: link.id,
+        sessionId: frontendSessionId,
+        operationLeaseId,
+        ok,
+        galleryItemId: galleryItemId || undefined,
+        error: error || undefined
+      });
     }
   }
   async function runSelfTest() {

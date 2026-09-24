@@ -740,7 +740,8 @@ type FrontendMessage =
   | { type: 'bulk_chat_media_action'; chatId: string; lane: 'surfaces' | 'illustrations'; mode: 'remove-images-keep-slots' | 'remove-images-and-slots' }
   | { type: 'native_surface_action'; chatId: string; messageId: string; action: 'delete' | 'edit'; requestId?: string; rootTag?: string; surfaceId?: string; originalMarkup?: string; replacementMarkup?: string }
   | { type: 'remove_slot_image'; chatId: string; key: string }
-  | { type: 'gallery_link_result'; chatId?: string | null; linkId: string; ok: boolean; galleryItemId?: string; error?: string }
+  | { type: 'claim_gallery_link'; chatId: string; linkId: string; sessionId: string }
+  | { type: 'gallery_link_result'; chatId?: string | null; linkId: string; sessionId: string; operationLeaseId: string; ok: boolean; galleryItemId?: string; error?: string }
   | { type: 'retry_gallery_link'; chatId: string; linkId: string }
   | { type: 'dry_run'; chatId?: string | null; kind: 'slot' | 'prose-plan' | 'relay-planned'; key?: string; planId?: string; messageId?: string; swipeId?: number; prompt?: string; negativePrompt?: string; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
   | { type: 'full_complete_dry_run'; chatId?: string | null; runtimeHealth?: Record<string, unknown>; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
@@ -898,6 +899,10 @@ export type ProviderAttemptDiagnostic = {
   providerFallbackUsed: boolean
   providerDraining: boolean
   providerAbandonedByUser: boolean
+  providerOperationOrphaned: boolean
+  providerDetachedAt?: number
+  providerDetachReason?: string
+  providerDrainDeadlineMs?: number
   providerAbandonedAt?: number
   providerAbandonReason?: string
   laneResetCount: number
@@ -1235,6 +1240,7 @@ export const IMAGE_GENERATION_TIMEOUT_MS: number | undefined = undefined
 export const IMAGE_GENERATION_LANE_WAIT_TIMEOUT_MS: number | undefined = undefined
 export const IMAGE_GENERATION_DRAIN_TIMEOUT_MS = 2 * 60_000
 export const SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS = 2 * 60_000
+export const GALLERY_LINK_OPERATION_LEASE_MS = 2 * 60_000
 
 export function isChatNotFoundError(error: unknown): boolean {
   const seen = new Set<unknown>()
@@ -1400,7 +1406,13 @@ function releaseAbortedImageGenerationLane(lease: ImageGenerationLaneLease, prov
   lane.draining = true
   lane.drainStartedAt = Date.now()
   lane.drainReason = reason instanceof Error ? reason.message : String(reason || 'Provider operation was cancelled.')
-  if (diagnostic) diagnostic.providerDraining = true
+  const drainDeadlineMs = Number.isFinite(lease.context.drainTimeoutMs)
+    ? Math.max(1, Math.floor(lease.context.drainTimeoutMs!))
+    : IMAGE_GENERATION_DRAIN_TIMEOUT_MS
+  if (diagnostic) {
+    diagnostic.providerDraining = true
+    diagnostic.providerDrainDeadlineMs = drainDeadlineMs
+  }
   const message = reason instanceof Error ? reason.message : String(reason || 'Provider operation was cancelled.')
   spindle.log.warn(`[ReverieRelay:image_provider_aborted] ${lease.context.generationId}: ${message}; serialized lane quarantined until the host transport settles.`)
   // Some host transports settle late or violate their AbortSignal contract.
@@ -1409,14 +1421,39 @@ function releaseAbortedImageGenerationLane(lease: ImageGenerationLaneLease, prov
   if (lane.stuckVisibilityTimer) clearTimeout(lane.stuckVisibilityTimer)
   lane.stuckVisibilityTimer = setTimeout(() => emitImageWorkerRecoveryState(lane.userId), SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS)
   ;(lane.stuckVisibilityTimer as any).unref?.()
+  if (lane.drainWatchdog) clearTimeout(lane.drainWatchdog)
+  lane.drainWatchdog = setTimeout(() => {
+    const current = imageGenerationLanes.get(lease.key)
+    if (!current || current.activeLeaseId !== lease.leaseId || !current.draining) return
+    const detachedAt = Date.now()
+    const reset = providerLaneResetDiagnostics.get(lease.key) || { laneResetCount: 0 }
+    providerLaneResetDiagnostics.set(lease.key, {
+      ...reset,
+      lastLaneResetAt: detachedAt,
+      lastAbandonedGenerationId: lease.context.generationId,
+      lastAbandonReason: 'automatic-drain-deadline',
+    })
+    if (diagnostic) {
+      diagnostic.providerDraining = false
+      diagnostic.providerOperationOrphaned = true
+      diagnostic.providerDetachedAt = detachedAt
+      diagnostic.providerDetachReason = 'automatic-drain-deadline'
+    }
+    spindle.log.warn(`[ReverieRelay:image_provider_orphaned] ${JSON.stringify({ generationId: lease.context.generationId, provider: lease.providerId, drainDeadlineMs, remoteCancellationClaimed: false })}`)
+    lease.release()
+    if (diagnostic) void Promise.resolve(lease.context.onAttemptDiagnosticFinalized?.(cloneValue(diagnostic))).catch(error => {
+      spindle.log.warn(`[ReverieRelay:provider_diagnostic_detach_persistence_failure] ${lease.context.generationId}: ${error instanceof Error ? error.message : String(error)}`)
+    })
+  }, drainDeadlineMs)
+  ;(lane.drainWatchdog as any).unref?.()
   emitImageWorkerRecoveryState(lane.userId)
   void providerOperation.then(
-    () => spindle.log.info(`[ReverieRelay:image_provider_late_settlement] ${lease.context.generationId}: late result discarded; serialized lane is safe to release.`),
+    () => spindle.log.info(`[ReverieRelay:image_provider_late_settlement] ${lease.context.generationId}: late result discarded${diagnostic?.providerOperationOrphaned ? ' after automatic detach' : '; serialized lane is safe to release'}.`),
     () => undefined,
   ).then(async () => {
     if (diagnostic) diagnostic.providerDraining = false
     lease.release()
-    if (diagnostic) {
+    if (diagnostic && !diagnostic.providerOperationOrphaned) {
       try {
         await lease.context.onAttemptDiagnosticFinalized?.(cloneValue(diagnostic))
       } catch (error) {
@@ -1507,6 +1544,7 @@ export function inspectImageGenerationLaneDiagnostics(userId?: string, now = Dat
     drainStartedAt: lane.drainStartedAt || 0,
     drainAgeMs,
     drainReason: lane.drainReason || '',
+    drainDeadlineMs: Number.isFinite(lane.activeContext?.drainTimeoutMs) ? lane.activeContext!.drainTimeoutMs : IMAGE_GENERATION_DRAIN_TIMEOUT_MS,
     resetAvailable,
     stuckThresholdMs: SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS,
     laneResetCount: reset.laneResetCount,
@@ -4839,11 +4877,20 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
         lastSeenAt: Date.now(),
         platformClass: payload.platformClass,
       })
-      if (payload.chatId && !payload.heartbeat) await mutateState(payload.chatId, userId, state => appendStateLog(state, {
-        severity: 'info', stage: 'frontend-session', eventType: payload.connected ? 'frontend_connected' : 'frontend_disconnected', chatId: payload.chatId || undefined,
-        message: `${payload.platformClass} frontend ${payload.connected ? 'connected' : 'disconnected'}.`,
-        details: { sessionId: payload.sessionId, platformClass: payload.platformClass, nativeSettingsAvailable: payload.nativeSettingsAvailable },
-      }))
+      if (payload.chatId && !payload.heartbeat) await mutateState(payload.chatId, userId, state => {
+        if (!payload.connected) for (const link of Object.values(state.galleryLinks)) {
+          if (link.operationLeaseSessionId !== payload.sessionId) continue
+          link.operationLeaseId = undefined
+          link.operationLeaseSessionId = undefined
+          link.operationLeaseExpiresAt = undefined
+        }
+        appendStateLog(state, {
+          severity: 'info', stage: 'frontend-session', eventType: payload.connected ? 'frontend_connected' : 'frontend_disconnected', chatId: payload.chatId || undefined,
+          message: `${payload.platformClass} frontend ${payload.connected ? 'connected' : 'disconnected'}.`,
+          details: { sessionId: payload.sessionId, platformClass: payload.platformClass, nativeSettingsAvailable: payload.nativeSettingsAvailable },
+        })
+      })
+      if (payload.chatId && !payload.connected && !payload.heartbeat) await sendState(userId, payload.chatId)
       void reconsiderPendingPlacementBatches(userId).catch(error => spindle.log.error(`[Reverie Relay:placement_visual_session] ${error instanceof Error ? error.message : String(error)}`))
       return
     }
@@ -5080,6 +5127,9 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
     case 'remove_slot_image':
       await handleRemoveSlotImage(payload, userId)
       return
+    case 'claim_gallery_link':
+      await handleClaimGalleryLink(payload, userId)
+      return
     case 'gallery_link_result':
       await handleGalleryLinkResult(payload, userId)
       return
@@ -5104,50 +5154,99 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
   }
 }
 
+export function claimGalleryLinkOperation(link: GalleryLinkRequest, sessionId: string, now = Date.now(), leaseMs = GALLERY_LINK_OPERATION_LEASE_MS): { granted: boolean; operationLeaseId?: string; reason?: string } {
+  if (link.status === 'linked') return { granted: false, reason: 'already-linked' }
+  if (link.status !== 'pending') return { granted: false, reason: 'not-pending' }
+  if (link.operationLeaseId && link.operationLeaseExpiresAt && link.operationLeaseExpiresAt > now) {
+    if (link.operationLeaseSessionId !== sessionId) return { granted: false, reason: 'owned-by-another-session' }
+    link.operationLeaseExpiresAt = now + Math.max(1, leaseMs)
+    link.updatedAt = now
+    return { granted: true, operationLeaseId: link.operationLeaseId }
+  }
+  const operationLeaseId = `${link.id}:${now}:${Math.random().toString(36).slice(2, 8)}`
+  link.operationLeaseId = operationLeaseId
+  link.operationLeaseSessionId = sessionId
+  link.operationLeaseExpiresAt = now + Math.max(1, leaseMs)
+  link.updatedAt = now
+  return { granted: true, operationLeaseId }
+}
+
+export function settleGalleryLinkOperation(link: GalleryLinkRequest, payload: { sessionId: string; operationLeaseId: string; ok: boolean; galleryItemId?: string; error?: string }, now = Date.now()): 'applied' | 'duplicate' | 'stale' {
+  if (link.status === 'linked') return 'duplicate'
+  if (link.status !== 'pending'
+    || link.operationLeaseId !== payload.operationLeaseId
+    || link.operationLeaseSessionId !== payload.sessionId) return 'stale'
+  link.operationLeaseId = undefined
+  link.operationLeaseSessionId = undefined
+  link.operationLeaseExpiresAt = undefined
+  link.attempts += 1
+  link.lastAttemptAt = now
+  link.updatedAt = now
+  link.lastOperationSource = link.retryMode === 'gallery-only' ? 'explicit-gallery-retry' : 'rest-fallback'
+  if (payload.ok) {
+    link.status = 'linked'
+    link.galleryItemId = cleanString(payload.galleryItemId) || link.galleryItemId
+    link.error = undefined
+    link.completedAt = now
+  } else {
+    link.status = 'failed'
+    link.error = cleanString(payload.error) || 'Character Gallery registration failed.'
+  }
+  return 'applied'
+}
+
+async function handleClaimGalleryLink(payload: Extract<FrontendMessage, { type: 'claim_gallery_link' }>, userId?: string): Promise<void> {
+  const chatId = cleanString(payload.chatId)
+  const sessionId = cleanString(payload.sessionId)
+  if (!chatId || !sessionId) return
+  const session = nativeSettingsBroker(userId).frontendSessions.get(sessionId)
+  let claim: ReturnType<typeof claimGalleryLinkOperation> = { granted: false, reason: 'frontend-session-unavailable' }
+  if (session?.connected && session.chatId === chatId) {
+    await mutateState(chatId, userId, state => {
+      const link = state.galleryLinks[payload.linkId]
+      claim = link ? claimGalleryLinkOperation(link, sessionId) : { granted: false, reason: 'link-not-found' }
+    })
+  }
+  spindle.sendToFrontend({ type: 'gallery_link_claim', chatId, linkId: payload.linkId, sessionId, ...claim }, userId)
+  if (claim.granted || claim.reason === 'owned-by-another-session') await sendState(userId, chatId)
+}
 
 async function handleGalleryLinkResult(payload: Extract<FrontendMessage, { type: 'gallery_link_result' }>, userId?: string): Promise<void> {
   const chatId = cleanString(payload.chatId)
   if (!chatId) return
-  await mutateState(chatId, userId, state => {
+  const outcome = await mutateState(chatId, userId, state => {
     const link = state.galleryLinks[payload.linkId]
-    if (!link) return
+    if (!link) return 'stale' as const
     const now = Date.now()
-    link.attempts += 1
-    link.lastAttemptAt = now
-    link.updatedAt = now
-    link.lastOperationSource = link.retryMode === 'gallery-only' ? 'explicit-gallery-retry' : 'rest-fallback'
-    if (payload.ok) {
-      link.status = 'linked'
-      link.galleryItemId = cleanString(payload.galleryItemId) || link.galleryItemId
-      link.error = undefined
-      link.completedAt = now
+    const settlement = settleGalleryLinkOperation(link, payload, now)
+    if (settlement !== 'applied') return settlement
+    if (link.status === 'linked') {
       finishBackgroundTask(state, `queue:${link.id}`, 'Saved to Character Gallery')
     } else {
-      link.status = 'failed'
-      link.error = cleanString(payload.error) || 'Character Gallery registration failed.'
-      failBackgroundTask(state, `queue:${link.id}`, link.error)
+      failBackgroundTask(state, `queue:${link.id}`, link.error || 'Character Gallery registration failed.')
     }
     if (link.slotKey && state.slots[link.slotKey]) {
       const record = state.slots[link.slotKey]
       record.galleryLinkStatus = link.status
       record.galleryItemId = link.galleryItemId
       record.galleryLinkError = link.error
-      record.galleryLinkedAt = payload.ok ? now : undefined
+      record.galleryLinkedAt = link.status === 'linked' ? now : undefined
       record.galleryLinkLastAttemptAt = now
-      record.galleryLinkRetryMode = payload.ok ? undefined : 'gallery-only'
+      record.galleryLinkRetryMode = link.status === 'linked' ? undefined : 'gallery-only'
     }
     const record = link.slotKey ? state.slots[link.slotKey] : undefined
     appendStateLog(state, {
-      severity: payload.ok ? 'info' : 'error', stage: 'character-gallery', eventType: payload.ok ? 'gallery_link_completed' : 'gallery_link_failed',
-      chatId, requestId: record?.requestId || link.id, message: payload.ok ? 'Generated image linked to the current character Gallery.' : `Character Gallery link failed: ${link.error}`,
+      severity: link.status === 'linked' ? 'info' : 'error', stage: 'character-gallery', eventType: link.status === 'linked' ? 'gallery_link_completed' : 'gallery_link_failed',
+      chatId, requestId: record?.requestId || link.id, message: link.status === 'linked' ? 'Generated image linked to the current character Gallery.' : `Character Gallery link failed: ${link.error}`,
       details: {
         linkId: link.id, slotKey: link.slotKey || null, imageId: link.imageId, characterId: link.characterId,
         operationSource: link.lastOperationSource, source: link.source, galleryItemId: link.galleryItemId,
-        generationSucceeded: true, retryBehavior: payload.ok ? 'none' : 'gallery-only-no-regeneration', exactFailure: link.error || null,
+        generationSucceeded: true, retryBehavior: link.status === 'linked' ? 'none' : 'gallery-only-no-regeneration', exactFailure: link.error || null,
       },
     })
+    return settlement
   })
-  await sendState(userId, chatId)
+  if (outcome === 'applied') await sendState(userId, chatId)
 }
 
 async function handleRetryGalleryLink(payload: Extract<FrontendMessage, { type: 'retry_gallery_link' }>, userId?: string): Promise<void> {
@@ -5163,6 +5262,9 @@ async function handleRetryGalleryLink(payload: Extract<FrontendMessage, { type: 
     link.error = undefined
     link.retryMode = 'gallery-only'
     link.lastOperationSource = 'explicit-gallery-retry'
+    link.operationLeaseId = undefined
+    link.operationLeaseSessionId = undefined
+    link.operationLeaseExpiresAt = undefined
     link.updatedAt = now
     if (link.slotKey && state.slots[link.slotKey]) {
       const record = state.slots[link.slotKey]
@@ -8534,6 +8636,34 @@ async function stageInitialPlacementBatchEntry(batch: InitialPlacementBatch, job
   }
 }
 
+function replaceCanonicalRequestOwner(content: string, job: RouterJob, replacement: string): string | null {
+  const semanticMatches = parseSafeSurfaceImageRequests(content).filter(request => request.id === job.requestId
+    && request.target === job.target
+    && job.slots.every(slot => slotsForRequest(request).includes(slot)))
+  if (semanticMatches.length !== 1) return null
+
+  // parseImageRequests normalizes legacy Prose syntax before returning its
+  // index. Locate the raw owner independently so normalization can never make
+  // us splice unrelated prose at a shifted offset.
+  const rawOwners: Array<{ index: number; fullMatch: string }> = []
+  const ownerPatterns = [
+    /<(image_request|reverie-illustration)\b[^>]*>[\s\S]*?<\/\1>/gi,
+    /\[image_request\][\s\S]*?\[\/image_request\]/gi,
+  ]
+  for (const pattern of ownerPatterns) {
+    let match: RegExpExecArray | null
+    while ((match = pattern.exec(content)) !== null) {
+      const rawRequests = parseImageRequests(match[0])
+      if (rawRequests.some(request => request.id === job.requestId && job.slots.every(slot => slotsForRequest(request).includes(slot)))) {
+        rawOwners.push({ index: match.index, fullMatch: match[0] })
+      }
+    }
+  }
+  if (rawOwners.length !== 1) return null
+  const owner = rawOwners[0]
+  return `${content.slice(0, owner.index)}${replacement}${content.slice(owner.index + owner.fullMatch.length)}`
+}
+
 export function composeInitialPlacementBatchContent(content: string, entries: InitialPlacementBatchEntry[]): { content: string; error?: string; failedEntries?: InitialPlacementBatchEntry[] } {
   let nextContent = content
   const failedEntries: InitialPlacementBatchEntry[] = []
@@ -8547,18 +8677,24 @@ export function composeInitialPlacementBatchContent(content: string, entries: In
     if (placementIsPresent(nextContent, job, results)) continue
     const expectedPlacements = new Map(results.map(result => [result.slot, expectedPlacementCount(nextContent, job, result)]))
     let placed = nextContent
+    const replacement = renderResolvedMarkup(job, results)
     if (replaceExisting) {
       for (const result of results) placed = replaceResolvedSlotAfterComment(placed, job, result) || placed
+      // Durable state projection intentionally leaves the authored request in
+      // host prose. A regeneration therefore may have no resolved marker even
+      // though its exact canonical request/slot owner is still present.
+      if (!placementIsPresent(placed, job, results)) placed = replaceCanonicalRequestOwner(placed, job, replacement) || placed
     } else {
-      const replacement = renderResolvedMarkup(job, results)
       if (placed.includes(job.originalRequestXml)) {
         const ownedMediaReplacement = replaceOwningMessageMediaWrapper(placed, job, replacement)
         placed = ownedMediaReplacement || placed.split(job.originalRequestXml).join(replacement)
-      } else if (job.target === 'prose.illustration' && job.synthetic && job.proseAnchor) {
-        const projected = insertProseMarker(placed, job.proseAnchor, replacement)
-        if (projected.content && !projected.ambiguous) placed = projected.content
       } else {
-        placed = replaceErrorAfterComment(placed, job, replacement) || placed
+        const canonicalOwnerReplacement = replaceCanonicalRequestOwner(placed, job, replacement)
+        if (canonicalOwnerReplacement) placed = canonicalOwnerReplacement
+        else if (job.target === 'prose.illustration' && job.synthetic && job.proseAnchor) {
+          const projected = insertProseMarker(placed, job.proseAnchor, replacement)
+          if (projected.content && !projected.ambiguous) placed = projected.content
+        } else placed = replaceErrorAfterComment(placed, job, replacement) || placed
       }
     }
     if (!placementIsPresent(placed, job, results, expectedPlacements)) {
@@ -13323,8 +13459,11 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
     owner_chat_id: resolvedOwnerChatId || undefined,
     owner_character_id: ownerCharacterId || undefined,
     ownerCharacterId: ownerCharacterId || undefined,
-    add_to_gallery: shouldLinkToGallery,
-    gallery_caption: shouldLinkToGallery ? prepared.prompt.slice(0, 240) : undefined,
+    // Pixel persistence and authored-slot placement must complete before any
+    // Character Gallery work. The durable REST fallback owns that secondary
+    // phase and cannot hold the provider result hostage.
+    add_to_gallery: false,
+    gallery_caption: undefined,
     generation_origin: source,
     // Lumiverse persists the generated asset. Relay keeps the stable ID/URL and
     // must not bounce a full base64 copy through the worker for normal jobs.
@@ -13352,10 +13491,10 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
   let galleryLinkStatus: GalleryLinkStatus = cleanString(result.galleryLinkStatus) === 'linked' || result.galleryLinked === true
     ? 'linked'
     : shouldLinkToGallery
-      ? 'failed'
+      ? 'pending'
       : 'skipped'
   let galleryLinkedAt = galleryLinkStatus === 'linked' ? Date.now() : undefined
-  let galleryLinkError = cleanString(result.galleryLinkError) || undefined
+  let galleryLinkError = galleryLinkStatus === 'linked' ? cleanString(result.galleryLinkError) || undefined : undefined
   let imageId = cleanString(result.imageId)
   let imageUrl = cleanString(result.imageUrl) || (imageId ? imageUrlFromId(imageId) : '')
   if (!imageId && imageUrl) imageId = imageIdFromResultUrl(imageUrl)
@@ -13392,8 +13531,8 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
       originalFilename: `reverie-relay-${streamContext?.source || 'generation'}-${Date.now()}.png`,
       owner_character_id: ownerCharacterId || undefined,
       owner_chat_id: resolvedOwnerChatId || undefined,
-      add_to_gallery: shouldLinkToGallery,
-      gallery_caption: shouldLinkToGallery ? prepared.prompt.slice(0, 240) : undefined,
+      add_to_gallery: false,
+      gallery_caption: undefined,
       userId,
     } as any)
     imageId = cleanString(uploaded.id)
@@ -13419,8 +13558,8 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
             originalFilename: `reverie-relay-${streamContext?.source || 'generation'}-${Date.now()}.png`,
             owner_character_id: ownerCharacterId || undefined,
             owner_chat_id: resolvedOwnerChatId || undefined,
-            add_to_gallery: shouldLinkToGallery,
-            gallery_caption: shouldLinkToGallery ? prepared.prompt.slice(0, 240) : undefined,
+            add_to_gallery: false,
+            gallery_caption: undefined,
             userId,
           } as any)
           imageId = cleanString(uploaded.id)
@@ -13452,9 +13591,8 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
     if (galleryLinkStatus === 'linked' && galleryItemId) {
       spindle.log.info(`[ReverieRelay:character_gallery] Linked ${imageId} as Gallery item ${galleryItemId} for ${source}.`)
     } else {
-      galleryLinkStatus = 'failed'
-      galleryLinkError ||= 'Lumiverse did not confirm a Character Gallery row.'
-      spindle.log.warn(`[ReverieRelay:character_gallery] ${galleryLinkError}`)
+      galleryLinkStatus = 'pending'
+      spindle.log.info(`[ReverieRelay:character_gallery] Image ${imageId} persisted; Gallery linking remains an asynchronous secondary phase.`)
     }
   }
   const imageWidth = asset?.width ?? null
@@ -15283,6 +15421,9 @@ function normalizeGalleryLinks(value: unknown): Record<string, GalleryLinkReques
       completedAt: Number(row.completedAt) || undefined,
       retryMode: cleanString(row.retryMode) === 'gallery-only' ? 'gallery-only' : undefined,
       lastOperationSource: (['server-persistence','rest-fallback','explicit-gallery-retry'].includes(cleanString(row.lastOperationSource)) ? cleanString(row.lastOperationSource) : undefined) as GalleryLinkRequest['lastOperationSource'],
+      operationLeaseId: cleanString(row.operationLeaseId) || undefined,
+      operationLeaseSessionId: cleanString(row.operationLeaseSessionId) || undefined,
+      operationLeaseExpiresAt: Number(row.operationLeaseExpiresAt) || undefined,
       galleryItemId: cleanString(row.galleryItemId) || undefined,
       error: cleanString(row.error) || undefined,
     }
@@ -15370,7 +15511,7 @@ function failBackgroundTask(state: StateFile, id: string, error: string): void {
 }
 
 function queueGalleryLink(state: StateFile, input: Omit<GalleryLinkRequest, 'id' | 'status' | 'attempts' | 'createdAt' | 'updatedAt'>): GalleryLinkRequest {
-  const id = `gallery-${contentFingerprint(`${input.characterId}:${input.imageId}:${input.source}`).slice(0, 20)}`
+  const id = `gallery-${contentFingerprint(`${input.slotKey || ''}:${input.imageId}:${input.characterId}`).slice(0, 20)}`
   const existing = state.galleryLinks[id]
   if (existing?.status === 'linked') return existing
   const now = Date.now()
@@ -15511,6 +15652,7 @@ export async function generateWithOptionalStream(
     providerFallbackUsed: false,
     providerDraining: false,
     providerAbandonedByUser: false,
+    providerOperationOrphaned: false,
     laneResetCount: providerLaneResetDiagnostics.get(imageGenerationLaneKey(userId))?.laneResetCount || 0,
     lastLaneResetAt: providerLaneResetDiagnostics.get(imageGenerationLaneKey(userId))?.lastLaneResetAt,
     destinationAvailable: destinationAvailable(context, userId),
@@ -15832,6 +15974,26 @@ export async function generateWithOptionalStream(
 export function retainProviderAttemptDiagnostic(record: SlotRecord, diagnostic: ProviderAttemptDiagnostic): void {
   const snapshot = cloneValue(diagnostic) as unknown as Record<string, unknown>
   const attempt = currentAttempt(record)
+  if (diagnostic.providerDispatchCount > 0) {
+    const providerStartedAt = diagnostic.providerInvocationStartedAt || diagnostic.providerSpendStartedAt || 0
+    const providerFinishedAt = diagnostic.providerInvocationResolvedAt || diagnostic.providerInvocationRejectedAt || diagnostic.completedAt || 0
+    if (providerStartedAt) {
+      record.providerStartedAt ||= providerStartedAt
+      record.providerRequestSentAt ||= providerStartedAt
+      if (attempt) {
+        attempt.providerStartedAt ||= providerStartedAt
+        attempt.providerRequestSentAt ||= providerStartedAt
+      }
+    }
+    if (providerFinishedAt) {
+      record.providerCompletedAt ||= providerFinishedAt
+      record.providerResultReceivedAt ||= providerFinishedAt
+      if (attempt) {
+        attempt.providerCompletedAt ||= providerFinishedAt
+        attempt.providerResultReceivedAt ||= providerFinishedAt
+      }
+    }
+  }
   if (attempt) attempt.providerAttemptDiagnostic = snapshot
   const existing = record.diagnostic
   record.diagnostic = {

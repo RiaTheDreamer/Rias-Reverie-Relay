@@ -222,6 +222,46 @@ assertExactlyOnce('timeout-same-chat', 'success')
 assertExactlyOnce('timeout-fresh-chat', 'success')
 assert.equal(backend.inspectImageGenerationLaneDiagnostics('swarm-timeout'), null)
 
+// An aborted provider that never settles is detached automatically after the
+// bounded drain deadline. Its orphaned promise remains telemetry-only and can
+// no longer hold the serialized user lane forever.
+let orphanSuccessorStarts = 0
+const orphanController = new AbortController()
+imageApi.generateStream = async function* (input: any) {
+  if (input.prompt === 'orphan forever') {
+    yield { type: 'status', status: 'accepted', requestId: 'orphan-provider-request' }
+    await new Promise<void>(() => undefined)
+  } else {
+    orphanSuccessorStarts += 1
+    yield { type: 'done', result: { imageId: 'after-orphan', imageUrl: '/after-orphan' } }
+  }
+}
+const orphaned = backend.generateWithOptionalStream({ prompt: 'orphan forever' }, swarmPlan, 'swarm-orphan', context('orphan-a', {
+  attemptSignal: orphanController.signal, drainTimeoutMs: 20,
+}), false, 500)
+await delay(5)
+orphanController.abort('abandon host operation')
+await assert.rejects(orphaned, /abort|abandon/i)
+const afterOrphan = backend.generateWithOptionalStream({ prompt: 'successor after detach' }, swarmPlan, 'swarm-orphan', context('orphan-b'), false, 500)
+await delay(10)
+assert.equal(orphanSuccessorStarts, 0, 'successor started before the bounded drain deadline')
+assert.equal((backend.inspectImageGenerationLaneDiagnostics('swarm-orphan') as any).draining, true)
+assert.equal((await afterOrphan).imageId, 'after-orphan')
+assert.equal(orphanSuccessorStarts, 1)
+const orphanDiagnostic: any = assertExactlyOnce('orphan-a', 'cancelled')
+assert.equal(orphanDiagnostic.providerOperationOrphaned, true)
+assert.equal(orphanDiagnostic.providerDetachReason, 'automatic-drain-deadline')
+assert(orphanDiagnostic.providerDetachedAt > orphanDiagnostic.abortRequestedAt)
+assertExactlyOnce('orphan-b', 'success')
+assert.equal(backend.inspectImageGenerationLaneDiagnostics('swarm-orphan'), null)
+
+const projectedTimeoutRecord: any = {
+  attempts: [{ attemptNumber: 1, triggerType: 'initial', startedAt: timeoutDiagnostic.createdAt, stage: 'image-generation' }],
+}
+backend.retainProviderAttemptDiagnostic(projectedTimeoutRecord, timeoutDiagnostic)
+const projectedTimeoutTiming: any = backend.generationTimingForRecord(projectedTimeoutRecord, timeoutDiagnostic.completedAt)
+assert(projectedTimeoutTiming.providerExecutionMs > 0, 'transport timeout retained a zero provider duration despite a real dispatch interval')
+
 // A fresh provider failure finalizes a real attempt snapshot and can be
 // retained on the slot before any success-only diagnostic path exists.
 let finalizedFailureDiagnostic: any = null
@@ -304,13 +344,15 @@ imageApi.generateStream = async function* (input: any) {
   yield { type: 'done', result: { imageId: 'fresh-result', imageUrl: '/fresh-result' } }
 }
 const lateController = new AbortController()
-const late = backend.generateWithOptionalStream({ prompt: 'late result' }, swarmPlan, 'swarm-late', context('late-a', { attemptSignal: lateController.signal }), false, 500)
+const late = backend.generateWithOptionalStream({ prompt: 'late result' }, swarmPlan, 'swarm-late', context('late-a', { attemptSignal: lateController.signal, drainTimeoutMs: 20 }), false, 500)
 while (!releaseLate) await Promise.resolve()
 lateController.abort('navigate away')
 await assert.rejects(late, /cancel/i)
 const fresh = backend.generateWithOptionalStream({ prompt: 'fresh request' }, swarmPlan, 'swarm-late', context('late-b'), false, 500)
-releaseLate()
 assert.equal((await fresh).imageId, 'fresh-result')
+assert.equal((backend.inspectProviderAttemptDiagnostics('late-a') as any).providerOperationOrphaned, true)
+releaseLate()
+await delay(5)
 assert.equal(frontendEvents.some(event => event?.generationId === 'late-a' && event?.event === 'done'), false)
 assertExactlyOnce('late-a', 'cancelled')
 assertExactlyOnce('late-b', 'success')
@@ -339,4 +381,4 @@ for (const origin of providerOrigins) {
 }
 
 assert.equal(logs.some(entry => entry.message.includes('image_stream_fallback')), false)
-console.log('Swarm generation regression smoke passed: timeoutless production waiting, abortable transport, exact correlation, concurrency one, explicit-deadline/cancel quarantine until host settlement, durable diagnostics, and stale-result rejection are enforced.')
+console.log('Swarm generation regression smoke passed: timeoutless active work, bounded aborted-operation detach, exact correlation, concurrency-one ownership, durable phase diagnostics, and stale-result rejection are enforced.')
