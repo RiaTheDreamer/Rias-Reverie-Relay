@@ -929,6 +929,7 @@ export type ProviderAttemptDiagnostic = {
   providerSubscriptionRegisteredAt: number
   providerSubscriptionTeardownStartedAt: number
   providerSubscriptionTeardownCompletedAt: number
+  providerStreamCloseMode?: 'natural-complete' | 'explicit-cancel' | 'transport-error'
   activeProviderSubscriptionsAfterTeardown: number
   invocationFinalizationStartedAt: number
   invocationFinalizationCompletedAt: number
@@ -15875,12 +15876,18 @@ export async function generateWithOptionalStream(
       }
       providerOperation = (async () => {
         const iterator = stream[Symbol.asyncIterator]()
+        let iteratorNaturallyCompleted = false
+        let terminalPayloadReceived = false
         activeProviderSubscriptions.add(context.generationId)
         diagnostic.providerSubscriptionRegisteredAt ||= Date.now()
         try {
           while (true) {
             const next = await iterator.next()
-            if (next.done) break
+            if (next.done) {
+              iteratorNaturallyCompleted = true
+              diagnostic.providerStreamCloseMode = 'natural-complete'
+              break
+            }
             const rawEvent = next.value
           if (controller.signal.aborted) throw abortError()
           const normalizedEvent = normalizeImageGenerationStreamEvent(rawEvent)
@@ -15914,6 +15921,8 @@ export async function generateWithOptionalStream(
           }
 
           if (['done', 'complete', 'completed', 'finished', 'result'].includes(type) && normalizedEvent.result) {
+            if (terminalPayloadReceived) throw new Error('ImageGen stream emitted more than one terminal result.')
+            terminalPayloadReceived = true
             result = normalizedEvent.result
             diagnostic.providerPayloadReceivedAt ||= Date.now()
             const finalPreview = previewImageDataUrl || streamImageValue(result)
@@ -15928,17 +15937,21 @@ export async function generateWithOptionalStream(
                 nodeId,
               })
             }
-            // A terminal payload completes Relay's ownership of this stream.
-            // Stop iteration explicitly so AsyncIterator.return() tears down the
-            // host listener/session subscription before the serialized lane can
-            // be granted to the next request or chat.
-            break
+            // The Spindle stream contract defines break/return as upstream
+            // cancellation. Consume the host's natural completion after its
+            // terminal payload so success cannot become an abrupt WS abort.
+            continue
           }
         }
         } finally {
           diagnostic.providerSubscriptionTeardownStartedAt ||= Date.now()
           try {
-            await iterator.return?.()
+            if (!iteratorNaturallyCompleted && !terminalPayloadReceived) {
+              diagnostic.providerStreamCloseMode = 'explicit-cancel'
+              await iterator.return?.()
+            } else if (!iteratorNaturallyCompleted) {
+              diagnostic.providerStreamCloseMode = 'transport-error'
+            }
           } finally {
             activeProviderSubscriptions.delete(context.generationId)
             diagnostic.providerSubscriptionTeardownCompletedAt ||= Date.now()

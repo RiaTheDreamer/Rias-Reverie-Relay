@@ -338,6 +338,48 @@ backendHandler!({
 })
 assert(body.querySelector('.dg-relay-orb')?.getAttribute('aria-busy') === 'false', 'placement-pending is waiting on the user and must not animate the Orb as Relay work')
 
+// Realistic prose DOM: Relay may stamp and size only the bound illustration
+// and its image wrapper. Live setting changes must not rewrite prose owners.
+const proseRoot = new FakeElement('div')
+const messageContent = new FakeElement('div')
+messageContent.setAttribute('data-component', 'MessageContent')
+const proseParagraph = new FakeElement('p')
+const proseImageWrapper = new FakeElement('span')
+const proseImage = new FakeElement('img') as any
+proseImage.src = '/live-prose.png'
+proseImage.currentSrc = '/live-prose.png'
+proseImageWrapper.appendChild(proseImage)
+proseParagraph.appendChild(proseImageWrapper)
+messageContent.appendChild(proseParagraph)
+const surfaceImage = new FakeElement('img') as any
+surfaceImage.src = '/surface.png'
+surfaceImage.currentSrc = '/surface.png'
+messageContent.appendChild(surfaceImage)
+proseRoot.appendChild(messageContent)
+messageRoots.set('prose-message', proseRoot)
+const proseRecord = {
+  key: 'boot-chat:prose-message:0:prose:illustration', chatId: 'boot-chat', messageId: 'prose-message', swipeId: 0,
+  requestId: 'prose', slot: 'illustration', target: 'prose.illustration', targetApp: 'prose', status: 'completed',
+  imageId: 'prose-image', imageUrl: '/live-prose.png', createdAt: Date.now(), updatedAt: Date.now(),
+}
+const surfaceRecord = {
+  key: 'boot-chat:prose-message:0:surface:media', chatId: 'boot-chat', messageId: 'prose-message', swipeId: 0,
+  requestId: 'surface', slot: 'media', target: 'custom.artifact-media', targetApp: 'custom', status: 'completed',
+  imageId: 'surface-image', imageUrl: '/surface.png', createdAt: Date.now(), updatedAt: Date.now(),
+}
+const proseOwnerStyleBefore = JSON.stringify({ paragraph: proseParagraph.style, messageContent: messageContent.style })
+for (const [offset, imageSize] of ['small', 'medium', 'large', 'full'].entries()) {
+  backendHandler!({
+    ...bootState,
+    revision: 5 + offset,
+    records: [proseRecord, surfaceRecord],
+    config: { ...bootState.config, proseIllustratorSettings: { imageSize, imageAlignment: 'center' } },
+  })
+  assert(proseImage.dataset.dgirApp === 'prose' && proseImage.dataset.dgirProseSize === imageSize, `${imageSize}: mounted prose image did not receive the live Image Size contract`)
+  assert(!surfaceImage.dataset.dgirProseSize, `${imageSize}: Surface image inherited prose sizing metadata`)
+  assert(JSON.stringify({ paragraph: proseParagraph.style, messageContent: messageContent.style }) === proseOwnerStyleBefore, `${imageSize}: Relay rewrote prose/MessageContent layout state`)
+}
+
 for (let tick = 0; tick < 8; tick += 1) await Promise.resolve()
 assert(backendPayloads.some((payload: any) => payload?.type === 'list_state' && payload.chatId === 'boot-chat'), 'frontend setup must begin backend state synchronization')
 cleanup()

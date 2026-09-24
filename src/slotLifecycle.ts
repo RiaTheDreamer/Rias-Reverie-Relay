@@ -66,3 +66,28 @@ export function isFailureRecoveryStatus(status: SlotStatus): boolean {
     || status === 'image-unavailable'
     || status === 'placement-repair-needed'
 }
+
+export type CurrentChatOverviewCounts = {
+  processing: number
+  readyToPlace: number
+  failed: number
+  completed: number
+}
+
+/** Mutually exclusive lifecycle counts for the active chat only. Lifetime
+ * archive totals deliberately do not belong in this view. */
+export function countCurrentChatOverview(
+  records: ReadonlyArray<{ chatId: string; status: SlotStatus }>,
+  activeChatId: string | null | undefined,
+): CurrentChatOverviewCounts {
+  const counts: CurrentChatOverviewCounts = { processing: 0, readyToPlace: 0, failed: 0, completed: 0 }
+  if (!activeChatId) return counts
+  for (const record of records) {
+    if (record.chatId !== activeChatId) continue
+    if (isGenerationActiveStatus(record.status)) counts.processing += 1
+    else if (isPlacementActiveStatus(record.status)) counts.readyToPlace += 1
+    else if (isFailureRecoveryStatus(record.status)) counts.failed += 1
+    else if (record.status === 'completed') counts.completed += 1
+  }
+  return counts
+}

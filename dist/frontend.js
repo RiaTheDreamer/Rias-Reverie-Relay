@@ -537,6 +537,9 @@ var SLOT_LIFECYCLE = {
 function isGenerationActiveStatus(status) {
   return SLOT_LIFECYCLE[status].generationActive;
 }
+function isPlacementActiveStatus(status) {
+  return SLOT_LIFECYCLE[status].placementActive;
+}
 function isSlotLifecycleActive(status) {
   const semantics = SLOT_LIFECYCLE[status];
   return semantics.generationActive || semantics.placementActive;
@@ -546,6 +549,24 @@ function canAbortSlotStatus(status) {
 }
 function isFailureRecoveryStatus(status) {
   return status === "failed" || status === "image-unavailable" || status === "placement-repair-needed";
+}
+function countCurrentChatOverview(records, activeChatId) {
+  const counts = { processing: 0, readyToPlace: 0, failed: 0, completed: 0 };
+  if (!activeChatId)
+    return counts;
+  for (const record of records) {
+    if (record.chatId !== activeChatId)
+      continue;
+    if (isGenerationActiveStatus(record.status))
+      counts.processing += 1;
+    else if (isPlacementActiveStatus(record.status))
+      counts.readyToPlace += 1;
+    else if (isFailureRecoveryStatus(record.status))
+      counts.failed += 1;
+    else if (record.status === "completed")
+      counts.completed += 1;
+  }
+  return counts;
 }
 
 // src/promptRegistryAssets028.ts
@@ -4381,8 +4402,8 @@ function summarizeRelayHealth(checks) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.7.1";
-var BUILD_ID = "20260924-0.2.8.7.1";
+var EXTENSION_VERSION = "0.2.8.7.2";
+var BUILD_ID = "20260924-0.2.8.7.2";
 
 // src/orbIconData.ts
 var ORB_IMAGE_DESIGNS = [
@@ -250669,28 +250690,20 @@ function setup(ctx) {
     :where(*):has(> img[data-dgir-custom-target])::before,
     :where(*):has(> img[data-dgir-custom-target])::after { pointer-events: none !important; }
     :where(*):has(> img[data-dgir-custom-target]) :is([class*="overlay"], [class*="gradient"], [class*="sparkle"], [class*="glow"], [class*="decoration"]) { pointer-events: none !important; }
-    [data-component="BubbleMessage"] > div[class*="bubble"] > div[class*="content"]:has(img[alt="reverie-relay"]) {
-      width: 100% !important;
-      max-width: 100% !important;
-    }
-    [data-component="MessageContent"] p:has(img[alt="reverie-relay"]) {
-      --dgir-bubble-image-inner-width: var(--dgir-prose-bubble-inner-width, calc(100% - (2 * clamp(18px, 3vw, 38px))));
-      --prose-image-max-width: var(--dgir-bubble-image-inner-width);
-      --prose-image-max-height: none;
-      text-align: var(--dgir-prose-image-text-align, center) !important;
-      overflow: visible !important;
-    }
-    [data-component="MessageContent"] p:has(img[alt="reverie-relay"]) > span:has(> img[alt="reverie-relay"]),
-    [data-component="MessageContent"] p:has(img[alt="reverie-relay"]) > a:has(img[alt="reverie-relay"]) {
+    [data-component="MessageContent"] p > :is(span, a):has(> img[data-dgir-app="prose"]) {
       display: block !important;
-      width: min(var(--dgir-prose-image-width, 66%), var(--dgir-bubble-image-inner-width)) !important;
-      max-width: 100% !important;
+      width: min(100%, var(--dgir-prose-image-width, 66%)) !important;
+      max-width: var(--dgir-prose-image-max-width, 720px) !important;
       max-height: none !important;
       overflow: visible !important;
       margin-left: var(--dgir-prose-image-margin-left, auto) !important;
       margin-right: var(--dgir-prose-image-margin-right, auto) !important;
     }
-    [data-component="MessageContent"] p:has(img[alt="reverie-relay"]) img[alt="reverie-relay"] {
+    [data-component="MessageContent"] p > :is(span, a):has(> img[data-dgir-app="prose"][data-dgir-prose-size="full"]) {
+      width: 100% !important;
+      max-width: none !important;
+    }
+    [data-component="MessageContent"] p > :is(span, a) > img[data-dgir-app="prose"] {
       display: block !important;
       width: 100% !important;
       height: auto !important;
@@ -250701,6 +250714,7 @@ function setup(ctx) {
     scene_image[data-dgir-prose-align], scene_image:has(img[data-dgir-app="prose"]), .dgir-prose-image-frame { display: flex !important; justify-content: var(--dgir-prose-image-justify, center) !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; margin: 10px 0 !important; }
     scene_image[data-dgir-prose-align] > img[data-dgir-app="prose"], scene_image:has(img[data-dgir-app="prose"]) > img[data-dgir-app="prose"], .dgir-prose-image-frame > img[data-dgir-app="prose"] { flex: 0 1 var(--dgir-prose-image-width, 66%) !important; width: var(--dgir-prose-image-width, 66%) !important; max-width: var(--dgir-prose-image-max-width, 720px) !important; min-width: min(100%, 220px) !important; }
     img[data-dgir-app="prose"] { display: block !important; width: var(--dgir-prose-image-width, 66%) !important; max-width: var(--dgir-prose-image-max-width, 720px) !important; height: auto !important; object-fit: contain !important; margin-left: var(--dgir-prose-image-margin-left, auto) !important; margin-right: var(--dgir-prose-image-margin-right, auto) !important; }
+    scene_image > img[data-dgir-app="prose"][data-dgir-prose-size="full"], .dgir-prose-image-frame > img[data-dgir-app="prose"][data-dgir-prose-size="full"], img[data-dgir-app="prose"][data-dgir-prose-size="full"] { flex-basis: 100% !important; width: 100% !important; max-width: none !important; min-width: 0 !important; height: auto !important; }
     .dg-router-panel .dg-meta-tabs { display: flex; gap: 5px; }
     .dg-router-panel .dg-meta-grid { display: grid; grid-template-columns: minmax(110px, .32fr) minmax(0, 1fr); gap: 7px 10px; font-size: 11px; }
     .dg-router-panel .dg-meta-label { color: var(--dgir-text-muted); font-weight: 800; }
@@ -250968,7 +250982,6 @@ function setup(ctx) {
       .dg-router-panel .dg-surface-grid { grid-template-columns: 1fr; }
       .dg-router-panel .dg-surface-card { grid-template-columns: 34px minmax(0, 1fr); }
       .dg-router-panel .dg-surface-card > .dg-chip { grid-column: 2; justify-self: start; }
-      [data-component="MessageContent"] p:has(img[alt="reverie-relay"]) { --dgir-bubble-image-inner-width: var(--dgir-prose-bubble-inner-width, calc(100% - 28px)); }
       .dg-router-panel { padding: 9px; }
       .dg-router-panel .dg-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .dg-router-panel .dg-head-top { flex-direction: column; }
@@ -252639,6 +252652,13 @@ ${message.prompt}`;
     else
       root.appendChild(projection);
   }
+  function applyLiveProseImagePresentation(image) {
+    const settings = currentProseSettings();
+    const size = ["small", "medium", "large", "full"].includes(String(settings.imageSize)) ? settings.imageSize : "medium";
+    const alignment = ["left", "center", "right"].includes(String(settings.imageAlignment)) ? settings.imageAlignment : "center";
+    image.dataset.dgirProseSize = size;
+    image.dataset.dgirProseAlign = alignment;
+  }
   function bindInlineImages(messageId) {
     if (!messageId) {
       bindNarrativeInteractiveControls();
@@ -252753,6 +252773,10 @@ ${message.prompt}`;
             slotImage.loading = "eager";
             slotImage.setAttribute("fetchpriority", "high");
             slotImage.decoding = "async";
+            if (record.target === "prose.illustration" || record.targetApp === "prose") {
+              slotImage.dataset.dgirApp = "prose";
+              applyLiveProseImagePresentation(slotImage);
+            }
             const imageChanged = !urlMatches(slotImage.currentSrc || slotImage.src, visualImageUrl);
             const shouldReveal = imageChanged && update.sawActiveLifecycle && !urlMatches(update.revealedImageUrl || "", visualImageUrl) && !urlMatches(revealedFinalImageByRecord.get(record.key) || "", visualImageUrl);
             if (imageChanged)
@@ -252886,6 +252910,8 @@ ${message.prompt}`;
         image.dataset.dgirMessageId = record.messageId;
         image.dataset.dgirSwipeId = String(record.swipeId);
         image.dataset.dgirBound = "true";
+        if (record.target === "prose.illustration" || record.targetApp === "prose")
+          applyLiveProseImagePresentation(image);
         image.title = "Open image";
         if (image.dataset.dgirLightboxBound !== "true") {
           image.dataset.dgirLightboxBound = "true";
@@ -252967,10 +252993,9 @@ ${message.prompt}`;
     document.documentElement.style.setProperty("--dgir-prose-image-margin-right", marginRight);
     document.documentElement.style.setProperty("--dgir-prose-image-text-align", textAlign);
     document.documentElement.dataset.dgirProseImageSize = imageSize;
-    if (imageSize === "full")
-      document.documentElement.style.setProperty("--dgir-prose-bubble-inner-width", "100%");
-    else
-      document.documentElement.style.removeProperty("--dgir-prose-bubble-inner-width");
+    document.documentElement.style.removeProperty("--dgir-prose-bubble-inner-width");
+    for (const image of deepQueryAll(document, 'img[data-dgir-app="prose"]'))
+      applyLiveProseImagePresentation(image);
   }
   function renderQuickStartOverview(onFinish) {
     const sections = [
@@ -259890,12 +259915,7 @@ ${recovered} recovered / ${summary.imageUnavailable} unavailable / ${summary.exi
     return div;
   }
   function countStatuses() {
-    return {
-      processing: records.filter(isProcessing).length,
-      readyToPlace: records.filter((record) => record.status === "placement-pending").length,
-      failed: records.filter((record) => record.status === "failed" || record.status === "image-unavailable").length,
-      completed: stats.completedTotal
-    };
+    return countCurrentChatOverview(records, activeChatId);
   }
   function canReparse(record) {
     return Boolean(record.originalSceneBrief.trim() && record.originalRequestXml.trim());
