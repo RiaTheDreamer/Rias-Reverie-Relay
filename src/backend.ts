@@ -3046,11 +3046,62 @@ function dedupeExactPromptContractCopies(messages: LlmMessage[], blocks: string[
   })
 }
 
+// This deliberately recognizes the complete Relay-owned bracket contract rather
+// than any user-authored mention of Narrative Utilities.  Expanded macro values
+// survive in host prompt history, so their payload is a cache of a prior config,
+// never an authority over the current config.
+function relayOwnedNarrativeWrapperPattern(): RegExp {
+  return /\[reverie_narrative_utility\]\s*\[contract\]narrative\[\/contract\]\s*\[version\][^\[]*\[\/version\]\s*\[utilities\][\s\S]*?\[\/utilities\][\s\S]*?\[\/reverie_narrative_utility\]/gi
+}
+
+function countRelayOwnedNarrativeWrappers(messages: LlmMessage[]): number {
+  return messages.reduce((count, message) => {
+    const content = typeof message.content === 'string' ? message.content : ''
+    return count + (content.match(relayOwnedNarrativeWrapperPattern()) || []).length
+  }, 0)
+}
+
+type NarrativeWrapperReconciliation = {
+  messages: LlmMessage[]
+  detected: number
+  replaced: number
+  removed: number
+  finalCount: number
+}
+
+function reconcileRelayOwnedNarrativeWrappers(messages: LlmMessage[], desiredContent: string): NarrativeWrapperReconciliation {
+  let detected = 0
+  let replaced = 0
+  let removed = 0
+  const reconciled = messages.map(message => {
+    if (typeof message.content !== 'string') return message
+    const content = message.content.replace(relayOwnedNarrativeWrapperPattern(), () => {
+      detected += 1
+      // Keep the first existing owned wrapper exactly where the user placed its
+      // macro. Every additional owned wrapper is stale duplication.
+      if (desiredContent && replaced === 0) {
+        replaced += 1
+        return desiredContent
+      }
+      removed += 1
+      return ''
+    })
+    return content === message.content ? message : { ...message, content } as LlmMessage
+  })
+  return {
+    messages: reconciled,
+    detected,
+    replaced,
+    removed,
+    finalCount: countRelayOwnedNarrativeWrappers(reconciled),
+  }
+}
+
 function dedupePromptContractWrappers(messages: LlmMessage[]): LlmMessage[] {
   const seen = new Set<string>()
   const wrappers = [
     { tag: 'reverie_surface_utility', pattern: /<reverie_surface_utility\b[^>]*>[\s\S]*?<\/reverie_surface_utility>/gi },
-    { tag: 'reverie_narrative_utility', pattern: /\[reverie_narrative_utility\][\s\S]*?\[\/reverie_narrative_utility\]/gi },
+    { tag: 'reverie_narrative_utility', pattern: relayOwnedNarrativeWrapperPattern() },
   ] as const
   return messages.map(message => {
     if (typeof message.content !== 'string') return message
@@ -3125,10 +3176,10 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
         let content = cleanString((message as any)?.content)
         if (!content) return message
         // Current Lumiverse resolves Relay macros before this interceptor. The
-        // expanded payload itself therefore proves that the user placed it and
-        // prevents Automatic Injection from serializing the same Utility twice.
+        // Surface/Illustrator payloads can suppress their automatic companions;
+        // Relay-owned Narrative wrappers are reconciled against current config
+        // below before they receive that privilege.
         if (/<reverie_surface_utility\b/i.test(content)) surfaceMacroExpanded = true
-        if (/\[reverie_narrative_utility\]/i.test(content)) narrativeMacroExpanded = true
         if (/<reverie_illustrator_runtime\b|\[?REVERIE RELAY\s+[—-]\s+(?:MODEL-PLACED|RELAY-PLANNED|INLINE PROTOCOL)/i.test(content)) illustratorMacroExpanded = true
         ALL_MACRO_MARKER.lastIndex = 0
         if (ALL_MACRO_MARKER.test(content)) {
@@ -3159,13 +3210,17 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
         }
         return { ...message, content } as LlmMessage
       })
+      const narrativeReconciliation = reconcileRelayOwnedNarrativeWrappers(macroResolvedMessages, narrativeUtility.content)
+      // A surviving/replaced owned wrapper is macro placement. Only reconcile
+      // first: a stale expanded wrapper must never suppress current composition.
+      narrativeMacroExpanded ||= narrativeReconciliation.detected > 0
       const promptContractBlocks = [macroUtility.content, narrativeUtility.content, illustratorPrompt].filter(Boolean)
       const promptCopiesBefore = {
-        relaySurfaceContractCopies: exactBlockCopies(macroResolvedMessages, macroUtility.content),
-        narrativeContractCopies: exactBlockCopies(macroResolvedMessages, narrativeUtility.content),
-        illustratorContractCopies: exactBlockCopies(macroResolvedMessages, illustratorPrompt),
+        relaySurfaceContractCopies: exactBlockCopies(narrativeReconciliation.messages, macroUtility.content),
+        narrativeContractCopies: exactBlockCopies(narrativeReconciliation.messages, narrativeUtility.content),
+        illustratorContractCopies: exactBlockCopies(narrativeReconciliation.messages, illustratorPrompt),
       }
-      const dedupedMacroMessages = dedupePromptContractWrappers(dedupeExactPromptContractCopies(macroResolvedMessages, promptContractBlocks))
+      const dedupedMacroMessages = dedupePromptContractWrappers(dedupeExactPromptContractCopies(narrativeReconciliation.messages, promptContractBlocks))
       const promptCopiesAfter = {
         relaySurfaceContractCopies: exactBlockCopies(dedupedMacroMessages, macroUtility.content),
         narrativeContractCopies: exactBlockCopies(dedupedMacroMessages, narrativeUtility.content),
@@ -3174,7 +3229,17 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
       deferredDiagnostics.push({
         severity: 'debug', stage: 'prompt-contract-injection', eventType: 'prompt_contract_injection_inspected', chatId,
         message: 'Relay inspected the compiled prompt for duplicate current contract copies.',
-        details: { before: promptCopiesBefore, after: promptCopiesAfter, duplicatesRemoved: Object.values(promptCopiesBefore).reduce((sum, count) => sum + Math.max(0, count - 1), 0) },
+        details: {
+          before: promptCopiesBefore,
+          after: promptCopiesAfter,
+          duplicatesRemoved: Object.values(promptCopiesBefore).reduce((sum, count) => sum + Math.max(0, count - 1), 0),
+          narrativeDesiredUtilityNames: narrativeUtility.utilityNames,
+          narrativeOwnedWrappersDetected: narrativeReconciliation.detected,
+          narrativeOwnedWrappersReplaced: narrativeReconciliation.replaced,
+          narrativeOwnedWrappersRemoved: narrativeReconciliation.removed,
+          narrativeOwnedWrappersAfterReconciliation: narrativeReconciliation.finalCount,
+          narrativePlacement: narrativeMacroExpanded ? 'macro' : narrativeUtility.content ? 'automatic' : 'none',
+        },
       })
 
       const automaticUtility = studio.utilityInjectionEnabled && !surfaceMacroExpanded
@@ -3215,6 +3280,9 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
           relaySurfaceContractCopies: exactBlockCopies(finalMessages, macroUtility.content),
           narrativeContractCopies: exactBlockCopies(finalMessages, narrativeUtility.content),
           illustratorContractCopies: exactBlockCopies(finalMessages, illustratorPrompt),
+          narrativeDesiredUtilityNames: narrativeUtility.utilityNames,
+          narrativeOwnedWrapperCount: countRelayOwnedNarrativeWrappers(finalMessages),
+          narrativePlacement: narrativeMacroExpanded ? 'macro' : automaticNarrative ? 'automatic' : 'none',
         },
       })
       return finish({
