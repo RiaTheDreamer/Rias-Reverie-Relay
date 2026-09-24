@@ -32,9 +32,10 @@ for (const selector of ['.r65.r65>summary.r65-launch', '.ra66.ra66>summary.ra66-
   assert(mountedGlassRules.includes(selector), `mounted Glass authority omitted ${selector}`)
 }
 assert(mountedGlassRules.includes('.rrcp-wrap .rrcp-launch-toggle{position:absolute!important'), 'mounted Glass authority must hide only the Character Phone state input')
-assert(mountedGlassRules.includes('>summary::before,[data-reverie-narrative-glass-button]>summary::after{content:none!important'), 'mounted Glass authority must remove inherited launcher sheen layers')
+assert(mountedGlassRules.includes('.dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch::after{content:none!important'), 'mounted Glass authority must remove inherited Dramatic Cutaway sheen layers')
 assert(mountedGlassRules.includes('.rr-narrative-glass-sparks i:nth-child(n+9){display:none!important}'), 'mounted Glass authority must hide historical static sparkle nodes')
-assert(mountedGlassRules.includes('.ch-og .ch-launch-emoji{display:none!important}'), 'mounted Glass authority must remove the oversized Plot Sparks launcher particle')
+assert(mountedGlassRules.includes('.ch-og.ch-og>summary.dg-compact-launch>.ch-launch-emoji') && mountedGlassRules.includes('.dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch>.dg-unified-emoji'), 'mounted Glass authority must remove the Plot Sparks and Dramatic Cutaway launcher emoji')
+assert(mountedGlassRules.includes('.bf-particles-summary{display:none!important}') && mountedGlassRules.includes('width:1.55px!important;height:1.55px!important'), 'mounted Glass authority must replace duplicate Cutaway particles with the shared layered sparkle field')
 const frontendSource = await (globalThis as any).Bun.file(new URL('../src/frontend.ts', import.meta.url)).text()
 assert(frontendSource.includes('ensureMountedNarrativePresentationStyle(document)') && frontendSource.includes('narrativeGlassButtonPresentationCss()'), 'existing shadow-mounted Narrative cards must receive the current Glass authority at runtime')
 
@@ -116,7 +117,7 @@ for (const script of narrativeGlassLaunchers) {
   assert(sparkfield, `standalone Glass/${script.script_id}: Narrative launcher did not receive the shared App/UI sparkle field`)
   assert((sparkfield[1].match(/<i><\/i>/g) || []).length === 8, `standalone Glass/${script.script_id}: Narrative launcher must use only the eight shared moving micro-sparkles`)
   assert(script.replace_string.includes('width:1px!important;height:1px!important'), `standalone Glass/${script.script_id}: Narrative particles do not match App/UI micro-sparkle sizing`)
-  assert(script.replace_string.includes('box-shadow:0 0 3px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 20%,transparent)'), `standalone Glass/${script.script_id}: Narrative particles do not match the shared muted Glass glow`)
+  assert(script.replace_string.includes('box-shadow:0 0 3px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 28%,transparent)'), `standalone Glass/${script.script_id}: Narrative particles do not match the shared layered Glass glow`)
   assert(script.replace_string.includes('display:block!important'), `standalone Glass/${script.script_id}: mobile rules may still hide Narrative micro-sparkles`)
 }
 assert(!activeNarrativeGlass.some(script => script.replace_string.includes('data-reverie-surface-presentation-contract="global"')), 'Glass Button must not use the generic runtime launcher adapter')
