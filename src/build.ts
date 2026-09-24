@@ -1,3 +1,3 @@
-export const EXTENSION_VERSION = '0.2.8.7.12'
+export const EXTENSION_VERSION = '0.2.8.7.13'
 export const BUILD_FAMILY = 'release'
-export const BUILD_ID = '20260924-0.2.8.7.12'
+export const BUILD_ID = '20260924-0.2.8.7.13'

@@ -113,8 +113,8 @@ export const NARRATIVE_MEDIA_COMPATIBILITY_STYLE = `<style data-reverie-narrativ
 /** The approved surfaces intentionally own their internal presentation. This
  * adapter only supplies a reliable prose gutter around complete Surface roots. */
 export const NARRATIVE_BLOCK_SPACING_STYLE = `<style data-reverie-narrative-block-spacing="1">
-.r65,.ra66,.rrcp-wrap,.ch-og.dg-compact-launch-host,.dg-dramatic-cutaway.dg-compact-launch-host{margin-top:clamp(22px,4vw,30px)!important;margin-bottom:clamp(24px,4.5vw,34px)!important;margin-inline:auto!important}
-@media(max-width:560px){.r65,.ra66,.rrcp-wrap,.ch-og.dg-compact-launch-host,.dg-dramatic-cutaway.dg-compact-launch-host{margin-top:24px!important;margin-bottom:30px!important}}
+.r65,.ra66,.rrcp-wrap,.ch-og.dg-compact-launch-host,.dg-dramatic-cutaway.dg-compact-launch-host{margin-top:clamp(12px,2.5vw,16px)!important;margin-bottom:clamp(14px,3vw,18px)!important;margin-inline:auto!important}
+@media(max-width:560px){.r65,.ra66,.rrcp-wrap,.ch-og.dg-compact-launch-host,.dg-dramatic-cutaway.dg-compact-launch-host{margin-top:14px!important;margin-bottom:18px!important}}
 </style>`
 
 const safeMessageId = (value: string): string => String(value || 'narrative').replace(/[^A-Za-z0-9_-]+/g, '-') || 'narrative'
