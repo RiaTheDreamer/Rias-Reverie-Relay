@@ -4402,8 +4402,8 @@ function summarizeRelayHealth(checks) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.2.8.7.5";
-var BUILD_ID = "20260924-0.2.8.7.5";
+var EXTENSION_VERSION = "0.2.8.7.6";
+var BUILD_ID = "20260924-0.2.8.7.6";
 
 // src/orbIconData.ts
 var ORB_IMAGE_DESIGNS = [
@@ -248663,6 +248663,9 @@ var STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="2">
 .rrl-media-slot{box-shadow:0 2px 10px rgba(0,0,0,.12),inset 0 1px rgba(255,255,255,.055)}
 @media(prefers-reduced-motion:reduce){.rrl-media-slot .rrl-slot-image.rrl-final-reveal,.rrl-generation-placeholder .rr-spinner,.rrl-generation-placeholder .rr-orb,.rrl-generation-placeholder .rr-orb:before,.rrl-generation-placeholder .rr-orb:after{animation:none!important}.rrl-generation-placeholder .rr-regex-particles{display:block}.rrl-generation-placeholder .rr-regex-particles i{animation:none!important;opacity:.72;transform:none}}
 </style>`;
+var PROSE_LIFECYCLE_MEDIA_FIT_CSS = `<style data-reverie-prose-lifecycle-fit="cover">
+.dgir-prose-lifecycle-projection .rrl-media-slot .rrl-preview-image,.dgir-prose-lifecycle-projection .rrl-media-slot .rrl-slot-image,.dgir-prose-lifecycle-projection .rrl-media-slot .rrl-resolved img{object-fit:cover}
+</style>`;
 function lifecycleCardIsland(card) {
   return lifecycleCardShell(card);
 }
@@ -248674,7 +248677,7 @@ function proseLifecycleProjection(record, card) {
   return `<div class="dgir-prose-lifecycle-projection"${key}>${lifecycleCardIsland(card)}</div>`;
 }
 function lifecycleRuntimeCss() {
-  return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}`.replace(/<style\b[^>]*>/gi, "").replace(/<\/style>/gi, "");
+  return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${PROSE_LIFECYCLE_MEDIA_FIT_CSS}`.replace(/<style\b[^>]*>/gi, "").replace(/<\/style>/gi, "");
 }
 function titleCaseToken(value) {
   return value.replace(/^\w+_/, "").replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -250728,7 +250731,7 @@ function setup(ctx) {
     scene_image[data-dgir-prose-align], scene_image:has(img[data-dgir-app="prose"]), .dgir-prose-image-frame { display: flex !important; justify-content: var(--dgir-prose-image-justify, center) !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; margin: 10px 0 !important; }
     scene_image[data-dgir-prose-align] > img[data-dgir-app="prose"], scene_image:has(img[data-dgir-app="prose"]) > img[data-dgir-app="prose"], .dgir-prose-image-frame > img[data-dgir-app="prose"] { flex: 0 1 var(--dgir-prose-image-width, 66%) !important; width: var(--dgir-prose-image-width, 66%) !important; max-width: var(--dgir-prose-image-max-width, 720px) !important; min-width: min(100%, 220px) !important; }
     img[data-dgir-app="prose"] { display: block !important; width: var(--dgir-prose-image-width, 66%) !important; max-width: var(--dgir-prose-image-max-width, 720px) !important; height: auto !important; object-fit: contain !important; margin-left: var(--dgir-prose-image-margin-left, auto) !important; margin-right: var(--dgir-prose-image-margin-right, auto) !important; }
-    .dgir-prose-lifecycle-projection .rrl-media-slot img.rrl-slot-image[data-dgir-app="prose"] { width: 100% !important; max-width: none !important; height: 100% !important; min-width: 0 !important; margin: 0 !important; object-fit: contain !important; }
+    .dgir-prose-lifecycle-projection .rrl-media-slot :is(img.rrl-slot-image[data-dgir-app="prose"],img.rrl-preview-image) { width: 100% !important; max-width: none !important; height: 100% !important; min-width: 0 !important; margin: 0 !important; object-fit: cover !important; }
     scene_image > img[data-dgir-app="prose"][data-dgir-prose-size="full"], .dgir-prose-image-frame > img[data-dgir-app="prose"][data-dgir-prose-size="full"], img[data-dgir-app="prose"][data-dgir-prose-size="full"] { flex-basis: 100% !important; width: 100% !important; max-width: none !important; min-width: 0 !important; height: auto !important; }
     .dg-router-panel .dg-meta-tabs { display: flex; gap: 5px; }
     .dg-router-panel .dg-meta-grid { display: grid; grid-template-columns: minmax(110px, .32fr) minmax(0, 1fr); gap: 7px 10px; font-size: 11px; }

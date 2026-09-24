@@ -39,7 +39,7 @@ for (const [size, width, maxWidth, percent, maxPixels] of [
   assert(Math.abs(completedWidth - placeholderWidth) <= 0.5, `${size}: completed width diverged from the shared lifecycle owner`)
 }
 assert(frontend.includes("slotImage = document.createElement('img')"), 'sanitizer-removed lifecycle image is not recreated in its stable media slot')
-assert(frontend.includes('.dgir-prose-lifecycle-projection .rrl-media-slot img.rrl-slot-image[data-dgir-app="prose"] { width: 100% !important; max-width: none !important; height: 100% !important;'), 'final prose image does not fill the stable outer-sized media slot')
+assert(frontend.includes('.dgir-prose-lifecycle-projection .rrl-media-slot :is(img.rrl-slot-image[data-dgir-app="prose"],img.rrl-preview-image) { width: 100% !important; max-width: none !important; height: 100% !important;'), 'prose preview and final images do not fill the stable outer-sized media slot')
 assert(frontend.includes('PROJECTION_INVALIDATION_MAX_ATTEMPTS = 3'), 'missing-card invalidation retry is not explicitly bounded')
 assert(frontend.includes('acknowledgeProjectionInvalidation(messageId)'), 'host message-render acknowledgement does not re-arm missing-card reconciliation')
 assert(!frontend.includes('location.reload('), 'pre-Glass parity repair introduced a page refresh')

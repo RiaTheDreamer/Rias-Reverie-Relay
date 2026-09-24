@@ -84,6 +84,10 @@ const STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="2">
 @media(prefers-reduced-motion:reduce){.rrl-media-slot .rrl-slot-image.rrl-final-reveal,.rrl-generation-placeholder .rr-spinner,.rrl-generation-placeholder .rr-orb,.rrl-generation-placeholder .rr-orb:before,.rrl-generation-placeholder .rr-orb:after{animation:none!important}.rrl-generation-placeholder .rr-regex-particles{display:block}.rrl-generation-placeholder .rr-regex-particles i{animation:none!important;opacity:.72;transform:none}}
 </style>`
 
+const PROSE_LIFECYCLE_MEDIA_FIT_CSS = `<style data-reverie-prose-lifecycle-fit="cover">
+.dgir-prose-lifecycle-projection .rrl-media-slot .rrl-preview-image,.dgir-prose-lifecycle-projection .rrl-media-slot .rrl-slot-image,.dgir-prose-lifecycle-projection .rrl-media-slot .rrl-resolved img{object-fit:cover}
+</style>`
+
 function lifecycleCardIsland(card: string): string {
   return lifecycleCardShell(card)
 }
@@ -101,7 +105,7 @@ function proseLifecycleProjection(record: NonNullable<NativeSurfaceRenderContext
 }
 
 export function lifecycleRuntimeCss(): string {
-  return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}`
+  return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${PROSE_LIFECYCLE_MEDIA_FIT_CSS}`
     .replace(/<style\b[^>]*>/gi, '')
     .replace(/<\/style>/gi, '')
 }
