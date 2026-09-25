@@ -1,5 +1,7 @@
 // @ts-nocheck -- host-contract harness deliberately supplies a narrow Spindle mock.
 import { strict as assert } from 'node:assert'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 let interceptor: ((messages: any[], context: any) => Promise<any>) | undefined
 let frontendHandler: ((payload: any, userId?: string) => void) | undefined
@@ -32,6 +34,10 @@ const storage = new Map<string, any>()
 const backend = await import('../src/backend')
 assert(interceptor, 'Story Model interceptor did not register')
 assert(frontendHandler, 'Prompt Preview handler did not register')
+
+const frontendSource = readFileSync(resolve(import.meta.dirname, '..', 'src', 'frontend.ts'), 'utf8')
+assert(/function toggleCard[\s\S]*?input\.addEventListener\('input'/.test(frontendSource), 'category toggles must commit on the immediate input event')
+assert(/function checkbox[\s\S]*?input\.addEventListener\('input'/.test(frontendSource), 'individual Surface toggles must commit on the immediate input event')
 
 const userId = 'surface-authority-user'
 const [A, B, C] = ['instagram', 'smartphone', 'kakao']
@@ -78,6 +84,15 @@ async function preview(chatId: string) {
   return event
 }
 
+async function state(chatId?: string) {
+  frontendEvents.length = 0
+  frontendHandler!({ type: 'list_state', chatId }, userId)
+  for (let tick = 0; tick < 4 && frontendEvents.length === 0; tick += 1) await new Promise(resolve => setTimeout(resolve, 0))
+  const event = frontendEvents.find(event => event.type === 'state')
+  assert(event, 'State request did not reply')
+  return event
+}
+
 function assertExactlyCurrent(text: string, expected: string, stage: string) {
   assert.equal(wrapperCount(text), expected ? 1 : 0, `${stage}: unexpected Relay-owned Surface wrapper count`)
   if (expected) assert.equal(wrapper(text), expected, `${stage}: Surface wrapper does not equal current enabled Surface configuration`)
@@ -99,6 +114,13 @@ assert.deepEqual(modules(wrapper(textOf(placed))), [B], 'A: disabled app/UI modu
 const none = await configure([])
 assert.equal(none.macro, '', 'B: empty Surface selection still produced a Relay-owned contract')
 assertExactlyCurrent(textOf(await intercept([{ role: 'system', content: oldAB }], 'surface-all-off')), '', 'B')
+
+// B1. A chatless state broadcast must expose persisted Surface settings, never
+// emptyState() defaults. The frontend accepts that global message while a chat
+// is active, so the wrong projection makes every category appear enabled until
+// an unrelated interaction produces a chat-bound refresh.
+const globalState = await state()
+assert.equal(Object.values(globalState.customSurfaces.definitions).filter((definition: any) => definition.promptEnabled).length, 0, 'B1: chatless state revived default enabled Surface modules')
 
 // C. Repeated app/UI selection changes cannot accumulate earlier expanded state.
 let previous = oldAB
@@ -154,4 +176,4 @@ const allReconciled = textOf(await intercept([{ role: 'system', content: duplica
 assertExactlyCurrent(allReconciled, withoutInstagram.macro, 'I')
 assert(!modules(wrapper(allReconciled)).includes(A) && modules(wrapper(allReconciled)).length === allIds.length - 1, 'I: one disabled app/UI module did not reconcile against the complete shipped Surface inventory')
 
-console.log('Surface prompt authority regression passed: Core, App/UI, and Narrative-adjacent Surface selections reconcile from current config.')
+console.log('Surface prompt authority regression passed: Core, App/UI, and Narrative-adjacent Surface selections reconcile from current config and chatless state preserves persisted toggle authority.')

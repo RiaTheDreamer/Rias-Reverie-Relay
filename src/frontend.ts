@@ -1385,7 +1385,13 @@ export function setup(ctx: SpindleFrontendContext) {
         versionTrees = message.versionTrees || []
         continuityVault = message.continuityVault || { chatId: activeChatId || '', strength: 'off', characters: {}, characterSheets: {}, visualIdentity: {}, wardrobe: {}, currentAppearance: {}, suggestions: {}, quarantine: {}, history: [], migrationPreview: null, ignoredForSlotKeys: [], deliberateBreaks: {}, updatedAt: 0 }
         continuityVault.strength = effectiveConfig.vaultStrength
-        const receivedSurfaceState = message.customSurfaces
+        // A chatless state broadcast carries global settings only. Its empty
+        // transient chat state must never replace the persisted Surface
+        // Library shown for the active chat; doing so paints every default
+        // toggle as enabled until some unrelated chat-bound update arrives.
+        const receivedSurfaceState = message.chatId
+          ? message.customSurfaces
+          : message.config.globalSurfaceStudio
         const receivedDefinitions = Object.keys(receivedSurfaceState?.definitions || {}).length
         const responseIsStale = Boolean(receivedSurfaceState && customSurfaces.updatedAt && receivedSurfaceState.updatedAt < customSurfaces.updatedAt)
         // A transient/late state echo must not wipe built-ins or a just-saved
@@ -9981,7 +9987,10 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     input.type = 'checkbox'
     input.checked = value
     input.disabled = disabled
-    input.addEventListener('change', () => { label.classList.toggle('dg-toggle-on', input.checked); onChange(input.checked) })
+    // Lumiverse can defer `change` for a styled checkbox until focus moves.
+    // `input` fires at the actual toggle, so category and item controls paint
+    // their optimistic settings draft immediately instead of on the next click.
+    input.addEventListener('input', () => { label.classList.toggle('dg-toggle-on', input.checked); onChange(input.checked) })
     const slider = document.createElement('span')
     slider.className = 'dg-switch'
     slider.setAttribute('aria-hidden', 'true')
@@ -9996,7 +10005,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     input.type = 'checkbox'
     input.checked = value
     const label = fieldLabel(labelText)
-    input.addEventListener('change', () => { label.classList.toggle('dg-toggle-on', input.checked); onChange(input.checked) })
+    input.addEventListener('input', () => { label.classList.toggle('dg-toggle-on', input.checked); onChange(input.checked) })
     row.append(input, label)
     return row
   }

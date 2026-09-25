@@ -17689,6 +17689,14 @@ async function sendState(userId?: string, chatId?: string): Promise<void> {
   const config = await getConfig(userId)
   if (chatId) await ensureCompletedStateCompacted(chatId, userId)
   let state = chatId ? await getState(chatId, userId) : emptyState()
+  // A chatless broadcast has no per-chat projection to send.  Its Surface
+  // Library must therefore come from the persisted global authority, not
+  // emptyState()'s all-enabled defaults.  The frontend accepts chatless state
+  // broadcasts while a chat is active, so leaking those defaults makes every
+  // category look enabled until a later chat-bound message happens to repair it.
+  const stateSurfaceStudio = chatId
+    ? state.customSurfaces
+    : normalizeCustomSurfaceStudio(config.globalSurfaceStudio || defaultCustomSurfaceStudio())
   state.continuityVault.strength = config.vaultStrength
   if (chatId && Date.now() - state.lastReconciledAt > 5000) {
     await reconcileChatState(chatId, userId)
@@ -17721,7 +17729,7 @@ async function sendState(userId?: string, chatId?: string): Promise<void> {
     // Appearance audit history is forensic data, not drawer bootstrap state.
     // Keep it in durable storage and send the editable/current projection only.
     continuityVault: { ...state.continuityVault, history: [] },
-    customSurfaces: state.customSurfaces,
+    customSurfaces: stateSurfaceStudio,
     proseIllustrator: state.proseIllustrator,
     backgroundQueue: state.backgroundQueue,
     galleryLinks: Object.values(state.galleryLinks).sort((a, b) => b.updatedAt - a.updatedAt).filter((link, index) => index < RECENT_COMPLETED_HOT_LIMIT || link.status === 'pending' || link.status === 'failed'),
