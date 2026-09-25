@@ -64,6 +64,7 @@ import { bracketExampleFromXml } from './bracketSurfaceAuthoring'
 import { narrativeUtilityDisplayName } from './narrativeRegexAssets'
 import { narrativeGlassButtonPresentationCss, narrativeVariantForSurfaceShellMode } from './surfacePresentation'
 import { emptyRelayChatStats, type RelayChatStats } from './completedState'
+import { shouldDeferPanelRenderForControl } from './panelRenderPolicy'
 
 const COPYABLE_IMAGE_REQUEST_TEMPLATE = `<reverie-illustration
   request="generate"
@@ -3434,7 +3435,7 @@ export function setup(ctx: SpindleFrontendContext) {
     const focused = document.activeElement
     const editing = focused instanceof HTMLElement
       && tab.root.contains(focused)
-      && focused.matches('input, textarea, [contenteditable="true"]')
+      && shouldDeferPanelRenderForControl(focused)
     if (editing) {
       if (deferredPanelRenderElement !== focused) {
         deferredPanelRenderElement = focused
@@ -9987,9 +9988,8 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     input.type = 'checkbox'
     input.checked = value
     input.disabled = disabled
-    // Lumiverse can defer `change` for a styled checkbox until focus moves.
-    // `input` fires at the actual toggle, so category and item controls paint
-    // their optimistic settings draft immediately instead of on the next click.
+    // Commit from the immediate toggle event. renderPanel() deliberately keeps
+    // typed edits mounted, but checkbox/radio focus is not an editing session.
     input.addEventListener('input', () => { label.classList.toggle('dg-toggle-on', input.checked); onChange(input.checked) })
     const slider = document.createElement('span')
     slider.className = 'dg-switch'

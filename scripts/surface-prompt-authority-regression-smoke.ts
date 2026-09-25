@@ -2,6 +2,7 @@
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { shouldDeferPanelRenderForControl } from '../src/panelRenderPolicy'
 
 let interceptor: ((messages: any[], context: any) => Promise<any>) | undefined
 let frontendHandler: ((payload: any, userId?: string) => void) | undefined
@@ -38,6 +39,12 @@ assert(frontendHandler, 'Prompt Preview handler did not register')
 const frontendSource = readFileSync(resolve(import.meta.dirname, '..', 'src', 'frontend.ts'), 'utf8')
 assert(/function toggleCard[\s\S]*?input\.addEventListener\('input'/.test(frontendSource), 'category toggles must commit on the immediate input event')
 assert(/function checkbox[\s\S]*?input\.addEventListener\('input'/.test(frontendSource), 'individual Surface toggles must commit on the immediate input event')
+assert(frontendSource.includes('shouldDeferPanelRenderForControl(focused)'), 'panel renderer does not use the focused-control policy')
+assert.equal(shouldDeferPanelRenderForControl({ tagName: 'INPUT', type: 'checkbox' }), false, 'focused category checkbox still defers Surface repaint until blur')
+assert.equal(shouldDeferPanelRenderForControl({ tagName: 'INPUT', type: 'radio' }), false, 'focused radio still defers repaint until blur')
+assert.equal(shouldDeferPanelRenderForControl({ tagName: 'INPUT', type: 'text' }), true, 'typed input no longer preserves its mounted edit session')
+assert.equal(shouldDeferPanelRenderForControl({ tagName: 'TEXTAREA' }), true, 'textarea no longer preserves its mounted edit session')
+assert.equal(shouldDeferPanelRenderForControl({ tagName: 'DIV', isContentEditable: true }), true, 'contenteditable control no longer preserves its mounted edit session')
 
 const userId = 'surface-authority-user'
 const [A, B, C] = ['instagram', 'smartphone', 'kakao']
