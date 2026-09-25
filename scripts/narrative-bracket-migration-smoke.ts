@@ -419,6 +419,6 @@ assert(worldIsolated.includes('rr-scene-compass'), 'malformed World poisoned val
 assert(worldIsolated.includes('class="ch-og') && !worldIsolated.includes('[Plot_Sparks]'), 'malformed World poisoned valid Plot Sparks')
 
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
-assert(packageJson.version === '0.2.8.7.20', `version changed: ${packageJson.version}`)
+assert(packageJson.version === '0.2.8.7.21', `version changed: ${packageJson.version}`)
 
 console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} named Surfaces × 4 shells × 2 body modes = ${renderCases} deterministic renders, ${narrativeClosingDelimiterMutationCases} closer mutations, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone four-variant regression passed, malformed-sibling isolation passed, Stella absent.`)
