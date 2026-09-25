@@ -7,7 +7,11 @@ function assert(value: unknown, reason: string): asserts value { if (!value) thr
 }
 
 const backend = await import('../src/backend')
-const { settlePlacementVisualLifecycle } = await import('../src/frontend')
+const { settlePlacementVisualLifecycle, shouldStartFinalImageReveal } = await import('../src/frontend')
+
+assert(shouldStartFinalImageReveal({ imageChanged: false, sawActiveLifecycle: false, pendingRecordReveal: true, cardAlreadyRevealed: false, recordAlreadyRevealed: false }), 'a newly completed final URL already hydrated by a Lumiverse remount did not reveal')
+assert(!shouldStartFinalImageReveal({ imageChanged: false, sawActiveLifecycle: false, pendingRecordReveal: false, cardAlreadyRevealed: false, recordAlreadyRevealed: false }), 'a historical completed image revealed during cold hydration')
+assert(!shouldStartFinalImageReveal({ imageChanged: true, sawActiveLifecycle: true, pendingRecordReveal: true, cardAlreadyRevealed: false, recordAlreadyRevealed: true }), 'an already revealed record replayed its final animation')
 
 class FakeClassList {
   values = new Set<string>()

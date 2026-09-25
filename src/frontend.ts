@@ -403,6 +403,18 @@ export async function settlePlacementVisualLifecycle(options: {
   return 'settled'
 }
 
+export function shouldStartFinalImageReveal(options: {
+  imageChanged: boolean
+  sawActiveLifecycle: boolean
+  pendingRecordReveal: boolean
+  cardAlreadyRevealed: boolean
+  recordAlreadyRevealed: boolean
+}): boolean {
+  return ((options.imageChanged && options.sawActiveLifecycle) || options.pendingRecordReveal)
+    && !options.cardAlreadyRevealed
+    && !options.recordAlreadyRevealed
+}
+
 export function setup(ctx: SpindleFrontendContext) {
   const runtimeHost = globalThis as typeof globalThis & {
     __REVERIE_RELAY_FRONTEND_DISPOSE__?: () => void
@@ -442,6 +454,7 @@ export function setup(ctx: SpindleFrontendContext) {
   let nativeGuardBusy = false
   let nativeGuardToastShown = false
   let recordByKey = new Map<string, SlotRecord>()
+  const pendingFinalRevealByRecord = new Map<string, string>()
   const slotActionFeedback = new SlotActionFeedbackCoordinator()
   const pendingSurfacePromptPreviews = new Map<string, { setValue: (value: string) => void }>()
   const appearanceActionStatuses = new Map<string, AppearanceMemoryActionStatus & { receivedAt: number }>()
@@ -1338,6 +1351,13 @@ export function setup(ctx: SpindleFrontendContext) {
       if (!message.chatId || message.chatId === activeChatId) {
         if (message.chatId && message.revision < stateRevision) return
         stateRevision = message.revision
+        for (const record of message.records) {
+          if (isSlotLifecycleActive(record.status)) {
+            rememberBoundedMap(pendingFinalRevealByRecord, record.key, record.requestId, C5B_CACHE_LIMITS.messageSnapshots)
+          } else if (record.status === 'failed' || record.status === 'image-unavailable' || record.status === 'cancelled') {
+            pendingFinalRevealByRecord.delete(record.key)
+          }
+        }
         records = message.records.map(record => {
           const optimistic = optimisticSlotActions.get(record.key)
           if (!optimistic) return record
@@ -1801,6 +1821,7 @@ export function setup(ctx: SpindleFrontendContext) {
     records = []
     candidateBatches = []
     recordByKey.clear()
+    pendingFinalRevealByRecord.clear()
     lastStatus = ''
     stateRevision = -1
     lastDisplayContractSignature = ''
@@ -2877,6 +2898,7 @@ export function setup(ctx: SpindleFrontendContext) {
       if (!isCurrentFinalImage()) return
       update.revealedImageUrl = expectedUrl
       rememberBoundedMap(revealedFinalImageByRecord, expectedRecordKey, expectedUrl, C5B_CACHE_LIMITS.messageSnapshots)
+      if (pendingFinalRevealByRecord.get(expectedRecordKey) === record.requestId) pendingFinalRevealByRecord.delete(expectedRecordKey)
       if (!isCurrentPlacementVersion()) return
       if (acknowledgedPlacementVisuals.has(visualVersionKey)) return
       rememberBoundedMap(acknowledgedPlacementVisuals, visualVersionKey, expectedUrl, C5B_CACHE_LIMITS.messageSnapshots)
@@ -3152,10 +3174,14 @@ export function setup(ctx: SpindleFrontendContext) {
               applyLiveProseImagePresentation(slotImage)
             }
             const imageChanged = !urlMatches(slotImage.currentSrc || slotImage.src, visualImageUrl)
-            const shouldReveal = imageChanged
-              && update.sawActiveLifecycle
-              && !urlMatches(update.revealedImageUrl || '', visualImageUrl)
-              && !urlMatches(revealedFinalImageByRecord.get(record.key) || '', visualImageUrl)
+            const pendingRecordReveal = pendingFinalRevealByRecord.get(record.key) === record.requestId
+            const shouldReveal = shouldStartFinalImageReveal({
+              imageChanged,
+              sawActiveLifecycle: update.sawActiveLifecycle,
+              pendingRecordReveal,
+              cardAlreadyRevealed: urlMatches(update.revealedImageUrl || '', visualImageUrl),
+              recordAlreadyRevealed: urlMatches(revealedFinalImageByRecord.get(record.key) || '', visualImageUrl),
+            })
             if (imageChanged) slotImage.src = visualImageUrl
             slotImage.hidden = false
             mediaSlot.dataset.rrnMediaEmpty = 'false'
@@ -3164,6 +3190,7 @@ export function setup(ctx: SpindleFrontendContext) {
               revealFinalImageWhenReady(card, slotImage, visualImageUrl, record, update)
             } else if (record.status === 'completed') {
               update.sawActiveLifecycle = false
+              if (pendingRecordReveal) pendingFinalRevealByRecord.delete(record.key)
             }
           } else if (!stream?.imageDataUrl && slotImage && record.status !== 'completed') {
             slotImage.hidden = true
