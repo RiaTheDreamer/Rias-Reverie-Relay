@@ -1,12 +1,13 @@
 import { plainSurfaceText } from './surfaceXml'
 import type { SurfaceShellMode } from './contracts'
 
-export type NarrativeSurfacePresentationVariant = 'sparkle-button' | 'plain-button' | 'inline' | 'glass'
+export type NarrativeSurfacePresentationVariant = 'sparkle-button' | 'plain-button' | 'inline' | 'glass' | 'plain-glass'
 
 /** One global presentation authority for every Surface that ships with Relay.
  * Narrative render packs use historical variant names, but they are derived
  * from the same SurfaceShellMode used by Core/App Surfaces. */
 export function narrativeVariantForSurfaceShellMode(shellMode: SurfaceShellMode): NarrativeSurfacePresentationVariant {
+  if (shellMode === 'plain-glass') return 'plain-glass'
   if (shellMode === 'glass') return 'glass'
   if (shellMode === 'sparkling') return 'sparkle-button'
   if (shellMode === 'plain' || shellMode === 'collapsible') return 'plain-button'
@@ -14,6 +15,7 @@ export function narrativeVariantForSurfaceShellMode(shellMode: SurfaceShellMode)
 }
 
 export function surfaceShellModeForNarrativeVariant(variant: NarrativeSurfacePresentationVariant): Exclude<SurfaceShellMode, 'collapsible'> {
+  if (variant === 'plain-glass') return 'plain-glass'
   if (variant === 'glass') return 'glass'
   if (variant === 'sparkle-button') return 'sparkling'
   if (variant === 'plain-button') return 'plain'
@@ -49,15 +51,19 @@ export function narrativeGlassButtonPresentationCss(): string {
   return NARRATIVE_GLASS_BUTTON_PRESENTATION_RULES
 }
 
-function applyNarrativeGlassButtonPresentation(replacement: string): string {
+function applyNarrativeGlassButtonPresentation(replacement: string, plainGlass: boolean): string {
   let claimedRoot = false
   const output = String(replacement || '').replace(/<(details|div)\b((?:\$<[^>]+>|[^>])*?)\bclass="([^"]+)"((?:\$<[^>]+>|[^>])*)>/gi, (opening, tag: string, leadingAttributes: string, className: string, trailingAttributes: string) => {
     if (claimedRoot) return opening
     const classes = className.split(/\s+/).filter(Boolean)
     if (!classes.some((candidate: string) => NARRATIVE_PRESENTATION_ROOT_CLASSES.has(candidate))) return opening
     claimedRoot = true
-    if (/data-reverie-narrative-glass-button=/i.test(`${leadingAttributes}${trailingAttributes}`)) return opening
-    return `<${tag}${leadingAttributes}data-reverie-narrative-glass-button="1" class="${classes.join(' ')}"${trailingAttributes}>`
+    if (/data-reverie-narrative-glass-button=/i.test(`${leadingAttributes}${trailingAttributes}`)) {
+      return plainGlass && !/data-reverie-plain-glass=/i.test(opening)
+        ? opening.replace(/>$/, ' data-reverie-plain-glass="1">')
+        : opening
+    }
+    return `<${tag}${leadingAttributes}data-reverie-narrative-glass-button="1"${plainGlass ? ' data-reverie-plain-glass="1"' : ''} class="${classes.join(' ')}"${trailingAttributes}>`
   })
   return claimedRoot ? `${output}${NARRATIVE_GLASS_BUTTON_PRESENTATION_CSS}` : replacement
 }
@@ -66,7 +72,7 @@ function applyNarrativeGlassButtonPresentation(replacement: string): string {
  * Most imported packs contain the same sparkling <details> shell in every
  * variant; this adapter makes them obey Relay's global Surface mode. */
 export function applyNarrativeSurfacePresentation(replacement: string, variant: NarrativeSurfacePresentationVariant): string {
-  if (variant === 'glass') return applyNarrativeGlassButtonPresentation(replacement)
+  if (variant === 'glass' || variant === 'plain-glass') return applyNarrativeGlassButtonPresentation(replacement, variant === 'plain-glass')
   const mode = surfaceShellModeForNarrativeVariant(variant)
   const modeClass = `rr-surface-presentation-${mode === 'plain' ? 'button' : mode}`
   let claimedRoot = false

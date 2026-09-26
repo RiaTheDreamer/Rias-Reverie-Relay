@@ -340,11 +340,11 @@ backendHandler!({
   records: [{ ...mountedRecord, status: 'completed', imageId: 'mounted-image', imageUrl: '/mounted-image.png', updatedAt: Date.now() + 1 }],
   config: { ...bootState.config, generationPlaceholderEffect: 'glitter' },
 })
-assert(!mountedCard.querySelector('.rrl-generation-placeholder'), 'completed mounted lifecycle retained active placeholder UI')
-assert(!mountedCard.querySelector('.rrl-main'), 'completed mounted lifecycle retained active Status Card chrome')
+assert(mountedCard.querySelector('.rrl-generation-placeholder'), 'completed mounted lifecycle dropped its selected effect before the final image decoded')
+assert(mountedCard.querySelector('.rrl-main'), 'completed mounted lifecycle dropped Status Card chrome before Reveal began')
 const mountedFinalImage = mountedMedia.querySelector('.rrl-slot-image') as any
 assert(mountedRoot.contains(mountedProjection) && mountedProjection.contains(mountedIsland) && mountedIsland.contains(mountedCard) && mountedCard.contains(mountedMedia), 'completed prose image abandoned or remounted the stable lifecycle projection')
-assert(mountedFinalImage && mountedFinalImage.src === '/mounted-image.png' && mountedFinalImage.hidden === false, 'completed prose image did not recreate and hydrate the sanitizer-removed slot image in place')
+assert(mountedFinalImage && mountedFinalImage.src === '/mounted-image.png' && mountedFinalImage.hidden === true, 'completed prose image did not recreate in place and remain concealed until decode/reveal readiness')
 assert(invalidatedMessages.length === 0, 'an already-mounted prose lifecycle slot triggered a host refresh')
 
 // Missing projection repair is render-ack based, not a permanent one-shot
@@ -359,9 +359,9 @@ const retryRecord = {
   imageId: 'retry-image', imageUrl: '/retry-image.png', createdAt: Date.now(), updatedAt: Date.now(),
 }
 backendHandler!({ ...bootState, revision: 4, records: [retryRecord] })
-assert(JSON.stringify(invalidatedMessages) === JSON.stringify([['retry-message']]), 'missing prose projection did not request the first message-scoped invalidation')
+assert(JSON.stringify(invalidatedMessages) === JSON.stringify([['*']]), 'missing prose projection did not request Lumiverse display invalidation')
 for (const handler of eventHandlers.get('CHARACTER_MESSAGE_RENDERED') || []) handler({ chatId: 'boot-chat', messageId: 'retry-message' })
-assert(JSON.stringify(invalidatedMessages) === JSON.stringify([['retry-message'], ['retry-message']]), 'failed first host paint permanently latched projection invalidation')
+assert(JSON.stringify(invalidatedMessages) === JSON.stringify([['*'], ['*']]), 'failed first host paint permanently latched projection invalidation')
 const retryProjection = new FakeElement()
 retryProjection.className = 'dgir-prose-lifecycle-projection'
 const retryIsland = new FakeElement()
@@ -434,6 +434,41 @@ for (const [offset, imageSize] of ['small', 'medium', 'large', 'full'].entries()
   assert(proseImage.dataset.dgirApp === 'prose' && proseImage.dataset.dgirProseSize === imageSize, `${imageSize}: mounted prose image did not receive the live Image Size contract`)
   assert(!surfaceImage.dataset.dgirProseSize, `${imageSize}: Surface image inherited prose sizing metadata`)
   assert(JSON.stringify({ paragraph: proseParagraph.style, messageContent: messageContent.style }) === proseOwnerStyleBefore, `${imageSize}: Relay rewrote prose/MessageContent layout state`)
+}
+
+// A completed Core, Narrative, or custom media request can retain its pending
+// Status Card without an authored fallback <img>. All three must hydrate that
+// mounted slot directly; a host refresh must not be required to see the image.
+for (const [index, targetApp] of ['core', 'narrative', 'custom'].entries()) {
+  const surfaceMessageId = `live-${targetApp}-message`
+  const requestId = `live-${targetApp}-media`
+  const root = new FakeElement('div')
+  const island = new FakeElement('div')
+  island.className = 'rrl-island'
+  const card = new FakeElement('div')
+  card.className = 'rrl-card'
+  card.dataset.rrnNativeRequest = requestId
+  card.dataset.rrnRecordKey = `boot-chat:${surfaceMessageId}:0:${requestId}:${requestId}`
+  const media = new FakeElement('div')
+  media.className = 'rrl-media-slot'
+  const effect = new FakeElement('div')
+  effect.className = 'rrl-generation-placeholder'
+  media.appendChild(effect)
+  card.appendChild(media)
+  island.appendChild(card)
+  root.appendChild(island)
+  messageRoots.set(surfaceMessageId, root)
+  const base = {
+    key: card.dataset.rrnRecordKey, chatId: 'boot-chat', messageId: surfaceMessageId, swipeId: 0,
+    requestId, slot: requestId, target: 'custom.artifact-media', targetApp,
+    createdAt: Date.now(), updatedAt: Date.now(),
+  }
+  backendHandler!({ ...bootState, revision: 10 + index * 2, records: [{ ...base, status: 'generating' }] })
+  backendHandler!({ ...bootState, revision: 11 + index * 2, records: [{ ...base, status: 'completed', imageId: `image-${index}`, imageUrl: `/live-${targetApp}.png`, updatedAt: Date.now() + 1 }] })
+  const image = media.querySelector('.rrl-slot-image') as any
+  assert(root.contains(card) && card.contains(media) && image?.src === `/live-${targetApp}.png`, `${targetApp}: completed Surface did not hydrate its existing media slot without a refresh`)
+  assert(image.hidden === true && media.dataset.rrnMediaEmpty === 'true' && media.contains(effect), `${targetApp}: placeholder vanished before decoded final Reveal could begin`)
+  assert(invalidatedMessages.length === 2, `${targetApp}: mounted Surface card incorrectly requested host display invalidation`)
 }
 
 for (let tick = 0; tick < 8; tick += 1) await Promise.resolve()

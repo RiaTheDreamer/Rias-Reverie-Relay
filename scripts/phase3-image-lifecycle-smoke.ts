@@ -6,11 +6,14 @@ import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
 
+const backendEventNames: string[] = []
 ;(globalThis as any).spindle = {
-  registerMessageContentProcessor() {}, registerMacro() {}, on() {}, onFrontendMessage() {}, sendToFrontend() {},
+  registerMessageContentProcessor() {}, registerMacro() {}, on(name: string) { backendEventNames.push(name) }, onFrontendMessage() {}, sendToFrontend() {},
   log: { info() {}, warn() {}, error() {} }, toast: { info() {}, success() {}, warning() {}, error() {} },
 }
 const backend = await import('../src/backend')
+assert(!backendEventNames.includes('CHARACTER_MESSAGE_RENDERED'), 'opening an old chat must not dispatch Relay image or prose generation from a render event')
+assert(backendEventNames.includes('MESSAGE_SENT') && backendEventNames.includes('GENERATION_ENDED'), 'fresh assistant message events must still be registered for automatic generation')
 
 const requestMarkup = (id: string) => `<image_request id="${id}" target="custom.artifact-media" slot="${id}"><scene_brief>${id}</scene_brief></image_request>`
 const sourceContent = `Story before. ${requestMarkup('a')} Story middle. ${requestMarkup('b')} More story. ${requestMarkup('c')} Story after.`

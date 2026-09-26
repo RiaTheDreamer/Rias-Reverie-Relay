@@ -5,6 +5,7 @@ import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { NARRATIVE_BLOCK_SPACING_STYLE, NARRATIVE_MEDIA_COMPATIBILITY_STYLE, renderNarrativeRegex, narrativeRegexPack, narrativeRegexScripts } from '../src/narrativeRegexAssets'
 import { DEFAULT_PROMPT_REGISTRY } from '../src/protocols'
 import { NARRATIVE_GLASS_BUTTON_PRESENTATION_CSS, SHIPPED_SURFACE_PRESENTATION_CSS } from '../src/surfacePresentation'
+import { SURFACE_ICON_STYLE } from '../src/surfaceIcons'
 
 const storage = new Map<string, unknown>()
 const requests: any[] = []
@@ -189,9 +190,16 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button', 'glass'] as c
       const suppliedReplacement = script.replace_string.startsWith(NARRATIVE_MEDIA_COMPATIBILITY_STYLE)
         ? script.replace_string.slice(NARRATIVE_MEDIA_COMPATIBILITY_STYLE.length)
         : script.replace_string
-      const compatibilityBase = suppliedReplacement.startsWith(NARRATIVE_BLOCK_SPACING_STYLE)
-        ? suppliedReplacement.slice(NARRATIVE_BLOCK_SPACING_STYLE.length)
-        : suppliedReplacement
+      // Strip only generated icon/ember presentation before comparing the
+      // author-owned Narrative body byte for byte with the shipped source.
+      const iconFreeReplacement = suppliedReplacement
+        .replace(SURFACE_ICON_STYLE, '')
+        .replace(/<span class="rr-surface-svg-icon" data-rr-surface-icon="[^"]+" aria-hidden="true"><svg\b[^>]*>[\s\S]*?<\/svg><\/span>/g, '')
+        .replace(/<span class="rr-surface-sparks" aria-hidden="true">(?:<i><\/i>){8}<\/span>/g, '')
+        .replace(/rr-surface-launcher-iconized(?: rr-surface-launcher-sparkling)? /g, '')
+      const compatibilityBase = iconFreeReplacement.startsWith(NARRATIVE_BLOCK_SPACING_STYLE)
+        ? iconFreeReplacement.slice(NARRATIVE_BLOCK_SPACING_STYLE.length)
+        : iconFreeReplacement
       // Glass Button has an intentional generated trailing presentation layer
       // and one root marker. Remove only those exact generated additions before
       // proving the supplied author-owned Surface body stayed byte-identical.
@@ -210,7 +218,20 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button', 'glass'] as c
       const suppliedBase = script.script_id === 'reverie_parallel_tracker_images_v1'
         ? presentationBase.replace(structuralAddition, '')
         : presentationBase
-      assert.equal(suppliedBase, original.replace_string, `${script.script_id}: supplied Narrative styling changed`)
+      const expectedBeforeLauncherIcon = script.script_id === 'ria_plot_sparks_og_sparkle_tabs_bulletproof_v7'
+        ? original.replace_string.replaceAll('Branch from this hook', 'Branch from this Spark')
+        : original.replace_string
+      const expectedAuthorBody = variant !== 'inline' && script.replace_string.includes('data-rr-surface-icon="narrative:')
+        ? expectedBeforeLauncherIcon
+          .replace(/<span class="dg-unified-emoji" aria-hidden="true">[\s\S]*?<\/span>/i, '')
+          .replace(/<span class="ch-launch-emoji" aria-hidden="true">[\s\S]*?<\/span>/i, '')
+          .replace(/(<span class="(?:rrcp-label|r65-label|ra66-label)">)\s*<span>[^<]*<\/span>(?=\s*<span>)/i, '$1')
+        : expectedBeforeLauncherIcon
+      if (suppliedBase !== expectedAuthorBody) {
+        let firstDiff = 0
+        while (firstDiff < Math.min(suppliedBase.length, expectedAuthorBody.length) && suppliedBase[firstDiff] === expectedAuthorBody[firstDiff]) firstDiff += 1
+        throw new Error(`${variant}/${script.script_id}: supplied Narrative styling changed at ${firstDiff}: ${JSON.stringify(suppliedBase.slice(firstDiff, firstDiff + 100))} versus ${JSON.stringify(expectedAuthorBody.slice(firstDiff, firstDiff + 100))}`)
+      }
     }
   }
   fixtures[variant] = renderNarrativeRegex(renderNativeSurfaceMarkup(raw, { definitions: {}, activePresetIds: {}, rendererMode: 'relay' } as any, { chatId: 'browser', messageId: 'm', swipeId: 0, autoGenerate: false }).content, variant, 'm', {}, colorMode)

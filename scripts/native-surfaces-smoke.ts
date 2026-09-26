@@ -115,6 +115,35 @@ for (const presentation of presentations) for (const color of colors) {
   }
 }
 
+let imageFreeSurfaceCases = 0
+for (const rendererMode of ['relay', 'legacy-regex', 'hybrid'] as const) {
+  const imageFreeStudio = { ...studio, rendererMode }
+  for (const definition of definitions) {
+    const textOnlySource = definition.sampleXml.replace(/<(image_request|reverie-illustration)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+    const rendered = renderNativeSurfaceMarkup(textOnlySource, imageFreeStudio, {
+      chatId: `image-free-${rendererMode}`,
+      messageId: `image-free-${rendererMode}-${definition.baseSurfaceId}`,
+    })
+    assert(rendered.renderedCount === 1 && rendered.renderedSurfaceIds.includes(definition.baseSurfaceId), `${definition.baseSurfaceId}/${rendererMode}: Surface did not render without image control tags`)
+    assert(!rendered.content.includes('Relay Surface needs repair'), `${definition.baseSurfaceId}/${rendererMode}: text-only Surface fell into repair UI`)
+    assert(!rendered.content.includes(`<${definition.canonicalOuterWrapper}`), `${definition.baseSurfaceId}/${rendererMode}: text-only Surface leaked its raw owner`)
+    imageFreeSurfaceCases += 1
+  }
+}
+assert(imageFreeSurfaceCases === definitions.length * 3, `text-only Surface coverage is incomplete: ${imageFreeSurfaceCases}/${definitions.length * 3}`)
+
+const readyMessage = '<image_request id="ready-slot" target="custom.artifact-media" slot="ready-slot" aspect="4:3"><scene_brief>Ready image.</scene_brief></image_request>'
+const readyRecord: any = {
+  key: 'ready-slot-key', requestId: 'ready-slot', slot: 'ready-slot', target: 'custom.artifact-media', status: 'placement-pending',
+  pendingPlacement: { imageUrl: '/ready-slot.png', imageId: 'ready-image' }, chatId: 'ready-chat', messageId: 'ready-message', swipeId: 0,
+}
+const readyCard = renderNativeSurfaceMarkup(readyMessage, studio, {
+  chatId: 'ready-chat', messageId: 'ready-message', swipeId: 0, records: [readyRecord],
+})
+assert(readyCard.content.includes('data-rrn-placement-ready="true"'), 'ready-but-uninserted image was not marked as ready in its lifecycle card')
+assert(/data-rrn-action="repair-placement"[^>]*>Insert<\/button>/.test(readyCard.content), 'Ready Status Card is missing its Insert action')
+assert(readyCard.content.includes('>Ready</span>') && readyCard.content.includes('Image ready to insert'), 'ready Status Card still presents the placement wait as active generation')
+
 let ownershipCases = 0
 let bracketOwnershipCases = 0
 for (const rendererMode of ['relay', 'legacy-regex', 'hybrid'] as const) for (const presentation of presentations) for (const colorMode of colors) {

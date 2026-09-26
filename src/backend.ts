@@ -1083,10 +1083,6 @@ const PROSE_OPPORTUNITY_PLANNER_VERSION = 'prose-opportunity-sidecar-v1'
 const PROSE_PROMPT_COMPOSER_VERSION = 'prose-prompt-composer-v1'
 const BACKEND_LOADED_AT = Date.now()
 const RELAY_RUNTIME_SESSION_ID = `${BACKEND_LOADED_AT}:${Math.random().toString(36).slice(2, 10)}`
-// CHARACTER_MESSAGE_RENDERED may fire repeatedly while the assistant is still
-// streaming. Defer Surface discovery until the authored wrapper is complete so
-// Relay does not repeatedly mount and discard partial Surface trees.
-const activeStreamingSurfaceChats = new Set<string>()
 let lastBackendResponseAt = BACKEND_LOADED_AT
 const messageLocks = new Set<string>()
 const slotLocks = new Set<string>()
@@ -2917,6 +2913,30 @@ const NATIVE_RENDER_TAG_RE = new RegExp(
   'i',
 )
 
+const NARRATIVE_ACTION_ROOT_RE = /\[(?:Plot_Sparks\]|WHATIF\|)/i
+const narrativeActionScriptIdsCache = new Map<string, { expiresAt: number; promise: Promise<Record<string, string>> }>()
+
+async function activeNarrativeActionScriptIds(chatId: string, userId?: string): Promise<Record<string, string>> {
+  const scope = renderScopeKey(chatId, userId)
+  const cached = narrativeActionScriptIdsCache.get(scope)
+  if (cached && cached.expiresAt > Date.now()) return cached.promise
+  // Only action-bearing Narrative messages need this host identity lookup.
+  // The rendered Surface itself remains available when Regex is cold; a click
+  // becomes active only when Lumiverse has its corresponding configured script.
+  const promise = spindle.regex_scripts.getActive({ target: 'display', chatId, userId }).then(scripts => {
+    const ids: Record<string, string> = {}
+    for (const script of scripts) {
+      if (script.metadata?.reverie_narrative_dlc === true && !script.disabled) ids[script.script_id] = script.id
+    }
+    return ids
+  }).catch(error => {
+    spindle.log.warn(`[Reverie Relay] Narrative action identity lookup failed: ${error instanceof Error ? error.message : String(error)}`)
+    return {}
+  })
+  narrativeActionScriptIdsCache.set(scope, { expiresAt: Date.now() + 30_000, promise })
+  return promise
+}
+
 const registerMessageContentProcessor = (spindle as unknown as {
   registerMessageContentProcessor?: (
     handler: (context: MessageContentProcessorContext) => Promise<{ content?: string } | void>,
@@ -2963,7 +2983,10 @@ if (typeof registerMessageContentProcessor === 'function') {
         record.pendingPlacement?.imageUrl || '',
         record.updatedAt || 0,
       ])))
-      const outputKey = `${scope}:${context.messageId || '__new__'}:${renderSwipeId ?? '__active__'}:${contentFingerprint(source)}:${recordFingerprint}:${snapshot.contractFingerprint}:${snapshot.narrativeVariant}`
+      const actionScriptIds = narrativeCandidate && NARRATIVE_ACTION_ROOT_RE.test(source)
+        ? await activeNarrativeActionScriptIds(context.chatId, context.userId)
+        : {}
+      const outputKey = `${scope}:${context.messageId || '__new__'}:${renderSwipeId ?? '__active__'}:${contentFingerprint(source)}:${recordFingerprint}:${snapshot.contractFingerprint}:${snapshot.narrativeVariant}:${contentFingerprint(JSON.stringify(actionScriptIds))}`
       const cached = renderOutputCache.get(outputKey)
       if (cached) return { content: cached.content }
       const renderContext = {
@@ -2992,7 +3015,7 @@ if (typeof registerMessageContentProcessor === 'function') {
       // become runtime HTML; otherwise strict owners see Relay's own rrl-card
       // markup as author text and fail closed around it.
       if (narrativeCandidate && shouldRelayRenderNarrativeMarkup(source, renderContext.rendererMode)) {
-        const narrativeRendered = renderNarrativeRegex(renderedContent, snapshot.narrativeVariant, context.messageId || 'narrative', { chatId: context.chatId, swipeId: renderSwipeId }, snapshot.studio.colorMode)
+        const narrativeRendered = renderNarrativeRegex(renderedContent, snapshot.narrativeVariant, context.messageId || 'narrative', { chatId: context.chatId, swipeId: renderSwipeId, actionScriptIds }, snapshot.studio.colorMode)
         if (narrativeRendered !== renderedContent) renderedCount += 1
         renderedContent = narrativeRendered
       }
@@ -3432,7 +3455,6 @@ for (const macro of [
 
 spindle.on('GENERATION_STARTED', (payload: any, userId?: string) => {
   const chatId = cleanString(payload?.chatId || payload?.chat_id)
-  if (chatId) activeStreamingSurfaceChats.add(chatId)
   if (chatId && interceptorDisposer && spindle.permissions.has('interceptor')) {
     const latest = latestPromptInterceptionByChat.get(chatId)
     const consumed = consumedPromptInterceptionByChat.get(chatId) || 0
@@ -3460,7 +3482,6 @@ spindle.on('GENERATION_STARTED', (payload: any, userId?: string) => {
 
 spindle.on('GENERATION_ENDED', (payload: any, userId?: string) => {
   const chatId = cleanString(payload?.chatId || payload?.chat_id)
-  if (chatId) activeStreamingSurfaceChats.delete(chatId)
   void recordLifecycleEvent('generation-ended', payload, userId)
   void handleGenerationEnded(payload, userId).catch(error => {
     const message = error instanceof Error ? error.message : String(error)
@@ -3471,7 +3492,6 @@ spindle.on('GENERATION_ENDED', (payload: any, userId?: string) => {
 
 spindle.on('GENERATION_STOPPED', (payload: any, userId?: string) => {
   const chatId = cleanString(payload?.chatId || payload?.chat_id)
-  if (chatId) activeStreamingSurfaceChats.delete(chatId)
   void recordLifecycleEvent('generation-stopped', payload, userId)
 })
 
@@ -3523,14 +3543,9 @@ spindle.on('MESSAGE_SENT', (payload: any, userId?: string) => {
   })
 })
 
-spindle.on('CHARACTER_MESSAGE_RENDERED', (payload: any, userId?: string) => {
-  const chatId = cleanString(payload?.chatId || payload?.chat_id)
-  const messageId = cleanString(payload?.messageId || payload?.message_id)
-  if (!chatId || !messageId) return
-  if (activeStreamingSurfaceChats.has(chatId) || payload?.streaming === true || payload?.isStreaming === true) return
-  scheduleAssistantScan({ chatId, messageId, userId, source: 'character-message-rendered', delayMs: 40 })
-  scheduleProseOpportunityScan({ chatId, messageId, userId, source: 'character-message-rendered', delayMs: 120 })
-})
+// Rendering is not a fresh-generation signal: opening an old chat replays its
+// messages. Fresh dispatch is owned by MESSAGE_SENT / GENERATION_ENDED; chat
+// rescans recover missing slots without starting provider jobs.
 
 const lifecycleOn = spindle.on as unknown as (event: string, handler: (payload: any, userId?: string) => void) => void
 for (const eventName of ['MESSAGE_DELETED', 'MESSAGE_REMOVED', 'CHAT_MESSAGE_DELETED']) {
@@ -8968,11 +8983,11 @@ export function hasUnsettledVisiblePlacement(batch: InitialPlacementBatch): bool
   return batch.entries.some(entry => (entry.visualSettlements || []).some(settlement => settlement.required && !settlement.settled))
 }
 
-export function initialPlacementBatchCommitGate(batch: InitialPlacementBatch, options: { hasGenerationSibling: boolean; hasVisibleFrontend: boolean; allowSafetyFallback?: boolean; healthyStartedVisual?: boolean }): 'generation-pending' | 'visual-pending' | 'ready' {
-  if (options.hasGenerationSibling) return 'generation-pending'
-  // Reveal lifecycle is presentation telemetry, not a persistence prerequisite.
-  // Waiting for animationend here left a generated, gallery-linked asset in
-  // placement-pending limbo on real mobile sessions.
+export function initialPlacementBatchCommitGate(batch: InitialPlacementBatch, options: { hasGenerationSibling: boolean; hasVisibleFrontend: boolean; allowSafetyFallback?: boolean; healthyStartedVisual?: boolean }): 'ready' {
+  // Placement is a per-request state projection, not a host-message write.
+  // A sibling still generating cannot invalidate this request's exact anchor.
+  // Holding it here left Spark images Ready until every sibling finished and
+  // made Insert report a false placement-repair failure.
   void batch
   void options
   return 'ready'
@@ -9142,8 +9157,7 @@ async function maybeCommitInitialPlacementBatch(job: Pick<RouterJob, 'chatId' | 
       allowSafetyFallback,
       healthyStartedVisual: false,
     })
-    if (gate === 'generation-pending') return false
-    if (gate === 'visual-pending') return false
+    if (gate !== 'ready') return false
     clearInitialPlacementVisualFallback(batch)
     pendingPlacementBatches.delete(key)
     await commitInitialPlacementBatch(batch, userId)
@@ -11758,7 +11772,7 @@ function normalizeCustomSurfaceStudio(value: unknown): CustomSurfaceStudioState 
     })),
     defaultCollectionPresetId: cleanString(raw.defaultCollectionPresetId) || undefined,
     rendererMode: migratedRendererMode,
-    defaultShellMode: ['inline', 'plain', 'sparkling', 'glass'].includes(cleanString(raw.defaultShellMode))
+    defaultShellMode: ['inline', 'plain', 'sparkling', 'glass', 'plain-glass'].includes(cleanString(raw.defaultShellMode))
       ? cleanString(raw.defaultShellMode) as SurfaceShellMode
       : cleanString(raw.defaultShellMode) === 'collapsible' ? 'plain' : defaults.defaultShellMode,
     colorMode: ['realistic', 'primary', 'glass'].includes(cleanString(raw.colorMode)) ? cleanString(raw.colorMode) as SurfaceColorMode : 'realistic',
@@ -12224,7 +12238,7 @@ function normalizeCustomSurfaceDefinition(surfaceId: string, value: unknown): Cu
     baseSurfaceId,
     basedOnSurfaceId: sanitizeSurfaceId(cleanString(raw.basedOnSurfaceId)) || undefined,
     presetName: cleanString(raw.presetName) || (raw.builtIn === true ? 'Relay Default' : cleanString(raw.displayName) || titleCase(id)),
-    shellMode: ['plain', 'sparkling', 'glass'].includes(shellMode) ? shellMode as SurfaceShellMode : shellMode === 'collapsible' ? 'plain' : 'inline',
+    shellMode: ['plain', 'sparkling', 'glass', 'plain-glass'].includes(shellMode) ? shellMode as SurfaceShellMode : shellMode === 'collapsible' ? 'plain' : 'inline',
     defaultOpen: raw.defaultOpen === true,
     launcherLabel: cleanString(raw.launcherLabel) || cleanString(raw.displayName) || titleCase(baseSurfaceId),
     density: ['compact', 'comfortable', 'spacious'].includes(density) ? density as CustomSurfaceDefinition['density'] : 'comfortable',
@@ -12435,7 +12449,7 @@ async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { typ
       configPatch.surfaceRendererMode = payload.rendererMode
       globalStudio.rendererMode = payload.rendererMode
     } else if (payload.action === 'set_default_shell_mode') {
-      if (!payload.shellMode || !['inline', 'plain', 'sparkling', 'glass'].includes(payload.shellMode)) throw new Error('Default surface presentation is invalid.')
+      if (!payload.shellMode || !['inline', 'plain', 'sparkling', 'glass', 'plain-glass'].includes(payload.shellMode)) throw new Error('Default surface presentation is invalid.')
       configPatch.surfaceDefaultShellMode = payload.shellMode
       configPatch.narrativeDlcVariant = narrativeVariantForSurfaceShellMode(payload.shellMode)
       globalStudio.defaultShellMode = payload.shellMode
@@ -12491,7 +12505,7 @@ async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { typ
       configPatch.surfaceRendererMode = payload.rendererMode
       configPatch.surfacePreferencesInitialized = true
     } else if (payload.action === 'set_default_shell_mode') {
-      if (!payload.shellMode || !['inline', 'plain', 'sparkling', 'glass'].includes(payload.shellMode)) throw new Error('Default surface presentation is invalid.')
+      if (!payload.shellMode || !['inline', 'plain', 'sparkling', 'glass', 'plain-glass'].includes(payload.shellMode)) throw new Error('Default surface presentation is invalid.')
       studio.defaultShellMode = payload.shellMode
       configPatch.surfaceDefaultShellMode = payload.shellMode
       configPatch.narrativeDlcVariant = narrativeVariantForSurfaceShellMode(payload.shellMode)
@@ -15447,7 +15461,7 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     surfaceRendererMode: ['relay', 'legacy-regex', 'hybrid'].includes(String(raw.surfaceRendererMode))
       ? raw.surfaceRendererMode as RouterConfig['surfaceRendererMode']
       : 'relay',
-    surfaceDefaultShellMode: ['inline', 'plain', 'sparkling', 'glass'].includes(String(raw.surfaceDefaultShellMode))
+    surfaceDefaultShellMode: ['inline', 'plain', 'sparkling', 'glass', 'plain-glass'].includes(String(raw.surfaceDefaultShellMode))
       ? raw.surfaceDefaultShellMode as SurfaceShellMode
       : raw.surfaceDefaultShellMode === 'collapsible' ? 'plain' : DEFAULT_CONFIG.surfaceDefaultShellMode,
     surfaceColorMode: ['realistic', 'primary', 'glass'].includes(cleanString(raw.surfaceColorMode)) ? cleanString(raw.surfaceColorMode) as SurfaceColorMode : 'realistic',
@@ -15459,7 +15473,7 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     // authority from an older config; derive it from the normalized Surface
     // shell mode on every load as well as every settings write.
     narrativeDlcVariant: narrativeVariantForSurfaceShellMode(
-      ['inline', 'plain', 'sparkling', 'glass'].includes(String(raw.surfaceDefaultShellMode))
+      ['inline', 'plain', 'sparkling', 'glass', 'plain-glass'].includes(String(raw.surfaceDefaultShellMode))
         ? raw.surfaceDefaultShellMode as SurfaceShellMode
         : raw.surfaceDefaultShellMode === 'collapsible' ? 'plain' : DEFAULT_CONFIG.surfaceDefaultShellMode,
     ),
@@ -16660,7 +16674,7 @@ export function applyRelaySettingsPatchToConfig(current: RouterConfig, patch: Re
       next.surfaceRendererMode = patch.rendererMode
     }
     if (patch.defaultShellMode !== undefined) {
-      if (!['inline', 'plain', 'sparkling', 'glass'].includes(patch.defaultShellMode)) throw new Error('Default surface presentation is invalid.')
+      if (!['inline', 'plain', 'sparkling', 'glass', 'plain-glass'].includes(patch.defaultShellMode)) throw new Error('Default surface presentation is invalid.')
       studio.defaultShellMode = patch.defaultShellMode
       next.surfaceDefaultShellMode = patch.defaultShellMode
       next.narrativeDlcVariant = narrativeVariantForSurfaceShellMode(patch.defaultShellMode)

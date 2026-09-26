@@ -10,6 +10,7 @@ import {
   narrativeSurfaceBracketTags,
   narrativeUtilityItems,
   missingNarrativeUtilityFormatMarkers,
+  normalizeMissingPlotSparksMediaFields,
   normalizeNarrativeClosingDelimiters,
   normalizeNarrativeMarkupForRendering,
   normalizeParallelSceneMarkup,
@@ -121,6 +122,34 @@ const vectors = ['detonation', 'heartknife', 'wrongness', 'crash-in', 'matchstri
 const plotSparks = `[Plot_Sparks][ID]batch-d[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${vectors.map((vector, index) => `[Spark][Key]${String.fromCharCode(97 + index)}[/Key][Vector]${vector}[/Vector][Text]Branch ${index + 1}.[/Text][Media]<reverie-illustration request="generate" slot="plot-${index + 1}" aspect="16:9" cast="none"><visual_prompt>Grounded continuation ${index + 1}.</visual_prompt></reverie-illustration>[/Media][/Spark]`).join('')}[/Plot_Sparks]`
 fixtures['Plot Sparks'] = { source: plotSparks, rendered: 'ch-og' }
 
+// Relay's display adapter must preserve Lumiverse's native, configured Regex
+// action contract; a plain data-regex-action button is visually clickable but
+// cannot dispatch fork/draft. Both branch-owning Narrative Surfaces are covered.
+const actionIds = {
+  ria_plot_sparks_og_sparkle_tabs_bulletproof_v7: 'plot-host-row',
+  reverie_whatif_loom_images_fork_v1: 'whatif-host-row',
+}
+for (const [name, source, rowId, count] of [
+  ['Plot Sparks', plotSparks, 'plot-host-row', 7],
+  ['In Another Life', fixtures['In Another Life'].source, 'whatif-host-row', 1],
+] as const) {
+  const rendered = renderNarrativeRegex(source, 'glass', `action-${name}`, { actionScriptIds: actionIds }, 'glass')
+  const actions = [...rendered.matchAll(/data-lumiverse-regex-action="([^"]+)"/g)]
+    .map(match => JSON.parse(decodeURIComponent(match[1])))
+  assert(actions.length === count, `${name}: ${actions.length}/${count} native fork actions were decorated`)
+  assert(actions.every(action => action.scriptId === rowId && action.type === 'effects' && action.multi_select === false
+    && action.cost === 1 && action.limit === 0 && action.instanceId.startsWith(`${rowId}:`)), `${name}: fork action payload differs from Lumiverse's validated contract`)
+  if (name === 'Plot Sparks') {
+    assert(rendered.includes('Branch from this Spark') && !rendered.includes('Branch from this hook'), 'Plot Sparks launcher still says Hook')
+    assert(actions[0].effects?.[0]?.type === 'fork' && actions[0].effects?.[1]?.content === 'Branch 1.', 'Plot Sparks fork/draft lost the chosen Spark text')
+    assert(actions[6].effects?.[1]?.content === 'Branch 7.', 'Plot Sparks last action did not resolve its own Spark text')
+  } else {
+    assert(actions[0].effects?.[0]?.type === 'fork' && actions[0].effects?.[1]?.content === 'Continue from this What If branch:\n\nShe sends the message before leaving.', 'In Another Life fork/draft lost its scenario')
+    assert(actions[0].subtitle === 'The Unsent Reply', 'In Another Life action title capture was not resolved')
+  }
+  assert(!renderNarrativeRegex(source, 'glass', `action-${name}`, {}, 'glass').includes('data-lumiverse-regex-action='), `${name}: unconfigured host action was forged`)
+}
+
 const phoneApps = Array.from({ length: 8 }, (_, index) => `[cp_app][cp_slot]${index + 1}[/cp_slot][cp_name]App ${index + 1}[/cp_name][cp_icon]◇[/cp_icon][cp_tone]blue[/cp_tone][cp_badge]0[/cp_badge][cp_content][cp_row][cp_glyph]◇[/cp_glyph][cp_title]Row ${index + 1}[/cp_title][cp_meta]Meta[/cp_meta][cp_text]Text[/cp_text][/cp_row][/cp_content][/cp_app]`).join('')
 const phone = `[character_phone][cp_presentation]sparkling[/cp_presentation][cp_owner]Lisa[/cp_owner][cp_subtitle]Private phone[/cp_subtitle][cp_time]09:47[/cp_time][cp_day]Monday[/cp_day][cp_battery]63[/cp_battery][cp_wallpaper]${image('phone-wallpaper')}[/cp_wallpaper][cp_apps]${phoneApps}[/cp_apps][/character_phone]`
 fixtures['Character Phone'] = { source: phone, rendered: 'rrcp-wrap' }
@@ -151,6 +180,7 @@ const presentationMatrix = [
   { variant: 'plain-button', shell: 'button' },
   { variant: 'sparkle-button', shell: 'sparkling' },
   { variant: 'glass', shell: 'glass button' },
+  { variant: 'plain-glass', shell: 'plain glass' },
 ] as const
 for (const [name, fixture] of Object.entries(fixtures)) {
   assert(containsNarrativeRegexMarkup(fixture.source), `${name}: canonical bracket root is not detected`)
@@ -159,13 +189,13 @@ for (const [name, fixture] of Object.entries(fixtures)) {
     const rendered = renderNarrativeRegex(fixture.source, variant, `batch-d-${name}-${variant}-${colorMode}`, {}, colorMode)
     assert(rendered.includes(fixture.rendered), `${caseName}: dedicated presentation did not render`)
     const expectedMode = variant === 'inline' ? 'inline' : variant === 'plain-button' ? 'button' : 'sparkling'
-    const presentationRoot = variant === 'glass'
+    const presentationRoot = variant === 'glass' || variant === 'plain-glass'
       ? new RegExp(`<(${fixture.rendered === 'rrcp-wrap' ? 'div' : 'details'})\\b[^>]*${colorMode === 'glass' ? 'data-reverie-glass-authority="narrative-glass"' : 'data-reverie-narrative-glass-button="1"'}[^>]*>`, 'i').exec(rendered)
       : new RegExp(`<(details|div)\\b[^>]*class="[^"]*\\brr-surface-presentation-${expectedMode}\\b[^"]*"[^>]*>`, 'i').exec(rendered)
     assert(presentationRoot, `${caseName}: global Surface presentation did not reach the Narrative root`)
     if (colorMode === 'glass') {
       assert(rendered.includes('data-reverie-glass-authority="narrative-glass"'), `${caseName}: Glass body source was not selected`)
-      if (variant === 'glass') {
+      if (variant === 'glass' || variant === 'plain-glass') {
         assert(rendered.includes('data-reverie-narrative-glass-button="1"') && rendered.includes('data-reverie-narrative-glass-button-runtime="1"'), `${caseName}: Glass Button did not override the complete Glass body's legacy launcher`)
       }
     } else {
@@ -174,10 +204,11 @@ for (const [name, fixture] of Object.entries(fixtures)) {
     if (variant === 'inline') {
       if (presentationRoot[1].toLowerCase() === 'details') assert(/\bopen(?:\s|=|>)/i.test(presentationRoot[0]), `${name}/${variant}: inline details root is closed and would disappear`)
       assert(rendered.includes('.rr-surface-presentation-inline>summary{display:none!important}'), `${caseName}: inline launcher is not suppressed`)
-    } else if (variant !== 'glass') {
+    } else if (variant !== 'glass' && variant !== 'plain-glass') {
       if (presentationRoot[1].toLowerCase() === 'details') assert(!/\bopen(?:\s|=|>)/i.test(presentationRoot[0]), `${caseName}: button root must start closed`)
       if (variant === 'plain-button') assert(rendered.includes('.rr-surface-presentation-button>summary .dg-unified-sparks'), `${caseName}: plain Button did not suppress sparkling launcher decoration`)
     }
+    if (variant === 'plain-glass') assert(rendered.includes('data-rr-plain-glass="1"') && !rendered.includes('<span class="rr-surface-sparks"'), `${caseName}: Plain Glass retained shared particles`)
     assert(!rendered.includes('Relay Surface needs repair'), `${caseName}: canonical fixture fell into generic repair UI`)
     const requestCount = (fixture.source.match(/<(?:image_request|reverie-illustration)\b/gi) || []).length
     const hydrated = renderNativeSurfaceMarkup(rendered, { ...nativeStudio, colorMode }, { chatId: 'batch-d', messageId: `batch-d-${name}-${variant}-${colorMode}`, swipeId: 0, records: [] }).content
@@ -191,12 +222,37 @@ for (const [name, fixture] of Object.entries(fixtures)) {
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   for (const script of narrativeRegexScripts(variant)) assert(new RegExp(script.find_regex, script.flags), `${variant}/${script.script_id}: matcher does not compile`)
   const phoneRendered = renderNarrativeRegex(phone, variant, `batch-d-phone-${variant}`)
-  assert(phoneRendered.includes(`rrcp-presentation-${variant === 'sparkle-button' ? 'sparkling' : variant === 'plain-button' ? 'plain' : variant}`), `${variant}: Character Phone visual variant changed`)
+  assert(phoneRendered.includes(`rrcp-presentation-${variant === 'sparkle-button' ? 'sparkling' : variant === 'plain-button' ? 'plain' : variant === 'plain-glass' ? 'glass' : variant}`), `${variant}: Character Phone visual variant changed`)
+  if (variant === 'plain-glass') assert(phoneRendered.includes('data-rr-plain-glass="1"'), 'Plain Glass Character Phone did not suppress launcher particles')
 }
 
 const plotRendered = renderNarrativeRegex(plotSparks, 'sparkle-button', 'batch-d-plot-ownership')
 assert((plotRendered.match(/class="ch-media"/g) || []).length === 7, 'Plot Sparks did not preserve seven dedicated [Media] owners')
 assert((plotRendered.match(/<reverie-illustration\b/g) || []).length === 7, 'Plot Sparks XML illustrations left their [Media] owners')
+
+const textOnlyNarratives = Object.entries(fixtures).map(([name, fixture]) => ({
+  name,
+  source: fixture.source.replace(/<(?:image_request|reverie-illustration)\b[^>]*>[\s\S]*?<\/(?:image_request|reverie-illustration)\s*>/gi, ''),
+  root: fixture.rendered,
+}))
+for (const fixture of textOnlyNarratives) {
+  const rendered = renderNarrativeRegex(fixture.source, 'inline', `text-only-${fixture.name}`)
+  assert(rendered.includes(fixture.root), `${fixture.name}: Narrative Surface failed to render after all image controls were omitted`)
+  assert(!rendered.includes('[Plot_Sparks]') && !rendered.includes('[dramatic_parallel]'), `${fixture.name}: text-only render leaked a raw owner`)
+}
+
+const plotSparksWithoutMediaOwners = plotSparks.replace(/\[Media\][\s\S]*?\[\/Media\]/gi, '')
+const repairedTextOnlyPlotSparks = normalizeMissingPlotSparksMediaFields(plotSparksWithoutMediaOwners)
+assert((repairedTextOnlyPlotSparks.match(/\[Media\]\[\/Media\]/g) || []).length === 7, 'canonical seven-Spark text-only response did not receive seven empty media owners')
+const partiallyMissingPlotSparksMedia = repairedTextOnlyPlotSparks.replace(/\[Media\]\[\/Media\]/, '')
+assert(normalizeMissingPlotSparksMediaFields(partiallyMissingPlotSparksMedia) === partiallyMissingPlotSparksMedia, 'partially missing Plot Sparks Media fields were guessed at')
+const textOnlyPlotSparksRendered = renderNarrativeRegex(plotSparksWithoutMediaOwners, 'inline', 'plot-sparks-no-image-tags')
+assert(textOnlyPlotSparksRendered.includes('class="ch-og') && !textOnlyPlotSparksRendered.includes('[Plot_Sparks]'), 'Plot Sparks failed to render when the model omitted all Media/image tags')
+assert((textOnlyPlotSparksRendered.match(/class="ch-media"/g) || []).length === 7, 'text-only Plot Sparks lost one or more Spark panels')
+assert(textOnlyPlotSparksRendered.includes('Branch 1.') && textOnlyPlotSparksRendered.includes('Branch 7.'), 'text-only Plot Sparks did not preserve all authored branch text')
+assert(!/<(?:image_request|reverie-illustration)\b/i.test(textOnlyPlotSparksRendered), 'text-only Plot Sparks repair invented an image request')
+const ambiguousTextOnlyPlotSparks = plotSparksWithoutMediaOwners.replace('[Text]Branch 4.', '[Text]Branch 4.[/Text][Text]duplicate')
+assert(normalizeMissingPlotSparksMediaFields(ambiguousTextOnlyPlotSparks) === ambiguousTextOnlyPlotSparks, 'ambiguous Plot Sparks received guessed Media wrappers')
 
 // Exact structural shape from the live failure: one Text opener and one Vector
 // closer used an angle bracket. Repair is allowed only because all seven
@@ -419,6 +475,6 @@ assert(worldIsolated.includes('rr-scene-compass'), 'malformed World poisoned val
 assert(worldIsolated.includes('class="ch-og') && !worldIsolated.includes('[Plot_Sparks]'), 'malformed World poisoned valid Plot Sparks')
 
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
-assert(packageJson.version === '0.2.8.7.22', `version changed: ${packageJson.version}`)
+assert(packageJson.version === '0.3.0', `version changed: ${packageJson.version}`)
 
-console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} named Surfaces × 4 shells × 2 body modes = ${renderCases} deterministic renders, ${narrativeClosingDelimiterMutationCases} closer mutations, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone four-variant regression passed, malformed-sibling isolation passed, Stella absent.`)
+console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} named Surfaces × ${NARRATIVE_REGEX_VARIANTS.length} shells × 2 body modes = ${renderCases} deterministic renders, ${narrativeClosingDelimiterMutationCases} closer mutations, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone variant regression passed, malformed-sibling isolation passed, Stella absent.`)

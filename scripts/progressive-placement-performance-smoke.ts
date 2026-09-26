@@ -29,20 +29,36 @@ const result = (id: string) => ({ slot: id, imageId: id, imageUrl: `/${id}.png` 
 const ids = ['scene-a', 'scene-b', 'scene-c']
 let latestContent = `Opening prose.\n${request(ids[0])}\nMiddle prose.\n${request(ids[1])}\nMore prose.\n${request(ids[2])}\nClosing prose.`
 
-// Progressive reveal stays request-local, while durable Relay state finalizes
-// as one message/swipe projection batch after every initial sibling is terminal.
+// Projection is serialized per message/swipe, but each finished request may
+// complete while sibling Spark requests are still generating.
 assert.equal(backend.placementBatchKey(job('scene-a'), 'u'), backend.placementBatchKey(job('scene-b'), 'u'), 'initial sibling requests must share one message/swipe persistence batch')
-assert.equal(backend.initialPlacementBatchCommitGate({ entries: [] } as any, { hasGenerationSibling: true, hasVisibleFrontend: false }), 'generation-pending')
+assert.equal(backend.initialPlacementBatchCommitGate({ entries: [] } as any, { hasGenerationSibling: true, hasVisibleFrontend: false }), 'ready')
 assert.equal(backend.initialPlacementBatchCommitGate({ entries: [] } as any, { hasGenerationSibling: false, hasVisibleFrontend: false }), 'ready')
 const siblingBatch = { chatId: 'progressive-chat', messageId: 'progressive-message', swipeId: 0, sourceFingerprint: 'source', entries: [{ job: job('scene-a'), results: [result('scene-a')] }] } as any
 assert.equal(backend.hasPendingInitialPlacementSibling({ slots: {
   a: { ...job('scene-a'), status: 'placement-pending', triggerType: 'initial' },
   b: { ...job('scene-b'), status: 'generating', triggerType: 'initial' },
-} } as any, siblingBatch), true, 'a still-generating initial sibling must hold the one durable message transaction')
+} } as any, siblingBatch), true, 'a still-generating sibling must remain observable without blocking A')
 assert.equal(backend.hasPendingInitialPlacementSibling({ slots: {
   a: { ...job('scene-a'), status: 'placement-pending', triggerType: 'initial' },
   b: { ...job('scene-b'), status: 'failed', triggerType: 'initial' },
 } } as any, siblingBatch), false, 'a terminal failed sibling must release successful initial placements')
+
+// Plot Sparks is a seven-request message. The first finished Spark must be
+// projectable while the other six still own their authored request anchors.
+const sparkIds = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(letter => `spark-${letter}`)
+const sparkBody = sparkIds.map(id => request(id)).join('\n')
+const firstSparkBatch = { ...siblingBatch, entries: [{ job: job(sparkIds[0]), results: [result(sparkIds[0])] }] }
+const sparkSlots = Object.fromEntries(sparkIds.map((id, index) => [id, { ...job(id), status: index ? 'generating' : 'placement-pending', triggerType: 'initial' }]))
+assert.equal(backend.hasPendingInitialPlacementSibling({ slots: sparkSlots } as any, firstSparkBatch), true)
+assert.equal(backend.initialPlacementBatchCommitGate(firstSparkBatch, { hasGenerationSibling: true, hasVisibleFrontend: true }), 'ready')
+const firstSparkProjection = backend.composeInitialPlacementBatchContent(sparkBody, firstSparkBatch.entries)
+assert.equal(firstSparkProjection.error, undefined)
+assert(firstSparkProjection.content.includes('/spark-a.png'))
+for (const id of sparkIds.slice(1)) assert(firstSparkProjection.content.includes(request(id)), `${id} was consumed before its own generation completed`)
+const secondSparkProjection = backend.composeInitialPlacementBatchContent(firstSparkProjection.content, [{ job: job(sparkIds[1]), results: [result(sparkIds[1])] }])
+assert.equal(secondSparkProjection.error, undefined)
+assert(secondSparkProjection.content.includes('/spark-a.png') && secondSparkProjection.content.includes('/spark-b.png'))
 
 const archivedProjection = backend.renderSnapshotRecords({
   slots: {},

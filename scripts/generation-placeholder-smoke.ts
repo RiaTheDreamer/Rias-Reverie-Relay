@@ -1,7 +1,7 @@
 // @ts-nocheck -- Deterministic contract coverage for the generation reservation appearance.
 import { readFileSync } from 'node:fs'
 import { normalizeGenerationPlaceholderEffect } from '../src/contracts'
-import { lifecycleRuntimeCss, renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
+import { lifecycleRuntimeCss, renderCompletedProseLifecycleProjection, renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { renderNarrativeRegex } from '../src/narrativeRegexAssets'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
@@ -78,6 +78,12 @@ for (const id of plotIds) assert((plotRendered.match(new RegExp(`data-rrn-native
 const completed = runtimeMarkup('glitter', 'completed', '/images/completed.png')
 assert(!completed.includes('data-rr-placeholder-effect=') && completed.includes('/images/completed.png'), 'completed generation must remove the active effect and keep the image')
 assert(!/Image completed|>Ready<|Regenerate|Reparse|Rescan|rrl-state-icon|rrl-detail|data-rrn-native-request/.test(completed), 'completed image must not retain lifecycle copy, controls, status icon, details, or reservation card')
+const completedProse = renderCompletedProseLifecycleProjection({
+  key: 'chat:prose:0:prose-a:prose-a', requestId: 'prose-a', messageId: 'prose', swipeId: 0,
+  target: 'prose.illustration', slot: 'prose-a', status: 'completed',
+  imageUrl: '/images/prose-a.png', requestAspect: '4:3',
+}, { chatId: 'chat', messageId: 'prose', swipeId: 0, generationPlaceholderEffect: 'dream-orb' })
+assert(completedProse.includes('data-dgir-prose-projection="chat:prose:0:prose-a:prose-a"') && completedProse.includes('data-rrn-native-request="prose-a"') && completedProse.includes('/images/prose-a.png') && completedProse.includes('data-rr-placeholder-effect="dream-orb"'), 'completed prose must rebuild its stable owner and selected effect from the record alone, without original request XML')
 const retry = runtimeMarkup('dream-orb', 'generating')
 assert(retry.includes('data-rr-placeholder-effect="dream-orb"'), 'retry returning to active state must restore selected effect')
 
@@ -99,7 +105,7 @@ const placementPaths = [
   },
 ] as const
 
-function renderPlacementPath(path: typeof placementPaths[number], status: string, imageUrl?: string, recordsOverride?: any[]): string {
+function renderPlacementPath(path: typeof placementPaths[number], status: string, imageUrl?: string, recordsOverride?: any[], effect: 'spinner' | 'glitter' | 'none' | 'dream-orb' = 'glitter'): string {
   const record = {
     key: `chat:message:0:${path.requestId}:illustration`, requestId: path.requestId, slot: 'illustration',
     target: 'prose.illustration', status, messageId: 'message', swipeId: 0, requestAspect: '4:3',
@@ -107,7 +113,7 @@ function renderPlacementPath(path: typeof placementPaths[number], status: string
   }
   return withoutStyles(renderNativeSurfaceMarkup(path.source, studio as any, {
     chatId: 'chat', messageId: 'message', swipeId: 0, autoGenerate: true,
-    generationPlaceholderEffect: 'glitter', records: recordsOverride || [record],
+    generationPlaceholderEffect: effect, records: recordsOverride || [record],
   }).content)
 }
 
@@ -121,7 +127,7 @@ for (const path of placementPaths) {
 
   const finished = renderPlacementPath(path, 'completed', `/images/${path.requestId}.png`)
   const finalImage = finished.indexOf(`/images/${path.requestId}.png`)
-  assert(finalImage >= 0 && !finished.includes('rrl-generation-placeholder') && finished.includes('data-rrn-native-request'), `${path.label}: final image must replace the active contents inside the stable reservation`)
+  assert(finalImage >= 0 && finished.includes('data-rr-placeholder-effect="glitter"') && finished.includes('data-rrn-native-request'), `${path.label}: completed render must retain its effect behind the decoded reveal inside the stable reservation`)
   assert(finished.indexOf('Prose before.') < finalImage && finished.indexOf('Prose after.') > finalImage, `${path.label}: normal prose following the image must remain normal prose`)
   assert(!/Image completed|>Ready<|Regenerate|Reparse|Rescan|Repair \/ Reinsert|rrl-state-icon|rrl-detail|rrl-main|rrl-actions/.test(finished), `${path.label}: healthy completion leaked prose-facing lifecycle chrome`)
 
@@ -141,6 +147,11 @@ for (const path of placementPaths) {
   }
   const staleProof = renderPlacementPath(path, 'completed', currentHealthy.imageUrl, [staleFailure, currentHealthy])
   assert(staleProof.includes(currentHealthy.imageUrl) && !/Regenerate|Reparse|Rescan|Repair \/ Reinsert/.test(staleProof), `${path.label}: stale previous failure must not override the current healthy slot`)
+}
+
+for (const effect of ['spinner', 'glitter', 'none', 'dream-orb'] as const) {
+  const finished = renderPlacementPath(placementPaths[1], 'completed', '/images/inline-reservation.png', undefined, effect)
+  assert(finished.includes(`data-rr-placeholder-effect="${effect}"`), `${effect}: completed prose slot did not carry the selected effect into its decode handoff`)
 }
 
 const healthyReload = 'Prose before.\n\n![reverie-relay](/images/healthy-reload.png)\n\nProse after.'
@@ -170,7 +181,7 @@ assert(nativeSource.includes('@keyframes rr-orb-float{0%,100%{transform:translat
 assert(nativeSource.includes('@keyframes rr-orb-breathe{0%,100%{scale:.97}50%{scale:1.025}}'), 'Dream Orb breathe loop endpoints must remain identical')
 assert(nativeSource.includes('@keyframes rr-glint{0%,70%,100%{opacity:.25;transform:scale(.8)}82%{opacity:1;transform:scale(1.35)}}'), 'Dream Orb glint loop endpoints must remain identical')
 assert(nativeSource.includes('animation:rr-glint 3.9s ease-in-out infinite') && nativeSource.includes('animation:rr-glint 5.1s ease-in-out -2s infinite'), 'Dream Orb glints must retain asynchronous continuous timing')
-const reducedMotionCss = '@media(prefers-reduced-motion:reduce){.rrl-media-slot .rrl-slot-image.rrl-final-reveal,.rrl-generation-placeholder .rr-spinner,.rrl-generation-placeholder .rr-orb,.rrl-generation-placeholder .rr-orb:before,.rrl-generation-placeholder .rr-orb:after{animation:none!important}.rrl-generation-placeholder .rr-regex-particles{display:block}.rrl-generation-placeholder .rr-regex-particles i{animation:none!important;opacity:.72;transform:none}}'
+const reducedMotionCss = '@media(prefers-reduced-motion:reduce){.rrl-media-slot .rrl-slot-image.rrl-final-reveal,.rrl-final-reveal:not(.rrl-slot-image),.rrl-generation-placeholder .rr-spinner,.rrl-generation-placeholder .rr-orb,.rrl-generation-placeholder .rr-orb:before,.rrl-generation-placeholder .rr-orb:after{animation:none!important}.rrl-generation-placeholder .rr-regex-particles{display:block}.rrl-generation-placeholder .rr-regex-particles i{animation:none!important;opacity:.72;transform:none}}'
 assert(nativeSource.includes(reducedMotionCss), 'reduced motion must stop animation while retaining a visible static glitter representation')
 assert(!lifecycleRuntimeCss().includes('.rrl-generation-placeholder .rr-regex-particles{display:none}'), 'reduced motion must never erase the selected glitter placeholder')
 assert(!nativeSource.includes('\ni{') && !nativeSource.includes('}i{'), 'unscoped global i selector is forbidden')
@@ -183,17 +194,28 @@ assert(patchConfigSource.includes("type: 'set_config'") && !/scan_message|regene
 assert(frontendSource.includes('syncGenerationPlaceholderEffect') && frontendSource.includes('Array.from({ length: 24 }'), 'visible active placeholders must update in place')
 assert(frontendSource.includes('ctx.dom.addStyle(lifecycleRuntimeCss())'), 'lifecycle CSS must be registered through the extension-owned host stylesheet')
 assert(frontendSource.includes('stripHealthyCompletedLifecycleUi(card)') && frontendSource.includes('isProse && lifecycleImages.length') && frontendSource.includes('for (const image of authoredImages) image.remove()'), 'completion transition must strip lifecycle chrome and retain one canonical prose slot')
+assert(frontendSource.includes('if (!ctx.connections?.list) return') && frontendSource.includes('const profiles = await ctx.connections.list()') && frontendSource.includes('parserConnections = frontendParserConnections ?? message.parserConnections'), 'parser and appearance selectors must recover credential-redacted profiles from the authenticated frontend API when backend context lookup is empty')
 const finalRevealSource = frontendSource.slice(frontendSource.indexOf('type MediaCardUpdate ='), frontendSource.indexOf('const boundNarrativeControls'))
 const finalRevealLifecycleSource = frontendSource.slice(frontendSource.indexOf('export async function settlePlacementVisualLifecycle'), frontendSource.indexOf('export function setup'))
 const visualSessionSource = frontendSource.slice(frontendSource.indexOf('const sendFrontendSession ='), frontendSource.indexOf('const submissionId ='))
 assert(finalRevealSource.includes('sawActiveLifecycle: boolean') && finalRevealSource.includes('revealedImageUrl?: string'), 'final reveal replay protection must stay card-scoped in the existing WeakMap state')
 assert(frontendSource.includes('rememberBoundedMap(pendingFinalRevealByRecord, record.key, record.requestId') && frontendSource.includes('pendingFinalRevealByRecord.clear()') && frontendSource.includes('const shouldReveal = shouldStartFinalImageReveal({'), 'active lifecycle evidence must survive a Lumiverse card/media remount and reveal an already-hydrated new final URL exactly once')
-assert(finalRevealLifecycleSource.includes('if (!image.complete)') && finalRevealLifecycleSource.includes("image.addEventListener('load', onLoad") && finalRevealLifecycleSource.includes('await image.decode?.()') && finalRevealLifecycleSource.includes('image.naturalWidth <= 0'), 'final reveal must wait for a usable loaded and decoded image')
-assert(finalRevealSource.includes('card.isConnected') && finalRevealSource.includes('image.isConnected') && finalRevealSource.includes('mediaCardUpdates.get(card) === update') && finalRevealSource.includes('urlMatches(image.currentSrc || image.src, expectedUrl)'), 'asynchronous reveal must reject stale cards, images, records, and URLs')
+assert(frontendSource.includes("record.status === 'placement-pending' && pendingRecordReveal") && frontendSource.includes('readyForReveal: !waitingForCompletedRender') && frontendSource.includes("mediaSlot.dataset.rrnMediaEmpty = waitingForCompletedRender || shouldReveal ? 'true' : 'false'"), 'all media must keep their selected effect through pending placement and until decoded final Reveal begins')
+assert(frontendSource.includes("if (mediaSlot) mediaSlot.dataset.rrnMediaEmpty = 'false'"), 'decoded final Reveal must clear the media-empty marker when its effect yields to the image')
+assert(frontendSource.includes('armProseRevealGuard(record)') && frontendSource.includes('disarmProseRevealGuard(expectedRecordKey, record.requestId)') && frontendSource.includes('visibility:hidden!important') && frontendSource.includes('display:grid!important;opacity:1!important'), 'a completed host remount must keep pixels covered and the effect present before its first paint')
+assert(!nativeSource.includes('.rrl-media-slot[data-rrn-media-state="completed"] .rrl-generation-placeholder{display:none}') && nativeSource.includes('.rrl-media-slot[data-rrn-media-empty="false"] .rrl-media-skeleton') && nativeSource.includes("stableLifecycleMediaSlot(aspect, 'completed', input.title, resolved, false, input.context.generationPlaceholderEffect || 'glitter')"), 'fresh completion must keep its effect until Reveal while historical completed media hides its dormant effect')
+assert(finalRevealLifecycleSource.includes('if (!image.complete || image.naturalWidth <= 0)') && finalRevealLifecycleSource.includes("image.addEventListener('load', onLoad") && finalRevealLifecycleSource.includes('await image.decode?.()') && finalRevealLifecycleSource.includes('image.naturalWidth <= 0'), 'final reveal must wait for a usable loaded and decoded image')
+const revealKeyframeIndex = finalRevealLifecycleSource.indexOf("image.classList.add('rrl-final-reveal')")
+assert(finalRevealLifecycleSource.includes('image.hidden = true') && revealKeyframeIndex >= 0 && finalRevealLifecycleSource.indexOf('image.hidden = false', revealKeyframeIndex) > revealKeyframeIndex, 'progressive image pixels must stay hidden until decode and the Reveal keyframe are both ready')
+assert(finalRevealLifecycleSource.includes('if (reveal) image.hidden = true') && finalRevealLifecycleSource.includes('if (!matchesUrl(image.currentSrc || image.src, url)) image.src = url'), 'animated final image hydration must hide before assigning src')
+assert(finalRevealSource.includes('card ? card.isConnected') && finalRevealSource.includes('image.isConnected') && finalRevealSource.includes('mediaCardUpdates.get(card) === update') && finalRevealSource.includes('urlMatches(image.currentSrc || image.src, expectedUrl)'), 'asynchronous reveal must reject stale cards, images, records, and URLs')
+assert(finalRevealSource.includes("ctx.display?.invalidate(['*'])") && !finalRevealSource.includes('ctx.display?.invalidate([record.messageId])'), 'missing images must invalidate Lumiverse display output using its supported wildcard, not an inert message-id variable')
+assert(frontendSource.includes('ensureCompletedProseProjection(record, root, completedProseImageUrl)') && frontendSource.includes('renderCompletedProseLifecycleProjection(record, {') && frontendSource.includes("template.content.querySelector<HTMLElement>('.dgir-prose-lifecycle-projection')"), 'fresh authored prose Markdown must return to the stable lifecycle owner before reveal even without original request XML')
+assert(frontendSource.includes('mountAuthoredRevealEffect(image)') && frontendSource.includes('revealFinalImageWhenReady(null, image, visualImageUrl, record, null, authoredRevealOverlayByImage.get(image))') && finalRevealSource.includes('preserveGeometry: !card'), 'Core, Narrative and custom authored images must keep their effect through pending placement and reveal without collapsing geometry')
 assert(finalRevealSource.includes("window.matchMedia?.('(prefers-reduced-motion: reduce)').matches") && finalRevealLifecycleSource.includes("image.addEventListener('animationend'") && finalRevealLifecycleSource.includes("image.classList.remove('rrl-final-reveal')"), 'final reveal must skip reduced motion and remove its one-shot class on animation end')
 assert(finalRevealSource.includes("type: 'placement_visual_settled'") && finalRevealLifecycleSource.lastIndexOf('onSettled()') > finalRevealLifecycleSource.indexOf('await animationFinished'), 'normal-motion visual settlement ACK must occur only after animationend')
 assert(!/MutationObserver|setInterval|setTimeout/.test(finalRevealLifecycleSource) && (visualSessionSource.match(/setInterval/g) || []).length === 1 && visualSessionSource.includes('sendFrontendSession(true, true)') && finalRevealSource.includes('PROJECTION_INVALIDATION_RETRY_MS'), 'final reveal must use event synchronization; missing-projection repair may use only its separate bounded retry timer')
-assert(nativeSource.includes('.rrl-media-slot .rrl-slot-image.rrl-final-reveal{animation:rrlFinalReveal 1.35s cubic-bezier(.22,.61,.36,1) both;will-change:filter,opacity,transform}') && nativeSource.includes('@keyframes rrlFinalReveal{from{opacity:.42;transform:scale(1.006);filter:blur(14px) brightness(.96)}to{opacity:1;transform:none;filter:none}}'), 'shared stable media CSS must own the continuous final-image-only unblur reveal without an easing-reset midpoint')
+assert(nativeSource.includes('.rrl-media-slot .rrl-slot-image[hidden]{display:none!important}') && nativeSource.includes('.rrl-media-slot .rrl-slot-image.rrl-final-reveal{animation:rrlFinalReveal 1.5s cubic-bezier(.16,1,.3,1) both;will-change:filter,opacity}') && nativeSource.includes('@keyframes rrlFinalReveal{from{opacity:.48;filter:blur(7px) brightness(.98)}to{opacity:1;filter:none}}'), 'lifecycle CSS must honor hidden before first paint and use a smoother, lower-cost unblur reveal')
 assert(nativeSource.includes('@media(prefers-reduced-motion:reduce){.rrl-media-slot .rrl-slot-image.rrl-final-reveal') && nativeSource.includes('animation:none!important'), 'shared lifecycle CSS must disable the final reveal under reduced motion')
 assert(frontendSource.includes('isFailureRecoveryStatus(record.status)') && !frontendSource.includes("record.status === 'completed'\n              ? [['regenerate'"), 'prose-facing recovery buttons must be driven only by current canonical failure state')
 assert(backendSource.includes("'image_request_error', 'scene_image'") && nativeSource.includes('content.replace(/<scene_image\\b'), 'Relay-Planned scene_image reservations must enter the real native render path')

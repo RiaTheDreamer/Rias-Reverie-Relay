@@ -54,7 +54,8 @@ import { BUILD_ID, EXTENSION_VERSION } from './build'
 import { ORB_IMAGE_DESIGNS, ORB_IMAGE_DESIGN_URLS, type OrbImageDesignId } from './orbIconData'
 import { REVERIE_RELAY_SIDEBAR_ICON_URL, REVERIE_RELAY_TAB_ICON_URL } from './brandIconData'
 import { applyKakaoColorBinding } from './kakaoColor'
-import { lifecycleRuntimeCss, NATIVE_SURFACE_ROOT_TAGS, renderNativeSurfaceMarkup } from './nativeSurfaces'
+import { bindImageLightboxZoom } from './imageLightboxZoom'
+import { lifecycleRuntimeCss, NATIVE_SURFACE_ROOT_TAGS, renderCompletedProseLifecycleProjection, renderGenerationPlaceholderEffect, renderNativeSurfaceMarkup } from './nativeSurfaces'
 import { hybridSurfaceOwner, shippedSurfaceDefinitions } from './shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK } from './protocols'
@@ -206,13 +207,13 @@ type RouterConfig = {
   surfacePreferencesInitialized: boolean
   settingsRevision: number
   narrativeDlcEnabled: boolean
-  narrativeDlcVariant: 'sparkle-button' | 'plain-button' | 'inline' | 'glass'
+  narrativeDlcVariant: 'sparkle-button' | 'plain-button' | 'inline' | 'glass' | 'plain-glass'
   narrativeDlcUtilityNames: string[]
   narrativeUtilityOverrides: Record<string, { content: string; revision: number; updatedAt: number }>
   characterPhoneDefaultApps: CharacterPhoneAppId[]
   narrativeDlcLastSync: {
     status: 'not-installed' | 'healthy' | 'drifted' | 'failed' | 'removed'
-    variant: 'sparkle-button' | 'plain-button' | 'inline' | 'glass'
+    variant: 'sparkle-button' | 'plain-button' | 'inline' | 'glass' | 'plain-glass'
     expected: number
     installed: number
     healthy: number
@@ -349,10 +350,19 @@ export async function settlePlacementVisualLifecycle(options: {
   image: HTMLImageElement
   isCurrent: () => boolean
   reducedMotion: boolean
+  preserveGeometry?: boolean
+  onRevealStart?: () => void
   onSettled: () => void
 }): Promise<'settled' | 'stale' | 'failed'> {
-  const { image, isCurrent, reducedMotion, onSettled } = options
-  if (!image.complete) {
+  const { image, isCurrent, reducedMotion, preserveGeometry, onRevealStart, onSettled } = options
+  if (!isCurrent()) return 'stale'
+  const wasHidden = image.hidden
+  const previousVisibility = preserveGeometry ? image.style.visibility : ''
+  // Keep progressive JPEG/mobile paints behind the slot placeholder until the
+  // decoded final frame and its reveal keyframe are ready to appear together.
+  if (preserveGeometry) image.style.visibility = 'hidden'
+  else image.hidden = true
+  if (!image.complete || image.naturalWidth <= 0) {
     const loaded = await new Promise<boolean>(resolve => {
       const cleanup = () => {
         image.removeEventListener('load', onLoad)
@@ -363,9 +373,21 @@ export async function settlePlacementVisualLifecycle(options: {
       image.addEventListener('load', onLoad, { once: true })
       image.addEventListener('error', onError, { once: true })
     })
-    if (!loaded) return 'failed'
+    if (!loaded) {
+      if (isCurrent()) {
+        if (preserveGeometry) image.style.visibility = previousVisibility
+        else image.hidden = wasHidden
+      }
+      return 'failed'
+    }
   }
-  if (image.naturalWidth <= 0 || !isCurrent()) return isCurrent() ? 'failed' : 'stale'
+  if (image.naturalWidth <= 0 || !isCurrent()) {
+    if (isCurrent()) {
+      if (preserveGeometry) image.style.visibility = previousVisibility
+      else image.hidden = wasHidden
+    }
+    return isCurrent() ? 'failed' : 'stale'
+  }
   try {
     await image.decode?.()
   } catch {
@@ -374,6 +396,9 @@ export async function settlePlacementVisualLifecycle(options: {
   if (!isCurrent()) return 'stale'
   image.classList.remove('rrl-final-reveal')
   if (reducedMotion) {
+    onRevealStart?.()
+    if (preserveGeometry) image.style.visibility = previousVisibility
+    else image.hidden = false
     onSettled()
     return 'settled'
   }
@@ -396,11 +421,27 @@ export async function settlePlacementVisualLifecycle(options: {
     image.addEventListener('animationcancel', onAnimationCancel)
   })
   image.classList.add('rrl-final-reveal')
+  onRevealStart?.()
+  if (preserveGeometry) image.style.visibility = previousVisibility
+  else image.hidden = false
   const finished = await animationFinished
   image.classList.remove('rrl-final-reveal')
   if (!finished || !isCurrent()) return 'stale'
   onSettled()
   return 'settled'
+}
+
+export function prepareFinalLifecycleImage(
+  image: HTMLImageElement,
+  url: string,
+  reveal: boolean,
+  matchesUrl: (currentUrl: string, expectedUrl: string) => boolean,
+): void {
+  // Set the hidden state before assigning src: host rendering and browser paint
+  // can otherwise expose the final image once before the reveal helper runs.
+  if (reveal) image.hidden = true
+  if (!matchesUrl(image.currentSrc || image.src, url)) image.src = url
+  if (!reveal) image.hidden = false
 }
 
 export function shouldStartFinalImageReveal(options: {
@@ -409,8 +450,10 @@ export function shouldStartFinalImageReveal(options: {
   pendingRecordReveal: boolean
   cardAlreadyRevealed: boolean
   recordAlreadyRevealed: boolean
+  readyForReveal?: boolean
 }): boolean {
-  return ((options.imageChanged && options.sawActiveLifecycle) || options.pendingRecordReveal)
+  return options.readyForReveal !== false
+    && ((options.imageChanged && options.sawActiveLifecycle) || options.pendingRecordReveal)
     && !options.cardAlreadyRevealed
     && !options.recordAlreadyRevealed
 }
@@ -455,6 +498,8 @@ export function setup(ctx: SpindleFrontendContext) {
   let nativeGuardToastShown = false
   let recordByKey = new Map<string, SlotRecord>()
   const pendingFinalRevealByRecord = new Map<string, string>()
+  const proseRevealGuards = new Map<string, { requestId: string; messageId: string; imageUrl?: string }>()
+  const proseRevealGuardStyles = new Map<Document | ShadowRoot, HTMLStyleElement>()
   const slotActionFeedback = new SlotActionFeedbackCoordinator()
   const pendingSurfacePromptPreviews = new Map<string, { setValue: (value: string) => void }>()
   const appearanceActionStatuses = new Map<string, AppearanceMemoryActionStatus & { receivedAt: number }>()
@@ -462,6 +507,7 @@ export function setup(ctx: SpindleFrontendContext) {
   const activeSwipeByMessage = new Map<string, number>()
   const openedSlotPreviewKeys = new Set<string>()
   let parserConnections: ParserConnection[] = []
+  let frontendParserConnections: ParserConnection[] | null = null
   let imageConnections: ImageConnection[] = []
   let imageProviders: ImageProviderInfo[] = []
   let loraCatalogState: { requestId: string; connectionId: string; status: 'idle' | 'loading' | 'completed' | 'failed'; items: string[]; error: string } = { requestId: '', connectionId: '', status: 'idle', items: [], error: '' }
@@ -939,9 +985,9 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-asset-card-chips { margin: 1px 0 2px; }
     .dg-router-panel .dg-asset-card-actions { margin-top: auto; }
     .dg-router-panel.dg-asset-lightbox { width: min(1120px, calc(100dvw - 24px)) !important; max-width: none !important; }
-    .dg-router-panel .dg-asset-lightbox-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, 310px); gap: 14px; min-height: min(78dvh, 780px); }
-    .dg-router-panel .dg-asset-lightbox-stage { min-width: 0; min-height: 0; display: grid; place-items: center; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: #030203; overflow: hidden; }
-    .dg-router-panel .dg-asset-lightbox-image { width: 100%; height: 100%; max-height: 82dvh; object-fit: contain; border: 0; border-radius: 0; }
+    .dg-router-panel .dg-asset-lightbox-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, 310px); align-items: start; align-content: start; gap: 14px; min-height: 0; }
+    .dg-router-panel .dg-asset-lightbox-stage { min-width: 0; min-height: 0; height: auto; max-height: min(78dvh, 780px); display: grid; place-items: center; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: #030203; overflow: hidden; touch-action: none; }
+    .dg-router-panel .dg-asset-lightbox-image { width: auto; height: auto; max-width: 100%; max-height: min(78dvh, 780px); object-fit: contain; border: 0; border-radius: 0; }
     .dg-router-panel .dg-asset-lightbox-details { min-width: 0; display: flex; flex-direction: column; gap: 12px; justify-content: flex-end; padding: 10px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: var(--dgir-surface-soft); }
     .dg-router-panel .dg-plan-grid { display: grid; gap: 0; margin: 8px 0 12px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); overflow: hidden; }
     .dg-router-panel .dg-plan-row { display: grid; grid-template-columns: minmax(140px, .32fr) minmax(0, 1fr); gap: 10px; padding: 9px 10px; border-bottom: 1px solid color-mix(in srgb, var(--dgir-border) 62%, transparent); background: color-mix(in srgb, var(--dgir-surface-soft) 86%, transparent); }
@@ -966,6 +1012,9 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-log-meta { color: var(--dgir-text-muted); font-size: 10px; margin: 5px 0; overflow-wrap: anywhere; }
     .dg-router-panel .dg-modal-body { display: flex; flex-direction: column; gap: 10px; }
     .dg-router-panel .dg-lightbox-img { width: 100%; max-height: 72vh; object-fit: contain; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: #050505; }
+    .dg-router-panel .dg-image-lightbox-viewport { position: relative; display: grid; place-items: center; align-content: start; width: 100%; height: auto; min-height: 0; max-height: min(72vh, 820px); overflow: hidden; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: #030203; touch-action: none; }
+    .dg-router-panel .dg-image-lightbox-viewport > .dg-lightbox-img { display: block; width: auto; height: auto; max-width: 100%; max-height: min(72vh, 820px); border: 0; border-radius: 0; background: transparent; object-fit: contain; transform-origin: center center; touch-action: none; user-select: none; -webkit-user-drag: none; cursor: zoom-in; }
+    .dg-router-panel .dg-image-lightbox-viewport > .dg-lightbox-img.dg-image-lightbox-zoomed { cursor: grab; }
     .dg-router-panel .dg-stream-status { margin-top: 5px; color: var(--dgir-accent-text); font-size: 10px; font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; }
     .dg-router-panel .dg-thumb-streaming { position: relative; display: block; overflow: hidden; border: 1px solid var(--dgir-border-bright) !important; outline: 0 !important; box-shadow: none !important; }
     .dg-router-panel .dg-thumb-streaming::before, .dg-router-panel .dg-thumb-streaming::after { display: none !important; }
@@ -1298,10 +1347,10 @@ export function setup(ctx: SpindleFrontendContext) {
       .dg-router-panel .dg-asset-card-summary { -webkit-line-clamp: 2; font-size: 10px; }
       .dg-router-panel .dg-asset-card-chips { display: none; }
       .dg-router-panel .dg-asset-card-actions .dg-btn { min-height: 28px; padding: 5px 7px; }
-      .dg-router-panel.dg-asset-lightbox { width: 100dvw !important; height: 100dvh !important; max-height: none !important; margin: 0 !important; border-radius: 0 !important; }
-      .dg-router-panel .dg-asset-lightbox-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; min-height: calc(100dvh - 72px); max-height: calc(100dvh - 56px); padding: 6px; }
-      .dg-router-panel .dg-asset-lightbox-stage { min-height: 0; }
-      .dg-router-panel .dg-asset-lightbox-image { max-height: calc(100dvh - 230px); }
+      .dg-router-panel.dg-asset-lightbox { width: 100dvw !important; min-height: 100dvh !important; height: auto !important; max-height: 100dvh !important; margin: 0 !important; border-radius: 0 !important; overflow-y: auto; }
+      .dg-router-panel .dg-asset-lightbox-body { grid-template-columns: 1fr; grid-template-rows: auto auto; min-height: 0; max-height: calc(100dvh - 72px); overflow-y: auto; padding: 6px; }
+      .dg-router-panel .dg-asset-lightbox-stage { height: auto; min-height: 0; max-height: min(72dvh, calc(100dvh - 230px)); }
+      .dg-router-panel .dg-asset-lightbox-image { max-height: min(72dvh, calc(100dvh - 230px)); }
       .dg-router-panel .dg-asset-lightbox-details { padding: 8px; }
       .dg-router-panel .dg-plan-row { grid-template-columns: 1fr; gap: 3px; }
       .dg-router-panel .dg-meta-grid { grid-template-columns: 1fr; }
@@ -1354,8 +1403,10 @@ export function setup(ctx: SpindleFrontendContext) {
         for (const record of message.records) {
           if (isSlotLifecycleActive(record.status)) {
             rememberBoundedMap(pendingFinalRevealByRecord, record.key, record.requestId, C5B_CACHE_LIMITS.messageSnapshots)
+            armProseRevealGuard(record)
           } else if (record.status === 'failed' || record.status === 'image-unavailable' || record.status === 'cancelled') {
             pendingFinalRevealByRecord.delete(record.key)
+            disarmProseRevealGuard(record.key, record.requestId)
           }
         }
         records = message.records.map(record => {
@@ -1396,7 +1447,7 @@ export function setup(ctx: SpindleFrontendContext) {
             ...(activeChatId ? { [activeChatId]: { ...effectiveProseSettings, paused: proseIllustrator.settings?.[activeChatId]?.paused === true } } : {}),
           },
         }
-        parserConnections = message.parserConnections
+        parserConnections = frontendParserConnections ?? message.parserConnections
         imageConnections = message.imageConnections || []
         imageProviders = message.imageProviders || []
         logs = message.logs
@@ -1822,6 +1873,7 @@ export function setup(ctx: SpindleFrontendContext) {
     candidateBatches = []
     recordByKey.clear()
     pendingFinalRevealByRecord.clear()
+    clearProseRevealGuards()
     lastStatus = ''
     stateRevision = -1
     lastDisplayContractSignature = ''
@@ -2304,6 +2356,7 @@ export function setup(ctx: SpindleFrontendContext) {
   // Cold extension restarts can expose host settings before userStorage has
   // hydrated; syncing first allowed a fallback config to be saved as defaults.
   sendFrontendSession(true)
+  void loadFrontendParserConnections()
   void refreshState(false)
   renderPanel()
   renderRelayOrb()
@@ -2312,6 +2365,24 @@ export function setup(ctx: SpindleFrontendContext) {
   async function refreshState(syncNative: boolean): Promise<void> {
     if (syncNative) await syncNativeSettings()
     ctx.sendToBackend({ type: 'list_state', chatId: activeChatId })
+  }
+
+  async function loadFrontendParserConnections(): Promise<void> {
+    if (!ctx.connections?.list) return
+    try {
+      const profiles = await ctx.connections.list()
+      if (disposed) return
+      frontendParserConnections = profiles.map(profile => ({
+        id: profile.id,
+        name: profile.name,
+        provider: profile.provider,
+        model: profile.model,
+      }))
+      parserConnections = frontendParserConnections
+      renderPanel()
+    } catch (error) {
+      console.warn('[Reverie Relay] Could not load credential-redacted connection profiles for selectors.', error)
+    }
   }
 
   async function fetchNativeSettingsSnapshot(force = false): Promise<NativeSettingsSnapshot | null> {
@@ -2757,6 +2828,7 @@ export function setup(ctx: SpindleFrontendContext) {
       mountedLifecycleStyles.set(scope, style)
       mountedLifecycleStyleNodes.add(style)
     }
+    for (const scope of scopes) if (scope instanceof ShadowRoot) refreshProseRevealGuardStyles(scope)
   }
 
   function cleanLegacyIllustrationControls(root: ParentNode): void {
@@ -2799,6 +2871,62 @@ export function setup(ctx: SpindleFrontendContext) {
 
   const mediaCardUpdates = new WeakMap<HTMLElement, MediaCardUpdate>()
   const revealedFinalImageByRecord = new Map<string, string>()
+  const startedAuthoredReveals = new WeakSet<HTMLImageElement>()
+  const authoredRevealOverlayByImage = new WeakMap<HTMLImageElement, HTMLElement>()
+
+  function refreshProseRevealGuardStyles(extraScope?: ShadowRoot): void {
+    // A completed host render can replace the pending card before its image's
+    // first paint. Keep that new image covered by the existing effect until
+    // decoding finishes; the guard lives outside the replaced message markup.
+    const rules = [...proseRevealGuards.entries()].map(([key, guard]) => {
+      const owner = `.rrl-card[data-rrn-record-key=${cssEscape(key)}][data-rrn-live-status="completed"] .rrl-media-slot`
+      const resolvedImage = guard.imageUrl ? `img[src=${JSON.stringify(guard.imageUrl)}]{visibility:hidden!important}` : ''
+      return `${resolvedImage}${owner} .rrl-slot-image{visibility:hidden!important}${owner} .rrl-media-skeleton{display:grid!important;opacity:1!important}`
+    }).join('')
+    const scopes = new Set<Document | ShadowRoot>([document, ...proseRevealGuardStyles.keys()])
+    if (extraScope) scopes.add(extraScope)
+    for (const guard of proseRevealGuards.values()) {
+      const root = ctx.dom.findMessageElement(guard.messageId)
+      const owner = root?.getRootNode?.()
+      if (typeof ShadowRoot !== 'undefined' && owner instanceof ShadowRoot) scopes.add(owner)
+    }
+    for (const scope of scopes) {
+      let style = proseRevealGuardStyles.get(scope)
+      if (!rules) {
+        style?.remove()
+        proseRevealGuardStyles.delete(scope)
+        continue
+      }
+      if (!style || !style.isConnected) {
+        style = document.createElement('style')
+        style.dataset.reverieProseRevealGuard = 'active'
+        if (scope === document) (document.head || document.documentElement).appendChild(style)
+        else scope.appendChild(style)
+        proseRevealGuardStyles.set(scope, style)
+      }
+      if (style.textContent !== rules) style.textContent = rules
+    }
+  }
+
+  function armProseRevealGuard(record: SlotRecord): void {
+    const previous = proseRevealGuards.get(record.key)
+    const imageUrl = record.pendingPlacement?.imageUrl || record.imageUrl
+    if (!previous || previous.requestId !== record.requestId || previous.messageId !== record.messageId || previous.imageUrl !== imageUrl) {
+      proseRevealGuards.set(record.key, { requestId: record.requestId, messageId: record.messageId, imageUrl })
+    }
+    refreshProseRevealGuardStyles()
+  }
+
+  function disarmProseRevealGuard(key: string, requestId: string): void {
+    if (proseRevealGuards.get(key)?.requestId !== requestId) return
+    proseRevealGuards.delete(key)
+    refreshProseRevealGuardStyles()
+  }
+
+  function clearProseRevealGuards(): void {
+    proseRevealGuards.clear()
+    refreshProseRevealGuardStyles()
+  }
   const startedPlacementVisuals = new Map<string, string>()
   const acknowledgedPlacementVisuals = new Map<string, string>()
   type ProjectionInvalidationAttempt = { messageId: string; attempts: number; timer?: number }
@@ -2824,7 +2952,9 @@ export function setup(ctx: SpindleFrontendContext) {
     if (attempt.timer || attempt.attempts >= PROJECTION_INVALIDATION_MAX_ATTEMPTS) return
     attempt.attempts += 1
     requestedProjectionInvalidations.set(versionKey, attempt)
-    ctx.display?.invalidate([record.messageId])
+    // Lumiverse display.invalidate accepts changed variable names, not
+    // message IDs. The wildcard is its supported cache/re-render signal.
+    ctx.display?.invalidate(['*'])
     attempt.timer = window.setTimeout(() => {
       attempt.timer = undefined
       const root = ctx.dom.findMessageElement(record.messageId)
@@ -2844,18 +2974,19 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function revealFinalImageWhenReady(
-    card: HTMLElement,
+    card: HTMLElement | null,
     image: HTMLImageElement,
     expectedUrl: string,
     record: SlotRecord,
-    update: MediaCardUpdate,
+    update: MediaCardUpdate | null,
+    effectOverlay?: HTMLElement,
   ): void {
     const expectedRecordKey = record.key
-    const isCurrentFinalImage = () => card.isConnected
+    const isCurrentFinalImage = () => (card ? card.isConnected : Boolean(ctx.dom.findMessageElement(record.messageId)?.contains(image)))
       && image.isConnected
-      && card.contains(image)
-      && card.dataset.rrnRecordKey === expectedRecordKey
-      && mediaCardUpdates.get(card) === update
+      && (!card || card.contains(image))
+      && (!card || card.dataset.rrnRecordKey === expectedRecordKey)
+      && (!card || mediaCardUpdates.get(card) === update)
       && urlMatches(image.currentSrc || image.src, expectedUrl)
 
     const isCurrentPlacementVersion = () => {
@@ -2896,7 +3027,7 @@ export function setup(ctx: SpindleFrontendContext) {
     }
     const onSettled = () => {
       if (!isCurrentFinalImage()) return
-      update.revealedImageUrl = expectedUrl
+      if (update) update.revealedImageUrl = expectedUrl
       rememberBoundedMap(revealedFinalImageByRecord, expectedRecordKey, expectedUrl, C5B_CACHE_LIMITS.messageSnapshots)
       if (pendingFinalRevealByRecord.get(expectedRecordKey) === record.requestId) pendingFinalRevealByRecord.delete(expectedRecordKey)
       if (!isCurrentPlacementVersion()) return
@@ -2908,6 +3039,19 @@ export function setup(ctx: SpindleFrontendContext) {
       image,
       isCurrent: isCurrentFinalImage,
       reducedMotion: Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches),
+      preserveGeometry: !card,
+      onRevealStart: () => {
+        if (!isCurrentFinalImage()) return
+        disarmProseRevealGuard(expectedRecordKey, record.requestId)
+        const mediaSlot = image.closest<HTMLElement>('.rrl-media-slot')
+        if (mediaSlot) mediaSlot.dataset.rrnMediaEmpty = 'false'
+        if (effectOverlay) {
+          const parent = effectOverlay.parentElement
+          if (parent && effectOverlay.dataset.rrnParentPosition !== undefined) parent.style.position = effectOverlay.dataset.rrnParentPosition
+          effectOverlay.remove()
+        }
+        if (card && record.status === 'completed') stripHealthyCompletedLifecycleUi(card)
+      },
       onSettled,
     }).then(outcome => {
       if (visualLifecycleTracked) finishPlacementVisualHeartbeat(visualVersionKey)
@@ -3070,6 +3214,8 @@ export function setup(ctx: SpindleFrontendContext) {
       if (!root) continue
       ensureMountedLifecycleStyle(root)
       ensureSyntheticProseProjection(record, root)
+      const completedProseImageUrl = record.pendingPlacement?.imageUrl || record.imageUrl
+      if (completedProseImageUrl) ensureCompletedProseProjection(record, root, completedProseImageUrl)
       const requestCards = deepQueryAll<HTMLElement>(root as ParentNode, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`)
       const active = ['preparing', 'queued', 'awaiting-native-settings', 'parsing', 'provider-waiting', 'generating', 'previewing', 'placement-pending'].includes(record.status)
       const stallEligible = ['preparing', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)
@@ -3107,7 +3253,7 @@ export function setup(ctx: SpindleFrontendContext) {
                   : record.status === 'parsing' ? 'Preparing'
                     : record.status === 'provider-waiting' ? 'Waiting for image worker'
               : record.status === 'generating' ? 'Generating'
-                : record.status === 'placement-pending' ? 'Inserting'
+                : record.status === 'placement-pending' ? record.pendingPlacement ? 'Ready' : 'Inserting'
                   : record.status === 'placement-repair-needed' ? 'Repair needed'
                   : record.status === 'completed' ? 'Ready'
                     : record.status === 'failed' || record.status === 'image-unavailable' ? 'Failed'
@@ -3120,13 +3266,14 @@ export function setup(ctx: SpindleFrontendContext) {
         const signature = JSON.stringify([record.key, record.status, stalled, visualImageUrl, record.requestAspect, record.error, stream])
         const media = card.querySelector<HTMLElement>('.rrl-media-slot')
         let slotImage = card.querySelector<HTMLImageElement>('.rrl-slot-image')
-        if (media && visualImageUrl && !slotImage && (record.target === 'prose.illustration' || record.targetApp === 'prose')) {
-          // Lumiverse sanitization can preserve the lifecycle reservation while
-          // dropping its hidden fallback image. Recreate that exact child and
-          // hydrate it in place; the projection owner and width never change.
+        if (media && visualImageUrl && !slotImage) {
+          // Narrative, Core, and custom Surface reservations can mount without
+          // a fallback <img> while their authored request is still pending.
+          // Hydrate the same media slot in place when its canonical image lands;
+          // waiting for a host rerender leaves a completed empty card until refresh.
           slotImage = document.createElement('img')
           slotImage.className = 'rrl-slot-image'
-          slotImage.alt = 'Reverie illustration'
+          slotImage.alt = record.target === 'prose.illustration' || record.targetApp === 'prose' ? 'Reverie illustration' : 'Reverie media'
           slotImage.hidden = true
           media.appendChild(slotImage)
         }
@@ -3139,6 +3286,7 @@ export function setup(ctx: SpindleFrontendContext) {
         update.signature = signature
         mediaCardUpdates.set(card, update)
         card.dataset.rrnLiveStatus = stalled ? 'failed' : record.status
+        card.dataset.rrnPlacementReady = record.status === 'placement-pending' && Boolean(record.pendingPlacement) ? 'true' : 'false'
         card.dataset.rrnRecordKey = record.key
         card.classList.toggle('rrl-error', recoverable)
         const status = card.querySelector<HTMLElement>('.rrl-status')
@@ -3151,12 +3299,12 @@ export function setup(ctx: SpindleFrontendContext) {
         else if (title && record.status === 'provider-waiting') title.textContent = 'Queued for ImageGen…'
         else if (title && record.status === 'parsing') title.textContent = 'Preparing image…'
         else if (title && record.status === 'queued') title.textContent = 'Waiting to generate…'
-        else if (title && record.status === 'placement-pending') title.textContent = 'Inserting image…'
+        else if (title && record.status === 'placement-pending') title.textContent = record.pendingPlacement ? 'Image ready to insert' : 'Inserting image…'
         else if (title && record.status === 'placement-repair-needed') title.textContent = 'Generated image needs placement repair'
         else if (title && (record.status === 'failed' || record.status === 'image-unavailable')) title.textContent = 'Generation failed'
         else if (title && record.status === 'cancelled') title.textContent = 'Generation stopped'
         else if (title && record.status === 'completed') title.textContent = 'Image completed'
-        if (stateIcon) stateIcon.textContent = recoverable ? '!' : record.status === 'completed' ? '✓' : '✦'
+        if (stateIcon) stateIcon.textContent = recoverable ? '!' : record.status === 'completed' || record.status === 'placement-pending' && record.pendingPlacement ? '✓' : '✦'
 
         const mediaSlot = media
         if (mediaSlot) {
@@ -3169,22 +3317,24 @@ export function setup(ctx: SpindleFrontendContext) {
             slotImage.loading = 'eager'
             slotImage.setAttribute('fetchpriority', 'high')
             slotImage.decoding = 'async'
-            if (record.target === 'prose.illustration' || record.targetApp === 'prose') {
+            const isProseLifecycle = record.target === 'prose.illustration' || record.targetApp === 'prose'
+            if (isProseLifecycle) {
               slotImage.dataset.dgirApp = 'prose'
               applyLiveProseImagePresentation(slotImage)
             }
             const imageChanged = !urlMatches(slotImage.currentSrc || slotImage.src, visualImageUrl)
             const pendingRecordReveal = pendingFinalRevealByRecord.get(record.key) === record.requestId
+            const waitingForCompletedRender = record.status === 'placement-pending' && pendingRecordReveal
             const shouldReveal = shouldStartFinalImageReveal({
               imageChanged,
               sawActiveLifecycle: update.sawActiveLifecycle,
               pendingRecordReveal,
               cardAlreadyRevealed: urlMatches(update.revealedImageUrl || '', visualImageUrl),
               recordAlreadyRevealed: urlMatches(revealedFinalImageByRecord.get(record.key) || '', visualImageUrl),
+              readyForReveal: !waitingForCompletedRender,
             })
-            if (imageChanged) slotImage.src = visualImageUrl
-            slotImage.hidden = false
-            mediaSlot.dataset.rrnMediaEmpty = 'false'
+            prepareFinalLifecycleImage(slotImage, visualImageUrl, shouldReveal || waitingForCompletedRender, urlMatches)
+            mediaSlot.dataset.rrnMediaEmpty = waitingForCompletedRender || shouldReveal ? 'true' : 'false'
             if (shouldReveal) {
               update.sawActiveLifecycle = false
               revealFinalImageWhenReady(card, slotImage, visualImageUrl, record, update)
@@ -3198,7 +3348,7 @@ export function setup(ctx: SpindleFrontendContext) {
           }
         }
 
-        if (record.status === 'completed' && record.imageUrl) stripHealthyCompletedLifecycleUi(card)
+        if (record.status === 'completed' && record.imageUrl && pendingFinalRevealByRecord.get(record.key) !== record.requestId) stripHealthyCompletedLifecycleUi(card)
 
         const previewHost = card.querySelector<HTMLElement>('.rrl-preview')
         const previewImage = card.querySelector<HTMLImageElement>('.rrl-preview-image')
@@ -3227,12 +3377,20 @@ export function setup(ctx: SpindleFrontendContext) {
           progress.hidden = true
         }
 
-        const actions = card.querySelector<HTMLElement>('.rrl-actions')
+        const readyToInsert = record.status === 'placement-pending' && Boolean(record.pendingPlacement)
+        let actions = card.querySelector<HTMLElement>('.rrl-actions')
+        if (!actions && readyToInsert) {
+          actions = document.createElement('div')
+          actions.className = 'rrl-actions'
+          card.appendChild(actions)
+        }
         if (actions) {
           const desired: Array<[string, string]> = needsPlacementRepair
             ? [['repair-placement', 'Repair / Reinsert'], ['reparse', 'Reparse'], ['rescan', 'Rescan']]
             : canonicalFailure
             ? [['regenerate', 'Regenerate'], ['reparse', 'Reparse'], ['rescan', 'Rescan']]
+            : readyToInsert
+            ? [['repair-placement', 'Insert']]
             : []
           const signature = desired.map(([action]) => action).join('|')
           if (actions.dataset.rrlActionSet !== signature) {
@@ -3323,6 +3481,11 @@ export function setup(ctx: SpindleFrontendContext) {
         image.dataset.dgirSwipeId = String(record.swipeId)
         image.dataset.dgirBound = 'true'
         if (record.target === 'prose.illustration' || record.targetApp === 'prose') applyLiveProseImagePresentation(image)
+        if (record.status === 'completed' && pendingFinalRevealByRecord.get(record.key) === record.requestId) {
+          image.loading = 'eager'
+          image.setAttribute('fetchpriority', 'high')
+          image.decoding = 'async'
+        }
         image.title = 'Open image'
         if (image.dataset.dgirLightboxBound !== 'true') {
           image.dataset.dgirLightboxBound = 'true'
@@ -3333,6 +3496,15 @@ export function setup(ctx: SpindleFrontendContext) {
             event.stopImmediatePropagation()
             openLightbox(current)
           })
+        }
+        const pendingAuthoredReveal = pendingFinalRevealByRecord.get(record.key) === record.requestId && !lifecycleImages.includes(image)
+        if (pendingAuthoredReveal && !authoredRevealOverlayByImage.has(image)) {
+          const overlay = mountAuthoredRevealEffect(image)
+          if (overlay) authoredRevealOverlayByImage.set(image, overlay)
+        }
+        if (record.status === 'completed' && pendingAuthoredReveal && !startedAuthoredReveals.has(image)) {
+          startedAuthoredReveals.add(image)
+          revealFinalImageWhenReady(null, image, visualImageUrl, record, null, authoredRevealOverlayByImage.get(image))
         }
       }
     }
@@ -4749,6 +4921,65 @@ memory: [['genetics', 'Appearance Memory']],
     }
   }
 
+  function imageLightboxViewport(image: HTMLImageElement): HTMLDivElement {
+    const viewport = document.createElement('div')
+    viewport.className = 'dg-image-lightbox-viewport'
+    viewport.appendChild(image)
+    bindImageLightboxZoom(image, viewport)
+    return viewport
+  }
+
+  function ensureCompletedProseProjection(record: SlotRecord, root: Element, imageUrl: string): void {
+    if (record.target !== 'prose.illustration' || record.proseSynthetic === true || record.status !== 'completed') return
+    if (pendingFinalRevealByRecord.get(record.key) !== record.requestId && !urlMatches(revealedFinalImageByRecord.get(record.key) || '', imageUrl)) return
+    if (deepQueryAll(root as ParentNode, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`).length) return
+    const image = deepQueryAll<HTMLImageElement>(root as ParentNode, 'img')
+      .find(candidate => urlMatches(candidate.currentSrc || candidate.src, imageUrl) && !candidate.closest('.rrl-card'))
+    if (!image) return
+    const rendered = renderCompletedProseLifecycleProjection(record, {
+      chatId: record.chatId, messageId: record.messageId, swipeId: record.swipeId,
+      isUser: false, autoGenerate: config?.autoGenerate,
+      generationPlaceholderEffect: config?.generationPlaceholderEffect,
+      rendererMode: customSurfaces.rendererMode, colorMode: customSurfaces.colorMode,
+      defaultShellMode: customSurfaces.defaultShellMode,
+    })
+    const template = document.createElement('template')
+    template.innerHTML = rendered
+    const card = template.content.querySelector<HTMLElement>(`[data-rrn-native-request="${cssEscape(record.requestId)}"]`)
+    if (!card) return
+    const projection = template.content.querySelector<HTMLElement>('.dgir-prose-lifecycle-projection')
+    if (!projection) return
+    const parent = image.parentElement
+    const standaloneParagraph = parent?.tagName === 'P' && [...parent.childNodes].every(node => node === image || node.nodeType === 3 && !node.textContent?.trim())
+    if (standaloneParagraph) parent.replaceWith(projection)
+    else image.replaceWith(projection)
+  }
+
+  function mountAuthoredRevealEffect(image: HTMLImageElement): HTMLElement | undefined {
+    const parent = image.closest<HTMLElement>('.rrn-media, .rrl-media-slot') || image.parentElement
+    if (!parent) return undefined
+    const effect = normalizeGenerationPlaceholderEffect(config?.generationPlaceholderEffect)
+    if (effect === 'none') return undefined
+    const overlay = document.createElement('div')
+    overlay.className = 'rrl-media-skeleton rrl-generation-placeholder rrl-reveal-overlay'
+    overlay.dataset.rrPlaceholderEffect = effect
+    overlay.setAttribute('aria-hidden', 'true')
+    overlay.innerHTML = renderGenerationPlaceholderEffect(effect)
+    if (window.getComputedStyle(parent).position === 'static') {
+      overlay.dataset.rrnParentPosition = parent.style.position
+      parent.style.position = 'relative'
+    }
+    const imageRect = image.getBoundingClientRect()
+    const parentRect = parent.getBoundingClientRect()
+    overlay.style.inset = 'auto'
+    overlay.style.left = `${imageRect.left - parentRect.left}px`
+    overlay.style.top = `${imageRect.top - parentRect.top}px`
+    overlay.style.width = `${imageRect.width || parentRect.width}px`
+    overlay.style.height = `${imageRect.height || parentRect.height}px`
+    parent.appendChild(overlay)
+    return overlay
+  }
+
   function openImageUrl(imageUrl: string, titleText: string, imageId?: string, linkedRecord?: SlotRecord | null): void {
     const record = linkedRecord || recordForImageUrl(imageUrl)
     const modal = ctx.ui.showModal({ title: titleText, width: 920 })
@@ -4759,6 +4990,7 @@ memory: [['genetics', 'Appearance Memory']],
     image.className = 'dg-lightbox-img'
     image.src = imageUrl
     image.alt = titleText
+    const imageViewport = imageLightboxViewport(image)
     const actions = document.createElement('div')
     actions.className = 'dg-actions'
     if (record) {
@@ -4805,7 +5037,7 @@ memory: [['genetics', 'Appearance Memory']],
         button('Details', () => openMetadata(record), false, 'subtle'),
         button('Remove From Message', () => confirmRemoveImageFromMessage(record, () => modal.dismiss()), isSlotActionBusy(record), 'danger'),
       )
-      body.append(image, actionError, actions)
+      body.append(imageViewport, actionError, actions)
     }
     actions.append(
       button('Copy Image URL', () => copyText(imageUrl, 'Image URL copied.'), false, 'subtle'),
@@ -4815,7 +5047,7 @@ memory: [['genetics', 'Appearance Memory']],
       const note = document.createElement('div')
       note.className = 'dg-recovery-note'
       note.textContent = 'Relay could open this artifact image, but the source slot is not available in the active chat state, so Regenerate and Reparse are unavailable.'
-      body.append(image, note, actions)
+      body.append(imageViewport, note, actions)
     }
     modal.root.appendChild(body)
   }
@@ -5773,12 +6005,13 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const body = document.createElement('div')
     body.className = 'dg-modal-body dg-asset-lightbox-body'
     const stage = document.createElement('div')
-    stage.className = 'dg-asset-lightbox-stage'
+    stage.className = 'dg-image-lightbox-viewport dg-asset-lightbox-stage'
     const img = document.createElement('img')
     img.className = 'dg-lightbox-img dg-asset-lightbox-image'
     img.src = asset.imageUrl
     img.alt = asset.alt || asset.caption || asset.slot
     stage.appendChild(img)
+    bindImageLightboxZoom(img, stage)
     const details = document.createElement('div')
     details.className = 'dg-asset-lightbox-details'
     const summary = document.createElement('div')
@@ -6311,7 +6544,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const installation = document.createElement('div')
     installation.className = 'dg-field-stack'
     installation.append(
-      (() => { const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = `All installed Surfaces inherit the global presentation above: ${current.surfaceDefaultShellMode === 'sparkling' ? 'Sparkling Button' : current.surfaceDefaultShellMode === 'plain' ? 'Button' : current.surfaceDefaultShellMode === 'glass' ? 'Glass Button' : 'Inline'}.`; return note })(),
+      (() => { const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = `All installed Surfaces inherit the global presentation above: ${current.surfaceDefaultShellMode === 'sparkling' ? 'Sparkling Button' : current.surfaceDefaultShellMode === 'plain' ? 'Button' : current.surfaceDefaultShellMode === 'glass' ? 'Glass Button' : current.surfaceDefaultShellMode === 'plain-glass' ? 'Plain Glass' : 'Inline'}.`; return note })(),
       narrativeStatus,
       narrativeActions,
     )
@@ -6433,12 +6666,13 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     }
 
     const presentation = document.createElement('div')
-    presentation.className = 'dg-illustrator-mode-grid dg-choice-compact dg-choice-four'
+    presentation.className = 'dg-illustrator-mode-grid dg-choice-compact dg-choice-five'
     const presentationOptions: Array<{ id: SurfaceShellMode; label: string; description: string }> = [
       { id: 'inline', label: 'Inline', description: 'Open in the message.' },
       { id: 'plain', label: 'Button', description: 'Centered launcher without particles.' },
       { id: 'sparkling', label: 'Sparkling Button', description: 'Centered launcher with outer sparkles.' },
       { id: 'glass', label: 'Glass Button', description: 'Almost-transparent glass launcher.' },
+      { id: 'plain-glass', label: 'Plain Glass', description: 'The same glass launcher, without sparkles.' },
     ]
     for (const option of presentationOptions) {
       const control = document.createElement('button')
@@ -6990,7 +7224,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       '.my-surface { ... }',
     )
 
-    const shell = selectField('Shell Mode', existing?.shellMode === 'collapsible' ? 'plain' : existing?.shellMode || 'inline', [['inline', 'Inline'], ['plain', 'Button'], ['sparkling', 'Sparkling Button'], ['glass', 'Glass Button']], () => {})
+    const shell = selectField('Shell Mode', existing?.shellMode === 'collapsible' ? 'plain' : existing?.shellMode || 'inline', [['inline', 'Inline'], ['plain', 'Button'], ['sparkling', 'Sparkling Button'], ['glass', 'Glass Button'], ['plain-glass', 'Plain Glass']], () => {})
     const density = selectField('Density', existing?.density || 'comfortable', [['compact', 'Compact'], ['comfortable', 'Comfortable'], ['spacious', 'Spacious']], () => {})
     const fit = selectField('Media Fit', existing?.mediaFit || 'contain', [['contain', 'Contain'], ['cover', 'Cover']], () => {})
     const typography = selectField('Typography', existing?.typography || 'mixed', [['system', 'System'], ['editorial', 'Editorial'], ['mono', 'Mono'], ['mixed', 'Mixed']], () => {})
@@ -8520,7 +8754,7 @@ ${bracketFixture}`)
       img.className = 'dg-lightbox-img'
       img.src = asset.imageUrl
       img.alt = record.alt || record.slot
-      body.appendChild(img)
+      body.appendChild(imageLightboxViewport(img))
     }
     body.append(renderLightboxDiagnostics(record, asset), renderActionButtons(record, () => modal.dismiss()))
     modal.root.appendChild(body)
@@ -8544,7 +8778,7 @@ ${bracketFixture}`)
       button('Copy Image URL', () => copyText(version.imageUrl, 'Image URL copied.'), false, 'subtle'),
       button('Copy Image ID', () => copyText(version.imageId, 'Image ID copied.'), !version.imageId, 'subtle'),
     )
-    body.append(img, renderLightboxDiagnostics(record, resolveLightboxAsset(record, version, historyIndex), version), actions)
+    body.append(imageLightboxViewport(img), renderLightboxDiagnostics(record, resolveLightboxAsset(record, version, historyIndex), version), actions)
     modal.root.appendChild(body)
   }
 
@@ -9228,7 +9462,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
         })
       }, false, 'primary'),
     )
-    body.append(image, details, submissionError, actions)
+    body.append(imageLightboxViewport(image), details, submissionError, actions)
     modal.root.appendChild(body)
   }
 
@@ -10294,6 +10528,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     disposed = true
     sendFrontendSession(false)
     clearPlacementVisualHeartbeats()
+    clearProseRevealGuards()
     // Best effort only. Persisted ownership is cleared only after the host
     // setting write succeeds, so a later startup can repair a torn teardown.
     void enforceNativeAutoGenerationGuard(true)

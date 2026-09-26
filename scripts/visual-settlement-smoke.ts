@@ -7,9 +7,10 @@ function assert(value: unknown, reason: string): asserts value { if (!value) thr
 }
 
 const backend = await import('../src/backend')
-const { settlePlacementVisualLifecycle, shouldStartFinalImageReveal } = await import('../src/frontend')
+const { prepareFinalLifecycleImage, settlePlacementVisualLifecycle, shouldStartFinalImageReveal } = await import('../src/frontend')
 
 assert(shouldStartFinalImageReveal({ imageChanged: false, sawActiveLifecycle: false, pendingRecordReveal: true, cardAlreadyRevealed: false, recordAlreadyRevealed: false }), 'a newly completed final URL already hydrated by a Lumiverse remount did not reveal')
+assert(!shouldStartFinalImageReveal({ imageChanged: false, sawActiveLifecycle: false, pendingRecordReveal: true, cardAlreadyRevealed: false, recordAlreadyRevealed: false, readyForReveal: false }), 'a pending prose card started Reveal before the durable completed render')
 assert(!shouldStartFinalImageReveal({ imageChanged: false, sawActiveLifecycle: false, pendingRecordReveal: false, cardAlreadyRevealed: false, recordAlreadyRevealed: false }), 'a historical completed image revealed during cold hydration')
 assert(!shouldStartFinalImageReveal({ imageChanged: true, sawActiveLifecycle: true, pendingRecordReveal: true, cardAlreadyRevealed: false, recordAlreadyRevealed: true }), 'an already revealed record replayed its final animation')
 
@@ -25,8 +26,16 @@ class FakeClassList {
 class FakeImage {
   complete = false
   naturalWidth = 0
+  style = { visibility: '' }
   events: string[] = []
   classList = new FakeClassList(this.events)
+  private hiddenValue = false
+  private srcValue = ''
+  get hidden() { return this.hiddenValue }
+  set hidden(value: boolean) { this.hiddenValue = value; this.events.push(value ? 'hidden' : 'visible') }
+  get src() { return this.srcValue }
+  set src(value: string) { this.srcValue = value; this.events.push('src') }
+  get currentSrc() { return this.srcValue }
   listeners = new Map<string, Set<(event: any) => void>>()
   addEventListener(type: string, listener: (event: any) => void) {
     const listeners = this.listeners.get(type) || new Set()
@@ -41,26 +50,30 @@ class FakeImage {
 async function flushMicrotasks() { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() }
 
 const normalImage = new FakeImage()
+prepareFinalLifecycleImage(normalImage as any, '/final.png', true, (current, expected) => current === expected)
+assert(normalImage.hidden && normalImage.events.indexOf('hidden') < normalImage.events.indexOf('src'), 'animated hydration must hide the image before assigning its final URL')
 let normalCurrent = true
 let normalAcks = 0
 const normal = settlePlacementVisualLifecycle({
   image: normalImage as any,
   isCurrent: () => normalCurrent,
   reducedMotion: false,
+  onRevealStart: () => { normalImage.events.push('reveal-start') },
   onSettled: () => { normalImage.events.push('ack'); normalAcks += 1 },
 })
-assert(normalAcks === 0 && !normalImage.classList.contains('rrl-final-reveal'), 'normal motion ACKed before image load')
+assert(normalAcks === 0 && !normalImage.classList.contains('rrl-final-reveal') && normalImage.hidden, 'normal motion must keep the incomplete image hidden before reveal readiness')
 normalImage.complete = true
 normalImage.naturalWidth = 1280
 normalImage.dispatch('load')
 await flushMicrotasks()
 assert(normalImage.events.includes('decode'), 'normal motion did not decode the loaded image')
 assert(normalImage.classList.contains('rrl-final-reveal'), 'normal motion did not attach the Reveal class after decode')
+assert(!normalImage.hidden, 'decoded final image did not become visible when Reveal began')
 assert(normalAcks === 0, 'normal motion ACKed before animationend')
 normalImage.dispatch('animationend')
 assert(await normal === 'settled', 'normal motion did not settle after animationend')
 assert(normalAcks === 1 && !normalImage.classList.contains('rrl-final-reveal'), 'normal motion must remove Reveal and ACK exactly once after animationend')
-assert(normalImage.events.indexOf('decode') < normalImage.events.indexOf('class-add:rrl-final-reveal') && normalImage.events.indexOf('class-add:rrl-final-reveal') < normalImage.events.indexOf('ack'), 'normal motion event order must be decode -> Reveal -> ACK')
+assert(normalImage.events.indexOf('decode') < normalImage.events.indexOf('class-add:rrl-final-reveal') && normalImage.events.indexOf('class-add:rrl-final-reveal') < normalImage.events.indexOf('reveal-start') && normalImage.events.indexOf('reveal-start') < normalImage.events.indexOf('visible') && normalImage.events.indexOf('visible') < normalImage.events.indexOf('ack'), 'completed motion must decode before releasing its effect guard, then reveal and ACK')
 
 const staleImage = new FakeImage()
 staleImage.complete = true
@@ -78,9 +91,25 @@ const reducedImage = new FakeImage()
 reducedImage.complete = true
 reducedImage.naturalWidth = 800
 let reducedAcks = 0
-const reduced = await settlePlacementVisualLifecycle({ image: reducedImage as any, isCurrent: () => true, reducedMotion: true, onSettled: () => { reducedImage.events.push('ack'); reducedAcks += 1 } })
-assert(reduced === 'settled' && reducedAcks === 1, 'reduced motion must ACK one stable decoded insertion')
+const reduced = await settlePlacementVisualLifecycle({ image: reducedImage as any, isCurrent: () => true, reducedMotion: true, onRevealStart: () => { reducedImage.events.push('reveal-start') }, onSettled: () => { reducedImage.events.push('ack'); reducedAcks += 1 } })
+assert(reduced === 'settled' && reducedAcks === 1 && !reducedImage.hidden, 'reduced motion must reveal and ACK one stable decoded insertion')
 assert(reducedImage.events.includes('decode') && !reducedImage.events.includes('class-add:rrl-final-reveal'), 'reduced motion must decode without starting a nonexistent animation')
+assert(reducedImage.events.indexOf('reveal-start') < reducedImage.events.indexOf('visible'), 'reduced motion must release the placeholder before showing the decoded final image')
+
+const authoredImage = new FakeImage()
+authoredImage.complete = true
+authoredImage.naturalWidth = 960
+let authoredAcks = 0
+const authored = settlePlacementVisualLifecycle({
+  image: authoredImage as any, isCurrent: () => true, reducedMotion: false, preserveGeometry: true,
+  onRevealStart: () => authoredImage.events.push('authored-reveal-start'),
+  onSettled: () => { authoredAcks += 1 },
+})
+assert(!authoredImage.hidden && authoredImage.style.visibility === 'hidden', 'authored Core/Narrative/custom image must stay laid out while decode is pending')
+await flushMicrotasks()
+assert(!authoredImage.hidden && authoredImage.style.visibility === '' && authoredImage.classList.contains('rrl-final-reveal') && authoredAcks === 0, 'authored image must reveal in place without collapsing its media owner or ACKing early')
+authoredImage.dispatch('animationend')
+assert(await authored === 'settled' && authoredAcks === 1, 'authored image must settle only after its reveal completes')
 
 const requestMarkup = (id: string) => `<image_request id="${id}" target="custom.artifact-media" slot="${id}"><scene_brief>${id}</scene_brief></image_request>`
 const visual = (id: string, suffix = '1') => ({ key: `chat:message:0:${id}:${id}`, requestId: id, slot: id, imageUrl: `/${id}-${suffix}.png`, imageId: `${id}-${suffix}`, required: true, started: false, settled: false })
@@ -99,7 +128,7 @@ assert(backend.markInitialPlacementVisualSettled(one, ack('a')) === 'settled' &&
 
 const siblings = batch(entry('a'), entry('b'))
 assert(backend.markInitialPlacementVisualSettled(siblings, ack('a')) === 'settled', 'Test B: A ACK was not recorded')
-assert(gate(siblings, true) === 'generation-pending', 'Test B: durable placement committed before the initial sibling generation became terminal')
+assert(gate(siblings, true) === 'ready', 'Test B: a ready Spark image must not wait for its generating siblings')
 assert(gate(siblings, false) === 'ready', 'Test B: terminal siblings or visual settlement remained a persistence barrier')
 assert(backend.markInitialPlacementVisualSettled(siblings, ack('b')) === 'settled' && gate(siblings) === 'ready', 'Test B: B ACK changed the non-blocking gate')
 

@@ -8,11 +8,12 @@ import dramaticCutawayPack from '../regex-packs/narrative-final/Reverie-Dramatic
 import plotSparksPack from '../regex-packs/narrative-final/Reverie-Plot-Sparks-BULLETPROOF-V7.json'
 import { sceneCompassPresentation } from './sceneCompassPresentation'
 import { normalizeRegisteredHybridClosingDelimiters } from './surfaceStructuralRepair'
-import { applyNarrativeSurfacePresentation, type NarrativeSurfacePresentationVariant } from './surfacePresentation'
+import { applyNarrativeSurfacePresentation, surfaceShellModeForNarrativeVariant, type NarrativeSurfacePresentationVariant } from './surfacePresentation'
+import { decorateSurfaceLauncherMarkup } from './surfaceIcons'
 import { PLOT_SPARK_VECTOR_BY_KEY, type PlotSparkKey, type SurfaceColorMode } from './contracts'
 
 export type NarrativeRegexVariant = NarrativeSurfacePresentationVariant
-type NarrativeRegexSourceVariant = NarrativeRegexVariant | 'glass-button'
+type NarrativeRegexSourceVariant = Exclude<NarrativeRegexVariant, 'plain-glass'> | 'glass-button'
 
 export type NarrativeRegexScript = {
   script_id: string
@@ -60,7 +61,7 @@ const PACKS: Record<NarrativeRegexSourceVariant, NarrativeRegexPack> = {
   'glass-button': glassButtonPack as unknown as NarrativeRegexPack,
 }
 
-const EXPECTED_PIN: Record<NarrativeRegexVariant, string> = {
+const EXPECTED_PIN: Record<Exclude<NarrativeRegexVariant, 'plain-glass'>, string> = {
   'sparkle-button': '[cp_presentation]sparkling[/cp_presentation]',
   'plain-button': '[cp_presentation]plain[/cp_presentation]',
   inline: '[cp_presentation]inline[/cp_presentation]',
@@ -114,13 +115,34 @@ export const NARRATIVE_MEDIA_COMPATIBILITY_STYLE = `<style data-reverie-narrativ
  * adapter supplies one compact, shared gutter between adjacent launcher roots. */
 export const NARRATIVE_BLOCK_SPACING_STYLE = `<style data-reverie-narrative-block-spacing="1">
 .r65,.ra66,.rrcp-wrap,.ch-og.dg-compact-launch-host,.dg-dramatic-cutaway.dg-compact-launch-host{margin:6px auto!important}
+.r65-card{line-height:1.45!important}
 </style>`
+
+const NARRATIVE_ICON_BY_SCRIPT_ID: Readonly<Record<string, string>> = {
+  rrpp_proto_shell_inline_v42: 'Character Phone',
+  rrpp_proto_shell_v31: 'Character Phone',
+  ria_dramatic_cutaway_lumiverse_native_bulletproof_v8: 'Dramatic Cutaway',
+  ria_plot_sparks_og_sparkle_tabs_bulletproof_v7: 'Plot Sparks',
+  reverie_scene_tracker_images_v1: 'Scene Shift',
+  reverie_parallel_tracker_images_v1: 'Parallel Scene',
+  reverie_npc_intro_images_v1: 'Cast Introduction',
+  reverie_npc_upgrade_images_v1: 'Cast Introduction',
+  reverie_npc_ref_v1: 'Cast Introduction',
+  reverie_npc_relationship_v1: 'Cast Introduction',
+  reverie_secret_tracker_images_v1: 'Backstage Secrets',
+  reverie_world_detail_images_v1: 'Setting the Scene',
+  relay_shenanigans_elsewhere_images_sparkle_v1: 'Off-Stage',
+  relay_shenanigans_dossier_images_sparkle_v1: 'Character Dossier',
+  relay_shenanigans_location_images_sparkle_v1: 'Location File',
+  reverie_whatif_loom_images_fork_v1: 'In Another Life',
+  relay_unified_archive_card_v66: 'Archive Entry',
+}
 
 const safeMessageId = (value: string): string => String(value || 'narrative').replace(/[^A-Za-z0-9_-]+/g, '-') || 'narrative'
 const NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i
 
 export const NARRATIVE_UTILITY_PACK = utilityPack as NarrativeUtilityPack
-export const NARRATIVE_REGEX_VARIANTS: NarrativeRegexVariant[] = ['sparkle-button', 'plain-button', 'inline', 'glass']
+export const NARRATIVE_REGEX_VARIANTS: NarrativeRegexVariant[] = ['sparkle-button', 'plain-button', 'inline', 'glass', 'plain-glass']
 
 /** Canonical model-authored bracket fields consumed by the paired Regexes.
  * XML is intentionally limited to the image-control tags nested inside media. */
@@ -343,6 +365,53 @@ export function normalizePlotSparksFieldDelimiters(markup: string): string {
   })
 }
 
+/** Keep a complete canonical Plot Sparks response renderable when the model
+ * omits image ownership entirely. This inserts only empty [Media] containers;
+ * it never authors an image request or changes ambiguous/partial Spark data. */
+export function normalizeMissingPlotSparksMediaFields(markup: string): string {
+  return String(markup || '').replace(PLOT_SPARKS_OWNER_RANGE, (full, opening: string, body: string, closing: string) => {
+    if ((body.match(/\[ID\]/gi) || []).length !== 1 || (body.match(/\[\/ID\]/gi) || []).length !== 1
+      || (body.match(/\[Lifecycle\]/gi) || []).length !== 1 || (body.match(/\[\/Lifecycle\]/gi) || []).length !== 1) return full
+    const head = /^\s*\[ID\]([\s\S]*?)\[\/ID\]\s*\[Lifecycle\]([\s\S]*?)\[\/Lifecycle\]\s*([\s\S]*)$/i.exec(body)
+    if (!head || !head[1].trim() || !head[2].trim()) return full
+    const sparkPattern = /\[Spark\]([\s\S]*?)\[\/Spark\]/gi
+    const sparks = [...head[3].matchAll(sparkPattern)]
+    if (sparks.length !== 7 || (head[3].match(/\[Spark\]/gi) || []).length !== 7 || (head[3].match(/\[\/Spark\]/gi) || []).length !== 7) return full
+
+    const keys = new Set<PlotSparkKey>()
+    let changed = false
+    let missingMediaFields = 0
+    const repaired: string[] = []
+    for (const match of sparks) {
+      const sparkBody = match[1]
+      const mediaOpens = sparkBody.match(/\[Media\]/gi) || []
+      const mediaCloses = sparkBody.match(/\[\/Media\]/gi) || []
+      const canonical = /^\s*\[Key\]([\s\S]*?)\[\/Key\]\s*\[Vector\]([\s\S]*?)\[\/Vector\]\s*\[Text\]([\s\S]*?)\[\/Text\]([\s\S]*)$/i.exec(sparkBody)
+      if (!canonical || (sparkBody.match(/\[Key\]/gi) || []).length !== 1 || (sparkBody.match(/\[\/Key\]/gi) || []).length !== 1
+        || (sparkBody.match(/\[Vector\]/gi) || []).length !== 1 || (sparkBody.match(/\[\/Vector\]/gi) || []).length !== 1
+        || (sparkBody.match(/\[Text\]/gi) || []).length !== 1 || (sparkBody.match(/\[\/Text\]/gi) || []).length !== 1
+        || !canonical[1].trim() || !canonical[2].trim() || !canonical[3].trim()) return full
+      if (!((mediaOpens.length === 0 && mediaCloses.length === 0) || (mediaOpens.length === 1 && mediaCloses.length === 1
+        && canonical[4].trimStart().startsWith('[Media]') && canonical[4].trimEnd().endsWith('[/Media]')))) return full
+      const key = canonical[1].trim().toLocaleLowerCase() as PlotSparkKey
+      if (!(key in PLOT_SPARK_VECTOR_BY_KEY) || keys.has(key) || canonical[2].trim().toLocaleLowerCase() !== PLOT_SPARK_VECTOR_BY_KEY[key]) return full
+      keys.add(key)
+      if (mediaOpens.length === 0) {
+        missingMediaFields += 1
+        changed = true
+        repaired.push(`${sparkBody.slice(0, canonical[0].length)}[Media][/Media]`)
+      } else repaired.push(sparkBody)
+    }
+    // Do not turn a partial/malformed response into a successful whole block:
+    // the safe fallback applies only when all seven canonical Sparks omit
+    // media ownership together.
+    if (!changed || missingMediaFields !== 7 || keys.size !== 7) return full
+    let index = 0
+    const repairedSparks = head[3].replace(sparkPattern, () => `[Spark]${repaired[index++]}[/Spark]`)
+    return `${opening}${body.slice(0, head.index) /* Preserve leading whitespace before the ID block. */}${body.slice(head.index, head.index + head[0].length - head[3].length)}${repairedSparks}${closing}`
+  })
+}
+
 /** Repair only the unambiguous known-owner blend inside Plot Sparks Media. */
 export function normalizePlotSparksMediaMarkup(markup: string): string {
   return String(markup || '').replace(/\[Media\]((?:(?!\[Media\])[\s\S])*?)\[\/Media\]/gi, (full, media: string) => {
@@ -477,7 +546,8 @@ export function normalizeWorldMarkup(markup: string): string {
 }
 
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
-  const structurallyNormalized = normalizeNarrativeClosingDelimiters(normalizePlotSparksFieldDelimiters(String(markup || '')))
+  const withPlotMediaOwners = normalizeMissingPlotSparksMediaFields(String(markup || ''))
+  const structurallyNormalized = normalizeNarrativeClosingDelimiters(normalizePlotSparksFieldDelimiters(withPlotMediaOwners))
   return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeParallelSceneMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(structurallyNormalized))))))
     .replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root: string, body: string) => {
       // A second observed phone drift uses an XML root around otherwise
@@ -515,7 +585,7 @@ function narrativeRegexSourcePack(variant: NarrativeRegexSourceVariant): Narrati
 }
 
 export function narrativeRegexPack(variant: NarrativeRegexVariant): NarrativeRegexPack {
-  return narrativeRegexSourcePack(variant)
+  return narrativeRegexSourcePack(variant === 'plain-glass' ? 'glass-button' : variant)
 }
 
 export function narrativeRegexScripts(variant: NarrativeRegexVariant, colorMode: SurfaceColorMode = 'realistic'): NarrativeRegexScript[] {
@@ -533,7 +603,7 @@ export function narrativeRegexScripts(variant: NarrativeRegexVariant, colorMode:
   // selector that chooses the complete Glass visual body source.
   const sourceVariant: NarrativeRegexSourceVariant = colorMode === 'glass'
     ? 'glass'
-    : variant === 'glass'
+    : variant === 'glass' || variant === 'plain-glass'
       ? 'glass-button'
       : variant
   const bundledPresentationScripts = narrativeRegexSourcePack(sourceVariant).scripts.filter(script => script.disabled !== true)
@@ -555,13 +625,20 @@ export function narrativeRegexScripts(variant: NarrativeRegexVariant, colorMode:
       const spacedReplacement = NARRATIVE_PRIMARY_SURFACE_CLASS.test(replacement)
         ? `${NARRATIVE_BLOCK_SPACING_STYLE}${replacement}`
         : replacement
+      const labeledReplacement = script.script_id === 'ria_plot_sparks_og_sparkle_tabs_bulletproof_v7'
+        ? spacedReplacement.replaceAll('Branch from this hook', 'Branch from this Spark')
+        : spacedReplacement
+      const iconId = NARRATIVE_ICON_BY_SCRIPT_ID[script.script_id]
+      const iconizedReplacement = iconId
+        ? decorateSurfaceLauncherMarkup(labeledReplacement, 'narrative', iconId, surfaceShellModeForNarrativeVariant(variant))
+        : labeledReplacement
       return {
         ...script,
         name: applyNarrativeDisplayNames(String(script.name || script.script_id)),
         find_regex: isParallel ? PARALLEL_SCENE_FIND : script.find_regex,
-        replace_string: NARRATIVE_MEDIA_OWNER_CLASS.test(spacedReplacement)
-          ? `${NARRATIVE_MEDIA_COMPATIBILITY_STYLE}${spacedReplacement}`
-          : spacedReplacement,
+        replace_string: NARRATIVE_MEDIA_OWNER_CLASS.test(iconizedReplacement)
+          ? `${NARRATIVE_MEDIA_COMPATIBILITY_STYLE}${iconizedReplacement}`
+          : iconizedReplacement,
       }
     })
     .sort((left, right) => Number(left.sort_order) - Number(right.sort_order))
@@ -588,6 +665,58 @@ export type NarrativeLorebookKind = 'cast-introduction' | 'character-dossier' | 
 export type NarrativeRenderContext = {
   chatId?: string
   swipeId?: number
+  /** Host regex row IDs are required for Lumiverse's validated click actions. */
+  actionScriptIds?: Readonly<Record<string, string>>
+}
+
+const NARRATIVE_ACTION_TAG_RE = /<([A-Za-z][\w:-]*)(\s[^<>]*?)?\s*\/?>/g
+const NARRATIVE_ACTION_ID_RE = /\bdata-regex-action\s*=\s*(["'])(.*?)\1/i
+
+function actionCapture(value: unknown, matched: string, regex: RegExp): string {
+  return matched.replace(regex, String(value ?? ''))
+}
+
+/** Mirror the host compiler's action payload. The host still validates the
+ * installed script and executes fork/draft; Relay never creates chats here. */
+function decorateNarrativeActions(rendered: string, script: NarrativeRegexScript, rowId: string, matched: string, offset: number, localRegex: RegExp): string {
+  if (!rowId || !script.actions?.length) return rendered
+  const actions = new Map(script.actions.map(action => [String(action.id || ''), action]))
+  const limits = script.actions.filter(action => action.multi_select === true).map(action => Number(action.limit)).filter(limit => Number.isFinite(limit) && limit > 0)
+  const blockLimit = limits.length ? Math.min(...limits) : 0
+  return rendered.replace(NARRATIVE_ACTION_TAG_RE, tag => {
+    if (/\bdata-lumiverse-regex-action\s*=/.test(tag)) return tag
+    const id = NARRATIVE_ACTION_ID_RE.exec(tag)?.[2]
+    const action = id ? actions.get(id) : undefined
+    if (!action) return tag
+    const title = actionCapture(action.title, matched, localRegex)
+    const subtitle = actionCapture(action.subtitle, matched, localRegex)
+    const payload = {
+      ...action,
+      title,
+      subtitle,
+      content: actionCapture(action.content, matched, localRegex),
+      cost: Number(actionCapture(action.cost, matched, localRegex)) || 1,
+      limit: blockLimit,
+      effects: Array.isArray(action.effects) ? action.effects.map(effect => {
+        if (!effect || typeof effect !== 'object') return effect
+        const typed = effect as Record<string, unknown>
+        return typed.type === 'draft' ? { ...typed, content: actionCapture(typed.content, matched, localRegex) }
+          : typed.type === 'set_state' ? { ...typed, value: actionCapture(typed.value, matched, localRegex) } : typed
+      }) : [],
+      scriptId: rowId,
+      instanceId: `${rowId}:${offset}:${offset + matched.length}`,
+    }
+    const label = [title, subtitle].filter(Boolean).join(' — ')
+    const attrs = [
+      `data-lumiverse-regex-action="${encodeURIComponent(JSON.stringify(payload))}"`,
+      action.multi_select === true ? 'data-lumiverse-regex-action-multi="true"' : '',
+      'role="button"',
+      'tabindex="0"',
+      label ? `aria-label="${safeDataAttribute(label)}"` : '',
+      title ? `title="${safeDataAttribute(title)}"` : '',
+    ].filter(Boolean).join(' ')
+    return tag.replace(/\s*\/>$/, ` ${attrs} />`).replace(/(?<!\/)\s*>$/, ` ${attrs}>`)
+  })
 }
 
 function narrativeLorebookKind(scriptId: string): NarrativeLorebookKind | null {
@@ -628,7 +757,16 @@ export function renderNarrativeRegex(markup: string, variant: NarrativeRegexVari
     const replacement = script.replace_string.replace(/\{\{lastMessageId\}\}/g, macro)
     const lorebookKind = narrativeLorebookKind(script.script_id)
     if (!lorebookKind) {
-      output = output.replace(new RegExp(script.find_regex, flags), replacement)
+      if (!script.actions?.length || !context.actionScriptIds?.[script.script_id]) {
+        output = output.replace(new RegExp(script.find_regex, flags), replacement)
+        continue
+      }
+      const localRegex = new RegExp(script.find_regex, flags.replace(/g/g, ''))
+      output = output.replace(new RegExp(script.find_regex, flags), (matched: string, ...args: unknown[]) => {
+        const offset = Number(args[typeof args.at(-1) === 'object' ? args.length - 3 : args.length - 2])
+        const rendered = matched.replace(localRegex, replacement)
+        return decorateNarrativeActions(rendered, script, context.actionScriptIds![script.script_id], matched, offset, localRegex)
+      })
       continue
     }
     let occurrence = 0

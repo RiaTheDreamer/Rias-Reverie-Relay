@@ -4,6 +4,7 @@ import { KNOWN_APP_SURFACE_DRIFT_ROOTS, normalizeBracketSurfaceDocument } from '
 
 import { parseImageRequests, type CustomSurfaceDefinition, type CustomSurfaceStudioState, type GenerationPlaceholderEffect, type SurfaceColorMode, type SurfaceRendererMode, type SurfaceShellMode } from './contracts'
 import { hybridSurfaceOwner, SHIPPED_SURFACE_BY_ID, SHIPPED_SURFACE_SPECS, type ShippedSurfaceSpec } from './shippedSurfaceDefinitions'
+import { decorateSurfaceLauncherMarkup } from './surfaceIcons'
 import { containsRenderedRegexSurface, renderRegexSurfaceParity, type RegexSurfaceParityMode } from './regexSurfaceParity'
 import { R45_SUPPLEMENTAL_ROOTS } from './r45SurfaceCatalog'
 import { isFailureRecoveryStatus, isSlotLifecycleActive } from './slotLifecycle'
@@ -81,11 +82,19 @@ const STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="2">
 .rrl-generation-placeholder .rr-regex-particles{position:absolute;inset:0;z-index:2;overflow:hidden;pointer-events:none}.rrl-generation-placeholder .rr-regex-particles i{position:absolute;left:var(--x);top:var(--y);width:var(--s);height:var(--s);border-radius:999px;background:radial-gradient(circle,color-mix(in srgb,var(--rr-accent-text) 90%,var(--rr-text) 10%) 0 28%,color-mix(in srgb,var(--rr-accent-text) 66%,var(--rr-accent) 34%) 38%,color-mix(in srgb,var(--rr-accent) 22%,transparent) 65%,transparent 72%);box-shadow:0 0 5px color-mix(in srgb,var(--rr-accent-text) 72%,transparent),0 0 12px color-mix(in srgb,var(--rr-accent) 34%,transparent);opacity:0;animation:rr-regex-floating-particle var(--d) ease-in-out var(--delay) infinite}.rrl-generation-placeholder .rr-regex-particles i:nth-child(1){--x:3%;--y:88%;--dx:6px;--dy:-76px;--s:2px;--d:10.2s;--delay:-7.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(2){--x:8%;--y:66%;--dx:-5px;--dy:-63px;--s:3px;--d:12.4s;--delay:-3.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(3){--x:13%;--y:92%;--dx:7px;--dy:-84px;--s:2px;--d:11.8s;--delay:-9.4s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(4){--x:18%;--y:46%;--dx:-4px;--dy:-55px;--s:2px;--d:9.9s;--delay:-5.6s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(5){--x:22%;--y:78%;--dx:8px;--dy:-71px;--s:3px;--d:13.2s;--delay:-1.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(6){--x:27%;--y:58%;--dx:-6px;--dy:-64px;--s:2px;--d:10.8s;--delay:-8.3s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(7){--x:31%;--y:96%;--dx:5px;--dy:-89px;--s:3px;--d:14.1s;--delay:-6.2s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(8){--x:35%;--y:34%;--dx:-7px;--dy:-48px;--s:2px;--d:11.3s;--delay:-2.5s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(9){--x:39%;--y:73%;--dx:6px;--dy:-69px;--s:2px;--d:10.7s;--delay:-9.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(10){--x:43%;--y:90%;--dx:-7px;--dy:-86px;--s:3px;--d:13.7s;--delay:-4.4s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(11){--x:47%;--y:53%;--dx:4px;--dy:-59px;--s:2px;--d:9.7s;--delay:-7.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(12){--x:51%;--y:82%;--dx:-5px;--dy:-75px;--s:3px;--d:12.6s;--delay:-10.6s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(13){--x:55%;--y:42%;--dx:7px;--dy:-52px;--s:2px;--d:11.1s;--delay:-3.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(14){--x:59%;--y:94%;--dx:-6px;--dy:-91px;--s:2px;--d:14.5s;--delay:-8.9s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(15){--x:63%;--y:69%;--dx:5px;--dy:-67px;--s:3px;--d:10.4s;--delay:-5.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(16){--x:67%;--y:31%;--dx:-7px;--dy:-46px;--s:2px;--d:12.9s;--delay:-1.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(17){--x:71%;--y:86%;--dx:8px;--dy:-81px;--s:3px;--d:13.9s;--delay:-11.3s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(18){--x:75%;--y:57%;--dx:-5px;--dy:-61px;--s:2px;--d:10.1s;--delay:-6.7s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(19){--x:79%;--y:97%;--dx:6px;--dy:-92px;--s:2px;--d:14.8s;--delay:-4.8s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(20){--x:83%;--y:38%;--dx:-4px;--dy:-51px;--s:3px;--d:11.6s;--delay:-9.1s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(21){--x:87%;--y:76%;--dx:7px;--dy:-72px;--s:2px;--d:12.2s;--delay:-2.9s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(22){--x:91%;--y:91%;--dx:-6px;--dy:-87px;--s:3px;--d:14.3s;--delay:-7.5s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(23){--x:95%;--y:49%;--dx:4px;--dy:-56px;--s:2px;--d:10.9s;--delay:-10.2s}.rrl-generation-placeholder .rr-regex-particles i:nth-child(24){--x:98%;--y:84%;--dx:-5px;--dy:-79px;--s:2px;--d:13.4s;--delay:-5.9s}@keyframes rr-regex-floating-particle{0%{opacity:0;transform:translate3d(0,10px,0) scale(.45)}18%{opacity:.72}55%{opacity:.94}100%{opacity:0;transform:translate3d(var(--dx),var(--dy),0) scale(1.18)}}
 .rrl-generation-placeholder .rr-orb{width:21px;height:21px;position:relative;border-radius:50%;background:radial-gradient(circle at 31% 25%,rgba(255,255,255,.95) 0,rgba(255,255,255,.28) 8%,transparent 23%),radial-gradient(circle at 50% 55%,rgba(255,255,255,.11),color-mix(in srgb,var(--rr-primary) 14%,transparent) 48%,color-mix(in srgb,var(--rr-secondary) 7%,transparent) 72%,rgba(255,255,255,.04));border:1px solid rgba(255,255,255,.24);box-shadow:inset -3px -4px 8px color-mix(in srgb,var(--rr-primary) 13%,transparent),inset 2px 2px 5px rgba(255,255,255,.13),0 0 7px color-mix(in srgb,var(--rr-secondary) 17%,transparent);animation:rr-orb-float 5.8s ease-in-out infinite,rr-orb-breathe 7s ease-in-out infinite}.rrl-generation-placeholder .rr-orb:before{content:"";position:absolute;width:3px;height:3px;top:5px;right:5px;border-radius:50%;background:rgba(255,255,255,.95);box-shadow:0 0 4px rgba(255,255,255,.6);animation:rr-glint 3.9s ease-in-out infinite}.rrl-generation-placeholder .rr-orb:after{content:"";position:absolute;width:1.5px;height:1.5px;bottom:5px;left:5px;border-radius:50%;background:white;opacity:.5;box-shadow:0 0 3px rgba(255,255,255,.6);animation:rr-glint 5.1s ease-in-out -2s infinite}@keyframes rr-orb-float{0%,100%{transform:translateY(1px)}50%{transform:translateY(-3px)}}@keyframes rr-orb-breathe{0%,100%{scale:.97}50%{scale:1.025}}@keyframes rr-glint{0%,70%,100%{opacity:.25;transform:scale(.8)}82%{opacity:1;transform:scale(1.35)}}
 .rrl-media-slot{box-shadow:0 2px 10px rgba(0,0,0,.12),inset 0 1px rgba(255,255,255,.055)}
-@media(prefers-reduced-motion:reduce){.rrl-media-slot .rrl-slot-image.rrl-final-reveal,.rrl-generation-placeholder .rr-spinner,.rrl-generation-placeholder .rr-orb,.rrl-generation-placeholder .rr-orb:before,.rrl-generation-placeholder .rr-orb:after{animation:none!important}.rrl-generation-placeholder .rr-regex-particles{display:block}.rrl-generation-placeholder .rr-regex-particles i{animation:none!important;opacity:.72;transform:none}}
+@media(prefers-reduced-motion:reduce){.rrl-media-slot .rrl-slot-image.rrl-final-reveal,.rrl-final-reveal:not(.rrl-slot-image),.rrl-generation-placeholder .rr-spinner,.rrl-generation-placeholder .rr-orb,.rrl-generation-placeholder .rr-orb:before,.rrl-generation-placeholder .rr-orb:after{animation:none!important}.rrl-generation-placeholder .rr-regex-particles{display:block}.rrl-generation-placeholder .rr-regex-particles i{animation:none!important;opacity:.72;transform:none}}
 </style>`
 
 const PROSE_LIFECYCLE_MEDIA_FIT_CSS = `<style data-reverie-prose-lifecycle-fit="cover">
 .dgir-prose-lifecycle-projection .rrl-media-slot .rrl-preview-image,.dgir-prose-lifecycle-projection .rrl-media-slot .rrl-slot-image,.dgir-prose-lifecycle-projection .rrl-media-slot .rrl-resolved img{object-fit:cover}
+</style>`
+
+const LIFECYCLE_REVEAL_CSS = `<style data-reverie-lifecycle-reveal="atomic">
+.rrl-media-slot .rrl-slot-image[hidden]{display:none!important}
+.rrl-media-slot .rrl-slot-image.rrl-final-reveal{animation:rrlFinalReveal 1.5s cubic-bezier(.16,1,.3,1) both;will-change:filter,opacity}
+.rrl-final-reveal:not(.rrl-slot-image){animation:rrlFinalReveal 1.5s cubic-bezier(.16,1,.3,1) both;will-change:filter,opacity}
+.rrl-reveal-overlay{position:absolute;z-index:2;display:grid!important;opacity:1!important;pointer-events:none}
+@keyframes rrlFinalReveal{from{opacity:.48;filter:blur(7px) brightness(.98)}to{opacity:1;filter:none}}
 </style>`
 
 function lifecycleCardIsland(card: string): string {
@@ -104,8 +113,24 @@ function proseLifecycleProjection(record: NonNullable<NativeSurfaceRenderContext
   return `<div class="dgir-prose-lifecycle-projection"${key}>${lifecycleCardIsland(card)}</div>`
 }
 
+export function renderCompletedProseLifecycleProjection(
+  record: NonNullable<NativeSurfaceRenderContext['records']>[number],
+  context: NativeSurfaceRenderContext,
+): string {
+  if (record.status !== 'completed' || !record.imageUrl) return ''
+  const completedContext = { ...context, records: [record] }
+  const card = renderRequestCard({
+    title: 'Illustration requested', brief: '', requestId: record.requestId,
+    aspect: record.requestAspect || '4:3', rootTag: 'image_request',
+    baseSurfaceId: 'prose-illustration', context: completedContext,
+  }, true)
+  return proseLifecycleProjection(record, card)
+}
+
 export function lifecycleRuntimeCss(): string {
-  return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${PROSE_LIFECYCLE_MEDIA_FIT_CSS}`
+  return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${PROSE_LIFECYCLE_MEDIA_FIT_CSS}${LIFECYCLE_REVEAL_CSS}<style>
+.rrl-card[data-rrn-placement-ready="true"] .rrl-spinner{display:none!important}.rrl-card[data-rrn-placement-ready="true"] .rrl-state-icon{display:block!important}
+</style>`
     .replace(/<style\b[^>]*>/gi, '')
     .replace(/<\/style>/gi, '')
 }
@@ -187,7 +212,7 @@ export const NATIVE_SURFACE_CANDIDATE_ROOT_TAGS = [...NATIVE_SURFACE_ROOT_TAGS, 
 
 function parityModeForSurface(baseSurfaceId: string, preset: CustomSurfaceDefinition | undefined, context: NativeSurfaceRenderContext): RegexSurfaceParityMode {
   const mode = context.defaultShellMode || preset?.shellMode || defaultShellMode(baseSurfaceId)
-  if (mode === 'glass') return 'glass'
+  if (mode === 'glass' || mode === 'plain-glass') return 'glass'
   if (mode === 'sparkling') return 'sparkling'
   if (mode === 'plain' || mode === 'collapsible') return 'plain'
   return 'inline'
@@ -610,6 +635,7 @@ function renderParityOwnedSurface(
       : fullMarkup
   if (baseSurfaceId === 'kakao') recordKakaoNormalizationTrace(fullMarkup, canonicalMarkup)
   const hydrated = hydrateParityRequests(canonicalMarkup, baseSurfaceId, context)
+  const shellMode = context.defaultShellMode || preset?.shellMode || defaultShellMode(baseSurfaceId)
   const mode = parityModeForSurface(baseSurfaceId, preset, context)
   let rendered = renderRegexSurfaceParity(hydrated, mode, context.messageId || `${baseSurfaceId}-surface`, context.colorMode || 'realistic')
   if (baseSurfaceId === 'kakao') {
@@ -629,7 +655,7 @@ function renderParityOwnedSurface(
     context,
     fullMarkup,
   )
-  rendered = decorateParityImages(rendered, context)
+  rendered = decorateParityImages(decorateSurfaceLauncherMarkup(rendered, 'core', baseSurfaceId, shellMode === 'collapsible' ? 'plain' : shellMode), context)
   recordSurfacePipelineDiagnostic(baseSurfaceId, 'final', 'rendered')
   return editableRelaySurface(rendered, canonicalMarkup, rootTag, baseSurfaceId, context, fullMarkup)
 }
@@ -669,7 +695,10 @@ export function renderNativeSurfaceMarkup(
     const instanceContext = { ...renderContext, streamIslandOrdinal: bracketBlocks.length }
     if (block.diagnostics.length) return editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join('; ')), block.original, block.spec.wrapper, block.spec.id, instanceContext, block.original)
     const hydrated = hydrateParityRequests(block.markup, block.spec.id, renderContext)
-    const rendered = renderRegexSurfaceParity(hydrated, parityModeForSurface(block.spec.id, activePreset(studio, block.spec.id), renderContext), renderContext.messageId || `${block.spec.id}-surface`, renderContext.colorMode || 'realistic')
+    const preset = activePreset(studio, block.spec.id)
+    const shellMode = renderContext.defaultShellMode || preset?.shellMode || defaultShellMode(block.spec.id)
+    const mode = parityModeForSurface(block.spec.id, preset, renderContext)
+    const rendered = renderRegexSurfaceParity(hydrated, mode, renderContext.messageId || `${block.spec.id}-surface`, renderContext.colorMode || 'realistic')
     const residualRoot = new RegExp(`\\[${escapeRegExp(block.spec.wrapper)}(?:\\s+[^\\]]*)?\\]`, 'i').test(rendered)
     const rendererFailedClosed = /data-reverie-surface-contract=["']failed["']|Relay Surface needs repair/i.test(rendered)
     if (residualRoot || rendererFailedClosed) {
@@ -677,7 +706,7 @@ export function renderNativeSurfaceMarkup(
       block.diagnostics.push(`${block.spec.id}: ${reason}`)
       return editableRelaySurface(reviewedContractError(block.spec.id, reason), block.original, block.spec.wrapper, block.spec.id, instanceContext, block.original)
     }
-    return decorateParityImages(rendered, instanceContext)
+    return decorateParityImages(decorateSurfaceLauncherMarkup(rendered, 'core', block.spec.id, shellMode === 'collapsible' ? 'plain' : shellMode), instanceContext)
   })
   if (bracketBlocks.length) {
     bracketRenderedCount = bracketBlocks.length
@@ -1414,18 +1443,19 @@ function renderRequestCard(input: {
   // image_request_error may survive briefly while a retry is active or after
   // it succeeds; it must not resurrect failure UI.
   const liveStatus = record?.status || (input.failed ? 'failed' : fallbackStatus)
+  const readyToInsert = liveStatus === 'placement-pending' && Boolean(record?.pendingPlacement)
   const statusLabels: Record<string, string> = {
     'recovered-pending': 'Discovered', preparing: 'Preparing', queued: 'Queued', 'awaiting-native-settings': 'Waiting for settings', 'paused-backlog': 'Pending review', superseded: 'Superseded', parsing: 'Parsing', 'provider-waiting': 'Waiting for image worker', generating: 'Generating', previewing: 'Previewing',
-    'placement-pending': 'Inserting', 'placement-repair-needed': 'Repair needed', completed: 'Completed', 'image-unavailable': 'Unavailable',
+    'placement-pending': readyToInsert ? 'Ready' : 'Inserting', 'placement-repair-needed': 'Repair needed', completed: 'Completed', 'image-unavailable': 'Unavailable',
     failed: 'Failed', cancelled: 'Stopped',
   }
   const titleLabels: Record<string, string> = {
     'recovered-pending': input.title, preparing: 'Preparing generation', queued: 'Preparing automatically', 'awaiting-native-settings': 'Waiting for Native ImageGen settings', 'paused-backlog': 'Pending generation review', superseded: 'Request superseded', parsing: 'Preparing prompt', 'provider-waiting': 'Queued for ImageGen', generating: 'Generating image', previewing: 'Previewing image',
-    'placement-pending': 'Inserting image', 'placement-repair-needed': 'Placement needs repair', completed: 'Image completed', 'image-unavailable': 'Image unavailable',
+    'placement-pending': readyToInsert ? 'Image ready to insert' : 'Inserting image', 'placement-repair-needed': 'Placement needs repair', completed: 'Image completed', 'image-unavailable': 'Image unavailable',
     failed: 'Generation failed', cancelled: 'Generation stopped',
   }
   const failure = isFailureRecoveryStatus(liveStatus as import('./contracts').SlotStatus)
-  const icon = failure ? '!' : liveStatus === 'completed' ? '✓' : '✦'
+  const icon = failure ? '!' : liveStatus === 'completed' || readyToInsert ? '✓' : '✦'
   const brief = failure && record?.error ? record.error : (input.brief || 'Visual request attached to this message.')
   const active = isSlotLifecycleActive(liveStatus as import('./contracts').SlotStatus)
   const repairAvailable = liveStatus === 'placement-repair-needed' && Boolean(record?.pendingPlacement)
@@ -1441,7 +1471,7 @@ function renderRequestCard(input: {
     const resolvedStreamIslandAttr = input.baseSurfaceId === 'prose-illustration' ? '' : streamIslandAttr
     const resolved = `<figure class="rrl-resolved" data-rrn-completed-request="${escapeAttr(input.requestId)}"${resolvedStreamIslandAttr}><img src="${escapeAttr(completedImageUrl)}" alt="${escapeAttr(input.title || 'Reverie media')}"${imageAttrs}${requestRecordAttributes(record)} loading="lazy" decoding="async"></figure>`
     if (input.baseSurfaceId === 'prose-illustration') {
-      const mediaSlot = stableLifecycleMediaSlot(aspect, 'completed', input.title, resolved, false)
+      const mediaSlot = stableLifecycleMediaSlot(aspect, 'completed', input.title, resolved, false, input.context.generationPlaceholderEffect || 'glitter')
       const card = `<div class="rrl-card" data-rrn-native-request="${escapeAttr(input.requestId)}" data-rrn-record-key="${escapeAttr(record?.key || '')}" data-rrn-live-status="completed"${streamIslandAttr}>${mediaSlot}</div>`
       return bare ? card : lifecycleCardIsland(card)
     }
@@ -1454,7 +1484,9 @@ function renderRequestCard(input: {
   const mediaSlot = stableLifecycleMediaSlot(aspect, liveStatus, input.title, failedImage, !failedImage, active ? selectedEffect : undefined)
   const statusChrome = `<div class="rrl-main"><span class="rrl-icon"><span class="rrl-spinner" aria-hidden="true"></span><span class="rrl-state-icon">${icon}</span></span><div class="rrl-copy"><strong class="rrl-title">${escapeHtml(titleLabels[liveStatus] || input.title)}</strong><span class="rrl-status">${escapeHtml(statusLabels[liveStatus] || titleCaseToken(liveStatus))}</span><span class="rrl-stream-status"></span><div class="rrl-progress" hidden><span></span></div></div></div>`
   if (active) {
-    const placeholder = `<div class="rrl-card" data-rrn-native-request="${escapeAttr(input.requestId)}" data-rrn-record-key="${escapeAttr(record?.key || '')}" data-rrn-live-status="${escapeAttr(liveStatus)}"${streamIslandAttr} aria-live="polite">${mediaSlot}${statusChrome}</div>`
+    const insertAction = readyToInsert ? `<div class="rrl-actions">${renderActionButtons(input.requestId, input.context, input.baseSurfaceId, 'insert', input.rootTag)}</div>` : ''
+    const placementReadyAttr = readyToInsert ? ' data-rrn-placement-ready="true"' : ''
+    const placeholder = `<div class="rrl-card" data-rrn-native-request="${escapeAttr(input.requestId)}" data-rrn-record-key="${escapeAttr(record?.key || '')}" data-rrn-live-status="${escapeAttr(liveStatus)}"${placementReadyAttr}${streamIslandAttr} aria-live="polite">${mediaSlot}${statusChrome}${insertAction}</div>`
     return bare ? placeholder : lifecycleCardIsland(placeholder)
   }
   const failureActions = repairAvailable ? 'repair' : failure ? 'failed' : undefined
@@ -1463,10 +1495,11 @@ function renderRequestCard(input: {
   return bare ? card : lifecycleCardIsland(card)
 }
 
-function renderActionButtons(requestId: string, context: NativeSurfaceRenderContext, baseSurfaceId: string, state: 'failed' | 'repair', rootTag = ''): string {
+function renderActionButtons(requestId: string, context: NativeSurfaceRenderContext, baseSurfaceId: string, state: 'failed' | 'repair' | 'insert', rootTag = ''): string {
   if (!context.messageId) return ''
   const common = `data-rrn-message-id="${escapeAttr(context.messageId)}" data-rrn-swipe-id="${escapeAttr(String(context.swipeId ?? ''))}" data-rrn-chat-id="${escapeAttr(context.chatId)}" data-rrn-request-id="${escapeAttr(requestId)}" data-rrn-surface-id="${escapeAttr(baseSurfaceId)}" data-rrn-root-tag="${escapeAttr(rootTag)}"`
   const rescan = `<button type="button" data-rrn-action="rescan" ${common}>Rescan</button>`
+  if (state === 'insert') return `<button type="button" data-rrn-action="repair-placement" ${common}>Insert</button>`
   if (state === 'repair') return `<button type="button" data-rrn-action="repair-placement" ${common}>Repair / Reinsert</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`
   return `<button type="button" data-rrn-action="regenerate" ${common}>Regenerate</button><button type="button" data-rrn-action="reparse" ${common}>Reparse</button>${rescan}`
 }

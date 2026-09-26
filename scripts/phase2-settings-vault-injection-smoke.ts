@@ -74,9 +74,13 @@ draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'surface-preferen
 assert(draft.surfaceDefaultShellMode === 'glass' && draft.globalSurfaceStudio.defaultShellMode === 'glass', 'Glass presentation preference must persist to canonical config and studio state')
 assert(draft.narrativeDlcVariant === 'glass', 'all shipped Surfaces must derive standalone Glass from the same global preference')
 assert(draft.surfaceColorMode === 'primary' && draft.globalSurfaceStudio.colorMode === 'primary', 'Surface color preference must persist to canonical config and studio state')
+draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'surface-preferences', defaultShellMode: 'plain-glass' }, draft.settingsRevision, 304)
+assert(draft.surfaceDefaultShellMode === 'plain-glass' && draft.globalSurfaceStudio.defaultShellMode === 'plain-glass', 'Plain Glass must persist to canonical config and studio state')
+assert(draft.narrativeDlcVariant === 'plain-glass', 'Core and Narrative surfaces must share the Plain Glass selection')
+assert(draft.surfaceColorMode === 'primary', 'Plain Glass must not force Glass body colors')
 draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'surface-preferences', colorMode: 'glass' }, draft.settingsRevision, 304)
 assert(draft.surfaceColorMode === 'glass' && draft.globalSurfaceStudio.colorMode === 'glass', 'Glass Mode color preference must persist independently from Glass Button presentation')
-assert(draft.surfaceDefaultShellMode === 'glass' && draft.narrativeDlcVariant === 'glass', 'changing Glass Mode must not change the selected launcher presentation')
+assert(draft.surfaceDefaultShellMode === 'plain-glass' && draft.narrativeDlcVariant === 'plain-glass', 'changing Glass Mode must not change the selected Plain Glass launcher presentation')
 assert(draft.surfaceUtilityInjectionEnabled === false && draft.globalSurfaceStudio.utilityInjectionEnabled === false, 'Surface injection preference must persist to canonical config and studio state')
 
 const revisionBeforePhoneApps = draft.settingsRevision
