@@ -1,0 +1,329 @@
+import inlineRealistic from '../regex-packs/Core/Reverie-Core-Surfaces-INLINE-REALISTIC.json'
+import plainRealistic from '../regex-packs/Core/Reverie-Core-Surfaces-COLLAPSIBLE-PLAIN-REALISTIC.json'
+import sparklingRealistic from '../regex-packs/Core/Reverie-Core-Surfaces-COLLAPSIBLE-SPARKLING-REALISTIC.json'
+import inlinePrimary from '../regex-packs/Core/Reverie-Core-Surfaces-INLINE-PRIMARY.json'
+import plainPrimary from '../regex-packs/Core/Reverie-Core-Surfaces-COLLAPSIBLE-PLAIN-PRIMARY.json'
+import sparklingPrimary from '../regex-packs/Core/Reverie-Core-Surfaces-COLLAPSIBLE-SPARKLING-PRIMARY.json'
+import bracketInlineRealistic from '../regex-packs/Core/Reverie-Core-Surfaces-BRACKET-INLINE-REALISTIC.json'
+import bracketPlainRealistic from '../regex-packs/Core/Reverie-Core-Surfaces-BRACKET-PLAIN-BUTTON-REALISTIC.json'
+import bracketSparklingRealistic from '../regex-packs/Core/Reverie-Core-Surfaces-BRACKET-SPARKLE-BUTTON-REALISTIC.json'
+import glassRealistic from '../regex-packs/Core/Reverie-Core-Surfaces-GLASS-REALISTIC.json'
+import glassPrimary from '../regex-packs/Core/Reverie-Core-Surfaces-GLASS-PRIMARY.json'
+import bracketGlassRealistic from '../regex-packs/Core/Reverie-Core-Surfaces-BRACKET-GLASS-REALISTIC.json'
+import inlineGlass from '../regex-packs/Core/Reverie-Core-Surfaces-INLINE-GLASS.json'
+import plainGlass from '../regex-packs/Core/Reverie-Core-Surfaces-COLLAPSIBLE-PLAIN-GLASS.json'
+import sparklingGlass from '../regex-packs/Core/Reverie-Core-Surfaces-COLLAPSIBLE-SPARKLING-GLASS.json'
+import glassButtonGlass from '../regex-packs/Core/Reverie-Core-Surfaces-GLASS-BUTTON-GLASS.json'
+
+export type R45PresentationMode = 'inline' | 'plain' | 'sparkling' | 'glass'
+export type R45ColorMode = 'realistic' | 'primary' | 'glass'
+
+export type R45RegexScript = {
+  script_id: string
+  name: string
+  find_regex: string
+  replace_string: string
+  flags: string
+  sort_order: number
+  disabled?: boolean
+}
+
+type R45Pack = {
+  version: string
+  type: string
+  name?: string
+  relay_product_version?: string
+  scripts: R45RegexScript[]
+}
+
+// The shipped XML matchers remain a legacy-ingress compatibility authority.
+// Current Story Model authoring is bracket-native, so the public/current pack
+// is compiled with the bracket structural matcher at the same script index
+// while retaining every other field from the protected presentation pack.
+const LEGACY_XML_PACKS: Record<`${R45PresentationMode}:${R45ColorMode}`, R45Pack> = {
+  'inline:realistic': inlineRealistic as R45Pack,
+  'plain:realistic': plainRealistic as R45Pack,
+  'sparkling:realistic': sparklingRealistic as R45Pack,
+  'glass:realistic': glassRealistic as unknown as R45Pack,
+  'inline:primary': inlinePrimary as R45Pack,
+  'plain:primary': plainPrimary as R45Pack,
+  'sparkling:primary': sparklingPrimary as R45Pack,
+  'glass:primary': glassPrimary as unknown as R45Pack,
+  'inline:glass': inlineGlass as unknown as R45Pack,
+  'plain:glass': plainGlass as unknown as R45Pack,
+  'sparkling:glass': sparklingGlass as unknown as R45Pack,
+  'glass:glass': glassButtonGlass as unknown as R45Pack,
+}
+const BRACKET_MATCHER_PACKS: Record<R45PresentationMode, R45Pack> = {
+  inline: bracketInlineRealistic as R45Pack,
+  plain: bracketPlainRealistic as R45Pack,
+  sparkling: bracketSparklingRealistic as unknown as R45Pack,
+  glass: bracketGlassRealistic as unknown as R45Pack,
+}
+
+const safeMessageId = (value: string): string => String(value || 'surface').replace(/[^A-Za-z0-9_-]+/g, '-') || 'surface'
+const sortedScripts = new Map<string, R45RegexScript[]>()
+const sortedLegacyXmlScripts = new Map<string, R45RegexScript[]>()
+const sortedBracketScripts = new Map<string, R45RegexScript[]>()
+const currentBracketPacks = new Map<string, R45Pack>()
+
+function currentBracketPack(presentation: R45PresentationMode, color: R45ColorMode): R45Pack {
+  const key = `${presentation}:${color}` as const
+  const cached = currentBracketPacks.get(key)
+  if (cached) return cached
+  const presentationPack = LEGACY_XML_PACKS[key]
+  const matcherPack = BRACKET_MATCHER_PACKS[presentation]
+  if (!presentationPack || !matcherPack || presentationPack.scripts.length !== 138 || matcherPack.scripts.length !== 138) {
+    throw new Error(`Invalid Core Surface bracket authority selection: ${key}`)
+  }
+  const scripts = presentationPack.scripts.map((script, index) => {
+    const matcher = matcherPack.scripts[index]
+    if (!matcher || matcher.sort_order !== script.sort_order || matcher.flags !== script.flags) {
+      throw new Error(`Core Surface bracket matcher alignment failed: ${key} script ${script.script_id}`)
+    }
+    // The user-supplied Sparkling/Realistic bracket pack is the presentation
+    // authority for bracket-native rendering. Other color/shell combinations
+    // continue to borrow their protected presentation from the matching XML
+    // pack while taking only the structural bracket matcher.
+    return {
+      ...script,
+      find_regex: matcher.find_regex,
+      replace_string: key === 'sparkling:realistic' || key === 'glass:realistic' ? matcher.replace_string : script.replace_string,
+    }
+  })
+  const pack = { ...presentationPack, scripts }
+  currentBracketPacks.set(key, pack)
+  return pack
+}
+
+function normalizeR45BracketRuntime(markup: string): string {
+  let output = String(markup || '')
+    // Correction-1 examples wrapped every request in a synthetic [media]
+    // field. No approved R4.5 grammar owns that field, so accept and unwrap it
+    // for backward compatibility while current prompts stop authoring it.
+    .replace(/\[media\]\s*([\s\S]*?)\s*\[\/media\]/gi, '$1')
+    // The Location renderer intentionally styles semantic lc_step elements.
+    .replace(/\[lc_step\]\s*([\s\S]*?)\s*\[\/lc_step\]/gi, '<lc_step>$1</lc_step>')
+    // The approved vital transformer captures label followed by raw value.
+    .replace(/(\[med_vital\]\s*\[label\][\s\S]*?\[\/label\])\s*\[value\]\s*([\s\S]*?)\s*\[\/value\](\s*\[\/med_vital\])/gi, '$1$2$3')
+    // Property presentation owns Amenities/History drawers; bracket authoring
+    // must not leave the legacy HTML details wrapper as visible semantics.
+    .replace(/\[details\]\s*\[summary\]\s*Amenities\s*\[\/summary\]\s*(\[prop_amenities\][\s\S]*?\[\/prop_amenities\])\s*\[\/details\]/gi, '$1')
+    .replace(/\[details\]\s*\[summary\]\s*History\s*\[\/summary\]\s*(\[prop_history\][\s\S]*?\[\/prop_history\])\s*\[\/details\]/gi, '$1')
+
+  // Mission items historically had only a status attribute. The final
+  // interactive renderer additionally needs a stable slot for checkbox IDs.
+  output = output.replace(/\[mission_items\]([\s\S]*?)\[\/mission_items\]/gi, (full, body: string) => {
+    let slot = 0
+    const normalized = body.replace(/\[mission_item\]\s*(?!\[slot\])/gi, () => `[mission_item][slot]${++slot}[/slot]`)
+    return full.replace(body, normalized)
+  })
+
+  // Current Twitter Profile samples use name while the accepted post
+  // transformer retained author + verified. Canonicalize only inside posts.
+  output = output.replace(/\[twip_post\]([\s\S]*?)\[\/twip_post\]/gi, (full, body: string) => {
+    let normalized = body.replace(/\[name\]/i, '[author]').replace(/\[\/name\]/i, '[/author]')
+    if (!/\[verified\]/i.test(normalized)) normalized = normalized.replace(/(\[handle\][\s\S]*?\[\/handle\])/i, '$1[verified][/verified]')
+    return full.replace(body, normalized)
+  })
+
+  // Media rows must retain their exact conversation position in pending and
+  // completed states. Convert the semantic owner into the approved visual seam
+  // while leaving the request/image payload untouched for Relay hydration.
+  output = output.replace(/\[s_img\]\s*\[side\]\s*([^\[]+?)\s*\[\/side\]\s*\[time\][\s\S]*?\[\/time\]\s*([\s\S]*?)\s*\[\/s_img\]/gi, (_full, sideValue: string, payload: string) => {
+    const side = /^(?:sent|right|user)$/i.test(sideValue.trim()) ? 'sent' : 'recv'
+    return `<div class="rpx-image-msg rpx-image-msg-${side}" data-reverie-r45-lifecycle-media="smartphone">${payload}</div>`
+  })
+  output = output.replace(/\[s_img\]\s*\[time\][\s\S]*?\[\/time\]\s*([\s\S]*?)\s*\[\/s_img\]/gi, '<div class="rpx-image-msg rpx-image-msg-recv" data-reverie-r45-lifecycle-media="smartphone">$1</div>')
+  output = output.replace(/\[k_img\]([\s\S]*?)\[\/k_img\]/gi, (_full, body: string) => {
+    const caption = /\[caption\]\s*([\s\S]*?)\s*\[\/caption\]/i.exec(body)?.[1]?.trim() || ''
+    const payload = body
+      .replace(/\[(?:side|time|caption)\][\s\S]*?\[\/(?:side|time|caption)\]/gi, '')
+      .trim()
+    return `<figure class="html-safe-wrap kk-image" data-reverie-r45-lifecycle-media="kakao">${payload}${caption ? `<figcaption>${caption}</figcaption>` : ''}</figure>`
+  })
+  return output
+}
+
+function expandR45Replacement(template: string, captures: string[], macro: string): string {
+  return template
+    .replace(/\{\{lastMessageId\}\}/g, macro)
+    .replace(/\$(\d{1,2})/g, (_full, raw: string) => captures[Number(raw) - 1] || '')
+}
+
+function renderVariableNotes(markup: string, template: string, macro: string): string {
+  return markup.replace(/\[notes_app\]\s*\[folder\]\s*([\s\S]*?)\s*\[\/folder\]\s*\[owner\]\s*([\s\S]*?)\s*\[\/owner\]\s*\[nt_list\]([\s\S]*?)\[\/nt_list\]\s*\[\/notes_app\]/gi, (full, folder: string, owner: string, body: string) => {
+    const notes = [...body.matchAll(/\[nt_note\]\s*\[slot\]\s*([1-4])\s*\[\/slot\]\s*\[title\]\s*([\s\S]*?)\s*\[\/title\]\s*\[updated\]\s*([\s\S]*?)\s*\[\/updated\]([\s\S]*?)\[\/nt_note\]/gi)]
+    if (!notes.length || notes.length > 4) return full
+    const captures = [folder, owner]
+    for (const note of notes) captures.push(note[2], note[3], note[4])
+    while (captures.length < 14) captures.push('')
+    let rendered = expandR45Replacement(template, captures, macro)
+    for (let index = notes.length + 1; index <= 4; index += 1) {
+      const id = `rr23-note-${index}-${macro}`
+      rendered = rendered
+        .replace(new RegExp(`<input\\b[^>]*\\bid="${id}"[^>]*>`, 'i'), '')
+        .replace(new RegExp(`<label\\b[^>]*\\bfor="${id}"[^>]*>[\\s\\S]*?<\\/label>`, 'i'), '')
+        .replace(new RegExp(`<section\\b[^>]*class="[^"]*\\bp${index}\\b[^"]*"[^>]*>[\\s\\S]*?<\\/section>`, 'i'), '')
+    }
+    return rendered
+  })
+}
+
+export function r45SurfaceAuthorityPack(presentation: R45PresentationMode, color: R45ColorMode): R45Pack {
+  const key = `${presentation}:${color}` as const
+  const pack = currentBracketPack(presentation, color)
+  if (!pack || pack.type !== 'lumiverse_regex_scripts' || pack.relay_product_version !== '0.2.8' || pack.scripts.length !== 138) {
+    throw new Error(`Invalid R4.5 Surface authority selection: ${key}`)
+  }
+  return pack
+}
+
+export function r45SurfaceAuthorityScripts(presentation: R45PresentationMode, color: R45ColorMode): R45RegexScript[] {
+  const key = `${presentation}:${color}`
+  const cached = sortedScripts.get(key)
+  if (cached) return cached
+  const scripts = [...r45SurfaceAuthorityPack(presentation, color).scripts]
+    .filter(script => script.disabled !== true)
+    .sort((left, right) => Number(left.sort_order) - Number(right.sort_order))
+  sortedScripts.set(key, scripts)
+  return scripts
+}
+
+export function r45LegacyXmlSurfaceAuthorityPack(presentation: R45PresentationMode, color: R45ColorMode): R45Pack {
+  const key = `${presentation}:${color}` as const
+  const pack = LEGACY_XML_PACKS[key]
+  if (!pack || pack.type !== 'lumiverse_regex_scripts' || pack.relay_product_version !== '0.2.8' || pack.scripts.length !== 138) {
+    throw new Error(`Invalid legacy XML Core Surface authority selection: ${key}`)
+  }
+  return pack
+}
+
+export function r45LegacyXmlSurfaceAuthorityScripts(presentation: R45PresentationMode, color: R45ColorMode): R45RegexScript[] {
+  const key = `${presentation}:${color}`
+  const cached = sortedLegacyXmlScripts.get(key)
+  if (cached) return cached
+  const scripts = [...r45LegacyXmlSurfaceAuthorityPack(presentation, color).scripts]
+    .filter(script => script.disabled !== true)
+    .sort((left, right) => Number(left.sort_order) - Number(right.sort_order))
+  sortedLegacyXmlScripts.set(key, scripts)
+  return scripts
+}
+
+export function r45BracketSurfaceAuthorityPack(presentation: R45PresentationMode, color: R45ColorMode = 'realistic'): R45Pack {
+  const pack = currentBracketPack(presentation, color)
+  if (!pack || pack.type !== 'lumiverse_regex_scripts' || pack.scripts.length !== 138) {
+    throw new Error(`Invalid Core Surface bracket authority selection: ${presentation}:${color}`)
+  }
+  return pack
+}
+
+export function r45BracketSurfaceAuthorityScripts(presentation: R45PresentationMode, color: R45ColorMode = 'realistic'): R45RegexScript[] {
+  const key = `${presentation}:${color}`
+  const cached = sortedBracketScripts.get(key)
+  if (cached) return cached
+  const scripts = [...r45BracketSurfaceAuthorityPack(presentation, color).scripts]
+    .filter(script => script.disabled !== true)
+    .sort((left, right) => Number(left.sort_order) - Number(right.sort_order))
+  sortedBracketScripts.set(key, scripts)
+  return scripts
+}
+
+export function renderR45BracketSurfaceAuthority(
+  markup: string,
+  presentation: R45PresentationMode,
+  messageId: string,
+  color: R45ColorMode = 'realistic',
+): string {
+  let output = normalizeR45BracketRuntime(markup)
+  const macro = safeMessageId(messageId)
+  for (const script of r45BracketSurfaceAuthorityScripts(presentation, color)) {
+    try {
+      if (/\\\[notes_app\\\]/.test(script.find_regex)) {
+        output = renderVariableNotes(output, script.replace_string, macro)
+        continue
+      }
+      const flags = script.flags.includes('g') ? script.flags : `${script.flags}g`
+      const replacement = script.replace_string.replace(/\{\{lastMessageId\}\}/g, macro)
+      output = output.replace(new RegExp(script.find_regex, flags), replacement)
+    } catch {
+      return `<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed" data-reverie-r45-script="${script.script_id}">Relay Surface needs repair. Reparse or rescan in Relay.</aside>`
+    }
+  }
+  // Never expose a detected but unrendered Surface as raw model markup.
+  for (const root of R45_ACTIVE_ROOTS) {
+    const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    output = output.replace(new RegExp(`\\[${escaped}\\][\\s\\S]*?\\[\\/${escaped}\\]`, 'gi'), '<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed">Relay Surface needs repair. Reparse or rescan in Relay.</aside>')
+  }
+  return output
+}
+
+export function renderR45SurfaceAuthority(
+  markup: string,
+  presentation: R45PresentationMode,
+  color: R45ColorMode,
+  messageId: string,
+): string {
+  // R4.5 made Discord counts optional for authored XML while its final visual
+  // pack captures both fields. Add empty captures only for legacy records;
+  // supplied values remain untouched and no arbitrary count is invented.
+  let output = String(markup || '').replace(/<discord_server\b([^>]*)>/gi, (opening, attrs: string) => {
+    const members = /\bmembers\s*=/.test(attrs) ? '' : ' members=""'
+    const online = /\bonline\s*=/.test(attrs) ? '' : ' online=""'
+    return `<discord_server${attrs}${members}${online}>`
+  })
+  // The supplied R4.5 Smartphone rules transform completed <s_img><img>
+  // attachments, while Relay lifecycle cards are HTML islands. Normalize only
+  // that active lifecycle shape into the existing R4.5 image-message seam so
+  // the status card stays at the authored message position without a legacy
+  // renderer or a raw XML tag escaping into the visual Surface.
+  output = output.replace(/<s_img\b([^>]*)>([\s\S]*?data-rrn-native-request[\s\S]*?)<\/s_img>/gi, (_full, attrs: string, body: string) => {
+    const side = /\bside\s*=\s*["'](sent|recv)["']/i.exec(attrs)?.[1]?.toLowerCase() || 'recv'
+    return `<div class="rpx-image-msg rpx-image-msg-${side}" data-reverie-r45-lifecycle-media="smartphone">${body}</div>`
+  })
+  // Kakao's final image rule consumes completed <k_img><img> records. Pending
+  // Relay lifecycle cards are already HTML, so bridge only that unresolved
+  // shape into the approved Kakao image figure classes before the root shell
+  // captures the message stream.
+  output = output.replace(/<k_img\b([^>]*)>([\s\S]*?data-rrn-native-request[\s\S]*?)<\/k_img>/gi, (_full, attrs: string, body: string) => {
+    const caption = /\bcaption\s*=\s*["']([^"']*)["']/i.exec(attrs)?.[1] || ''
+    const figcaption = caption ? `<figcaption>${caption}</figcaption>` : ''
+    return `<figure class="html-safe-wrap kk-image" data-reverie-r45-lifecycle-media="kakao">${body}${figcaption}</figure>`
+  })
+  // A completed record may be hydrated into an authored pending <k_img>
+  // carrying side/time rather than the final caption attribute. Canonicalize
+  // that one completed shape so the exact R4.5 Kakao image rule consumes it.
+  output = output.replace(/<k_img\b([^>]*)>\s*(<img\b[^>]*>)\s*<\/k_img>/gi, (_full, attrs: string, image: string) => {
+    if (/\bcaption\s*=/.test(attrs)) return `<k_img${attrs}>${image}</k_img>`
+    return `<k_img caption="">${image}</k_img>`
+  })
+  const macro = safeMessageId(messageId)
+  for (const script of r45LegacyXmlSurfaceAuthorityScripts(presentation, color)) {
+    try {
+      const flags = script.flags.includes('g') ? script.flags : `${script.flags}g`
+      const replacement = script.replace_string.replace(/\{\{lastMessageId\}\}/g, macro)
+      output = output.replace(new RegExp(script.find_regex, flags), replacement)
+    } catch (error) {
+      // An authority failure is intentionally visible to the R4.5 diagnostic
+      // path. Callers must not fall through to a legacy renderer.
+      return `<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed" data-reverie-r45-script="${script.script_id}">Relay Surface needs repair. Reparse or rescan in Relay.</aside>`
+    }
+  }
+  return output
+}
+
+export const R45_ACTIVE_ROOTS = [
+  'tinder', 'album_cover', 'newspaper', 'inline_chat', 'instagram_dm', 'x_dm', 'discord_dm',
+  'google_image_search', 'phone_gallery', 'case_file', 'public_bulletin', 'forum_thread',
+  'character_profile', 'magazine_cover', 'tiktok_post', 'ig_app', 'kakao_chat',
+  'twitter_app', 'smart_phone', 'yt_thumbnail', 'relationship_map', 'evidence_photo',
+  'photo_booth_strip', 'polaroid_frame', 'workspace_chat', 'email_thread', 'imessage_chat',
+  'livestream', 'music_player', 'location_share', 'voice_memo', 'notes_app', 'market_listing',
+  'property_listing', 'naver_news', 'letter_dispatch', 'medical_record', 'court_transcript',
+  'codex_entry', 'diary_app', 'mission_board', 'cctv_evidence', 'discord_server',
+  'instagram_profile', 'twitter_profile', 'instagram_stories',
+] as const
+
+export function containsR45RenderedSurface(markup: string): boolean {
+  return /(?:rr22-|rr23-|rr41-|r43(?:ig|tw|story)|rrdc|srv54-|igls-|twlr-|rpx-|case-file-dossier|cp-card|data-reverie-surface)/i.test(String(markup || ''))
+}

@@ -1,0 +1,141 @@
+import { plainSurfaceText } from './surfaceXml'
+import type { SurfaceShellMode } from './contracts'
+
+export type NarrativeSurfacePresentationVariant = 'sparkle-button' | 'plain-button' | 'inline' | 'glass' | 'plain-glass'
+
+/** One global presentation authority for every Surface that ships with Relay.
+ * Narrative render packs use historical variant names, but they are derived
+ * from the same SurfaceShellMode used by Core/App Surfaces. */
+export function narrativeVariantForSurfaceShellMode(shellMode: SurfaceShellMode): NarrativeSurfacePresentationVariant {
+  if (shellMode === 'plain-glass') return 'plain-glass'
+  if (shellMode === 'glass') return 'glass'
+  if (shellMode === 'sparkling') return 'sparkle-button'
+  if (shellMode === 'plain' || shellMode === 'collapsible') return 'plain-button'
+  return 'inline'
+}
+
+export function surfaceShellModeForNarrativeVariant(variant: NarrativeSurfacePresentationVariant): Exclude<SurfaceShellMode, 'collapsible'> {
+  if (variant === 'plain-glass') return 'plain-glass'
+  if (variant === 'glass') return 'glass'
+  if (variant === 'sparkle-button') return 'sparkling'
+  if (variant === 'plain-button') return 'plain'
+  return 'inline'
+}
+
+const NARRATIVE_PRESENTATION_ROOT_CLASSES = new Set(['r65', 'ra66', 'rrcp-wrap', 'ch-og', 'dg-dramatic-cutaway'])
+
+// This is intentionally a trailing layer. The authored Narrative assets carry
+// historical compact-launch styles with !important declarations; a prefix can
+// mark a shell as Glass Button while leaving that old opaque launcher in charge.
+export const NARRATIVE_GLASS_BUTTON_PRESENTATION_RULES = `
+@keyframes rrNarrativeGlassSpark{0%{opacity:0;transform:translate3d(0,9px,0) scale(.8)}20%{opacity:.5}56%{opacity:.68}100%{opacity:0;transform:translate3d(var(--dx,4px),var(--dy,-27px),0) scale(1.02)}}
+:host([data-reverie-narrative-surface-stack]){display:flex!important;flex-direction:column!important;gap:12px!important;margin:0 0 12px!important;padding:0!important;line-height:0!important}
+:host([data-reverie-narrative-surface-stack])>[data-reverie-narrative-glass-button]{margin:0 auto!important}
+[data-reverie-narrative-glass-button].r65.r65,[data-reverie-narrative-glass-button].ra66.ra66,[data-reverie-narrative-glass-button].rrcp-wrap.rrcp-wrap,[data-reverie-narrative-glass-button].ch-og.ch-og,[data-reverie-narrative-glass-button].dg-dramatic-cutaway.dg-dramatic-cutaway{margin:6px auto!important}
+[data-reverie-narrative-glass-button].r65.r65>summary.r65-launch,[data-reverie-narrative-glass-button].ra66.ra66>summary.ra66-launch,[data-reverie-narrative-glass-button].rrcp-wrap.rrcp-wrap>.rrcp-launch,[data-reverie-narrative-glass-button].ch-og.ch-og>summary.dg-compact-launch,[data-reverie-narrative-glass-button].dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch{position:relative!important;z-index:2!important;isolation:isolate!important;display:flex!important;align-items:center!important;justify-content:center!important;width:max-content!important;max-width:min(calc(100% - 24px),360px)!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 20px!important;overflow:hidden!important;cursor:pointer!important;pointer-events:auto!important;list-style:none!important;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 7%,transparent)!important;border-radius:13px!important;background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 4%,transparent)!important;color:var(--lumiverse-primary-text,var(--lumiverse-text,#f6f1f7))!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.18em!important;text-transform:uppercase!important;text-align:center!important;box-shadow:0 0 10px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 3%,transparent)!important;-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)}
+[data-reverie-narrative-glass-button]>summary::-webkit-details-marker{display:none!important}
+[data-reverie-narrative-glass-button].r65.r65>summary.r65-launch::before,[data-reverie-narrative-glass-button].r65.r65>summary.r65-launch::after,[data-reverie-narrative-glass-button].ra66.ra66>summary.ra66-launch::before,[data-reverie-narrative-glass-button].ra66.ra66>summary.ra66-launch::after,[data-reverie-narrative-glass-button].rrcp-wrap.rrcp-wrap>.rrcp-launch::before,[data-reverie-narrative-glass-button].rrcp-wrap.rrcp-wrap>.rrcp-launch::after,[data-reverie-narrative-glass-button].ch-og.ch-og>summary.dg-compact-launch::before,[data-reverie-narrative-glass-button].ch-og.ch-og>summary.dg-compact-launch::after,[data-reverie-narrative-glass-button].dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch::before,[data-reverie-narrative-glass-button].dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch::after{content:none!important;background:none!important;box-shadow:none!important}
+[data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle{position:absolute!important;inline-size:1px!important;block-size:1px!important;opacity:0!important;pointer-events:none!important}
+[data-reverie-narrative-glass-button].rrcp-wrap>.rrcp-launch .rrcp-label{position:relative!important;z-index:2!important}
+[data-reverie-narrative-glass-button] .rr-narrative-glass-sparks i{width:1.1px!important;height:1.1px!important;background:color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 70%,#fff 30%)!important;box-shadow:0 0 3px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 62%,transparent),0 0 7px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 24%,transparent)!important;animation:rrNarrativeGlassSpark var(--dur,9s) ease-in-out var(--delay,0s) infinite!important}
+[data-reverie-narrative-glass-button] .rr-narrative-glass-sparks i:nth-child(2),[data-reverie-narrative-glass-button] .rr-narrative-glass-sparks i:nth-child(5),[data-reverie-narrative-glass-button] .rr-narrative-glass-sparks i:nth-child(7){width:1.35px!important;height:1.35px!important;background:color-mix(in srgb,#fff 78%,var(--lumiverse-primary,#ff70bd) 22%)!important;box-shadow:0 0 3px color-mix(in srgb,#fff 58%,transparent),0 0 7px color-mix(in srgb,#fff 28%,transparent)!important}
+[data-reverie-narrative-glass-button] .rr-narrative-glass-sparks i:nth-child(n+9){display:none!important}
+[data-reverie-narrative-glass-button].ch-og.ch-og>summary.dg-compact-launch>.ch-launch-emoji,[data-reverie-narrative-glass-button].dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch>.dg-unified-emoji,[data-reverie-narrative-glass-button].dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch>.bf-particles-summary{display:none!important}
+`
+
+export const NARRATIVE_GLASS_BUTTON_PRESENTATION_CSS = `<style data-reverie-narrative-glass-button-runtime="1">${NARRATIVE_GLASS_BUTTON_PRESENTATION_RULES}</style>`
+
+/** The extension also mounts these rules into host shadow roots so a saved
+ * message can adopt the current Glass Button contract without being rewritten. */
+export function narrativeGlassButtonPresentationCss(): string {
+  return NARRATIVE_GLASS_BUTTON_PRESENTATION_RULES
+}
+
+function applyNarrativeGlassButtonPresentation(replacement: string, plainGlass: boolean): string {
+  let claimedRoot = false
+  const output = String(replacement || '').replace(/<(details|div)\b((?:\$<[^>]+>|[^>])*?)\bclass="([^"]+)"((?:\$<[^>]+>|[^>])*)>/gi, (opening, tag: string, leadingAttributes: string, className: string, trailingAttributes: string) => {
+    if (claimedRoot) return opening
+    const classes = className.split(/\s+/).filter(Boolean)
+    if (!classes.some((candidate: string) => NARRATIVE_PRESENTATION_ROOT_CLASSES.has(candidate))) return opening
+    claimedRoot = true
+    if (/data-reverie-narrative-glass-button=/i.test(`${leadingAttributes}${trailingAttributes}`)) {
+      return plainGlass && !/data-reverie-plain-glass=/i.test(opening)
+        ? opening.replace(/>$/, ' data-reverie-plain-glass="1">')
+        : opening
+    }
+    return `<${tag}${leadingAttributes}data-reverie-narrative-glass-button="1"${plainGlass ? ' data-reverie-plain-glass="1"' : ''} class="${classes.join(' ')}"${trailingAttributes}>`
+  })
+  return claimedRoot ? `${output}${NARRATIVE_GLASS_BUTTON_PRESENTATION_CSS}` : replacement
+}
+
+/** Normalize only the approved Narrative layout's outer presentation shell.
+ * Most imported packs contain the same sparkling <details> shell in every
+ * variant; this adapter makes them obey Relay's global Surface mode. */
+export function applyNarrativeSurfacePresentation(replacement: string, variant: NarrativeSurfacePresentationVariant): string {
+  if (variant === 'glass' || variant === 'plain-glass') return applyNarrativeGlassButtonPresentation(replacement, variant === 'plain-glass')
+  const mode = surfaceShellModeForNarrativeVariant(variant)
+  const modeClass = `rr-surface-presentation-${mode === 'plain' ? 'button' : mode}`
+  let claimedRoot = false
+  // `$<name>` is Regex replacement syntax and may legally occur inside an
+  // attribute. Treat it as one token so its `>` cannot terminate the tag.
+  const normalized = String(replacement || '').replace(/<(details|div)\b((?:\$<[^>]+>|[^>])*?)\bclass="([^"]+)"((?:\$<[^>]+>|[^>])*)>/gi, (opening, tag: string, leadingAttributes: string, className: string, trailingAttributes: string) => {
+    if (claimedRoot) return opening
+    const classes = className.split(/\s+/).filter(Boolean)
+    if (!classes.some((candidate: string) => NARRATIVE_PRESENTATION_ROOT_CLASSES.has(candidate))) return opening
+    claimedRoot = true
+    const nextClasses = [...classes.filter((candidate: string) => !/^rr-surface-presentation-(?:inline|button|sparkling)$/.test(candidate)), modeClass]
+    let attributes = `${leadingAttributes}class="${nextClasses.join(' ')}"${trailingAttributes}`.replace(/\sopen(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, '')
+    if (tag.toLowerCase() === 'details' && mode === 'inline') attributes += ' open'
+    return `<${tag}${attributes}>`
+  })
+  if (!claimedRoot) return replacement
+  return `${SHIPPED_SURFACE_PRESENTATION_CSS}${normalized}`
+}
+
+export const SHIPPED_SURFACE_PRESENTATION_CSS = `<style data-reverie-surface-presentation-contract="global">
+.rr-surface-presentation-inline>summary{display:none!important}
+.rr-surface-presentation-button>summary .r65-sparks,.rr-surface-presentation-button>summary .ra66-sparks,.rr-surface-presentation-button .rrcp-sparks,.rr-surface-presentation-button>summary .dg-unified-sparks,.rr-surface-presentation-button>summary .bf-particles-summary{display:none!important;animation:none!important}
+</style>`
+
+const esc = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+export const SURFACE_LAUNCHER_CSS = `<style data-reverie-launcher-style="shared">.rr-surface-launcher{display:block;margin:12px 0;max-width:100%;min-width:0}.rr-surface-launcher>summary{display:flex;width:fit-content;max-width:100%;align-items:center;gap:8px;padding:10px 17px;border:1px solid var(--lumiverse-primary,#b94778);border-radius:999px;background:var(--lumiverse-bg-elevated,#22151e);color:var(--lumiverse-text,#f6edf3);font:700 12px/1.4 system-ui,sans-serif;cursor:pointer;list-style:none}.rr-surface-launcher>summary::-webkit-details-marker{display:none}.rr-surface-launcher>summary:after{content:'＋'}.rr-surface-launcher[open]>summary:after{content:'−'}.rr-surface-launcher>.rr-surface-content{margin-top:10px;min-width:0}.rr-surface-launcher:not([open])>.rr-surface-content{display:none}.rr-surface-launcher summary:focus-visible{outline:2px solid currentColor;outline-offset:3px}</style>`
+export function sharedSurfaceLauncher(inner: string, label: string): string {
+  if (inner.includes('data-reverie-launcher="shared"')) return inner
+  inner = removeOuterSurfaceLauncher(inner)
+  return `${SURFACE_LAUNCHER_CSS}<details class="rr-surface-launcher" data-reverie-launcher="shared"><summary>${esc(plainSurfaceText(label))}</summary><div class="rr-surface-content">${inner}</div></details>`
+}
+export function removeOuterSurfaceLauncher(inner: string): string {
+  // Remove only a presentation's outer shell. Internal notes, tabs and media
+  // remain mounted, preserving their state when the shared launcher closes.
+  let depth = 0; let outer = -1
+  const tokens = [...inner.matchAll(/<\/?details\b[^>]*>|<summary\b[^>]*>[\s\S]*?<\/summary>/gi)]
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i]
+    if (/^<details/i.test(token[0])) {
+      const prefix = inner.slice(0, token.index).replace(/<style\b[^>]*>[\s\S]*?<\/style>|<!--[\s\S]*?-->/gi, '').replace(/<(?:div|section|span)\b[^>]*>/gi, '').trim()
+      const plainOuter = !prefix && /^<details\s*(?:open\s*)?>$/i.test(token[0])
+      if (depth++ === 0 && (/class=["'][^"']*(?:shell|collaps|launch|root|wrap)/i.test(token[0]) || plainOuter)) outer = i
+    } else if (/^<\/details/i.test(token[0])) {
+      depth--
+      if (depth === 0 && outer >= 0) {
+        const first = tokens[outer]; const summary = tokens[outer + 1]
+        if (summary && /^<summary/i.test(summary[0])) {
+          const shell = first[0].replace(/^<details/i, '<div').replace(/\sopen(?:="[^"]*")?(?=[\s>])/, '')
+          inner = inner.slice(0, first.index) + shell + inner.slice(summary.index! + summary[0].length, token.index) + '</div>' + inner.slice(token.index! + token[0].length)
+        }
+        break
+      }
+    }
+  }
+  return inner
+}
+export const GALLERY_FULL_IMAGE_CSS = `<style data-reverie-gallery-fit="contain">.srv-gallery-photo img,.srv-gallery-photo .rrl-card img,.srv-gallery-photo .rrl-resolved img,.srv-gallery-photo .rrn-media img{object-fit:contain!important;object-position:center!important;background:#101014}.srv-gallery-photo .rrl-preview,.srv-gallery-photo .rrl-resolved,.srv-gallery-photo .rrn-media{overflow:visible}.srv-gallery-photo .rrn-media,.srv-gallery-photo .rrl-resolved{box-sizing:border-box;margin:0!important;width:100%!important;height:100%!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important}.srv-gallery-photo .rrn-media img,.srv-gallery-photo .rrl-resolved img{width:100%!important;height:100%!important;max-height:none!important}</style>`
+export const DOSSIER_CSS = `<style data-reverie-surface-presentation="c5b3-dossier">.rr-dossier{--case-accent:var(--lumiverse-primary,#ba4c7d);max-width:760px;margin:0 auto;padding:16px;border:1px solid var(--case-accent);border-radius:18px;background:var(--lumiverse-bg-elevated,#20151d);color:var(--lumiverse-text,#f5edf3);font:13px/1.5 system-ui,sans-serif}.rr-dossier header{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:baseline;border-bottom:1px solid #ffffff20;padding-bottom:10px}.rr-dossier h3{font:700 18px/1.25 system-ui,sans-serif;margin:0}.rr-dossier .rr-case-meta{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;opacity:.8}.rr-case-radio{position:absolute;opacity:0;width:1px;height:1px}.rr-case-tabs{display:flex;gap:8px;margin:12px 0}.rr-case-tabs label{cursor:pointer;padding:7px 13px;border:1px solid var(--case-accent);border-radius:99px;font-size:11px;font-weight:700}.rr-case-radio:nth-of-type(1):checked~.rr-case-tabs label:nth-child(1),.rr-case-radio:nth-of-type(2):checked~.rr-case-tabs label:nth-child(2),.rr-case-radio:nth-of-type(3):checked~.rr-case-tabs label:nth-child(3){background:var(--case-accent);color:white}.rr-case-radio:focus-visible~.rr-case-tabs{outline:2px solid currentColor}.rrn-case-sheet{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:14px}.rr-case-media{min-width:0}.rr-case-media figure,.rr-case-media .rrn-media,.rr-case-media .rrl-preview{box-sizing:border-box;margin:0!important;width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;aspect-ratio:auto!important;overflow:visible!important}.rr-case-media img{display:block}.rr-case-media img{max-width:100%;max-height:360px;height:auto;object-fit:contain!important;aspect-ratio:auto!important}.rr-case-facts{display:grid;align-content:start;gap:6px}.rrn-case-fact{padding:7px 10px;border-left:2px solid var(--case-accent);background:#0002}.rrn-case-fact small{display:block;opacity:.65;font-size:10px;letter-spacing:.05em}.rrn-case-fact b{font-weight:600;font-size:12px}.rr-case-timeline,.rr-case-evidence-text{grid-column:1/-1;white-space:pre-line}.rr-case-timeline{display:none}.rr-case-radio:nth-of-type(2):checked~.rrn-case-sheet .rr-case-facts,.rr-case-radio:nth-of-type(3):checked~.rrn-case-sheet .rr-case-media,.rr-case-radio:nth-of-type(3):checked~.rrn-case-sheet .rr-case-facts,.rr-case-radio:nth-of-type(3):checked~.rrn-case-sheet .rr-case-evidence-text{display:none}.rr-case-radio:nth-of-type(2):checked~.rrn-case-sheet{grid-template-columns:1fr}.rr-case-radio:nth-of-type(3):checked~.rrn-case-sheet .rr-case-timeline{display:block}.rr-case-notes{margin-top:12px;padding:9px 12px;border:1px dashed #ffffff40;border-radius:10px}.rr-case-notes summary{cursor:pointer;font-weight:700}.rr-dossier .rrl-actions,.rr-dossier .rrn-actions,.rr-dossier .rrl-resolved-actions{display:flex!important;flex-wrap:wrap!important;gap:8px!important;padding:9px 0!important}.rr-dossier button,.rr-dossier [data-rrn-action]{padding:7px 10px!important;margin:3px!important;min-height:32px;border:1px solid var(--case-accent);border-radius:7px;background:#0003;color:inherit;cursor:pointer}@media(max-width:520px){.rrn-case-sheet{grid-template-columns:1fr}.rr-dossier{padding:12px}.rr-case-media{max-width:320px;margin:auto}}</style>`
+export function dossierPresentation(input: { key: string; subject: string; meta: string; media: string; facts: string; timeline: string; notes: string; evidence?: string }): string {
+  const key = input.key.replace(/[^\w${}-]/g, '-')
+  return `${DOSSIER_CSS}<section class="rr-dossier" data-reverie-surface-contract="case-file-dossier"><header><h3>${input.subject}</h3><div class="rr-case-meta">${input.meta}</div></header>${['subject','evidence','timeline'].map((tab, i) => `<input class="rr-case-radio" type="radio" name="case-${key}" id="case-${key}-${tab}" aria-label="${tab}"${i === 0 ? ' checked' : ''}>`).join('')}<div class="rr-case-tabs">${['Subject','Evidence','Timeline'].map(tab => `<label for="case-${key}-${tab.toLowerCase()}">${tab}</label>`).join('')}</div><div class="rrn-case-sheet"><div class="rr-case-media">${input.media}</div><div class="rr-case-facts">${input.facts}</div><div class="rr-case-evidence-text">${input.evidence || ''}</div><div class="rr-case-timeline">${input.timeline || 'No timeline supplied.'}</div></div><details class="rr-case-notes"><summary>Case notes</summary><div>${input.notes || 'No notes supplied.'}</div></details></section>`
+}
+export const ALBUM_CSS = `<style data-reverie-surface-presentation="c5b3-album">.rr-album{max-width:560px;margin:auto;color:var(--lumiverse-text,#f6edf3);font-family:system-ui,sans-serif}.rr-album-art{border-radius:16px;overflow:hidden;background:#100b10;box-shadow:0 14px 35px #0005}.rr-album-art figure,.rr-album-art .rrn-media{box-sizing:border-box;margin:0!important;width:100%!important;height:auto!important;min-height:0!important;aspect-ratio:1/1!important}.rr-album-art img{display:block;width:100%;aspect-ratio:1/1;object-fit:contain!important}.rr-album-title{font-size:22px;line-height:1.2;margin:14px 2px 4px;font-weight:750}.rr-album-artist{font-size:14px;margin:4px 2px}.rr-album-release{font-size:11px;opacity:.65;margin:4px 2px}.rr-album-title:empty,.rr-album-artist:empty,.rr-album-release:empty{display:none}</style>`
+export function albumPresentation(input: { title: string; artist: string; release: string; art: string }): string {
+  return `${ALBUM_CSS}<section class="rr-album" data-reverie-surface-contract="album-artwork"><div class="rr-album-art">${input.art}</div><h3 class="rr-album-title">${input.title}</h3><p class="rr-album-artist">${input.artist}</p><p class="rr-album-release">${input.release}</p></section>`
+}
