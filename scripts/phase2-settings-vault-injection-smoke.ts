@@ -12,6 +12,7 @@ const storage = new Map<string, unknown>()
   },
 }
 const backend = await import('../src/backend')
+const { parseImageRequests } = await import('../src/contracts')
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -50,6 +51,35 @@ assert(Object.keys(categoryValues).every(id => draft.globalSurfaceStudio.definit
 
 draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-enabled', enabledNames: ['Setting the Scene'] })
 assert(draft.narrativeDlcEnabled && draft.narrativeDlcUtilityNames.length === 1, 'Narrative Utility enable state must share the revisioned mutation path')
+assert(draft.narrativeUtilityImageEnabled['Setting the Scene'] !== false, 'existing users must keep images enabled by default')
+draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-image-enabled', utilityName: 'Setting the Scene', enabled: false })
+assert(draft.narrativeUtilityImageEnabled['Setting the Scene'] === false, 'per-Utility image mode did not persist in the revisioned settings path')
+assert(!/<image_request\b/i.test(backend.buildResolvedNarrativeUtilityPrompt(draft).content), 'Images Off still injected a world image request')
+draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-image-enabled', utilityName: 'Setting the Scene', enabled: true })
+assert(!Object.hasOwn(draft.narrativeUtilityImageEnabled, 'Setting the Scene'), 'Images On should restore the default without retaining an obsolete flag')
+const ownerDelimiters: Record<string, [string, string]> = {
+  'Character Phone': ['[character_phone]', '[/character_phone]'],
+  'Dramatic Cutaway': ['[dramatic_parallel]', '[/dramatic_parallel]'],
+  'Plot Sparks': ['[Plot_Sparks]', '[/Plot_Sparks]'],
+  'Scene Shift': ['[SCENE|Library|Night|Rain]', '[/SCENE]'],
+  'Parallel Scene': ['[PARALLEL|Campus|Live]', '[/PARALLEL]'],
+  'Cast Introduction': ['[NPC:MAJOR|Test]', '[/NPC]'],
+  'Backstage Secrets': ['[SECRET|Test|Hidden|Test]', '[/SECRET]'],
+  'Setting the Scene': ['[WORLD|Place|Library]', '[/WORLD]'],
+  'Off-Stage': ['[[else security office]]', '[[/else]]'],
+  'Character Dossier': ['[[npc Test|main]]', '[[/npc]]'],
+  'Location File': ['[[place Library]]', '[[/place]]'],
+  'In Another Life': ['[WHATIF|Alternate]', '[/WHATIF]'],
+  'Archive Entry': ['[dossier_ui]', '[/dossier_ui]'],
+}
+for (const [name, [open, close]] of Object.entries(ownerDelimiters)) {
+  const source = `${open}<image_request id="owned" target="custom.artifact-media" slot="owned"><scene_brief>Owned.</scene_brief></image_request>${close}<image_request id="outside" target="custom.artifact-media" slot="outside"><scene_brief>Outside.</scene_brief></image_request>`
+  const requests = parseImageRequests(source)
+  assert(requests.length === 2, `${name}: suppression fixture did not parse both requests`)
+  const filtered = backend.suppressTextOnlyNarrativeRequests(source, requests, { [name]: false })
+  assert(filtered.length === 1 && filtered[0].id === 'outside', `${name}: Images Off did not suppress only its own future request`)
+  assert(backend.suppressTextOnlyNarrativeRequests(source, requests, {}) === requests, `${name}: Images On unexpectedly changed automatic requests`)
+}
 
 const exactOverride = 'CUSTOM WORLD CONTRACT\n[WORLD|Category|Location][world_media]<image_request id="world-custom" target="custom.artifact-media" slot="world-custom" aspect="16:9"><scene_brief>Custom world detail.</scene_brief></image_request>[/world_media][world_detail]Detail.[/world_detail][world_context][why_it_matters]Reason.[/why_it_matters][future_use]Use.[/future_use][/world_context][/WORLD]'
 draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-override', utilityName: 'Setting the Scene', content: exactOverride })
@@ -64,10 +94,10 @@ assert(!draft.narrativeUtilityOverrides['Setting the Scene'], 'Reset to Default 
 
 const revisionBeforeSurfacePreferences = draft.settingsRevision
 draft = backend.applyRelaySettingsPatchToConfig(draft, {
-  kind: 'surface-preferences', rendererMode: 'hybrid', defaultShellMode: 'sparkling', colorMode: 'primary', utilityInjectionEnabled: false,
+  kind: 'surface-preferences', rendererMode: 'legacy-regex', defaultShellMode: 'sparkling', colorMode: 'primary', utilityInjectionEnabled: false,
 })
 assert(draft.settingsRevision === revisionBeforeSurfacePreferences + 1, 'Surface preferences must advance the shared settings revision')
-assert(draft.surfaceRendererMode === 'hybrid' && draft.globalSurfaceStudio.rendererMode === 'hybrid', 'Surface renderer preference must persist to canonical config and studio state')
+assert(draft.surfaceRendererMode === 'legacy-regex' && draft.globalSurfaceStudio.rendererMode === 'legacy-regex', 'Surface renderer preference must persist to canonical config and studio state')
 assert(draft.surfaceDefaultShellMode === 'sparkling' && draft.globalSurfaceStudio.defaultShellMode === 'sparkling', 'Surface presentation preference must persist to canonical config and studio state')
 assert(draft.narrativeDlcVariant === 'sparkle-button', 'every shipped Surface must derive presentation from the same global preference')
 draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'surface-preferences', defaultShellMode: 'glass' }, draft.settingsRevision, 303)

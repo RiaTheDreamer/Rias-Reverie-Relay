@@ -3,14 +3,15 @@ import assert from 'node:assert/strict'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { NARRATIVE_BLOCK_SPACING_STYLE, NARRATIVE_MEDIA_COMPATIBILITY_STYLE, renderNarrativeRegex, narrativeRegexPack, narrativeRegexScripts } from '../src/narrativeRegexAssets'
-import { DEFAULT_PROMPT_REGISTRY } from '../src/protocols'
+import { DEFAULT_PROMPT_REGISTRY, ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE, RELAY_PLANNED_STORY_CHANNEL_GUIDANCE } from '../src/protocols'
+import { assertProviderRequestSafe, inspectProviderPromptSafety } from '../src/providerPromptSafety'
 import { NARRATIVE_GLASS_BUTTON_PRESENTATION_CSS, SHIPPED_SURFACE_PRESENTATION_CSS } from '../src/surfacePresentation'
 import { SURFACE_ICON_STYLE } from '../src/surfaceIcons'
 
 const storage = new Map<string, unknown>()
 const requests: any[] = []
 let resolvedPrompt = ''
-let parserResponseOverride: string | null = null
+let parserResponseOverride: string | Error | null = null
 mkdirSync('artifacts', { recursive: true })
 ;(globalThis as any).spindle = {
   on() {}, onFrontendMessage() {}, registerInterceptor() {}, registerMacro() {}, registerMessageContentProcessor() {}, sendToFrontend() {},
@@ -19,12 +20,46 @@ mkdirSync('artifacts', { recursive: true })
   chats: { async get() { return { character_id: 'alpha' } } }, characters: { async get() { return { id: 'alpha', name: 'Alpha', description: 'black hair' } } },
   personas: { async getActive() { return null } }, chat: { async getMessages() { return [] } },
   connections: { async get() { return { id: 'mock', model: 'mock', provider: 'offline' } } },
-  generate: { async raw(request: any) { requests.push(request); return { content: parserResponseOverride ?? JSON.stringify({ sceneBrief: resolvedPrompt, positivePrompt: resolvedPrompt, prompt: resolvedPrompt, negativePrompt: '', namedSubjects: ['Alpha'], expectedPeopleCount: 1, peoplePolicy: 'required' }) } } },
+  generate: { async raw(request: any) { requests.push(request); if (parserResponseOverride instanceof Error) throw parserResponseOverride; return { content: parserResponseOverride ?? JSON.stringify({ sceneBrief: resolvedPrompt, positivePrompt: resolvedPrompt, prompt: resolvedPrompt, negativePrompt: '', namedSubjects: ['Alpha'], expectedPeopleCount: 1, peoplePolicy: 'required' }) } } },
   imageGen: new Proxy({}, { get() { throw new Error('Live image call forbidden') } }),
 }
 const backend = await import('../src/backend')
 const settings = { ...backend.defaultProseIllustratorSettings(), plannerConnectionId: 'mock', appearanceMemoryEnabled: false }
+const retiredSequenceV4 = `SEQUENCE FRAMING
+
+Frame the next moment in an established visual sequence.
+
+Preserve known subject count, identity, proportions, hairstyle, wardrobe state, injuries, props, handedness, screen direction, camera side, and location layout. Continue the action rather than freezing the previous pose.
+
+Reuse the established camera axis and geography when known. Let the current moment change the hands, weight shift, gaze, expression, and physical relationship.
+
+Direct attention toward the established interaction instead of assuming eye contact with the viewer. Preserve calm, numb, restrained, distracted, or uncertain expressions when the scene supports them.`
+const migratedSequence = backend.normalizeProseIllustratorSettings({
+  promptRegistry: { 'story.framing.sequence': retiredSequenceV4 },
+  promptRegistryVersions: { 'story.framing.sequence': 4 },
+})
+assert(!Object.prototype.hasOwnProperty.call(migratedSequence.promptRegistry, 'story.framing.sequence'), 'the exact shipped Sequence v4 override must migrate to the new default')
+assert.equal(migratedSequence.promptRegistryVersions['story.framing.sequence'], 5, 'Sequence framing registry version was not advanced')
+const customSequenceText = `${retiredSequenceV4}\n\nCUSTOM USER CAMERA LAW: keep the doorway visible.`
+const preservedSequence = backend.normalizeProseIllustratorSettings({ promptRegistry: { 'story.framing.sequence': customSequenceText } })
+assert.equal(preservedSequence.promptRegistry['story.framing.sequence'], customSequenceText, 'user-customized Sequence framing must survive the stock prompt migration')
+const sequenceDefault = DEFAULT_PROMPT_REGISTRY['story.framing.sequence']
+for (const required of ['hard visual continuity reference', 'exact subject count', 'Never silently omit', 'widen the camera', 'shot size', 'explicitly changes them']) {
+  assert(sequenceDefault.includes(required), `Sequence framing default is missing continuity safeguard: ${required}`)
+}
 const config = await backend.getConfig('offline')
+for (const [mode, marker, requiredBody] of [
+  ['model-placed', 'IMAGE-PROMPT CHANNEL SEPARATION', 'Do not copy the narrative paragraph'],
+  ['inline-protocol', 'IMAGE-PROMPT CHANNEL SEPARATION', 'Do not copy the narrative paragraph'],
+  ['relay-planned', 'STORY/PROVIDER CHANNEL SEPARATION', "Relay's separate planner and composer build an image-only prompt"],
+] as const) {
+  const promptId = mode === 'relay-planned' ? 'story.relay-planned' : mode === 'inline-protocol' ? 'story.inline-protocol' : 'story.model-placed'
+  const partialOverride = `${marker}\nA user customization that retained the heading only.`
+  const selected = { ...settings, enabled: true, mode, promptRegistry: { [promptId]: partialOverride } }
+  const story = backend.resolveIllustratorStoryPrompt(selected, [])
+  const expectedGuidance = mode === 'relay-planned' ? RELAY_PLANNED_STORY_CHANNEL_GUIDANCE : ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE
+  assert(story.includes(requiredBody) && story.includes(expectedGuidance), `${mode}: incomplete customized header suppressed required channel-separation guidance`)
+}
 const scene = 'Alpha sits side-on beside an open window, bracing one hand on the sill, eyes lowered toward a letter, jaw tight.'
 const opportunities: any = { opportunityId: 'scene', chatId: 'offline', messageId: 'm', swipeId: 0, sceneSummary: scene, selectedExcerpt: scene, namedSubjects: ['Alpha'], omittedSubjects: [], expectedPeopleCount: 1, peoplePolicy: 'required', importantProps: [], composition: 'side view' }
 for (const mode of ['scene-snapshot', 'sequence', 'emotional-beat', 'solo-scene'] as const) {
@@ -82,9 +117,9 @@ assert(vowPrepared.prompt.includes('extreme close-up underwater'), 'authored ext
 assert(vowPrepared.prompt.includes('long merman tail'), 'authored current mer-form was lost')
 assert(!vowPrepared.prompt.includes('medium or wide story framing by default'), 'generic profile framing overrode authored extreme close-up')
 
-// Live 0.2.8.6 regression: all parser rejection shapes must converge on the
-// same scene-led C5A fallback and the provider-bound seam must not re-prepend a
-// full native preset through custom prefixes or generation recipes.
+// Explicit Reparse regression: all parser rejection shapes must converge on
+// the same scene-led fallback. Ordinary Model Planned generation intentionally
+// bypasses this Parser path and preserves its authored visual_prompt unchanged.
 const concealmentScene = 'Arin crouches inside a narrow volcanic concealment niche, one hand braced against black stone, watching the corridor through a crack, tense medium shot'
 const fallbackJob: any = {
   ...descentJob,
@@ -104,20 +139,20 @@ const fallbackNative = {
 const fallbackCases = [
   { name: 'empty', response: '', reason: /empty response/i },
   { name: 'unusable-json', response: '{}', reason: /usable image prompt/i },
-  { name: 'protected-semantics', response: JSON.stringify({ prompt: 'empty volcanic corridor, wide shot', negativeAdditions: '' }), reason: /protected Model-Placed semantics/i },
+  { name: 'protected-semantics', response: JSON.stringify({ prompt: 'empty volcanic corridor, wide shot', negativeAdditions: '' }), reason: /protected Model Planned semantics/i },
 ]
 const fallbackPrepared: any[] = []
 for (const fixture of fallbackCases) {
   parserResponseOverride = fixture.response
-  const prepared = await backend.parseSlotPrompt({ ...fallbackJob, requestId: `concealment-${fixture.name}` }, 'image', [], 0, fallbackConfig, 'offline', fallbackNative)
+  const prepared = await backend.parseSlotPrompt({ ...fallbackJob, requestId: `concealment-${fixture.name}` }, 'image', [], 0, fallbackConfig, 'offline', fallbackNative, false, true)
   fallbackPrepared.push(prepared)
   assert.match(prepared.promptMode, /^router_parser_fallback:parsed_custom$/, `${fixture.name}: wrong fallback mode`)
   assert(fixture.reason.test(prepared.promptPipeline.parserFallbackReason || ''), `${fixture.name}: fallback reason was not preserved`)
   assert(prepared.prompt.startsWith(concealmentScene), `${fixture.name}: fallback stopped being scene-led`)
-  const profileIndex = prepared.prompt.indexOf('cinematic narrative still')
   const characterIndex = Math.max(prepared.prompt.indexOf('male subject Alpha'), prepared.prompt.indexOf('Active Character (Alpha)'))
   const personaIndex = Math.max(prepared.prompt.indexOf('subject active persona'), prepared.prompt.indexOf('Active Persona'))
-  assert(profileIndex > concealmentScene.length && characterIndex > profileIndex, `${fixture.name}: Cinematic Scene / Character ordering regressed`)
+  assert(!prepared.prompt.includes('cinematic narrative still'), `${fixture.name}: automatic profile framing must not leak into prose-illustration fallback`)
+  assert(characterIndex > concealmentScene.length, `${fixture.name}: Character identity must follow the clean visual scene`)
   assert(personaIndex > characterIndex, `${fixture.name}: Persona binding did not follow Character identity`)
   assert.equal((prepared.prompt.match(/(?:male subject Alpha|Active Character \(Alpha\))/g) || []).length, 1, `${fixture.name}: Character identity was injected twice`)
   assert.equal((prepared.prompt.match(/(?:subject active persona|Active Persona)/g) || []).length, 1, `${fixture.name}: Persona identity was injected twice`)
@@ -136,18 +171,72 @@ const authoritativePrepared = await backend.parseSlotPrompt(
   { ...config, parserConnectionId: '', nativePromptMode: 'parsed_custom', proseIllustratorSettings: settings },
   'offline',
   fallbackNative,
+  false,
+  true,
 )
 assert.equal(authoritativePrepared.promptMode, 'story_model_visual_prompt', 'Parser-unavailable visual_prompt did not use authoritative recovery')
 assert(authoritativePrepared.prompt.startsWith(concealmentScene), 'authoritative recovery stopped being scene-led')
-const authoritativeProfileIndex = authoritativePrepared.prompt.indexOf('cinematic narrative still')
 const authoritativeCharacterIndex = Math.max(authoritativePrepared.prompt.indexOf('male subject Alpha'), authoritativePrepared.prompt.indexOf('Active Character (Alpha)'))
 const authoritativePersonaIndex = Math.max(authoritativePrepared.prompt.indexOf('subject active persona'), authoritativePrepared.prompt.indexOf('Active Persona'))
-assert(authoritativeProfileIndex > concealmentScene.length && authoritativeCharacterIndex > authoritativeProfileIndex && authoritativePersonaIndex > authoritativeCharacterIndex, 'authoritative recovery lost scene -> profile -> Character -> Persona ordering')
+assert(!authoritativePrepared.prompt.includes('cinematic narrative still'), 'authoritative fallback must not synthesize framing-profile additions outside the Story Model visual prompt')
+assert(authoritativeCharacterIndex > concealmentScene.length && authoritativePersonaIndex > authoritativeCharacterIndex, 'authoritative recovery lost scene -> Character -> Persona ordering')
 assert.equal((authoritativePrepared.prompt.match(/(?:male subject Alpha|Active Character \(Alpha\))/g) || []).length, 1, 'authoritative recovery duplicated Character identity')
 assert.equal((authoritativePrepared.prompt.match(/(?:subject active persona|Active Persona)/g) || []).length, 1, 'authoritative recovery duplicated Persona identity')
 for (const contamination of ['looking toward viewer', 'charismatic expression', 'swimming underwater', 'underwater palace background', 'warm rim light', 'dramatic light rays', 'manhwa style']) {
   assert(!authoritativePrepared.prompt.toLocaleLowerCase().includes(contamination), `authoritative recovery retained raw preset contamination: ${contamination}`)
 }
+
+const paragraphOne = 'Gabrielle supports the near edge of the flat silver keycard with his cybernetic left hand while Cerys pinches its far edge; their fingers do not touch.'
+const paragraphTwo = 'The amber warning light turns once above the closed booth door.'
+const modelPlacedContent = `<Text>${paragraphOne}</Text>\n\n<image_request id="paragraph-lock" target="prose.illustration" slot="illustration"><visual_prompt>OOC restaging: the card lies alone on the console and both characters keep their hands away.</visual_prompt></image_request>\n\n<Text>${paragraphTwo}</Text>`
+const imageRequestIndex = modelPlacedContent.indexOf('<image_request')
+assert.deepEqual(backend.proseParagraphBeforeImageRequest(modelPlacedContent, imageRequestIndex), { paragraph: paragraphOne, paragraphIndex: 0 }, 'paragraph extraction must bind an authored image request to the immediately preceding story paragraph')
+const lockedPrompt = await backend.parseSlotPrompt({
+  ...descentJob,
+  requestId: 'paragraph-locked-visual-prompt',
+  originalSceneBrief: 'Close view of Gabrielle and Cerys holding opposite edges of one flat silver keycard, his cybernetic left hand at the near edge and her fingers at the far edge, with a visible gap between their fingertips.',
+  promptSource: 'visual_prompt',
+  authoritativeSourceParagraph: paragraphOne,
+  caption: '',
+}, 'image', [], 0, { ...config, parserConnectionId: '', proseIllustratorSettings: settings }, 'offline', {
+  boundCharacterPreset: { presetId: 'taejun-native', prompt: contaminatedCharacterPreset }, includeCharacters: true,
+})
+assert(lockedPrompt.prompt.startsWith('Close view of Gabrielle and Cerys holding opposite edges'), 'provider prompt must use the image-only visual_prompt, not substitute the source paragraph')
+assert(!lockedPrompt.prompt.includes(paragraphOne) && !lockedPrompt.prompt.includes('OOC restaging'), 'narrative prose or Story Model controls leaked into the image provider prompt')
+assert.doesNotThrow(() => assertProviderRequestSafe(lockedPrompt.prompt, '', {}, paragraphOne), 'clean visual_prompt failed the final provider safety gate')
+
+const quotaParagraph = 'Ely steps closer to Arin and quietly explains that the brass key opens the service hatch.'
+const quotaVisualPrompt = 'Medium two-person shot in a service corridor: Ely stands close to Arin and holds up a small brass key beside a closed hatch.'
+parserResponseOverride = new Error('Google Gemini 3.5 Flash Lite returned 429 quota exceeded')
+const quotaFallback = await backend.parseSlotPrompt({
+  ...fallbackJob, requestId: 'quota-visual-prompt-fallback', promptSource: 'visual_prompt',
+  originalSceneBrief: quotaVisualPrompt, authoritativeSourceParagraph: quotaParagraph, caption: undefined,
+}, 'image', [], 0, fallbackConfig, 'offline', fallbackNative, false, true)
+parserResponseOverride = null
+assert.match(quotaFallback.promptMode, /^router_parser_fallback:parsed_custom$/)
+assert(quotaFallback.prompt.startsWith(quotaVisualPrompt), 'parser quota fallback did not retain the image-only visual prompt')
+assert(!quotaFallback.prompt.includes(quotaParagraph) && !quotaFallback.prompt.includes('Frame this as an approved prose illustration'), 'parser quota fallback leaked prose or Story Model placement instructions')
+assert.doesNotThrow(() => assertProviderRequestSafe(quotaFallback.prompt, '', {}, quotaParagraph), 'quota fallback failed the final provider safety gate')
+const priorLeak = `${quotaParagraph} Frame this as an approved prose illustration, preserving inline or after-prose placement and caption intent. Slot: the illustration media child inside this exact scene_illustration wrapper.`
+const leakCodes = inspectProviderPromptSafety(priorLeak, '', {}, quotaParagraph).map(issue => issue.code)
+assert(leakCodes.includes('story-source-prose-leak') && leakCodes.includes('story-placement-instruction') && leakCodes.includes('story-wrapper-instruction'), 'the historical contaminated provider prompt did not trip the source and Story-control firebreaks')
+assert.throws(() => assertProviderRequestSafe(priorLeak, '', {}, quotaParagraph), /blocked a contaminated provider request/i)
+
+for (const aspect of ['1:1', '3:2', '2:3', '4:3', '3:4', '4:5', '5:4', '16:9', '9:16']) {
+  const dimensions = backend.dimensionsForAspect(aspect)
+  assert(dimensions, `fixed aspect ${aspect} has no provider dimensions`)
+  assert.equal(dimensions.width / dimensions.height, Number(aspect.split(':')[0]) / Number(aspect.split(':')[1]), `${aspect} dimensions do not match the selected ratio`)
+}
+assert.equal(backend.resolveIllustrationRequestAspect('16:9', '4:3'), '4:3', 'fixed Relay aspect policy must override a Story Model request aspect')
+assert.equal(backend.resolveIllustrationRequestAspect('16:9', 'adaptive'), '16:9', 'adaptive aspect policy should retain the authored request aspect')
+assert.equal(backend.resolveIllustrationRequestAspect('16:9', 'native'), '16:9', 'native aspect policy should retain the authored request aspect')
+
+const duplicateCerys = backend.resolveNamedVisualSubjects('Cerys takes Gabrielle’s hand.', [
+  { id: 'character-cerys', name: 'Cerys', kind: 'character', prompt: 'short dark hair, silver jacket' },
+  { id: 'persona-cerys', name: 'Cerys', kind: 'persona', prompt: 'violet eyes, crescent earrings' },
+])
+assert.equal(duplicateCerys.length, 1, 'same-named Character and Persona presets must compile as one visible subject')
+assert.match(duplicateCerys[0].prompt, /short dark hair.*violet eyes/, 'deduplicating a visible identity must retain facts from both matching presets')
 
 const representativeFallback = fallbackPrepared[0]
 const guardedProvider = backend.assemblePreparedProviderPrompts({

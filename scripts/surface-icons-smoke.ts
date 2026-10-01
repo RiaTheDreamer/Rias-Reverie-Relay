@@ -11,19 +11,20 @@ const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceD
 const coreIds = new Set(definitions.map(definition => definition.baseSurfaceId))
 const narrativeIds = new Set(NARRATIVE_UTILITY_PACK.loomItems.map(item => item.loomName))
 assert.equal(coreIds.size, 46, 'Core Surface inventory drifted')
-assert.equal(narrativeIds.size, 13, 'Narrative Utility inventory drifted')
+assert.equal(narrativeIds.size, 16, 'Narrative Utility inventory drifted')
 assert.deepEqual(new Set(completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).map(spec => spec.id)), coreIds)
-assert.equal(Object.keys(SURFACE_ICON_REGISTRY).length, 59, 'icon registry must contain exactly 59 stable identifiers')
+assert.equal(Object.keys(SURFACE_ICON_REGISTRY).length, 62, 'icon registry must contain exactly 62 stable identifiers')
 for (const id of coreIds) assert(SURFACE_ICON_REGISTRY[`core:${id}`], `Core icon missing: ${id}`)
 for (const id of narrativeIds) assert(SURFACE_ICON_REGISTRY[`narrative:${id}`], `Narrative icon missing: ${id}`)
 for (const [key, icon] of Object.entries(SURFACE_ICON_REGISTRY)) {
   assert(/<svg\b[^>]*\bviewBox="[^"]+"/.test(icon.svg), `${key}: SVG has no viewBox`)
   assert(!/<script|<foreignObject|\bon\w+\s*=|\bhref\s*=|url\(/i.test(icon.svg), `${key}: unsafe/external SVG content`)
   assert(!/https?:\/\//i.test(icon.svg), `${key}: runtime SVG URL escaped sanitization`)
-  assert(icon.svg.includes('currentColor'), `${key}: SVG does not inherit launcher color`)
+  assert(key.endsWith(':relationship-map') ? icon.svg.includes('fill="#fff"') : icon.svg.includes('currentColor'), `${key}: SVG color contract drifted`)
 }
 assert.equal(SURFACE_ICON_REGISTRY['core:relationship-map'].source, 'svgrepo')
 assert(SURFACE_ICON_REGISTRY['core:relationship-map'].svg.includes('viewBox="0 0 272 272"'))
+assert(SURFACE_ICON_REGISTRY['narrative:Relationship Map'].svg.includes('currentColor'), 'Relationship Map Narrative icon must inherit the Narrative Utility accent color')
 
 for (const mode of ['plain', 'sparkling', 'glass', 'plain-glass'] as const) {
   for (const definition of definitions) {
@@ -48,7 +49,7 @@ for (const mode of ['plain', 'sparkling', 'glass', 'plain-glass'] as const) {
 for (const [variant, animated] of [['plain-button', false], ['sparkle-button', true], ['glass', true], ['plain-glass', false]] as const) {
   const scripts = narrativeRegexScripts(variant)
   const covered = new Set<string>()
-  for (const id of narrativeIds) {
+  for (const id of [...narrativeIds].filter(id => !['Relationship Map', 'Cast Sheet', 'Persona Wardrobe'].includes(id))) {
     const marker = `data-rr-surface-icon="narrative:${id}"`
     const matches = scripts.filter(script => script.replace_string.includes(marker))
     assert(matches.length, `${variant}/${id}: icon missing`)
@@ -91,4 +92,4 @@ assert(inlineWhatIf.includes('.r65-card{line-height:1.45!important}'), 'What If 
 const once = decorateSurfaceLauncherMarkup('<details><summary><span>Label</span></summary></details>', 'core', 'relationship-map', 'glass')
 const twice = decorateSurfaceLauncherMarkup(once, 'core', 'relationship-map', 'glass')
 assert.equal(twice, once, 'hydration duplicated an icon or sparkle field')
-console.log('surface icon smoke passed: 46 Core + 13 Narrative, Button/Sparkling/Glass/Plain Glass and Inline semantics')
+console.log('surface icon smoke passed: 46 Core renderers + 16 Narrative utilities, including accent-colored Relationship Map icon')

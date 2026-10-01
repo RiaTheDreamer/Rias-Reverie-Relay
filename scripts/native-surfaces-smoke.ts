@@ -1,6 +1,6 @@
 // Complete local Surface authority and lifecycle smoke. No host/provider calls.
 import type { CustomSurfaceDefinition, CustomSurfaceStudioState } from '../src/contracts'
-import { characterProfilePortraitHasExactRelayImage, normalizeCharacterProfileContract, renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
+import { characterProfilePortraitHasExactRelayImage, lifecycleRuntimeCss, normalizeCharacterProfileContract, renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { R45_ACTIVE_ROOTS, containsR45RenderedSurface, r45BracketSurfaceAuthorityPack, r45SurfaceAuthorityPack, renderR45SurfaceAuthority, type R45ColorMode, type R45PresentationMode } from '../src/r45SurfaceAuthority'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { SHIPPED_SURFACE_SPECS, shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
@@ -22,7 +22,7 @@ const missingDefinitions = allSpecs.filter(spec => !shippedDefinitions.some(defi
   compatibleRegenerationIntents: [], declarativeLayoutFields: {}, validationRules: [], sampleXml: spec.sampleXml!,
   deterministicPreviewFixture: {}, builtIn: true, enabled: true, promptEnabled: true, promptCategory: 'custom', promptModule: spec.sampleXml!,
   shellMode: 'plain', defaultOpen: false, launcherLabel: spec.id, density: 'comfortable', maxWidth: '920px', mediaFit: 'contain',
-  accentMode: 'theme', customAccent: '', typography: 'mixed', advancedCss: '', hybridOwner: 'regex', updatedAt: 1,
+  accentMode: 'theme', customAccent: '', typography: 'mixed', advancedCss: '', updatedAt: 1,
 } as CustomSurfaceDefinition))
 const definitions = [...shippedDefinitions, ...missingDefinitions]
 const studio: CustomSurfaceStudioState = {
@@ -116,7 +116,7 @@ for (const presentation of presentations) for (const color of colors) {
 }
 
 let imageFreeSurfaceCases = 0
-for (const rendererMode of ['relay', 'legacy-regex', 'hybrid'] as const) {
+for (const rendererMode of ['relay', 'legacy-regex'] as const) {
   const imageFreeStudio = { ...studio, rendererMode }
   for (const definition of definitions) {
     const textOnlySource = definition.sampleXml.replace(/<(image_request|reverie-illustration)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
@@ -130,7 +130,7 @@ for (const rendererMode of ['relay', 'legacy-regex', 'hybrid'] as const) {
     imageFreeSurfaceCases += 1
   }
 }
-assert(imageFreeSurfaceCases === definitions.length * 3, `text-only Surface coverage is incomplete: ${imageFreeSurfaceCases}/${definitions.length * 3}`)
+assert(imageFreeSurfaceCases === definitions.length * 2, `text-only Surface coverage is incomplete: ${imageFreeSurfaceCases}/${definitions.length * 2}`)
 
 const readyMessage = '<image_request id="ready-slot" target="custom.artifact-media" slot="ready-slot" aspect="4:3"><scene_brief>Ready image.</scene_brief></image_request>'
 const readyRecord: any = {
@@ -143,10 +143,11 @@ const readyCard = renderNativeSurfaceMarkup(readyMessage, studio, {
 assert(readyCard.content.includes('data-rrn-placement-ready="true"'), 'ready-but-uninserted image was not marked as ready in its lifecycle card')
 assert(/data-rrn-action="repair-placement"[^>]*>Insert<\/button>/.test(readyCard.content), 'Ready Status Card is missing its Insert action')
 assert(readyCard.content.includes('>Ready</span>') && readyCard.content.includes('Image ready to insert'), 'ready Status Card still presents the placement wait as active generation')
+assert(lifecycleRuntimeCss().includes('.rrl-card[data-rrn-placement-ready="true"] .rrl-main{display:none!important}') && lifecycleRuntimeCss().includes('.rrl-card[data-rrn-placement-ready="true"] .rrl-actions{top:8px'), 'ready Insert control is not persistently positioned over the hidden Ready indicator')
 
 let ownershipCases = 0
 let bracketOwnershipCases = 0
-for (const rendererMode of ['relay', 'legacy-regex', 'hybrid'] as const) for (const presentation of presentations) for (const colorMode of colors) {
+for (const rendererMode of ['relay', 'legacy-regex'] as const) for (const presentation of presentations) for (const colorMode of colors) {
   const matrixStudio = { ...studio, rendererMode, defaultShellMode: presentation, colorMode }
   for (const definition of definitions) {
     const pendingRequestIds = [...definition.sampleXml.matchAll(/<(?:image_request|reverie-illustration)\b([^>]*)>/gi)].map((match, index) => {

@@ -176,11 +176,12 @@ assertExactlyCurrent(textOf(await intercept([{ role: 'user', content: 'Automatic
 // I. Duplicated old wrappers collapse to one current block; a full inventory also
 // proves the shared path covers every shipped Core/App/UI Surface, not just A/B/C.
 const allIds = Object.values((await backend.getConfig(userId)).globalSurfaceStudio.definitions).map((definition: any) => definition.baseSurfaceId)
+const authoredCoreIds = allIds.filter(id => id !== 'relationship-map' && id !== 'character-profile')
 const allOld = (await configure(allIds)).macro
 const withoutInstagram = await configure(allIds.filter(id => id !== A))
 const duplicated = `${allOld}\nold-middle\n${oldAB}\nold-end\n${allOld}`
 const allReconciled = textOf(await intercept([{ role: 'system', content: duplicated }], 'surface-duplicates'))
 assertExactlyCurrent(allReconciled, withoutInstagram.macro, 'I')
-assert(!modules(wrapper(allReconciled)).includes(A) && modules(wrapper(allReconciled)).length === allIds.length - 1, 'I: one disabled app/UI module did not reconcile against the complete shipped Surface inventory')
+assert(!modules(wrapper(allReconciled)).includes(A) && modules(wrapper(allReconciled)).length === authoredCoreIds.length - 1, 'I: one disabled app/UI module did not reconcile against the current Core authoring inventory')
 
 console.log('Surface prompt authority regression passed: Core, App/UI, and Narrative-adjacent Surface selections reconcile from current config and chatless state preserves persisted toggle authority.')

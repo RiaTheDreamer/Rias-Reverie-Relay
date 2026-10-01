@@ -3,9 +3,8 @@ import { resolve } from 'node:path'
 
 const root = resolve(import.meta.dirname, '..')
 const icons = [
-  // Compact transparent derivative of the supplied C5B reference. The full
-  // reference remains in assets for provenance; the tab icon remains untouched.
-  ['REVERIE_RELAY_SIDEBAR_ICON_URL', 'relay-sidebar-icon-compact-white.png'],
+  ['REVERIE_RELAY_SIDEBAR_ICON_URL', 'relay-sidebar-icon-white-transparent-20260927.png'],
+  ['REVERIE_RELAY_OVERVIEW_ICON_URL', 'relay-overview-emblem-20260927.png'],
   ['REVERIE_RELAY_TAB_ICON_URL', 'relay-tab-icon-APPROVED-fullcolor-portal.png'],
 ]
 

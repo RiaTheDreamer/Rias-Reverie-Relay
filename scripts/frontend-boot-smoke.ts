@@ -153,8 +153,8 @@ Object.assign(globalThis, {
 })
 
 const builtFrontend = readFileSync(builtFrontendPath, 'utf8')
-assert(!builtFrontend.includes('relay-sidebar-icon-APPROVED-white-r3.png') && !builtFrontend.includes('relay-tab-icon-APPROVED-fullcolor-portal.png'), 'built frontend must not retain a runtime path to an approved PNG asset')
-assert((builtFrontend.match(/data:image\/png;base64,/g) || []).length >= 2, 'built frontend must embed both approved icon data URLs')
+assert(!builtFrontend.includes('relay-sidebar-icon-white-transparent-20260927.png') && !builtFrontend.includes('relay-overview-emblem-20260927.png') && !builtFrontend.includes('relay-sidebar-icon-APPROVED-white-r3.png') && !builtFrontend.includes('relay-tab-icon-APPROVED-fullcolor-portal.png'), 'built frontend must not retain a runtime path to an approved PNG asset')
+assert((builtFrontend.match(/data:image\/png;base64,/g) || []).length >= 3, 'built frontend must embed the sidebar, overview, and input-action PNG assets')
 
 const drawerRegistrations: any[] = []
 const inputRegistrations: any[] = []
@@ -169,6 +169,7 @@ let drawerActivations = 0
 let drawerDestroyed = false
 let stylesRegistered = 0
 let stylesRemoved = 0
+const shownModals: Array<{ root: FakeElement; dismissed: boolean; dismiss: () => void }> = []
 
 const drawer = {
   root: new FakeElement(),
@@ -209,6 +210,12 @@ const ctx: any = {
     emit: () => {},
   },
   ui: {
+    showModal: () => {
+      if (shownModals.filter(modal => !modal.dismissed).length >= 2) throw new Error('Maximum of 2 stacked modals')
+      const modal = { root: new FakeElement(), dismissed: false, dismiss() { this.dismissed = true } }
+      shownModals.push(modal)
+      return modal
+    },
     registerDrawerTab: (options: any) => { drawerRegistrations.push(options); return drawer },
     registerInputBarAction: (options: any) => {
       const action = inputAction(options.id)
@@ -239,15 +246,19 @@ const frontendModule = await import(moduleUrl)
 const cleanup = frontendModule.setup(ctx)
 assert(typeof cleanup === 'function', 'built frontend setup must return its lifecycle cleanup')
 assert(stylesRegistered === 2, 'frontend setup must register panel and lifecycle reservation styles')
-assert(drawerRegistrations.length === 1 && drawerRegistrations[0].id === 'reverie-relay', 'frontend setup must register the Relay drawer tab')
+assert(drawerRegistrations.length === 1 && drawerRegistrations[0].id === 'reverie-relay', 'frontend setup must register the Reverie Relay drawer tab')
 assert(inputRegistrations.length === 2, 'frontend setup must register both input-bar actions')
-assert(inputRegistrations.some(entry => entry.options.id === 'open-reverie-relay'), 'Relay input-bar action must be registered')
+assert(inputRegistrations.some(entry => entry.options.id === 'open-reverie-relay'), 'Reverie Relay input-bar action must be registered')
 assert(inputRegistrations.some(entry => entry.options.id === 'open-reverie-surfaces'), 'Surface Registry input-bar action must be registered')
 for (const registration of [...drawerRegistrations, ...inputRegistrations.map(entry => entry.options)]) {
   assert(typeof registration.iconUrl === 'string' && registration.iconUrl.startsWith('data:image/png;base64,'), `${registration.id} must receive an embedded PNG data URL`)
 }
-assert(dataUrlHash(drawerRegistrations[0].iconUrl) === 'C04DBDB9D146B4313C7E6D363B49C47DB9D683BF43E4F2FEE85F6C5FD1766F50', 'drawer registration must receive the exact compact selected sidebar artwork')
-for (const registration of inputRegistrations) assert(dataUrlHash(registration.options.iconUrl) === '4CFA6015EF0097A7CEDE3266CBFFE008CF135CBAB5A8B0AFB6D9E916AB425DA8', `${registration.options.id} must receive the exact approved input-action artwork`)
+assert(dataUrlHash(drawerRegistrations[0].iconUrl) === '1D6B4B4A615DFF14BB87B215716DD265C6908C802CB6A7C1A5224E22CF269A46', 'drawer registration must receive the white transparent Relay emblem')
+const frontendSource = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')
+assert(frontendSource.includes('message.chatId === activeChatId && config.autoRescanOnChatOpen'), 'auto-rescan must be scheduled only from the active chat state and enabled preference')
+assert(frontendModule && frontendSource.includes('prismImage.src = REVERIE_RELAY_OVERVIEW_ICON_URL') && frontendSource.includes('.dg-router-panel .dg-prism.dg-prism-overview { border: 0 !important; border-radius: 0 !important; background: transparent !important; background-color: transparent !important; box-shadow: none !important; }'), 'overview panel must use its own supplied emblem without a frame')
+assert(dataUrlHash(inputRegistrations.find(entry => entry.options.id === 'open-reverie-relay')!.options.iconUrl) === '6BE79BF8B0CCED1AB2109D6E8FB525417D9F394297BB89835F205DB2B6C7E6CB', 'Open Reverie Relay must use the approved full-color emblem')
+assert(dataUrlHash(inputRegistrations.find(entry => entry.options.id === 'open-reverie-surfaces')!.options.iconUrl) === '1D6B4B4A615DFF14BB87B215716DD265C6908C802CB6A7C1A5224E22CF269A46', 'Open Surface Registry must use the distinct white Relay emblem')
 assert(backendHandler, 'frontend setup must subscribe to backend messages')
 assert(['CHAT_SWITCHED', 'CHAT_CHANGED', 'MESSAGE_EDITED', 'MESSAGE_SWIPED', 'SWIPE_EDITED'].every(event => eventSubscriptions.includes(event)), 'frontend setup must register the expected chat lifecycle subscriptions')
 assert(tagInterceptors.includes('character_profile') && tagInterceptors.includes('image_request'), 'frontend setup must register native Surface lifecycle interception')
@@ -277,6 +288,7 @@ const bootState = {
 }
 backendHandler!(bootState)
 assert(body.children.some(child => child.className.includes('dg-relay-orb')), 'Orb bootstrap must be reachable after the accepted config and chat state arrive')
+assert(JSON.stringify(invalidatedMessages) === JSON.stringify([['*']]), 'first saved Surface state must invalidate any raw cold-start host render exactly once')
 
 // Mount a real lifecycle card into the host harness, then drive the production
 // state/bind path. This catches DOM hydration regressions that renderer-string
@@ -345,7 +357,7 @@ assert(mountedCard.querySelector('.rrl-main'), 'completed mounted lifecycle drop
 const mountedFinalImage = mountedMedia.querySelector('.rrl-slot-image') as any
 assert(mountedRoot.contains(mountedProjection) && mountedProjection.contains(mountedIsland) && mountedIsland.contains(mountedCard) && mountedCard.contains(mountedMedia), 'completed prose image abandoned or remounted the stable lifecycle projection')
 assert(mountedFinalImage && mountedFinalImage.src === '/mounted-image.png' && mountedFinalImage.hidden === true, 'completed prose image did not recreate in place and remain concealed until decode/reveal readiness')
-assert(invalidatedMessages.length === 0, 'an already-mounted prose lifecycle slot triggered a host refresh')
+assert(invalidatedMessages.length === 1, 'an already-mounted prose lifecycle slot triggered another host refresh')
 
 // Missing projection repair is render-ack based, not a permanent one-shot
 // latch. The first host paint may still omit the projection; that ACK must
@@ -359,9 +371,9 @@ const retryRecord = {
   imageId: 'retry-image', imageUrl: '/retry-image.png', createdAt: Date.now(), updatedAt: Date.now(),
 }
 backendHandler!({ ...bootState, revision: 4, records: [retryRecord] })
-assert(JSON.stringify(invalidatedMessages) === JSON.stringify([['*']]), 'missing prose projection did not request Lumiverse display invalidation')
+assert(JSON.stringify(invalidatedMessages) === JSON.stringify([['*'], ['*']]), 'missing prose projection did not request Lumiverse display invalidation')
 for (const handler of eventHandlers.get('CHARACTER_MESSAGE_RENDERED') || []) handler({ chatId: 'boot-chat', messageId: 'retry-message' })
-assert(JSON.stringify(invalidatedMessages) === JSON.stringify([['*'], ['*']]), 'failed first host paint permanently latched projection invalidation')
+assert(JSON.stringify(invalidatedMessages) === JSON.stringify([['*'], ['*'], ['*']]), 'failed first host paint permanently latched projection invalidation')
 const retryProjection = new FakeElement()
 retryProjection.className = 'dgir-prose-lifecycle-projection'
 const retryIsland = new FakeElement()
@@ -379,7 +391,7 @@ retryRoot.appendChild(retryProjection)
 for (const handler of eventHandlers.get('CHARACTER_MESSAGE_RENDERED') || []) handler({ chatId: 'boot-chat', messageId: 'retry-message' })
 const retryImage = retryMedia.querySelector('.rrl-slot-image') as any
 assert(retryImage?.src === '/retry-image.png' && retryImage.hidden === false, 'second host paint did not hydrate the expected final image')
-assert(invalidatedMessages.length === 2, 'successful projection mount did not clear bounded invalidation state')
+assert(invalidatedMessages.length === 3, 'successful projection mount did not clear bounded invalidation state')
 const duplicateRetryImage = new FakeElement('img') as any
 duplicateRetryImage.src = '/retry-image.png'
 duplicateRetryImage.currentSrc = '/retry-image.png'
@@ -468,11 +480,27 @@ for (const [index, targetApp] of ['core', 'narrative', 'custom'].entries()) {
   const image = media.querySelector('.rrl-slot-image') as any
   assert(root.contains(card) && card.contains(media) && image?.src === `/live-${targetApp}.png`, `${targetApp}: completed Surface did not hydrate its existing media slot without a refresh`)
   assert(image.hidden === true && media.dataset.rrnMediaEmpty === 'true' && media.contains(effect), `${targetApp}: placeholder vanished before decoded final Reveal could begin`)
-  assert(invalidatedMessages.length === 2, `${targetApp}: mounted Surface card incorrectly requested host display invalidation`)
+  assert(invalidatedMessages.length === 3, `${targetApp}: mounted Surface card incorrectly requested host display invalidation`)
 }
 
 for (let tick = 0; tick < 8; tick += 1) await Promise.resolve()
 assert(backendPayloads.some((payload: any) => payload?.type === 'list_state' && payload.chatId === 'boot-chat'), 'frontend setup must begin backend state synchronization')
+const previewRecords = [0, 1, 2].map(index => ({
+  ...mountedRecord,
+  key: `boot-chat:preview-${index}:0:preview-${index}:illustration`,
+  messageId: `preview-${index}`, requestId: `preview-${index}`, slot: `preview-${index}`,
+  status: 'placement-pending', previewPending: true,
+  pendingPlacement: { imageId: `preview-image-${index}`, imageUrl: `/preview-${index}.png` },
+  updatedAt: Date.now() + 10 + index,
+}))
+backendHandler!({ ...bootState, revision: 100, records: previewRecords })
+assert(shownModals.filter(modal => !modal.dismissed).length === 1, 'multiple ready images must open only one preview modal')
+const previewClose = shownModals.at(-1)!.root.querySelectorAll('button').find(button => button.textContent === 'Close')
+assert(previewClose, 'image preview must expose an explicit Close control')
+previewClose.click()
+assert(shownModals.filter(modal => !modal.dismissed).length === 0, 'Close must dismiss the active image preview')
+backendHandler!({ ...bootState, revision: 101, records: previewRecords })
+assert(shownModals.filter(modal => !modal.dismissed).length === 0, 'closing a preview must not immediately open another pending image')
 cleanup()
 assert(drawerDestroyed && stylesRemoved === 2, 'frontend cleanup must retire registered host resources')
 

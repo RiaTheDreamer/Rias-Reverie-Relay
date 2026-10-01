@@ -8,6 +8,7 @@ import {
   buildNarrativeUtilityPrompt,
   inspectNarrativeRegex,
   narrativeRegexCreateInput,
+  relayRegexImportScripts,
   reconcileNarrativeRegex,
   removeNarrativeRegex,
 } from '../src/narrativeDlcRuntime'
@@ -56,7 +57,7 @@ class MockRegexApi {
   }
   dto(input: any, id: string) {
     const metadata = structuredClone(input.metadata || {})
-    if (input.folder && input.folder_version) metadata._lumiverse_spindle_extension = { identifier: 'reverie_relay', version: input.folder_version }
+    if (input.folder && input.folder_version && !metadata._lumiverse_spindle_extension) metadata._lumiverse_spindle_extension = { identifier: 'reverie_relay', version: input.folder_version }
     return {
       id, can_mutate: input.can_mutate !== false, name: input.name, script_id: input.script_id || '',
       find_regex: input.find_regex, replace_string: input.replace_string || '', flags: input.flags || '',
@@ -71,21 +72,23 @@ class MockRegexApi {
 }
 
 const api = new MockRegexApi()
-const activeScriptCount = narrativeRegexScripts('sparkle-button').length
-assert(activeScriptCount === 56, `active Narrative install must contain 53 approved base scripts, the Phone repair normalizer, Plot Sparks, and Dramatic Cutaway, saw ${activeScriptCount}`)
+const activeScriptCount = relayRegexImportScripts('sparkle-button').length
+assert(activeScriptCount === 138 + narrativeRegexScripts('sparkle-button').length, `optional import must include every Core and Narrative renderer, saw ${activeScriptCount}`)
 const first = await reconcileNarrativeRegex(api as any, 'sparkle-button')
-assert(first.status === 'healthy' && first.healthy === activeScriptCount && api.creates === activeScriptCount, 'first install must create and validate only active owned scripts')
-assert(api.rows.every(row => row.disabled !== true && !/DISABLED|tombstone/i.test(row.name)), 'disabled legacy duplicates and tombstones must not be installed')
+assert(first.status === 'healthy' && first.healthy === activeScriptCount && api.creates === activeScriptCount, 'first import must create and validate Core and Narrative scripts')
+assert(api.rows.every(row => row.disabled === true && !/DISABLED|tombstone/i.test(row.name)), 'every imported script must start disabled; obsolete duplicates must not be imported')
 assert(api.rows.every(row => row.can_mutate && row.folder === NARRATIVE_DLC_FOLDER && row.metadata.reverie_namespace === NARRATIVE_DLC_NAMESPACE), 'installed scripts must be Relay-owned and namespaced')
 assert(api.rows.every(row => row.metadata.reverie_narrative_variant === 'sparkle-button'), 'installed scripts must record selected variant')
 assert(api.rows.some(row => row.actions.length > 0), 'installer must preserve approved Narrative interaction actions')
-assert(api.rows.some(row => row.script_id === 'ria_dramatic_cutaway_lumiverse_native_bulletproof_v8'), 'approved Dramatic Cutaway renderer must be installed')
-assert(api.rows.some(row => row.script_id === 'ria_plot_sparks_og_sparkle_tabs_bulletproof_v7' && row.name.includes('Plot Sparks') && row.replace_string.includes('Plot Sparks') && !row.replace_string.includes('Chaos Hooks')), 'approved Plot Sparks renderer must be installed with its accepted Regex name and launcher label')
-const phoneRepair = api.rows.find(row => row.script_id === 'rrcp_repair_missing_optional_wallpaper_v462')
-const phoneShell = api.rows.find(row => row.script_id === 'rrpp_proto_shell_v31')
+assert(api.rows.some(row => row.script_id === 'reverie_relay_ria_dramatic_cutaway_lumiverse_native_bulletproof_v8'), 'approved Dramatic Cutaway renderer must be imported')
+assert(api.rows.some(row => row.script_id === 'reverie_relay_ria_plot_sparks_og_sparkle_tabs_bulletproof_v7' && row.name.includes('Plot Sparks') && row.replace_string.includes('Plot Sparks') && !row.replace_string.includes('Chaos Hooks')), 'approved Plot Sparks renderer must be imported with its accepted Regex name and launcher label')
+const phoneRepair = api.rows.find(row => row.script_id === 'reverie_relay_rrcp_repair_missing_optional_wallpaper_v462')
+const phoneShell = api.rows.find(row => row.script_id === 'reverie_relay_rrpp_proto_shell_v31')
+assert(applyNarrativeDisplayNames('chaos hooks / CHAOS HOOKS / Chaos Hooks') === 'Plot Sparks / Plot Sparks / Plot Sparks', 'legacy Chaos Hooks wording must not reach any model-facing Narrative Utility prompt regardless of case')
+assert(!/chaos hooks/i.test(buildNarrativeUtilityPrompt(narrativeUtilityNames()).content), 'no shipped Narrative Utility may inject the retired Chaos Hooks name into the Story Model prompt')
 assert(phoneRepair && phoneShell && phoneRepair.sort_order < phoneShell.sort_order, 'missing-wallpaper repair must install before the Character Phone shell renderer')
 for (const migrationId of ['rrcp_migrate_photo_v461', 'rrcp_migrate_app_v461', 'rrcp_migrate_shell_present_v461', 'rrcp_migrate_shell_default_v461']) {
-  assert(api.rows.some(row => row.script_id === migrationId), `Character Phone legacy migration script missing: ${migrationId}`)
+  assert(api.rows.some(row => row.script_id === `reverie_relay_${migrationId}`), `Character Phone legacy migration script missing: ${migrationId}`)
 }
 
 const retiredRegexLabels = ['Character File', 'Cast Arrival', 'Unified Archive', 'Place File', 'Knowledge Veil', 'Beyond the Frame', 'Parallel Current', 'Scene Compass', 'World Texture', 'Unwalked Path']
@@ -109,7 +112,7 @@ const disabledSourceScript = narrativeRegexPack('sparkle-button').scripts.find(s
 assert(Boolean(disabledSourceScript), 'source compatibility pack must retain disabled history for provenance testing')
 api.rows.push(api.dto({ ...narrativeRegexCreateInput(disabledSourceScript!, 'sparkle-button'), can_mutate: true }, 'stale-disabled-owned'))
 const pruned = await reconcileNarrativeRegex(api as any, 'sparkle-button')
-assert(pruned.status === 'healthy' && !api.rows.some(row => row.script_id === disabledSourceScript!.script_id), 'reconcile must remove previously installed disabled legacy scripts')
+assert(pruned.status === 'healthy' && !api.rows.some(row => row.script_id === `reverie_relay_${disabledSourceScript!.script_id}`), 'reconcile must remove previously installed obsolete scripts')
 
 const mutationsAfterInstall = api.mutations
 const second = await reconcileNarrativeRegex(api as any, 'sparkle-button')
@@ -121,7 +124,7 @@ assert(api.rows.every(row => row.metadata.reverie_narrative_variant === 'plain-b
 assert(api.rows.length === activeScriptCount, 'variant switch must remain mutually exclusive and active-only')
 
 const glassColor = await reconcileNarrativeRegex(api as any, 'plain-button', undefined, 'glass')
-const installedGlassPlotSparks = api.rows.find(row => row.script_id === 'ria_plot_sparks_og_sparkle_tabs_bulletproof_v7')
+const installedGlassPlotSparks = api.rows.find(row => row.script_id === 'reverie_relay_ria_plot_sparks_og_sparkle_tabs_bulletproof_v7')
 assert(glassColor.status === 'healthy' && installedGlassPlotSparks?.replace_string.includes('data-reverie-glass-authority="narrative-glass"'), 'installed Plot Sparks Regex must receive the Glass Color Mode makeover, not only Relay direct rendering')
 assert(api.rows.every(row => row.metadata.reverie_narrative_color_mode === 'glass'), 'installed Narrative scripts must record and reconcile the selected Color Mode')
 await reconcileNarrativeRegex(api as any, 'plain-button')
@@ -133,9 +136,9 @@ const repaired = await reconcileNarrativeRegex(api as any, 'plain-button')
 assert(repaired.status === 'healthy', 'repair must restore source-of-truth content')
 
 const collisionApi = new MockRegexApi()
-collisionApi.rows.push(collisionApi.dto({ ...narrativeRegexPack('inline').scripts[0], target: 'display', can_mutate: false, folder: 'Somebody Else' }, 'foreign-1'))
+collisionApi.rows.push(collisionApi.dto({ ...narrativeRegexCreateInput(narrativeRegexScripts('inline')[0], 'inline'), can_mutate: false, folder: 'Somebody Else' }, 'foreign-1'))
 let collisionRefused = false
-try { await reconcileNarrativeRegex(collisionApi as any, 'inline') } catch (error) { collisionRefused = /outside Relay ownership/i.test(String(error)) && /manually imported or foreign/i.test(String(error)) }
+try { await reconcileNarrativeRegex(collisionApi as any, 'inline') } catch (error) { collisionRefused = /outside Reverie Relay ownership/i.test(String(error)) && /manually imported or foreign/i.test(String(error)) }
 assert(collisionRefused && collisionApi.mutations === 0, 'installer must refuse foreign script-ID collisions without mutating them')
 
 const rollbackApi = new MockRegexApi()
@@ -144,13 +147,17 @@ let rollbackFailed = false
 try { await reconcileNarrativeRegex(rollbackApi as any, 'inline') } catch { rollbackFailed = true }
 assert(rollbackFailed && rollbackApi.rows.length === 0, 'partial first install must roll back every script it created')
 
+const privateScript = api.dto({ script_id: 'private_relay_ria_plot_sparks_og_sparkle_tabs_bulletproof_v7', name: 'Private Relay Plot Sparks', folder: 'Private Relay · Regex Pack', folder_version: '6.3-final', metadata: { reverie_namespace: 'private-relay:regex-pack', reverie_narrative_dlc: true, _lumiverse_spindle_extension: { identifier: 'private_relay', version: '6.3-final' } } }, 'private-install')
+api.rows.push(privateScript)
+const publicWithPrivate = await reconcileNarrativeRegex(api as any, 'plain-button')
+assert(publicWithPrivate.status === 'healthy' && api.rows.some(row => row.id === 'private-install'), 'public reconcile must leave a separately installed Private Relay Regex script intact')
 const removed = await removeNarrativeRegex(api as any, 'plain-button')
-assert(removed.status === 'removed' && api.rows.length === 0, 'remove must delete exactly the Relay-owned Narrative install')
+assert(removed.status === 'removed' && api.rows.length === 1 && api.rows[0].id === 'private-install', 'public removal must leave Private Relay-owned scripts intact')
 
 const utility = buildNarrativeUtilityPrompt()
 assert(NARRATIVE_DLC_VERSION === '6.3-final', 'Character Phone gallery contract must ship as Narrative Utility pack 6.3-final')
-assert(utility.utilityNames.length === 13, 'all 13 Narrative Utilities must be selected by default')
-assert(utility.utilityNames.join('|') === 'Character Phone|Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry', 'active Narrative Utility roster must contain only current names')
+assert(utility.utilityNames.length === 16, 'all 16 Narrative Utilities must be selected by default')
+assert(utility.utilityNames.join('|') === 'Character Phone|Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry|Relationship Map|Cast Sheet|Persona Wardrobe', 'active Narrative Utility roster must contain only current names')
 assert(utility.utilityNames.join('|') === narrativeUtilityNames().join('|'), 'Utility injection order must match the source bundle')
 for (const item of narrativeUtilityItems()) {
   assert(utility.content.includes(applyNarrativeDisplayNames(item.loomContent)), `${item.loomName}: final prompt injection must preserve the complete source Utility instructions under its public label`)
@@ -429,4 +436,4 @@ assert(librarySource.indexOf('View Exact Injected Prompt') < librarySource.index
 assert(!frontend.includes('Inject FINAL Narrative Utilities') && !frontend.includes('complete FINAL Utility contract'), 'user-facing Surface controls must call them Narrative Utilities')
 assert(!frontend.slice(settingsStart).includes("panelSection('Narrative Utilities'"), 'Narrative Utility controls must not remain in Settings')
 
-console.log(`R4.6 Narrative runtime smoke passed: ${activeScriptCount} active-only owned scripts including Phone repair, Plot Sparks, and Dramatic Cutaway, accepted Regex display names, preserved Phone presentation, no disabled legacy installs, Relay/Hybrid rendering, combined prompt preview wiring, and 13 complete Narrative Utility injections.`)
+console.log(`R4.6 Narrative runtime smoke passed: ${activeScriptCount} disabled imported Core and Narrative scripts, preserved Phone presentation, bundled Relay/Regex rendering, combined prompt preview wiring, and 16 complete Narrative Utility injections.`)

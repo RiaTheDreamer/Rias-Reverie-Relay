@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { updateNarrativeUtilitySelection } from '../src/narrativeUtilitySelection'
 import {
   parseImageRequests,
   inspectProseIllustrationSchemas,
@@ -42,6 +43,15 @@ const content = `<tw_post>
 <yt_thumbnail><image_request id="custom-1" target="custom.youtube-thumbnail" slot="thumbnail" aspect="16:9">A dramatic thumbnail fixture.</image_request></yt_thumbnail>`
 
 const requests = parseImageRequests(content)
+const allNarrativeUtilities = ['Character Phone', 'Dramatic Cutaway', 'Plot Sparks', 'Setting the Scene']
+assert(
+  JSON.stringify(updateNarrativeUtilitySelection(allNarrativeUtilities, false, 'Setting the Scene', true, allNarrativeUtilities)) === JSON.stringify(['Setting the Scene']),
+  'enabling one Narrative Utility from a disabled master must not activate dormant stored selections',
+)
+assert(
+  JSON.stringify(updateNarrativeUtilitySelection(['Dramatic Cutaway', 'Setting the Scene'], true, 'Dramatic Cutaway', false, allNarrativeUtilities)) === JSON.stringify(['Setting the Scene']),
+  'disabling one active Narrative Utility must preserve other active selections',
+)
 const modelPlaced = parseImageRequests(`<reverie-illustration request="generate" slot="scene-bridge-01" aspect="4:3" cast="char+user" alt="Two people together"><visual_prompt>2people, Character A and Persona A sitting together, tense eye contact, late afternoon light</visual_prompt></reverie-illustration>`)[0]
 assert(modelPlaced?.promptSource === 'visual_prompt' && modelPlaced.cast === 'char+user', 'expected canonical Model-Placed visual_prompt and cast metadata')
 assert(modelPlaced.prompt.startsWith('2people'), 'expected visual_prompt body to remain authoritative')
@@ -326,11 +336,16 @@ assert(artifactMarkup.includes('data-reverie-artifact-media="true"') && artifact
 const quality = await import('../src/backend')
 const promptDefaults = (await import('../src/protocols')).DEFAULT_PROMPT_REGISTRY
 const registrySettings = quality.defaultProseIllustratorSettings()
+assert(registrySettings.instantIllustrationDispatch === false, 'Instant Model Planned dispatch must default off to preserve completed-response Status Cards')
+const instantSettings = quality.normalizeProseIllustratorSettings({ ...registrySettings, instantIllustrationDispatch: true })
+assert(instantSettings.instantIllustrationDispatch === true, 'expected Instant dispatch to persist for Model Planned')
+const nonModelPlannedInstantSettings = quality.normalizeProseIllustratorSettings({ ...instantSettings, mode: 'relay-planned' })
+assert(nonModelPlannedInstantSettings.instantIllustrationDispatch === false, 'Instant dispatch must be scoped to Model Planned only')
 assert(promptDefaults['sidecar.composer.request'].includes('camera location, height, angle, and shot size') && promptDefaults['sidecar.composer.request'].includes('Direct lens gaze is allowed only when the authoritative scene establishes interaction'), 'expected the runtime Sidecar composer prompt to put concrete Scene-Led composition before appearance detail')
 assert(promptDefaults['sidecar.composer.request'].includes('Appearance Memory is a reference library, not a checklist') && promptDefaults['sidecar.composer.request'].includes('sleeping, closed eyes, a hidden face, or back-turned framing'), 'expected Sidecar composer to treat Appearance Memory as frame-visible reference material')
 assert(promptDefaults['sidecar.appearance.field-refresh'].includes('exclude open/closed eye state, gaze direction, expression, pose, action, camera, composition'), 'expected stable Appearance refresh contract to reject transient scene state')
 const resolvedStoryPrompt = quality.resolveIllustratorStoryPrompt(registrySettings, [{ role: 'assistant', content: 'Prior response' } as any])
-assert(resolvedStoryPrompt.includes('[REVERIE RELAY — MODEL-PLACED ILLUSTRATION PROTOCOL]'), 'expected final Story Model prompt to use the registered Model-Placed workflow')
+assert(resolvedStoryPrompt.includes('REVERIE RELAY — MODEL PLANNED ILLUSTRATIONS'), 'expected final Story Model prompt to use the Model Planned workflow')
 assert(resolvedStoryPrompt.includes('SCENE SNAPSHOT FRAMING'), 'expected selected framing module in final Story Model prompt')
 assert(resolvedStoryPrompt.includes('Resolve the camera first: location, height, distance, angle, and shot size') && resolvedStoryPrompt.includes('where every visible subject stands or sits') && resolvedStoryPrompt.includes('Give every visible face a concrete attention target'), 'expected the final Story Model prompt to receive Scene-Led camera, blocking, and gaze direction')
 assert(resolvedStoryPrompt.includes('Show the event, not a promotional portrait') && resolvedStoryPrompt.includes('imperfect posture'), 'expected the final Story Model prompt to require physically legible expressions instead of flat portrait affect')
@@ -401,7 +416,7 @@ const repairedDuoNegative = quality.removeConflictingHumanNegatives('bad anatomy
 assert(repairedDuoNegative.negative.includes('bad anatomy') && repairedDuoNegative.negative.includes('extra limbs'), 'expected anatomy negatives to survive human-conflict repair')
 assert(!/\b(?:people|person|human|face|portrait|eyes|expression|hands|body)\b/i.test(repairedDuoNegative.negative), 'expected generic person-removal negatives to be stripped from explicit people scenes')
 const widescreenDimensions = quality.dimensionsForAspect('16:9')
-assert(widescreenDimensions?.width === 1344 && widescreenDimensions?.height === 768, 'expected Swarm-ready concrete dimensions for 16:9')
+assert(widescreenDimensions?.width === 1280 && widescreenDimensions?.height === 720, 'expected exact 16:9 Swarm dimensions')
 assert(quality.aspectRatioEquivalent('16:9', '7:4'), 'expected close provider ratios to validate within tolerance')
 assert(!quality.aspectRatioEquivalent('16:9', '1:1'), 'expected square output to be flagged against requested 16:9')
 
@@ -619,6 +634,24 @@ const confrontationProfile = quality.resolvePromptProfileDecision(confrontationJ
 } as any)
 assert(confrontationProfile.automaticClassification === 'narrative-scene', 'expected prose confrontation classification to resolve as narrative-scene')
 assert(confrontationProfile.selectedProfileId === 'cinematic-scene', 'expected Scene Snapshot prose confrontation to use cinematic-scene')
+const modelPlannedNamedPair = {
+  ...objectJob,
+  requestId: 'model-planned-named-pair',
+  target: 'prose.illustration' as const,
+  cast: 'none' as const,
+  caption: '',
+  alt: 'Mira and Sol sharing tea at a rain-lit kitchen table',
+  originalSceneBrief: 'Exactly two visible subjects in a medium-wide shot from table height, viewed at a slight side angle. Mira sits on the left and Sol sits beside her on the right, both shown from the waist up at a small kitchen table with their shoulders touching. Mira extends one hand across the tabletop, passing the sugar bowl toward Sol; Sol reaches for it with one hand while his steaming teacup rests beside his other hand. Both remain seated and oriented toward the shared table. Teacups, sugar bowl, and rising steam are clearly visible. A rain-streaked kitchen window fills the background, with muted silver daylight and warm lamplight falling across the tabletop and the two figures.',
+}
+const modelPlannedPairClassification = quality.classifyImageRequest(modelPlannedNamedPair)
+const modelPlannedPairPolicy = quality.targetHumanPolicy(modelPlannedNamedPair, modelPlannedPairClassification)
+const modelPlannedPairProfile = quality.resolvePromptProfileDecision(modelPlannedNamedPair, {
+  ...qualityTestConfig(),
+  defaultGenerationProfile: { ...qualityTestConfig().defaultGenerationProfile, defaultPromptProfileId: 'auto' },
+} as any)
+assert(modelPlannedPairClassification === 'narrative-scene', 'Model Planned named visible subjects must not collapse to a location-only class when cast metadata is absent')
+assert(modelPlannedPairPolicy.targetClass === 'group' && modelPlannedPairPolicy.allowHumanPrompt && modelPlannedPairPolicy.allowHumanContext, 'Model Planned named visible duo must retain people and appearance context')
+assert(modelPlannedPairProfile.selectedProfileId === 'cinematic-scene' && modelPlannedPairProfile.suppressedContext.length === 0 && !/\bperson\b/i.test(modelPlannedPairProfile.negativeAdditions), 'Model Planned named visible duo must not inherit Environment / Location people suppression')
 const socialHumanProfile = quality.resolvePromptProfileDecision({
   ...duoIllustrationJob,
   target: 'smartphone.message-image' as const,
@@ -769,7 +802,12 @@ for (const surfaceId of ['album-cover', 'magazine-cover', 'photo-booth-strip', '
   assert(r45CatalogSource.includes(`id: '${surfaceId}'`) || r45UtilitySource.includes(`'${surfaceId}'`), `expected built-in ${surfaceId} surface`)
 }
 assert(frontendSource.includes('Surface Presets') && frontendSource.includes('Relay Rendering') && frontendSource.includes('Regex Rendering') && frontendSource.includes('Edit as Preset'), 'expected Surface Presets studio')
-assert(contractsSource.includes("export type SurfaceRendererMode = 'relay' | 'legacy-regex' | 'hybrid'") && frontendSource.includes("{ id: 'relay', label: 'Relay Rendered'") && frontendSource.includes("{ id: 'legacy-regex', label: 'Regex Rendered'") && frontendSource.includes("{ id: 'hybrid', label: 'Hybrid'") && !frontendSource.includes("['auto', 'Auto · Native when supported']"), 'expected Relay Rendered, Regex Rendered, and Hybrid renderer buttons')
+assert(frontendSource.includes("String(payload.tagName || '').toLocaleLowerCase() === 'reverie-illustration'") && frontendSource.includes("String(payload.attrs?.request || '').toLocaleLowerCase() === 'generate'"), 'Instant mode must only observe Model Planned request tags while streaming')
+assert(frontendSource.includes('scanInstantStreamingModelPlannedMessage') && frontendSource.includes('buildInstantIllustrationSource(renderedText, payload, precedingAnchorText)') && frontendSource.includes("querySelectorAll<HTMLElement>('[data-rrn-native-request]')") && frontendSource.includes('messagesApi.getRecent(16)') && frontendSource.includes('sourceContent, automatic: false, streaming: true'), 'Instant mode must recover the exact prose before its status-card island and send a bounded scan')
+assert(frontendSource.includes("phase: 'interceptor'") && frontendSource.includes("phase: 'source-resolution'") && backendSource.includes("eventType: 'instant_stream_probe'"), 'Instant streaming callback and hidden-markup anchor resolution must be diagnosable without storing prompt content')
+assert(frontendSource.includes("'Instant'") && frontendSource.includes('settings.instantIllustrationDispatch'), 'expected a Model Planned-only Instant Illustrator toggle')
+assert(backendSource.includes("settings.mode !== 'inline-protocol' || !settings.instantIllustrationDispatch") && backendSource.includes("parsedRequests.filter(request => request.target === 'prose.illustration')"), 'streaming dispatch must be backend-gated and limited to standalone prose illustration requests')
+assert(contractsSource.includes("export type SurfaceRendererMode = 'relay' | 'legacy-regex'") && frontendSource.includes("{ id: 'relay', label: 'Relay Rendered'") && frontendSource.includes("{ id: 'legacy-regex', label: 'Regex Rendered'") && !frontendSource.includes("id: 'hybrid'") && !frontendSource.includes("['auto', 'Auto · Native when supported']"), 'expected only Relay Rendered and Regex Rendered renderer buttons')
 assert(frontendSource.includes('Surface Library') && frontendSource.includes('Only surfaces switched on here are included') && frontendSource.includes("kind: 'surface-prompt-enabled'") && frontendSource.includes('settingsPatchQueue'), 'expected revisioned categorized prompt-surface toggles')
 assert(frontendSource.includes('Utility Studio') && frontendSource.includes('Injection Position') && frontendSource.includes('Save Utility Template') && frontendSource.includes('Save Surface Module'), 'expected editable Utility Studio and injection position controls')
 assert(backendSource.includes("name: 'reverie_surfaces'") && backendSource.includes('<reverie_surfaces_macro/>') && backendSource.includes("name: 'reverie_illustrator'") && backendSource.includes("name: 'reverie_all'") && backendSource.includes('buildEnabledSurfaceUtility'), 'expected dynamic enabled-surface macro expansion')
@@ -795,8 +833,8 @@ assert(backendSource.includes('containsRelayRequestMarkup') && backendSource.inc
 assert(frontendSource.includes('Prose Illustrator') && frontendSource.includes('prose_illustrator_action') && frontendSource.includes('Copy Preset Prompt'), 'expected Prose Illustrator controls and backend bridge')
 assert(backendSource.includes('proseIllustrator') && backendSource.includes('generateProseIllustrationPlan') && backendSource.includes('renderProsePendingMarker'), 'expected independent Illustrator state and generation workflow')
 assert(protocolsSource.includes('Sidecar Opportunity Discovery') && backendSource.includes('selectProseOpportunity') && backendSource.includes('composePromptForOpportunity'), 'expected bounded beat analysis and prompt composition through the Prompt Registry')
-assert(frontendSource.includes('Relay-Planned') && frontendSource.includes('Model-Placed') && frontendSource.includes('Illustrations per Response'), 'expected clear Illustrator modes and settings')
-assert(frontendSource.includes("mode: 'model-placed'") || frontendSource.includes("mode === 'model-placed'"), 'expected Model-Placed Illustrator path')
+assert(frontendSource.includes('Relay-Planned') && frontendSource.includes('Model Planned') && frontendSource.includes('Illustrations per Response'), 'expected clear Illustrator modes and settings')
+assert(frontendSource.includes("id: 'inline-protocol', label: 'Story Model'"), 'expected Story Model label for the Model Planned Illustrator mode')
 assert(backendSource.includes('isHandsOffProseMode') && backendSource.includes('dispatchRelayJob(jobFromRecord(autoRecord)'), 'expected Relay-Planned to use direct generation dispatch')
 assert(frontendSource.includes("'Prompt Profile',") && frontendSource.includes('config?.promptProfiles') && !frontendSource.includes("textInput('Prompt Profile', settings.defaultPromptProfileId"), 'expected Illustrator Prompt Profile dropdown')
 

@@ -11,6 +11,8 @@ let interceptor: ((messages: any[], context: any) => Promise<any>) | undefined
 let interceptorRegistrations = 0
 let interceptorDisposals = 0
 const frontendEvents: any[] = []
+let frontendMessageHandler: ((payload: any, userId?: string) => void) | undefined
+let chatMessageReads = 0
 const storage = new Map<string, any>()
 const imageApi: any = {}
 let deferredConfigFallbacks = 0
@@ -28,7 +30,7 @@ let blockedStateWriteAttempts = 0
   },
   registerMacro() {},
   on() {},
-  onFrontendMessage() {},
+  onFrontendMessage(handler: (payload: any, userId?: string) => void) { frontendMessageHandler = handler },
   sendToFrontend(payload: any) { frontendEvents.push(payload) },
   permissions: {
     has(permission: string) { return permission === 'interceptor' ? interceptorPermission : true },
@@ -52,7 +54,7 @@ let blockedStateWriteAttempts = 0
     },
     async mkdir() {},
   },
-  chat: { async getMessages() { return [] } },
+  chat: { async getMessages() { chatMessageReads += 1; return [] } },
   chats: { async get(chatId: string) { return { id: chatId } } },
   characters: { async get() { return null } },
   personas: { async getActive() { return null } },
@@ -75,6 +77,27 @@ assert.equal(coldConfig.surfaceRendererMode, 'legacy-regex')
 assert.equal(coldConfig.autoGenerate, false)
 assert.equal(configWrites, 0)
 storage.set('config.json', {})
+const defaultRescanUser = 'fresh-rescan-default-user'
+assert.equal((await backend.getConfig(defaultRescanUser)).autoRescanOnChatOpen, false, 'new installations must not rescan on chat open by default')
+await backend.setConfig({ autoRescanOnChatOpen: true }, defaultRescanUser)
+assert.equal((await backend.getConfig(defaultRescanUser)).autoRescanOnChatOpen, true, 'an explicit saved On choice must survive the new default')
+
+// Automatic chat-open rescans must be rejected at the backend boundary after
+// the persisted preference is disabled, even if a stale frontend already sent
+// an automatic request. The completion reply also releases the UI busy state.
+const autoRescanOffUser = 'auto-rescan-disabled-user'
+await backend.setConfig({ autoRescanOnChatOpen: false }, autoRescanOffUser)
+assert.equal((await backend.getConfig(autoRescanOffUser)).autoRescanOnChatOpen, false)
+const chatMessageReadsBeforeDisabledRescan = chatMessageReads
+const disabledRescanRepliesBefore = frontendEvents.filter(event => event?.type === 'rescan_result' && event?.automatic === true).length
+assert(frontendMessageHandler, 'backend must register its frontend message handler')
+frontendMessageHandler({ type: 'rescan_chat', chatId: 'auto-rescan-disabled-chat', automatic: true }, autoRescanOffUser)
+await new Promise(resolve => setTimeout(resolve, 0))
+assert.equal(chatMessageReads, chatMessageReadsBeforeDisabledRescan, 'disabled automatic chat-open rescan must not read or scan chat history')
+assert.equal(frontendEvents.filter(event => event?.type === 'rescan_result' && event?.automatic === true).length, disabledRescanRepliesBefore + 1, 'suppressed automatic rescan must send a quiet completion reply')
+frontendMessageHandler({ type: 'scan_message', chatId: 'auto-rescan-disabled-chat', messageId: 'replayed-message', automatic: true }, autoRescanOffUser)
+await new Promise(resolve => setTimeout(resolve, 0))
+assert.equal(chatMessageReads, chatMessageReadsBeforeDisabledRescan, 'disabled automatic rendered-message replay scan must also be suppressed')
 
 // Generation placeholder appearance is centralized persistent config. Every
 // canonical value must survive a write and a fresh user-scope read; missing or
@@ -97,6 +120,10 @@ storage.set('config.json', {})
 assert.equal(backend.shouldScanCompletedGeneration('continue'), true)
 assert.equal(backend.shouldScanCompletedGeneration('normal'), true)
 assert.equal(backend.shouldScanCompletedGeneration('impersonate'), false)
+assert.equal(backend.isChatOpenReplayScan(['message-sent']), true, 'a replayed historical MESSAGE_SENT is a chat-open rescan')
+assert.equal(backend.isChatOpenReplayScan(['message-sent', 'authoritative-message-retry']), true, 'retries must retain chat-open replay ownership')
+assert.equal(backend.isChatOpenReplayScan(['message-sent', 'generation-ended']), false, 'fresh generation processing must remain enabled when auto-rescan is off')
+assert.equal(backend.isChatOpenReplayScan(['message-edited']), false, 'message edits must remain independent from chat-open rescans')
 const request = (id: string) => `<image_request id="${id}" target="custom.artifact-media" slot="${id}" aspect="16:9" alt="${id}"><scene_brief>${id} prompt.</scene_brief></image_request>`
 const storedCompletedResponse = `Opening prose.\n${Array.from({ length: 19 }, (_, index) => request(`scene-${index + 1}`)).join('\nMiddle prose.\n')}`
 const capturedContinuationFragment = `Middle prose.\n${request('scene-19')}`
@@ -162,7 +189,8 @@ assert(worldUtilityWithOverride.includes('[why_it_matters]...[/why_it_matters]')
 assert(worldUtilityWithOverride.includes('[future_use]...[/future_use]'))
 assert(worldUtilityWithOverride.includes('Never use [/future_use] to close [why_it_matters]'))
 assert(!/\[\/?(?:image_request|scene_brief)\b/i.test(worldUtilityWithOverride), 'World prompt lock converted canonical Relay XML image controls to brackets')
-const expectedSurfaceIds = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).map(surface => surface.id).sort()
+const expectedSurfaceIds = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).map(surface => surface.id)
+  .filter(id => id !== 'relationship-map' && id !== 'character-profile').sort()
 const assertUtilitiesInjected = (text: string, stage: string) => {
   const surfaceWrapper = text.match(/<reverie_surface_utility\b[^>]*\bmodules="([^"]*)"[\s\S]*?<\/reverie_surface_utility>/i)
   assert(surfaceWrapper, `${stage}: enabled Surface Utility wrapper was not injected`)
@@ -171,36 +199,38 @@ const assertUtilitiesInjected = (text: string, stage: string) => {
     expectedSurfaceIds,
     `${stage}: the injected Surface Utility inventory is incomplete`,
   )
-  assert.equal(expectedSurfaceIds.length, 46, `${stage}: expected all 46 built-in Surface Utilities`)
+  assert.equal(expectedSurfaceIds.length, 44, `${stage}: expected 44 Core authoring modules after the Narrative move`)
   assert(text.includes(expectedNarrativeUtility.content), `${stage}: the complete enabled Narrative Utility payload was not injected`)
-  assert.equal(expectedNarrativeUtility.utilityNames.length, 13, `${stage}: expected all 13 default Narrative Utilities`)
+  assert.equal(expectedNarrativeUtility.utilityNames.length, 16, `${stage}: expected all 16 default Narrative Utilities`)
 }
 await backend.setConfig({ narrativeDlcEnabled: true, narrativeDlcUtilityNames: expectedNarrativeUtility.utilityNames }, 'u1')
 const baseMessages = [{ role: 'user', content: 'Continue the scene.' }]
-const modelPlaced = assembledText(await interceptor!(baseMessages, { chatId: 'dry-run', userId: 'u1', isDryRun: true }))
-assert(modelPlaced.includes('[REVERIE RELAY — MODEL-PLACED ILLUSTRATION PROTOCOL]'))
-assert(modelPlaced.includes('<visual_prompt>'))
-assert(modelPlaced.includes('<mode>model-placed</mode>'))
-assert(modelPlaced.includes('Exclude every media request required inside an invoked Surface or Narrative Utility from this count'), 'Illustrator count must not conflict with self-contained Narrative/Surface media requirements')
-assertUtilitiesInjected(modelPlaced, 'initial permission grant')
-const assembledCore = modelPlaced.match(/<reverie_surface_utility\b[^>]*>([\s\S]*?)<\/reverie_surface_utility>/i)?.[1] || ''
-const assembledNarrative = modelPlaced.match(/\[reverie_narrative_utility\]([\s\S]*?)\[\/reverie_narrative_utility\]/i)?.[1] || ''
+const modelPlanned = assembledText(await interceptor!(baseMessages, { chatId: 'dry-run', userId: 'u1', isDryRun: true }))
+assert(!/\bChaos Hooks\b/i.test(modelPlanned), 'final Story Model prompt must not mention the retired Chaos Hooks label')
+assert(modelPlanned.includes('REVERIE RELAY — MODEL PLANNED ILLUSTRATIONS'))
+assert(modelPlanned.includes('<visual_prompt>'))
+assert(modelPlanned.includes('Each request is a standalone image prompt'), 'Model Planned must make every image request self-contained')
+assert(modelPlanned.includes('Repeat these facts independently for every request'), 'Model Planned must repeat supported appearance and current outfit in later requests')
+assert(modelPlanned.includes('<mode>inline-protocol</mode>'))
+assert(modelPlanned.includes('Exclude every media request required inside an invoked Surface or Narrative Utility from this count'), 'Illustrator count must not conflict with self-contained Narrative/Surface media requirements')
+assertUtilitiesInjected(modelPlanned, 'initial permission grant')
+const assembledCore = modelPlanned.match(/<reverie_surface_utility\b[^>]*>([\s\S]*?)<\/reverie_surface_utility>/i)?.[1] || ''
+const assembledNarrative = modelPlanned.match(/\[reverie_narrative_utility\]([\s\S]*?)\[\/reverie_narrative_utility\]/i)?.[1] || ''
 assert(assembledCore && assembledNarrative, 'final Story Model prompt did not expose both family authoring blocks for boundary audit')
 assert.equal(structuralXmlTags(assembledCore).length, 0, 'final Story Model Core authoring contains structural XML')
 assert.equal(structuralXmlTags(assembledNarrative).length, 0, 'final Story Model Narrative authoring contains structural XML')
 assert(assembledCore.includes('<image_request') && assembledCore.includes('<scene_brief>'), 'final Story Model Core authoring lost canonical XML image controls')
 assert(assembledNarrative.includes('<image_request') && assembledNarrative.includes('<reverie-illustration'), 'final Story Model Narrative authoring lost a canonical XML image-control family')
-assert.equal(bracketImageControlTags(modelPlaced).length, 0, 'final Story Model prompt teaches bracket image-control authoring')
+assert.equal(bracketImageControlTags(modelPlanned).length, 0, 'final Story Model prompt teaches bracket image-control authoring')
 assert.equal((assembledNarrative.match(/<\/?(?:else-media|else-scene|else-context|visibility|clock|knowledge|collision)>/gi) || []).length, 0, 'final Story Model prompt teaches historical Off-Stage XML structure')
 
-await backend.setConfig({ proseIllustratorSettings: { ...backend.defaultProseIllustratorSettings(), mode: 'inline-protocol' } }, 'u1')
+await backend.setConfig({ proseIllustratorSettings: { ...backend.defaultProseIllustratorSettings(), mode: 'model-placed' } }, 'u1')
 const inline = assembledText(await interceptor!(baseMessages, { chatId: 'inline-dry-run', userId: 'u1', isDryRun: true }))
-assert(inline.includes('REVERIE RELAY — INLINE PROTOCOL'))
+assert(inline.includes('REVERIE RELAY — MODEL PLANNED ILLUSTRATIONS'))
 assert(inline.includes('<visual_prompt>'))
 assert(inline.includes('<mode>inline-protocol</mode>'))
 assert(inline.includes('Count only Scene Snapshot-style Inline &lt;reverie-illustration&gt; requests owned by the Illustrator protocol'))
-assert.notEqual(inline, modelPlaced)
-const inlineWorkflow = inline.slice(inline.indexOf('REVERIE RELAY — INLINE PROTOCOL'), inline.indexOf('<reverie_illustrator_runtime>'))
+const inlineWorkflow = inline.slice(inline.indexOf('REVERIE RELAY — MODEL PLANNED ILLUSTRATIONS'), inline.indexOf('<reverie_illustrator_runtime>'))
 assert(!/<reverie-illustration[\s\S]*?<scene_brief>/i.test(inlineWorkflow))
 
 const hydratedHistory = `Story prose remains.\n<!-- reverie-relay:image requestId="history-one" -->\n![reverie-relay](/api/v1/image-gen/results/history-one)\n<hook_media><img class="reverie-artifact-media" data-reverie-artifact-media="true" data-dgir-image-id="history-one" src="/api/v1/image-gen/results/history-one"></hook_media>`
@@ -220,7 +250,7 @@ const duplicatedCompiledPrompt = assembledText(await interceptor!([
 ], { chatId: 'duplicate-contract-dry-run', userId: 'u1', isDryRun: true }))
 assert.equal((duplicatedCompiledPrompt.match(/<reverie_surface_utility\b/gi) || []).length, 1)
 assert.equal((duplicatedCompiledPrompt.match(/\[reverie_narrative_utility\]/gi) || []).length, 1)
-assert.equal((duplicatedCompiledPrompt.match(/INLINE PROTOCOL/gi) || []).length, 1)
+assert.equal((duplicatedCompiledPrompt.match(/MODEL PLANNED ILLUSTRATIONS/gi) || []).length, 1)
 
 // Lumiverse can repeat hydrated historical output in system context. Runtime
 // ownership and result transport must be removed regardless of role, while the

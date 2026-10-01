@@ -2,6 +2,7 @@
 import packageJson from '../package.json'
 import { readFileSync } from 'node:fs'
 import { buildNarrativeUtilityPrompt } from '../src/narrativeDlcRuntime'
+import { inspectStoryModelOutputContracts } from '../src/contracts'
 import {
   NARRATIVE_UTILITY_FORMAT_CONTRACTS,
   NARRATIVE_REGEX_VARIANTS,
@@ -25,10 +26,10 @@ function assert(value: unknown, reason: string): asserts value {
 }
 
 const utilityNames = narrativeUtilityItems().map(item => item.loomName)
-assert(utilityNames.length === 13, `Narrative Utility inventory changed: ${utilityNames.length}`)
+assert(utilityNames.length === 16, `Narrative Utility inventory changed: ${utilityNames.length}`)
 assert(new Set(utilityNames).size === utilityNames.length, 'Narrative Utility inventory contains duplicates')
 assert(!utilityNames.some(name => /stella/i.test(name)), 'Stella entered the Narrative Utility inventory')
-assert(utilityNames.join('|') === 'Character Phone|Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry', 'Narrative Utility inventory contains a retired name or incorrect order')
+assert(utilityNames.join('|') === 'Character Phone|Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry|Relationship Map|Cast Sheet|Persona Wardrobe', 'Narrative Utility inventory contains a retired name or incorrect order')
 
 const protectedTags = new Set([
   'image_request', 'scene_brief', 'reverie-illustration', 'visual_prompt',
@@ -55,6 +56,19 @@ const assembledPrompt = buildNarrativeUtilityPrompt().content
 const assembledStructuralXml = [...assembledPrompt.matchAll(/<\/?([A-Za-z][A-Za-z0-9_-]*)\b[^>]*>/g)]
   .filter(match => !protectedTags.has(match[1].toLowerCase()))
 assert(assembledStructuralXml.length === 0, `assembled Narrative prompt contains structural XML: ${assembledStructuralXml.length}`)
+for (const name of utilityNames) {
+  const textOnlyPrompt = buildNarrativeUtilityPrompt([name], {}, { [name]: false })
+  assert(textOnlyPrompt.utilityNames.join('|') === name, `${name}: text-only selection changed the Utility roster`)
+  assert(missingNarrativeUtilityFormatMarkers(name, textOnlyPrompt.content).length === 0, `${name}: text-only prompt lost a bracket renderer contract`)
+  assert(!/<(?:image_request|reverie-illustration|scene_brief|visual_prompt)\b/i.test(textOnlyPrompt.content), `${name}: text-only prompt still contains a model-facing image control`)
+  assert(!/mandatory (?:media|portrait)|non-empty \[(?:\w+_)?media\]|exactly (?:one|seven) (?:images?|portraits?)/i.test(textOnlyPrompt.content), `${name}: text-only prompt contradicts its image-off setting`)
+  const imagePrompt = buildNarrativeUtilityPrompt([name], {}, { [name]: true })
+  assert(imagePrompt.content === buildNarrativeUtilityPrompt([name]).content, `${name}: explicitly turning images on changed the shipped image-capable prompt`)
+}
+const allTextOnlyPrompt = buildNarrativeUtilityPrompt(utilityNames, {}, Object.fromEntries(utilityNames.map(name => [name, false]))).content
+assert(!/<(?:image_request|reverie-illustration)\b/i.test(allTextOnlyPrompt), 'all-text Narrative bundle still contains image controls')
+const mixedPrompt = buildNarrativeUtilityPrompt(['Character Phone', 'Plot Sparks'], {}, { 'Character Phone': false }).content
+assert(!mixedPrompt.includes('phone-photo-1') && mixedPrompt.includes('<reverie-illustration request="generate"'), 'per-Utility image flag affected a sibling Utility')
 
 const image = (id: string, aspect = '16:9') => `<image_request id="${id}" target="custom.artifact-media" slot="${id}" aspect="${aspect}"><scene_brief>Grounded ${id} image.</scene_brief></image_request>`
 const nativeStudio = {
@@ -154,7 +168,9 @@ const phoneApps = Array.from({ length: 8 }, (_, index) => `[cp_app][cp_slot]${in
 const phone = `[character_phone][cp_presentation]sparkling[/cp_presentation][cp_owner]Lisa[/cp_owner][cp_subtitle]Private phone[/cp_subtitle][cp_time]09:47[/cp_time][cp_day]Monday[/cp_day][cp_battery]63[/cp_battery][cp_wallpaper]${image('phone-wallpaper')}[/cp_wallpaper][cp_apps]${phoneApps}[/cp_apps][/character_phone]`
 fixtures['Character Phone'] = { source: phone, rendered: 'rrcp-wrap' }
 
-assert(Object.keys(fixtures).length === utilityNames.length, `fixture inventory does not cover all Utilities: ${Object.keys(fixtures).length}/${utilityNames.length}`)
+// Relationship Map and Cast Sheet retain their established Core renderers;
+// Persona Wardrobe has its own five-look renderer and focused fixture matrix.
+assert(Object.keys(fixtures).length === utilityNames.length - 3, `legacy regex fixture inventory drifted: ${Object.keys(fixtures).length}/${utilityNames.length}`)
 const narrativeContractTags = narrativeSurfaceBracketTags()
 let narrativeClosingDelimiterMutationCases = 0
 for (const tag of narrativeContractTags) {
@@ -235,11 +251,51 @@ const textOnlyNarratives = Object.entries(fixtures).map(([name, fixture]) => ({
   source: fixture.source.replace(/<(?:image_request|reverie-illustration)\b[^>]*>[\s\S]*?<\/(?:image_request|reverie-illustration)\s*>/gi, ''),
   root: fixture.rendered,
 }))
+let textOnlyRenderCases = 0
 for (const fixture of textOnlyNarratives) {
-  const rendered = renderNarrativeRegex(fixture.source, 'inline', `text-only-${fixture.name}`)
-  assert(rendered.includes(fixture.root), `${fixture.name}: Narrative Surface failed to render after all image controls were omitted`)
-  assert(!rendered.includes('[Plot_Sparks]') && !rendered.includes('[dramatic_parallel]'), `${fixture.name}: text-only render leaked a raw owner`)
+  for (const variant of NARRATIVE_REGEX_VARIANTS) for (const colorMode of ['realistic', 'glass'] as const) {
+    const rendered = renderNarrativeRegex(fixture.source, variant, `text-only-${fixture.name}-${variant}-${colorMode}`, {}, colorMode)
+    assert(rendered.includes(fixture.root), `${fixture.name}/${variant}/${colorMode}: Narrative Surface failed to render after all image controls were omitted`)
+    assert(!rendered.includes('[Plot_Sparks]') && !rendered.includes('[dramatic_parallel]'), `${fixture.name}/${variant}/${colorMode}: text-only render leaked a raw owner`)
+    assert(!/<(?:image_request|reverie-illustration|scene_brief|visual_prompt)\b/i.test(rendered), `${fixture.name}/${variant}/${colorMode}: text-only render retained a Relay image request`)
+    assert(!rendered.includes('Relay Surface needs repair'), `${fixture.name}/${variant}/${colorMode}: image-free owner fell through to repair UI`)
+    if (fixture.name === 'Plot Sparks') {
+      assert((rendered.match(/class="ch-media"/g) || []).length === 7, `${variant}/${colorMode}: Plot Sparks lost an image-free Spark media owner`)
+      assert(rendered.includes('Branch 1.') && rendered.includes('Branch 7.'), `${variant}/${colorMode}: Plot Sparks lost authored text when images were off`)
+    }
+    textOnlyRenderCases += 1
+  }
 }
+
+const movedCoreTextOnlyFixtures = [
+  {
+    name: 'Relationship Map', expectedSurfaceId: 'relationship-map',
+    source: '[relationship_map][id]map-test[/id][title]Current bonds[/title][subtitle]Focal viewpoint[/subtitle][character_one][portrait][/portrait][name]Ari[/name][role]Focal[/role][status]Focal[/status][summary]Present[/summary][relationship]Self[/relationship][strength]100[/strength][pressure]None[/pressure][/character_one][character_two][portrait][/portrait][name]Bo[/name][role]Friend[/role][status]Present[/status][summary]At the studio[/summary][relationship]Friend[/relationship][strength]70[/strength][pressure]Trust[/pressure][/character_two][character_three][portrait][/portrait][name]Cy[/name][role]Ally[/role][status]Present[/status][summary]Nearby[/summary][relationship]Ally[/relationship][strength]55[/strength][pressure]Timing[/pressure][/character_three][connections][one_two]Friends[/one_two][one_three]Allies[/one_three][/connections][insight]Their shared plan is fragile.[/insight][/relationship_map]',
+  },
+  {
+    name: 'Cast Sheet', expectedSurfaceId: 'character-profile',
+    source: '[character_profile][portrait][/portrait][name]Ari[/name][role]Focal character[/role][hook]Knows the studio layout.[/hook][trait]Patient and observant.[/trait][/character_profile]',
+  },
+] as const
+let movedCoreTextOnlyRenderCases = 0
+for (const fixture of movedCoreTextOnlyFixtures) for (const variant of NARRATIVE_REGEX_VARIANTS) {
+  for (const colorMode of ['realistic', 'glass'] as const) for (const rendererMode of ['relay', 'legacy-regex'] as const) {
+    const bracketContent = renderNarrativeRegex(fixture.source, variant, `text-only-${fixture.expectedSurfaceId}-${variant}-${colorMode}-${rendererMode}`, {}, colorMode)
+    const rendered = renderNativeSurfaceMarkup(bracketContent, { ...nativeStudio, colorMode, rendererMode }, {
+      chatId: 'batch-d-text-only', messageId: `${fixture.expectedSurfaceId}-${variant}-${colorMode}-${rendererMode}`, swipeId: 0, records: [],
+    })
+    assert(rendered.renderedSurfaceIds.includes(fixture.expectedSurfaceId) && rendered.renderedCount === 1, `${fixture.name}/${variant}/${colorMode}/${rendererMode}: moved Narrative utility did not reach its Core renderer without images`)
+    assert(!rendered.content.includes('Relay Surface needs repair') && !rendered.content.includes(fixture.source.slice(0, fixture.source.indexOf(']') + 1)), `${fixture.name}/${variant}/${colorMode}/${rendererMode}: failed or raw Core markup was visible`)
+    assert(!/<(?:image_request|reverie-illustration|scene_brief|visual_prompt)\b/i.test(rendered.content), `${fixture.name}/${variant}/${colorMode}/${rendererMode}: image-free Core render retained a Relay request`)
+    movedCoreTextOnlyRenderCases += 1
+  }
+}
+const textOnlyPlotInspection = inspectStoryModelOutputContracts(textOnlyNarratives.find(fixture => fixture.name === 'Plot Sparks')!.source, {
+  expectPlotSparks: true, plotSparksImagesEnabled: false,
+})
+assert(textOnlyPlotInspection.plotSparks.valid, 'seven text-only Plot Sparks were rejected by Story Model output validation')
+assert(!inspectStoryModelOutputContracts(plotSparks, { expectPlotSparks: true, plotSparksImagesEnabled: false }).plotSparks.valid, 'Images Off accepted seven unwanted Plot Sparks requests')
+assert(inspectStoryModelOutputContracts(plotSparks, { expectPlotSparks: true, plotSparksImagesEnabled: true }).plotSparks.valid, 'Images On rejected canonical seven-image Plot Sparks')
 
 const plotSparksWithoutMediaOwners = plotSparks.replace(/\[Media\][\s\S]*?\[\/Media\]/gi, '')
 const repairedTextOnlyPlotSparks = normalizeMissingPlotSparksMediaFields(plotSparksWithoutMediaOwners)
@@ -475,6 +531,6 @@ assert(worldIsolated.includes('rr-scene-compass'), 'malformed World poisoned val
 assert(worldIsolated.includes('class="ch-og') && !worldIsolated.includes('[Plot_Sparks]'), 'malformed World poisoned valid Plot Sparks')
 
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
-assert(packageJson.version === '0.3.0', `version changed: ${packageJson.version}`)
+assert(packageJson.version === '0.4.0.2', `version changed: ${packageJson.version}`)
 
-console.log(`Narrative Batch D bracket gate passed: ${utilityNames.length} named Surfaces × ${NARRATIVE_REGEX_VARIANTS.length} shells × 2 body modes = ${renderCases} deterministic renders, ${narrativeClosingDelimiterMutationCases} closer mutations, model-facing structural XML 0, protected XML controls canonical, Plot Sparks seven-owner regression passed, Character Phone variant regression passed, malformed-sibling isolation passed, Stella absent.`)
+console.log(`Narrative Batch D bracket gate passed: ${Object.keys(fixtures).length} legacy regex Surfaces × ${NARRATIVE_REGEX_VARIANTS.length} shells × 2 body modes = ${renderCases} image-on renders; ${textOnlyRenderCases} image-free Narrative renders; ${movedCoreTextOnlyRenderCases} image-free Relationship Map/Cast Sheet Core renders; ${narrativeClosingDelimiterMutationCases} closer mutations; Plot Sparks seven-owner regression passed; Character Phone variants passed.`)

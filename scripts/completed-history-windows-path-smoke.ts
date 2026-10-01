@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 }
 
 const { completedDiagnosticPath, safeStorageSegment } = await import('../src/backend')
+const { completedArchiveId, completedDiagnosticArchiveNeedsWrite } = await import('../src/completedState')
 const windowsInvalid = /[<>:"/\\|?*]/
 
 assert.equal(safeStorageSegment('36:389a4b48'), '36-389a4b48', 'the live fingerprint must become a Windows-safe storage segment')
@@ -29,5 +30,14 @@ assert.match(backendSource, /readCompletedDiagnostic\(chatId, archiveId, userId\
 assert.match(backendSource, /async function getRecordByKey[\s\S]{0,900}readCompletedDiagnostic\(chatId, archiveId, userId\)/, 'completed slot actions must hydrate through the production archive reader')
 assert.match(frontendSource, /requestCompletedRecord[\s\S]{0,900}completed_diagnostic/, 'completed-image diagnostics and local actions must request the archived production record')
 assert.match(completedStateSource, /diagnosticArchiveId: compact\.diagnosticArchiveId/, 'hot completed records must retain the archive key after compaction')
+
+const firstCompletion = { key: 'chat:message:0:req:slot', completedAt: 100, updatedAt: 100 }
+const firstArchive = { diagnosticArchiveId: completedArchiveId(firstCompletion), diagnosticArchivedAt: 101 }
+assert.equal(completedDiagnosticArchiveNeedsWrite(firstCompletion, firstArchive, true), false, 'the same completed attempt should not rewrite its diagnostic archive')
+const regeneratedCompletion = { ...firstCompletion, completedAt: 200, updatedAt: 200 }
+assert.notEqual(completedArchiveId(regeneratedCompletion), firstArchive.diagnosticArchiveId, 'a later completed attempt receives a new diagnostic archive id')
+assert.equal(completedDiagnosticArchiveNeedsWrite(regeneratedCompletion, firstArchive, true), true, 'regeneration must archive the new attempt even when the slot had an earlier archived diagnostic')
+assert.equal(completedDiagnosticArchiveNeedsWrite(regeneratedCompletion, undefined, true), true, 'first completion must be archived')
+assert.equal(completedDiagnosticArchiveNeedsWrite(regeneratedCompletion, firstArchive, false), false, 'lightweight completions must not create diagnostic files')
 
 console.log(`Completed-history Windows path smoke passed: ${path}`)

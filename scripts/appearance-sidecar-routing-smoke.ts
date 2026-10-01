@@ -12,7 +12,10 @@ import { readFileSync } from 'node:fs'
 }
 
 const backend = await import('../src/backend')
+const { DEFAULT_PROMPT_REGISTRY, PROMPT_REGISTRY_DEFINITIONS } = await import('../src/protocols')
+const { normalizeAppearanceSidecarOutput } = await import('../src/appearanceSidecar')
 const frontend = readFileSync('src/frontend.ts', 'utf8')
+const backendSource = readFileSync('src/backend.ts', 'utf8')
 const { SETTING_HELP } = await import('../src/uxCopy')
 
 const baseConfig = {
@@ -54,5 +57,27 @@ assert(frontend.includes("value => patchProseSettings({ appearanceSidecarModel: 
 for (const label of ['Appearance Sidecar Source', 'Global Appearance Sidecar Connection', 'Global Appearance Sidecar Model', 'Global Appearance Sidecar Parameters', 'Appearance Sidecar Connection', 'Appearance Sidecar Model']) {
   assert(SETTING_HELP[label]?.length > 70, `${label} needs dedicated tooltip copy`)
 }
+
+const requestTemplate = DEFAULT_PROMPT_REGISTRY['appearance.sidecar.request']
+const systemTemplate = DEFAULT_PROMPT_REGISTRY['appearance.sidecar.system']
+assert(requestTemplate.includes('first completed response in a new chat') && requestTemplate.includes('subject.trustworthy=true'), 'Sidecar request must discover named people from the new-chat baseline')
+assert(requestTemplate.includes('"trustworthy": false'), 'NPC trust must be an explicit conservative part of the response schema')
+assert(systemTemplate.includes('do not require it to recur first'), 'named NPC discovery must not demand a second appearance before first-time memory capture')
+assert.equal(PROMPT_REGISTRY_DEFINITIONS.find(row => row.id === 'appearance.sidecar.request')?.version, 2, 'Appearance Sidecar request contract version was not advanced')
+const trustedNpc = normalizeAppearanceSidecarOutput(JSON.stringify({ subjects: [{
+  name: 'Nina Park', role: 'npc', trustworthy: true,
+  canonical: { hair: { booruTags: [], visualPhrases: ['short silver hair'] } }, current: {},
+}] }))
+assert.equal(trustedNpc[0]?.subject.role, 'npc')
+assert.equal(trustedNpc[0]?.subject.trustworthy, true, 'explicitly trusted named NPC must survive legacy subjects-schema normalization')
+const untrustedNpc = normalizeAppearanceSidecarOutput(JSON.stringify({ subjects: [{
+  name: 'Mira Vale', role: 'npc', trustworthy: false,
+  canonical: { hair: { booruTags: [], visualPhrases: ['pink hair'] } }, current: {},
+}] }))
+assert.equal(untrustedNpc[0]?.subject.trustworthy, false, 'NPC trust must not be inferred from a name or visual phrase alone')
+
+const generationEnded = backendSource.slice(backendSource.indexOf('async function handleGenerationEnded'), backendSource.indexOf('async function recordLifecycleEvent'))
+assert(generationEnded.includes("reason: 'generation-ended'") && generationEnded.includes('ensureAppearanceReadyForTurn'), 'Appearance Sidecar must run on each completed assistant response, including the first response in a new chat')
+assert(backendSource.includes("state.continuityVault.appearanceSidecar.processedTurnKeys[turnKey]"), 'per-turn Sidecar idempotency must prevent lifecycle event fan-out from duplicating calls')
 
 console.log('Appearance Sidecar connection/model routing smoke ok')

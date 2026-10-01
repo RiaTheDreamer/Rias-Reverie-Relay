@@ -23,6 +23,8 @@ assert(backend.includes('lane.drainWatchdog = setTimeout') && backend.includes("
 assert(backend.includes('late result discarded') && backend.includes('lease.release()'), 'late provider settlement does not explicitly release or reconcile the quarantined lane')
 assert(!backend.includes('relayDispatchQueues') && !backend.includes('enqueuedRelayJobs'), 'obsolete pre-provider dispatch queue remains')
 assert(backend.includes("markSlotStatus(stored, 'provider-waiting')"), 'provider-waiting slot lifecycle is missing')
+assert(backend.includes("const initialConcurrency = jobs.some(job => job.target === 'prose.illustration') ? 1 : config.queueConcurrencyLimit"), 'automatic illustrations must start in authored order')
+assert(backend.includes("const pendingConcurrency = pendingJobs.some(job => job.target === 'prose.illustration') ? 1 : config.queueConcurrencyLimit"), 'explicit pending illustrations must start in authored order')
 assert(frontend.includes('const lastActivityAt = Math.max') && frontend.includes('stream?.updatedAt || 0'), 'queued stream activity does not prevent false stalled cards')
 
 assert(backend.includes('export function proseAnalysisText'), 'mixed prose/surface sanitizer is missing')

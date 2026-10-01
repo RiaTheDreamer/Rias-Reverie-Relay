@@ -11,6 +11,7 @@ import {
   RELAY_PLANNED_REPAIR_PARSER_SYSTEM_PROMPT,
 } from '../src/promptRegistryAssets028'
 import { PROMPT_REGISTRY_DEFINITIONS } from '../src/protocols'
+import { RELAY_PLANNED_V2 } from '../src/relayPlannedV2'
 import { ingestAppearanceSidecarObservations, normalizeAppearanceSidecarOutput } from '../src/appearanceSidecar'
 import { addAppearanceFact, allAppearanceFacts, appearanceMemoryView, emptyContinuityVault, mergeAppearancePromptFacts } from '../src/vault'
 
@@ -37,10 +38,10 @@ let parserCalls = 0
 const backend = await import('../src/backend')
 // Frozen normalized digests retain exact prompt regression coverage without shipping duplicate fixture prose.
 const authoredDigests: Record<string, string> = {
-  'Appearance-Sidecar-System-Prompt.txt': '5e799793bab5dc4bbf913704feea21eda147a1548923ec57a703b86272f1dea7',
-  'Appearance-Sidecar-Request-Template.txt': '26064a5a9eafefec4fe06dc6fdf4de7d67f9b8cc1e48598f2f2d3e3124ccba21',
-  'Relay-Planned-Director-System-Prompt.txt': '999da00521d27ff4a6a2866031e2941781756c26a4d089a95ef9cac5cfcff213',
-  'Relay-Planned-Director-Request-Template.txt': '6e16e084d13eb61a3c5b1436b74069df673369e2eb0c175058f9946a76dbb29a',
+  'Appearance-Sidecar-System-Prompt.txt': 'fb5f37b39fe846b9c9c48278ed4856ecce2058020c4702861769c4225709ffec',
+  'Appearance-Sidecar-Request-Template.txt': 'ad9a15f260448b7473c9bcac51b949e0dab3842aac4dff61fafa0ec455c64b7b',
+  'Relay-Planned-Director-System-Prompt.txt': 'bc9cfca63d5abeeccf6871203c8cf53cf34956a21889a91c506dac817fa5e1ac',
+  'Relay-Planned-Director-Request-Template.txt': '5b8e9f3655366399e86638c3f468f669a5b54a0d2fcd59ce5e5aa7ab4c55e972',
   'Relay-Planned-Repair-Parser-System-Prompt.txt': '7e1951f28d06b8820720addf069b232f4edc8596d7a573641aa00a05d5767111',
   'Relay-Planned-Repair-Parser-Request-Template.txt': 'dc2be4b0f3131840ac4d7e3d46451d6f22c2dc7e0dd6281cfab7fad893797247',
 }
@@ -109,19 +110,72 @@ const job: any = {
 let parserConfig = await backend.setConfig({ parserConnectionId: 'mock-parser', parserRetries: 0, proseIllustratorSettings: backend.defaultProseIllustratorSettings() }, 'phase5')
 parserOutput = JSON.stringify({ prompt: 'medium shot, Alpha sitting by the window, holding a red letter, leather shoes', negativeAdditions: '' })
 const safe = await backend.parseSlotPrompt(job, 'illustration', [], 0, parserConfig, 'phase5', {})
-assert(safe.parserUsed && safe.promptPipeline.parserDecision === 'Used — Model-Placed constrained normalization', 'configured Model-Placed Parser was not used or reported truthfully')
-assert(parserCalls > 0, 'configured Parser was never invoked')
+assert(!safe.parserUsed && safe.promptPipeline.parserDecision === 'Skipped — Story Model visual_prompt passed through; use Reparse for Parser rewriting', 'ordinary Model Planned dispatch did not preserve the authored visual_prompt')
+assert.equal(parserCalls, 0, 'ordinary Model Planned dispatch invoked a configured Parser')
+assert(/sitting by the window|holding a red letter|leather shoes/i.test(safe.prompt), 'direct Model Planned path lost authored scene details')
+assert(!safe.promptPipeline.parserFallbackUsed, 'direct Model Planned path was misreported as a Parser fallback')
+const callsBeforeReparse = parserCalls
+const explicitReparse = await backend.parseSlotPrompt({ ...job, requestId: 'model-planned-explicit-reparse' }, 'illustration', [], 0, parserConfig, 'phase5', {}, false, true)
+assert(explicitReparse.parserUsed && parserCalls > callsBeforeReparse, 'explicit Model Planned Reparse did not invoke the Parser Model')
 parserOutput = JSON.stringify({ prompt: 'close portrait of Alpha', negativeAdditions: '' })
+const callsBeforeOrdinaryDispatch = parserCalls
 const rejected = await backend.parseSlotPrompt({ ...job, requestId: 'model-placed-drift' }, 'illustration', [], 0, parserConfig, 'phase5', {})
-assert(rejected.promptPipeline.parserFallbackUsed && rejected.promptPipeline.parserDecision?.startsWith('Rejected — Authoritative fallback'), 'drifting Parser output did not fall back safely')
-assert(/sitting|holding|leather shoes/i.test(rejected.prompt), 'authoritative scene semantics were lost during Parser fallback')
+assert.equal(parserCalls, callsBeforeOrdinaryDispatch, 'ordinary Model Planned dispatch let a drifting Parser rewrite the authored prompt')
+assert(!rejected.promptPipeline.parserFallbackUsed && /sitting by the window|holding a red letter|leather shoes/i.test(rejected.prompt), 'ordinary Model Planned dispatch did not retain its authored scene after a drifting Parser response')
+const explicitDrift = await backend.parseSlotPrompt({ ...job, requestId: 'model-planned-explicit-drift' }, 'illustration', [], 0, parserConfig, 'phase5', {}, false, true)
+assert(explicitDrift.promptPipeline.parserFallbackUsed && /Relay continued with the authoritative visual brief/i.test(explicitDrift.promptPipeline.warnings.map(item => item.message).join(' ')), 'invalid Model Planned reparse did not fall back to Relay scene shaping')
+assert(/sitting|holding|leather shoes/i.test(explicitDrift.prompt), 'Relay fallback lost the authored Model Planned scene')
 parserConfig = await backend.setConfig({ parserConnectionId: null }, 'phase5')
 const disabled = await backend.parseSlotPrompt({ ...job, requestId: 'model-placed-disabled' }, 'illustration', [], 0, parserConfig, 'phase5', {})
-assert(!disabled.parserUsed && disabled.promptPipeline.parserDecision === 'Skipped — No Parser connection configured', 'disabled Parser skip reason is not precise')
+assert(!disabled.parserUsed && disabled.promptPipeline.parserDecision === 'Skipped — Story Model visual_prompt passed through; use Reparse for Parser rewriting', 'disabled Parser did not retain the authored direct path')
+const explicitNoParser = await backend.parseSlotPrompt({ ...job, requestId: 'model-planned-explicit-no-parser' }, 'illustration', [], 0, parserConfig, 'phase5', {}, false, true)
+assert(!explicitNoParser.parserUsed && explicitNoParser.promptPipeline.parserFallbackUsed && explicitNoParser.promptPipeline.parserDecision.startsWith('Relay fallback — Parser connection unavailable'), 'Model Planned Reparse without a Parser connection did not continue through Relay scene shaping')
+assert(/sitting|holding|leather shoes/i.test(explicitNoParser.prompt), 'no-Parser Relay fallback lost the authored Model Planned scene')
 parserConfig = await backend.setConfig({ parserConnectionId: 'missing-parser' }, 'phase5')
 const unavailable = await backend.parseSlotPrompt({ ...job, requestId: 'model-placed-unavailable' }, 'illustration', [], 0, parserConfig, 'phase5', {})
-assert(!unavailable.parserUsed && unavailable.promptPipeline.parserDecision === 'Skipped — Parser connection unavailable', 'unavailable Parser did not retain the authoritative direct path')
+assert(!unavailable.parserUsed && unavailable.promptPipeline.parserDecision === 'Skipped — Story Model visual_prompt passed through; use Reparse for Parser rewriting', 'unavailable Parser did not retain the authoritative direct path')
+await assert.rejects(
+  backend.parseSlotPrompt({ ...job, requestId: 'model-planned-empty-authored-prompt', originalSceneBrief: '' }, 'illustration', [], 0, parserConfig, 'phase5', {}),
+  /missing its authored <visual_prompt>/,
+  'an empty Model Planned prompt must fail closed instead of asking Parser to invent it',
+)
+
+const distractingProfiles = [{ id: 'cinematic-scene', name: 'Test Cinema', promptAdditions: 'TEST PROFILE STYLE CUE', framingGuidance: 'TEST PROFILE CAMERA CUE' }]
+for (const mode of ['inline-protocol', 'relay-planned']) {
+  for (const defaultPromptProfileId of ['auto', 'cinematic-scene']) {
+    const storyPrompt = backend.resolveIllustratorStoryPrompt(
+      { ...backend.defaultProseIllustratorSettings(), mode, defaultPromptProfileId },
+      [],
+      undefined,
+      distractingProfiles,
+      'auto',
+    )
+    assert(!storyPrompt.includes('STORY-MODEL IMAGE PROMPT PROFILE') && !storyPrompt.includes('Automatic profile cues'), `${mode}/${defaultPromptProfileId}: Story Model received duplicated profile guidance`)
+    assert(!storyPrompt.includes('TEST PROFILE STYLE CUE') && !storyPrompt.includes('TEST PROFILE CAMERA CUE'), `${mode}/${defaultPromptProfileId}: Story Model received profile content that Relay should apply downstream`)
+    assert(storyPrompt.includes('Relay resolves and applies the selected profile after authorship'), `${mode}/${defaultPromptProfileId}: runtime did not clarify downstream profile ownership`)
+  }
+}
+
+const relayPlannerCallsBeforeCompile = parserCalls
+const relayPlannedPrepared = await backend.parseSlotPrompt({
+  ...job,
+  requestId: 'relay-planned-profile-once',
+  promptSource: 'structured',
+  promptProfileId: 'cinematic-scene',
+  originalSceneBrief: 'Alpha offers a red letter beside the station window.',
+  composedPositivePrompt: 'medium two-shot, Alpha offers a red letter beside the station window',
+  composedNegativePrompt: '',
+  prosePromptComposition: {
+    namedSubjects: ['Alpha'], expectedPeopleCount: 1, peoplePolicy: 'required',
+    continuityFactIdsUsed: [], referenceAssetIdsUsed: [], locationReferenceAssetIdsUsed: [],
+    warnings: [], rawOutput: { plannerVersion: RELAY_PLANNED_V2 },
+  },
+}, 'illustration', [], 0, parserConfig, 'phase5', {})
+assert.equal(relayPlannedPrepared.parserUsed, false, 'Relay-Planned 2.0 local compiler unexpectedly invoked a second Parser pass')
+assert.equal(parserCalls, relayPlannerCallsBeforeCompile, 'Relay-Planned 2.0 local compiler unexpectedly spent a Parser model call')
+assert.equal(relayPlannedPrepared.promptPipeline.promptProfile?.selectedProfileId, 'cinematic-scene', 'Relay-Planned profile was not resolved downstream')
+assert.equal((relayPlannedPrepared.prompt.match(/cinematic narrative still/g) || []).length, 1, 'Relay-Planned selected profile was applied more or less than once')
 
 const frontend = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')
 for (const label of ['User Override', 'Reset to Default', 'Preview Compiled Prompt', 'Supported variables:', 'estimatedInputTokens', 'pipeline?.parserDecision']) assert(frontend.includes(label), `Prompt Registry / Parser UI missing ${label}`)
-console.log('Phase 5 appearance/parser/registry smoke passed: six verbatim assets, atomic overrides, compact Appearance projection, constrained Model-Placed Parser use, safe fallback, and exact diagnostics.')
+console.log('Phase 5 appearance/parser/registry smoke passed: Appearance projection, one-pass Model Planned dispatch, explicit-only Parser rewriting, downstream single profile application, safe reparse fallback, and exact diagnostics.')
