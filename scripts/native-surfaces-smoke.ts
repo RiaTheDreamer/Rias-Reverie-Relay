@@ -1,6 +1,6 @@
 // Complete local Surface authority and lifecycle smoke. No host/provider calls.
 import type { CustomSurfaceDefinition, CustomSurfaceStudioState } from '../src/contracts'
-import { characterProfilePortraitHasExactRelayImage, lifecycleRuntimeCss, normalizeCharacterProfileContract, renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
+import { characterProfilePortraitHasExactRelayImage, lifecycleRuntimeCss, normalizeCharacterProfileContract, renderCompletedProseLifecycleProjection, renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { R45_ACTIVE_ROOTS, containsR45RenderedSurface, r45BracketSurfaceAuthorityPack, r45SurfaceAuthorityPack, renderR45SurfaceAuthority, type R45ColorMode, type R45PresentationMode } from '../src/r45SurfaceAuthority'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { SHIPPED_SURFACE_SPECS, shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
@@ -33,6 +33,14 @@ const studio: CustomSurfaceStudioState = {
   validationErrors: {}, lastInjectedModuleIds: [], lastInjectionAt: 0, lastInjectionSource: 'none',
   lastInjectionPosition: 'none', lastInjectionSummary: '', updatedAt: 1,
 }
+const nativeLandscape = {
+  requestId: 'native-landscape', requestAspect: '3:4', status: 'completed',
+  imageUrl: '/native-landscape.png', aspectRatio: '19:13',
+} as any
+const completedLandscape = renderCompletedProseLifecycleProjection(nativeLandscape, { chatId: 'aspect-chat', messageId: 'aspect-message' })
+assert(completedLandscape.includes('data-aspect="19:13"'), 'completed media uses the returned image aspect')
+const legacyLandscape = renderCompletedProseLifecycleProjection({ ...nativeLandscape, aspectRatio: undefined }, { chatId: 'aspect-chat', messageId: 'aspect-message' })
+assert(legacyLandscape.includes('data-aspect="3:4"'), 'older media without returned dimensions retains the requested aspect')
 const canonical = definitions.map(definition => ({ id: definition.baseSurfaceId, root: definition.canonicalOuterWrapper, sample: definition.sampleXml }))
 assert(canonical.length === 46 && new Set(canonical.map(row => row.id)).size === 46, 'R4.5 active Surface inventory must contain 46 unique Surfaces')
 for (const retired of ['weverse-post', 'fandom', 'fansite', 'photocard', 'webtoon', 'radio', 'divination', 'travel-log', 'creature-scanner']) {

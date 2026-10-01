@@ -66,6 +66,29 @@ let blockedStateWriteAttempts = 0
 
 const backend = await import('../src/backend')
 
+const novelPlan = {
+  provider: 'novelai', model: 'nai-diffusion-5-full', connection: null,
+  finalParameters: { resolution: '1216x832', guidance: 6, negativePrompt: 'bad anatomy' },
+  slotOverrides: { aspectRatio: '2:3' }, nativeActiveParameters: {}, settingsSource: 'current-native',
+} as any
+const novelPrepared = { prompt: 'one person in a studio', negativePrompt: 'watermark' } as any
+const novelParameters = backend.buildImageParameters(novelPlan, novelPrepared)
+assert.deepEqual(backend.buildSlotOverrides({ aspect: '2:3' }, 'novelai', 'native'), {}, 'default NovelAI policy keeps saved resolution')
+assert.deepEqual(backend.buildSlotOverrides({ aspect: '2:3' }, 'novelai', 'request'), { aspectRatio: '2:3' }, 'NovelAI can follow the request aspect')
+assert.deepEqual(backend.buildSlotOverrides({ aspect: '2:3' }, 'novelai', '1:1'), { aspectRatio: '1:1' }, 'NovelAI can use a fixed aspect')
+assert.deepEqual(backend.buildSlotOverrides({ aspect: '16:9' }, 'swarmui', 'native'), { aspectRatio: '16:9', width: 1280, height: 720 }, 'existing providers retain request aspect behavior')
+assert.equal(novelParameters.resolution, '1024x1536', 'NovelAI receives a supported resolution for the requested aspect')
+assert.equal(novelParameters.negativePrompt, 'watermark, bad anatomy', 'NovelAI receives Relay and saved negative tags')
+assert.equal(novelPlan.finalParameters.resolution, '1216x832', 'provider defaults remain immutable')
+assert.equal(backend.buildImageParameters({ ...novelPlan, slotOverrides: {} }, novelPrepared).resolution, '1216x832', 'no request aspect preserves native resolution')
+assert.equal(backend.buildImageParameters({ ...novelPlan, slotOverrides: { aspectRatio: '2:3', resolution: '1024x1024' }, finalParameters: { ...novelPlan.finalParameters, resolution: '1024x1024' } }, novelPrepared).resolution, '1024x1024', 'explicit recipe resolution outranks the request aspect')
+assert.equal(backend.buildImageParameters({ ...novelPlan, slotOverrides: { aspectRatio: '2:3', width: 1536, height: 1024 } }, novelPrepared).resolution, '1536x1024', 'explicit recipe dimensions outrank the request aspect')
+assert.equal(backend.requiresWorkflow({ provider: 'novelai', connectionName: 'Comfy-themed preset' } as any), false, 'a NovelAI connection name cannot impose a ComfyUI workflow')
+assert.equal(backend.requiresWorkflow({ provider: 'comfyui' } as any), true, 'ComfyUI still requires a workflow')
+assert.equal(backend.requiresWorkflow({ provider: 'comfyui-custom' } as any), true, 'other Comfy provider IDs retain workflow behavior')
+assert.equal(backend.requiresWorkflow({ provider: 'custom', connection: { metadata: { comfyui: { requires_workflow: true } } } } as any), true, 'custom-provider workflow metadata retains its existing contract')
+assert.equal(backend.buildImageParameters({ ...novelPlan, provider: 'swarmui', finalParameters: { seed: 42 } }, novelPrepared, true).seed, -1, 'Swarm regeneration seed behavior must survive provider adaptation')
+
 // A cold host may briefly return userStorage's fallback even though persisted
 // config exists. Relay must retry the read and must never write defaults during
 // that readiness window.
