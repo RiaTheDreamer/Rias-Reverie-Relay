@@ -54,6 +54,7 @@ import {
   type RelayCandidateBatch,
   type RelayBatchSummary,
   type GenerationProfile,
+  type ImageRequest,
   type AssetLibraryFilters,
   type AssetLibraryState,
   type AppearanceCharacterSheet,
@@ -71,6 +72,7 @@ import {
   type VaultMigrationDisposition,
   type CustomSurfaceDefinition,
   type CustomSurfaceStudioState,
+  type SurfaceRendererScriptOverride,
   type SurfaceShellMode,
   type SurfaceColorMode,
   type SurfaceRendererMode,
@@ -138,7 +140,7 @@ import {
   HOT_LOG_LIMIT,
   RECENT_COMPLETED_HOT_LIMIT,
   compactCompletedRecord,
-  completedArchiveId,
+  completedDiagnosticArchiveNeedsWrite,
   emptyRelayChatStats,
   serializedBytes,
   stripCompletedRecord,
@@ -153,6 +155,7 @@ import { buildAppearanceSidecarPayload, ingestAppearanceSidecarObservations, nor
 import {
   RELAY_PLANNED_V2,
   compileRelayPlannedPrompt,
+  previousSequenceShotContext,
   validateRelayPlannedDirectorResult,
   type RelayPlannedContext,
   type RelayPlannedIllustration,
@@ -160,16 +163,20 @@ import {
 } from './relayPlannedV2'
 import { assertModelContextBudget, invalidateContextSnapshots, measureModelMessages, selectExcerpts, selectLorebookContext, visualSourceSnapshot, type ContextMetrics } from './contextBudget'
 import { BUILD_ID, EXTENSION_VERSION } from './build'
-import { hybridSurfaceOwner, REVIEWED_REGEX_SURFACE_IDS, shippedSurfaceDefinitions, SHIPPED_SURFACE_SPECS } from './shippedSurfaceDefinitions'
+import { shippedSurfaceDefinitions, SHIPPED_SURFACE_SPECS } from './shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { hasR45UtilityContract, r45UtilityContract } from './r45UtilityContracts'
 import { assertProviderRequestSafe } from './providerPromptSafety'
 import { imageProviderSupportsStreaming, isSwarmUiProvider, providerRequiresAbortableStream, relayStreamingAllowedForProvider } from './imageStreaming'
 import { normalizeSurfaceDocument } from './surfaceXml'
 import { bracketSurfacePromptModule } from './bracketSurfaceAuthoring'
-import { r45SurfaceAuthorityPack, r45SurfaceAuthorityScripts } from './r45SurfaceAuthority'
+import { r45RendererScripts, r45ScriptOverrideKey, r45SurfaceAuthorityPack, r45SurfaceAuthorityScripts, type R45PresentationMode, type R45ScriptSource } from './r45SurfaceAuthority'
+import { validateDeclarativeSurfaceCss } from './surfaceCssSafety'
+import { createValidatedRendererOverride, validateRendererRegex } from './surfaceRendererValidation'
+import { activeSurfaceDefinitions } from './surfacePromptSelection'
 import { buildCharacterPhoneRuntimeDirective, normalizeCharacterPhoneDefaultApps, type CharacterPhoneAppId } from './characterPhoneConfig'
-import { DEFAULT_EXPLICIT_SCENE_NEGATIVE_GUIDANCE, DEFAULT_EXPLICIT_SCENE_POSITIVE_GUIDANCE, DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, DEFAULT_SURFACE_PROMPT_MODULES, ILLUSTRATOR_FRAMING_REGISTRY_ALIASES, PROSE_ILLUSTRATOR_PERSPECTIVE_MODE_ALIASES, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ARTIFACT_MEDIA_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK, REVERIE_SURFACE_UTILITY_TEMPLATE, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_PROTOCOL } from './protocols'
+import { createStreamingAssistantSnapshot } from './instantIllustrationStream'
+import { DEFAULT_EXPLICIT_SCENE_NEGATIVE_GUIDANCE, DEFAULT_EXPLICIT_SCENE_POSITIVE_GUIDANCE, DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, DEFAULT_SURFACE_PROMPT_MODULES, ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE, RELAY_PLANNED_STORY_CHANNEL_GUIDANCE, ILLUSTRATOR_FRAMING_REGISTRY_ALIASES, PROSE_ILLUSTRATOR_PERSPECTIVE_MODE_ALIASES, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ARTIFACT_MEDIA_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK, REVERIE_SURFACE_UTILITY_TEMPLATE, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_INLINE_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_PROTOCOL } from './protocols'
 import { characterProfilePortraitHasExactRelayImage, NATIVE_SURFACE_CANDIDATE_ROOT_TAGS, NATIVE_SURFACE_ROOT_TAGS, normalizeCharacterProfileContract, renderNativeSurfaceMarkup } from './nativeSurfaces'
 import { narrativeVariantForSurfaceShellMode } from './surfacePresentation'
 import {
@@ -177,11 +184,13 @@ import {
   effectiveNarrativeUtilityContent,
   inspectNarrativeRegex,
   isCurrentPlotSparksUtilityContent,
+  relayRegexImportScripts,
   reconcileNarrativeRegex,
   removeNarrativeRegex,
   type NarrativeDlcHealth,
 } from './narrativeDlcRuntime'
-import { containsNarrativeRegexMarkup, missingNarrativeUtilityFormatMarkers, narrativeRegexScripts, narrativeUtilityDisplayName, narrativeUtilityItems, narrativeUtilityNames, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup, type NarrativeLorebookKind, type NarrativeRegexVariant } from './narrativeRegexAssets'
+import { containsNarrativeRegexMarkup, missingNarrativeUtilityFormatMarkers, narrativeUtilityDisplayName, narrativeUtilityItems, narrativeUtilityNames, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup, type NarrativeLorebookKind, type NarrativeRegexVariant } from './narrativeRegexAssets'
+import { textOnlyNarrativeUtilityContent } from './narrativeTextOnlyPrompts'
 import { exportNarrativeLorebookRecord, extractNarrativeLorebookRecord } from './narrativeLorebook'
 import {
   acceptSuggestion,
@@ -377,6 +386,7 @@ export type RouterConfig = {
   narrativeDlcVariant: NarrativeRegexVariant
   narrativeDlcUtilityNames: string[]
   narrativeUtilityOverrides: Record<string, { content: string; revision: number; updatedAt: number }>
+  narrativeUtilityImageEnabled: Record<string, boolean>
   characterPhoneDefaultApps: CharacterPhoneAppId[]
   narrativeDlcLastSync: NarrativeDlcHealth | null
   globalSurfaceStudio: CustomSurfaceStudioState
@@ -680,6 +690,7 @@ export type RelaySettingsPatch =
   | { kind: 'surface-prompt-enabled'; values: Record<string, boolean>; categoryId?: string }
   | { kind: 'character-phone-apps'; defaultApps: CharacterPhoneAppId[] }
   | { kind: 'narrative-enabled'; enabledNames: string[] }
+  | { kind: 'narrative-image-enabled'; utilityName: string; enabled: boolean }
   | { kind: 'narrative-override'; utilityName: string; content: string | null }
   | { kind: 'prompt-registry-override'; promptId: string; content: string | null; version: number }
 
@@ -689,11 +700,14 @@ type FrontendMessage =
     type: 'scan_message'
     chatId: string
     messageId?: string | null
+    automatic?: boolean
+    streaming?: boolean
     swipeId?: number
     sourceContent?: string
     nativeImageSettings?: NativeImageSettings
     nativeSettingsCapturedAt?: number
   }
+  | { type: 'instant_stream_probe'; chatId: string; messageId: string; requestId?: string; phase: 'interceptor' | 'source-resolution'; streaming: boolean; instantEnabled: boolean; mode: string; cardFound?: boolean; anchorLength?: number; sourceReady?: boolean }
   | { type: 'sync_native_settings'; chatId?: string | null; imageGeneration?: NativeImageSettings; nativeSettingsCapturedAt?: number; frontendSessionId?: string; platformClass?: 'mobile' | 'desktop' }
   | { type: 'frontend_session'; chatId?: string | null; sessionId: string; connected: boolean; nativeSettingsAvailable: boolean; platformClass: 'mobile' | 'desktop'; heartbeat?: boolean }
   | PlacementVisualSettledMessage
@@ -735,8 +749,9 @@ type FrontendMessage =
   | { type: 'reuse_asset_in_slot'; chatId: string; key: string; assetId: string }
   | { type: 'discover_lora_catalog'; requestId: string; connectionId?: string | null }
   | { type: 'continuity_action'; chatId: string; action: 'set_strength' | 'create_character' | 'merge_characters' | 'merge_facts' | 'pin' | 'unpin' | 'exclude' | 'include' | 'remove' | 'edit_fact' | 'move_fact' | 'quarantine_fact' | 'ignore_slot' | 'clear_ignore_slot' | 'add_fact' | 'mark_break' | 'clear_current' | 'accept_suggestion' | 'reject_suggestion' | 'move_suggestion_current' | 'move_suggestion_wardrobe' | 'update_migration_item' | 'apply_migration' | 'save_character_sheet' | 'rerun_appearance_field' | 'delete_character_sheet' | 'update_character_aliases' | 'delete_character' | 'add_alternate_look' | 'remove_alternate_look' | 'activate_alternate_look' | 'return_to_base'; operationId?: string; expectedRevision?: number; factId?: string; factIds?: string[]; suggestionId?: string; migrationItemId?: string; selectedMigrationItemIds?: string[]; disposition?: VaultMigrationDisposition; key?: string; strength?: ContinuityStrength; characterId?: string; targetCharacterId?: string; characterName?: string; aliases?: string[]; layer?: AppearanceVaultLayer; category?: AppearanceFactCategory; appearanceField?: AppearanceMemoryRefreshField; sourceType?: AppearanceSourceType; value?: string; booruTags?: string; currentOutfitTags?: string; negativeIdentityTags?: string; referenceAssetIds?: string[]; lookId?: string; lookName?: string; assetId?: string; reason?: string; note?: string; permanence?: 'permanent' | 'temporary'; defaultWardrobe?: boolean; currentWardrobe?: boolean }
-  | { type: 'prose_illustrator_action'; chatId: string; action: 'set_settings' | 'preview_prompt' | 'plan_latest' | 'plan_message' | 'relay_plan_once' | 'generate_plan' | 'cancel_active' | 'remove_illustration' | 'pause_auto' | 'resume_auto'; messageId?: string; swipeId?: number; planId?: string; illustrationId?: string; settings?: Partial<ProseIllustratorSettings>; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
-  | { type: 'custom_surface_action'; chatId?: string; action: 'create' | 'duplicate' | 'edit' | 'enable' | 'disable' | 'delete' | 'import' | 'activate' | 'set_renderer_mode' | 'set_default_shell_mode' | 'set_color_mode' | 'set_hybrid_owner' | 'set_prompt_enabled' | 'set_category_prompt_enabled' | 'set_prompt_module' | 'set_utility_settings' | 'reset_utility_template' | 'save_collection' | 'set_default_collection' | 'delete_collection' | 'bind_collection' | 'unbind_collection'; surfaceId?: string; definition?: Partial<CustomSurfaceDefinition>; rendererMode?: CustomSurfaceStudioState['rendererMode']; hybridOwner?: CustomSurfaceDefinition['hybridOwner']; shellMode?: SurfaceShellMode; colorMode?: SurfaceColorMode; promptEnabled?: boolean; promptCategory?: SurfacePromptCategory; promptModule?: string; utilityInjectionEnabled?: boolean; utilityInjectionPosition?: SurfaceUtilityInjectionPosition; utilityTemplate?: string; presetId?: string; presetName?: string; surfaceIds?: string[] }
+  | { type: 'prose_illustrator_action'; chatId: string; action: 'set_settings' | 'preview_prompt' | 'plan_latest' | 'plan_message' | 'relay_plan_once' | 'generate_plan' | 'cancel_active' | 'remove_illustration' | 'pause_auto' | 'resume_auto'; requestId?: string; messageId?: string; swipeId?: number; planId?: string; illustrationId?: string; settings?: Partial<ProseIllustratorSettings>; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
+  | { type: 'custom_surface_action'; chatId?: string; requestId?: string; action: 'create' | 'duplicate' | 'edit' | 'enable' | 'disable' | 'delete' | 'import' | 'activate' | 'set_renderer_mode' | 'set_default_shell_mode' | 'set_color_mode' | 'set_prompt_enabled' | 'set_category_prompt_enabled' | 'set_prompt_module' | 'set_utility_settings' | 'reset_utility_template' | 'save_collection' | 'set_default_collection' | 'delete_collection' | 'bind_collection' | 'unbind_collection'; surfaceId?: string; definition?: Partial<CustomSurfaceDefinition>; rendererMode?: CustomSurfaceStudioState['rendererMode']; shellMode?: SurfaceShellMode; colorMode?: SurfaceColorMode; promptEnabled?: boolean; promptCategory?: SurfacePromptCategory; promptModule?: string; utilityInjectionEnabled?: boolean; utilityInjectionPosition?: SurfaceUtilityInjectionPosition; utilityTemplate?: string; presetId?: string; presetName?: string; surfaceIds?: string[] }
+  | { type: 'surface_renderer_script_action'; chatId?: string; action: 'save' | 'reset'; source: R45ScriptSource; presentation: R45PresentationMode; colorMode: SurfaceColorMode; scriptId: string; override?: Partial<SurfaceRendererScriptOverride> }
   | { type: 'bulk_chat_media_action'; chatId: string; lane: 'surfaces' | 'illustrations'; mode: 'remove-images-keep-slots' | 'remove-images-and-slots' }
   | { type: 'native_surface_action'; chatId: string; messageId: string; action: 'delete' | 'edit'; requestId?: string; rootTag?: string; surfaceId?: string; originalMarkup?: string; replacementMarkup?: string }
   | { type: 'remove_slot_image'; chatId: string; key: string }
@@ -764,6 +779,8 @@ type PreparedPrompt = {
 
 type ParserContextResult = {
   contextMetrics?: Partial<ContextMetrics>
+  perspectiveMode: ProseIllustratorSettings['perspectiveMode'] | ''
+  personaPovCameraHolderNames: string[]
   context: string
   rawTemplate: string
   resolvedTemplate: string
@@ -782,6 +799,7 @@ type ParserContextResult = {
   sanitizedRecentContext: string
   visualSubjects: VisualSubjectPrompt[]
   subjectNegativePrompt: string
+  personaPovNegativePrompt: string
   includedContinuityFacts: ContinuityFact[]
   projectedContinuityFacts: ContinuityFact[]
   projectedContinuityFactsForPromptAppend: ContinuityFact[]
@@ -813,6 +831,8 @@ type TargetHumanPolicy = {
 }
 
 type ImagePlan = {
+  /** Story paragraph for final provider-bound prose/prompt separation checks. */
+  authoritativeSourceParagraph?: string
   connection: ImageConnection | null
   connectionId: string | null
   connectionName: string
@@ -852,6 +872,7 @@ type ImageGenerationStreamContext = {
   slotKey?: string
   requestId?: string
   origin?: ProviderDispatchOrigin
+  randomizeSwarmSeed?: boolean
   previousSlotStatus?: SlotRecord['status']
   cancellationEpoch?: number
   authorizedSlotKey?: string
@@ -2170,6 +2191,7 @@ function renderStudioContractFingerprint(studio: CustomSurfaceStudioState): stri
     rendererMode: studio.rendererMode,
     shellMode: studio.defaultShellMode,
     colorMode: studio.colorMode,
+    rendererScriptOverrides: studio.rendererScriptOverrides || {},
     activePresetIds: studio.activePresetIds,
     definitions,
   }))
@@ -2338,7 +2360,7 @@ const DEFAULT_CONFIG: RouterConfig = {
   enableRelayOrb: false,
   tutorialModeEnabled: true,
   tutorialStep: 0,
-  autoRescanOnChatOpen: true,
+  autoRescanOnChatOpen: false,
   includeInactiveSwipesInRescan: false,
   followNativeParser: true,
   followNativeImageGen: true,
@@ -2406,6 +2428,7 @@ const DEFAULT_CONFIG: RouterConfig = {
   narrativeDlcVariant: 'plain-button',
   narrativeDlcUtilityNames: narrativeUtilityNames(),
   narrativeUtilityOverrides: {},
+  narrativeUtilityImageEnabled: {},
   characterPhoneDefaultApps: normalizeCharacterPhoneDefaultApps(undefined),
   narrativeDlcLastSync: null,
   globalSurfaceStudio: {
@@ -2437,7 +2460,7 @@ function registryPrompt(settings: ProseIllustratorSettings, id: string): string 
     : String(DEFAULT_PROMPT_REGISTRY[id] ?? '')
 }
 
-export function buildResolvedNarrativeUtilityPrompt(config: Pick<RouterConfig, 'narrativeDlcEnabled' | 'narrativeDlcUtilityNames' | 'characterPhoneDefaultApps'> & Partial<Pick<RouterConfig, 'narrativeUtilityOverrides'>>): {
+export function buildResolvedNarrativeUtilityPrompt(config: Pick<RouterConfig, 'narrativeDlcEnabled' | 'narrativeDlcUtilityNames' | 'characterPhoneDefaultApps'> & Partial<Pick<RouterConfig, 'narrativeUtilityOverrides' | 'narrativeUtilityImageEnabled'>>): {
   content: string
   utilityNames: string[]
   characterPhoneDirective: string
@@ -2446,6 +2469,7 @@ export function buildResolvedNarrativeUtilityPrompt(config: Pick<RouterConfig, '
   const narrative = buildNarrativeUtilityPrompt(
     config.narrativeDlcUtilityNames,
     Object.fromEntries(Object.entries(config.narrativeUtilityOverrides || {}).map(([name, record]) => [name, record.content])),
+    config.narrativeUtilityImageEnabled || {},
   )
   const characterPhoneDirective = narrative.utilityNames.includes('Character Phone')
     ? buildCharacterPhoneRuntimeDirective(config.characterPhoneDefaultApps)
@@ -2576,22 +2600,9 @@ function canonicalSurfacePromptModule(definition: CustomSurfaceDefinition): stri
 }
 
 function selectedSurfaceDefinitions(studio: CustomSurfaceStudioState): CustomSurfaceDefinition[] {
-  const selected: CustomSurfaceDefinition[] = []
-  const seen = new Set<string>()
-  for (const definition of Object.values(studio.definitions || {})) {
-    const activeId = studio.activePresetIds?.[definition.baseSurfaceId]
-    // Persisted collections can point at a deleted custom preset.  Fall back to
-    // the current built-in/default Surface instead of dropping the whole module.
-    const active = (activeId && studio.definitions[activeId]?.baseSurfaceId === definition.baseSurfaceId
-      ? studio.definitions[activeId]
-      : Object.values(studio.definitions).find(candidate => candidate.baseSurfaceId === definition.baseSurfaceId && candidate.builtIn)
-        || definition)
-    if (!active || seen.has(active.baseSurfaceId)) continue
-    seen.add(active.baseSurfaceId)
-    if (active.promptEnabled !== true) continue
-    selected.push(active)
-  }
-  return selected.sort((a, b) => a.promptCategory.localeCompare(b.promptCategory) || a.displayName.localeCompare(b.displayName))
+  // Persisted collections can point at a deleted custom preset; activeSurfaceDefinitions restores the built-in fallback.
+  return activeSurfaceDefinitions(studio).filter(definition => definition.promptEnabled === true
+    && definition.baseSurfaceId !== 'relationship-map' && definition.baseSurfaceId !== 'character-profile')
 }
 
 export function applySurfaceCategoryPromptEnabled(
@@ -2611,15 +2622,68 @@ export function applySurfaceCategoryPromptEnabled(
   return changed
 }
 
-function surfaceUtilityCacheKey(studio: CustomSurfaceStudioState, source: 'macro' | 'automatic'): string {
+function resolvedSurfaceDefaultProfileId(definition: CustomSurfaceDefinition, inheritedProfileId: PromptProfileId): PromptProfileId {
+  const surfaceProfileId = cleanString(definition.defaultPromptProfileId) as PromptProfileId
+  return surfaceProfileId && surfaceProfileId !== 'auto' ? surfaceProfileId : inheritedProfileId || 'auto'
+}
+
+function renderStoryModelPromptProfileGuidance(
+  requestedProfileId: PromptProfileId,
+  profileCatalog: PromptPresetProfile[],
+  promptField: 'scene_brief' | 'visual_prompt',
+): string {
+  const profiles = normalizePromptProfiles(profileCatalog)
+  const requested = cleanString(requestedProfileId) || 'auto'
+  const selected = requested === 'auto' ? null : profiles.find(profile => profile.id === requested)
+  if (selected) {
+    return [
+      'STORY-MODEL IMAGE PROMPT PROFILE',
+      `Selected profile: ${escapeXmlText(selected.name)} (${escapeXmlText(selected.id)}).`,
+      `When writing the image ${promptField}, preserve these positive profile additions where they fit the requested scene: ${escapeXmlText(selected.promptAdditions || '(none)')}.`,
+      `Framing guidance: ${escapeXmlText(selected.framingGuidance || '(none)')}.`,
+      'Relay applies this same profile during provider prompt preparation. Keep the authored visual description consistent; leave negative-profile terms for Relay’s negative-prompt merge.',
+    ].join('\n')
+  }
+
+  const automaticProfiles = profiles.filter(profile => profile.id !== 'auto' && profile.id !== 'high-resolution-modifier' && profile.builtIn)
+  const profileLines = automaticProfiles.map(profile => [
+    `${escapeXmlText(profile.name)} (${escapeXmlText(profile.id)})`,
+    profile.promptAdditions ? `positive additions: ${escapeXmlText(profile.promptAdditions)}` : '',
+    profile.framingGuidance ? `framing: ${escapeXmlText(profile.framingGuidance)}` : '',
+  ].filter(Boolean).join(' — '))
+  return [
+    'STORY-MODEL IMAGE PROMPT PROFILE',
+    'Selected profile: Automatic. Classify each request from its explicit capture intent and subject, then reflect only the matching profile’s positive additions and framing guidance in the image prompt. Do not mix unrelated profiles.',
+    `Automatic profile cues for the image ${promptField}:`,
+    ...profileLines.map(line => `- ${line}`),
+    'Relay resolves the same profile from the completed request and applies its positive and negative additions during provider prompt preparation.',
+  ].join('\n')
+}
+
+function surfaceUtilityCacheKey(
+  studio: CustomSurfaceStudioState,
+  source: 'macro' | 'automatic',
+  profileCatalog: PromptPresetProfile[],
+  inheritedProfileId: PromptProfileId,
+): string {
   const active = selectedSurfaceDefinitions(studio)
     .map(definition => `${definition.surfaceId}:${definition.updatedAt || 0}:${definition.promptEnabled === true ? 1 : 0}`)
     .join('|')
-  return `${source}:${studio.rendererMode}:${studio.updatedAt || 0}:${studio.utilityInjectionPosition}:${contentFingerprint(canonicalSurfaceUtilityTemplate(studio.utilityTemplate))}:${active}`
+  const profilesKey = contentFingerprint(JSON.stringify(normalizePromptProfiles(profileCatalog).map(profile => ({
+    id: profile.id, name: profile.name, builtIn: profile.builtIn,
+    promptAdditions: profile.promptAdditions, framingGuidance: profile.framingGuidance,
+  }))))
+  return `${source}:${studio.rendererMode}:${studio.updatedAt || 0}:${studio.utilityInjectionPosition}:${contentFingerprint(canonicalSurfaceUtilityTemplate(studio.utilityTemplate))}:${profilesKey}:${inheritedProfileId}:${active}`
 }
 
-export function buildEnabledSurfaceUtility(studio: CustomSurfaceStudioState, source: 'macro' | 'automatic' = 'automatic'): { content: string; moduleIds: string[] } {
-  const cacheKey = surfaceUtilityCacheKey(studio, source)
+export function buildEnabledSurfaceUtility(
+  studio: CustomSurfaceStudioState,
+  source: 'macro' | 'automatic' = 'automatic',
+  profileCatalog: PromptPresetProfile[] = BUILT_IN_PROMPT_PROFILES,
+  inheritedProfileId: PromptProfileId = 'auto',
+): { content: string; moduleIds: string[] } {
+  const normalizedProfiles = normalizePromptProfiles(profileCatalog)
+  const cacheKey = surfaceUtilityCacheKey(studio, source, normalizedProfiles, inheritedProfileId)
   const cached = surfaceUtilityCache.get(cacheKey)
   if (cached) return { content: cached.content, moduleIds: [...cached.moduleIds] }
 
@@ -2632,9 +2696,24 @@ export function buildEnabledSurfaceUtility(studio: CustomSurfaceStudioState, sou
     return empty
   }
   const rootRegistry = enabled.map(definition => `[${definition.canonicalOuterWrapper}]`).join(' ')
-  const modules = enabled.map(definition => canonicalSurfacePromptModule(definition))
+  const modules = enabled.map(definition => {
+    const surfaceProfileId = (cleanString(definition.defaultPromptProfileId) || 'auto') as PromptProfileId
+    const profileId = resolvedSurfaceDefaultProfileId(definition, inheritedProfileId)
+    const profileGuidance = surfaceProfileId === 'auto'
+      ? 'SURFACE DEFAULT PROMPT PROFILE\nThis Surface inherits the chat/global default. Use the shared prompt-profile guidance below.'
+      : `SURFACE DEFAULT PROMPT PROFILE\n${renderStoryModelPromptProfileGuidance(profileId, normalizedProfiles, 'scene_brief')}`
+    return `${canonicalSurfacePromptModule(definition)}\n\n${profileGuidance}`
+  })
     .filter(Boolean)
     .join('\n\n---\n\n')
+  const needsInheritedProfileGuidance = enabled.some(definition => !cleanString(definition.defaultPromptProfileId) || cleanString(definition.defaultPromptProfileId) === 'auto')
+  const inheritedProfileGuidance = needsInheritedProfileGuidance
+    ? [
+      'CHAT/GLOBAL PROFILE FOR AUTO SURFACES',
+      'Apply this profile guidance only to enabled Surface modules whose own default says they inherit the chat/global profile. A Surface module naming an explicit profile uses that profile instead; do not layer the chat/global profile over it.',
+      renderStoryModelPromptProfileGuidance(inheritedProfileId, normalizedProfiles, 'scene_brief'),
+    ].join('\n\n')
+    : ''
   const template = canonicalSurfaceUtilityTemplate(studio.utilityTemplate)
   const expandedTemplate = template
     .replace(/\{\{\s*reverie_enabled_surface_modules\s*\}\}/gi, modules || 'Enabled surface-authoring modules: none.')
@@ -2643,6 +2722,7 @@ export function buildEnabledSurfaceUtility(studio: CustomSurfaceStudioState, sou
   const rootBoundary = `STRICT ENABLED ROOT REGISTRY\nOnly these exact roots are valid. Never rename a root after a platform or invent feed/post/story shorthand.\n${rootRegistry || 'none'}`
   const expanded = [
     expandedTemplate,
+    inheritedProfileGuidance,
     /STRICT ENABLED ROOT REGISTRY/i.test(expandedTemplate) ? '' : rootBoundary,
     /APP SURFACE SHAPE FIREBREAK/i.test(expandedTemplate) ? '' : REVERIE_SURFACE_APP_SCHEMA_FIREBREAK,
   ].filter(Boolean).join('\n\n')
@@ -2658,10 +2738,11 @@ ${expanded}
 }
 
 async function syncEnabledSurfaceMacro(chatId: string, state: StateFile, config: RouterConfig, userId?: string): Promise<void> {
-  const surfaceExpansion = buildEnabledSurfaceUtility(state.customSurfaces, 'macro').content
+  const inheritedProfileId = effectiveGenerationProfile(config, chatId).defaultPromptProfileId
+  const surfaceExpansion = buildEnabledSurfaceUtility(state.customSurfaces, 'macro', config.promptProfiles, inheritedProfileId).content
   const illustratorSettings = proseSettingsForChat(state, chatId)
   const personaPovContext = illustratorSettings.perspectiveMode === 'persona-pov' ? await resolvePersonaPovContext(chatId, userId) : undefined
-  const illustratorExpansion = resolveIllustratorStoryPrompt(illustratorSettings, [], personaPovContext)
+  const illustratorExpansion = resolveIllustratorStoryPrompt(illustratorSettings, [], personaPovContext, config.promptProfiles, inheritedProfileId)
   const narrativeExpansion = buildResolvedNarrativeUtilityPrompt(config).content
   const values: Record<string, string> = {
     reverie_surfaces: surfaceExpansion,
@@ -2789,21 +2870,25 @@ export async function resolveSidecarPromptMessages(
   fallback?: { characterPrompt?: string; personaPrompt?: string; nativeSettings?: Record<string, unknown> },
 ): Promise<SidecarPromptResolution> {
   if (!messages.some(message => /\{\{|<reverie_[\w-]*macro\b/i.test(message.content))) return { messages, resolvedMacros: [], unresolvedRequiredMacros: [] }
-  // Reading global config is only necessary for the Narrative macro. Keeping
-  // ordinary Sidecar macro expansion independent avoids an unnecessary host
-  // storage round-trip and preserves compatibility with minimal host shims.
+  // Profile-aware Surface and Illustrator macros need the user's editable
+  // profile catalog; ordinary identity-only macro expansion stays independent.
   const needsNarrativeMacro = messages.some(message => /\{\{\s*(reverie_narrative|reverie_all)\s*\}\}|<reverie_(?:narrative|all)_macro\b/i.test(message.content))
+  const needsProfileConfig = messages.some(message => /\{\{\s*(?:reverie_surfaces|reverie_enabled_surfaces|reverie_illustrator|reverie_all)\s*\}\}|<reverie_(?:surfaces|enabled_surfaces|illustrator|all)_macro\b/i.test(message.content))
   const [character, persona, state, config] = await Promise.all([
     chatId ? readChatCharacterIdentity(chatId, userId) : Promise.resolve(null),
     readCurrentHostPersona(userId, chatId),
     chatId ? getState(chatId, userId).catch(() => null) : Promise.resolve(null),
-    needsNarrativeMacro ? getConfig(userId) : Promise.resolve(null),
+    needsNarrativeMacro || needsProfileConfig ? getConfig(userId) : Promise.resolve(null),
   ])
   const settings = state && chatId ? proseSettingsForChat(state, chatId) : null
-  const surfaceUtility = state ? buildEnabledSurfaceUtility(state.customSurfaces, 'macro').content : ''
+  const profileCatalog = config?.promptProfiles || BUILT_IN_PROMPT_PROFILES
+  const inheritedProfileId = config
+    ? chatId ? effectiveGenerationProfile(config, chatId).defaultPromptProfileId : config.defaultGenerationProfile.defaultPromptProfileId
+    : 'auto'
+  const surfaceUtility = state ? buildEnabledSurfaceUtility(state.customSurfaces, 'macro', profileCatalog, inheritedProfileId).content : ''
   const narrativeUtility = config ? buildResolvedNarrativeUtilityPrompt(config).content : ''
   const personaPovContext = settings?.perspectiveMode === 'persona-pov' && chatId ? await resolvePersonaPovContext(chatId, userId) : undefined
-  const illustrator = settings ? resolveIllustratorStoryPrompt(settings, messages as LlmMessage[], personaPovContext) : ''
+  const illustrator = settings ? resolveIllustratorStoryPrompt(settings, messages as LlmMessage[], personaPovContext, profileCatalog, inheritedProfileId) : ''
   const nativeSettings = fallback?.nativeSettings || {}
   const characterBinding = resolveC5ANativeIdentityBinding(nativeSettings, 'character', character ? { id: cleanString(character.id), name: cleanString(character.name) } : null)
   const personaBinding = resolveC5ANativeIdentityBinding(nativeSettings, 'persona', persona ? { id: cleanString(persona.id || persona.persona_id || persona.personaId), name: cleanString(persona.name) } : null)
@@ -2870,7 +2955,12 @@ function activeIllustratorPrompt(settings: ProseIllustratorSettings): string {
   const base = registryPrompt(settings, settings.mode === 'relay-planned' ? 'story.relay-planned' : settings.mode === 'inline-protocol' ? 'story.inline-protocol' : 'story.model-placed')
   const framing = effectiveFramingPrompt(settings)
   const adult = registryPrompt(settings, 'story.adult-content-fidelity')
-  return [base, framing, adult].filter(Boolean).join('\n\n')
+  const channelGuidance = settings.mode === 'relay-planned' ? RELAY_PLANNED_STORY_CHANNEL_GUIDANCE : ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE
+  // A customized prompt that kept only the heading is not channel separation.
+  // Require the complete stock block so Relay controls cannot be mistaken for
+  // image-model prose when parser fallback is active.
+  const enforcedChannelGuidance = base.includes(channelGuidance) ? '' : channelGuidance
+  return [base, framing, adult, enforcedChannelGuidance].filter(Boolean).join('\n\n')
 }
 
 function personaPovRuntimeGuidance(settings: ProseIllustratorSettings, context?: PersonaPovContext): string {
@@ -2880,11 +2970,21 @@ function personaPovRuntimeGuidance(settings: ProseIllustratorSettings, context?:
   }
   const binding = context.binding === 'chat-persona' ? 'chat-bound Persona' : 'active host Persona'
   const name = cleanString(context.personaName) || 'resolved Persona'
-  return `PERSONA POV RUNTIME\nCamera holder: ${name} (${binding}). Treat this Persona as the in-world viewpoint. Do not add the camera holder to the visible cast unless the authored scene independently makes part of their body visible.`
+  return `PERSONA POV RUNTIME\nCamera holder: ${name} (${binding}). This Persona is the camera only: the image is what they see from their eyes. Never include them in the visible cast or subject count, and never depict any part of their body, reflection, screen image, silhouette, or shadow. Do not inject their visual identity into the image prompt.`
 }
 
-export function resolveIllustratorStoryPrompt(settings: ProseIllustratorSettings, messages: LlmMessage[] = [], personaPovContext?: PersonaPovContext): string {
-  return [activeIllustratorPrompt(settings), buildIllustratorRuntimeDirective(settings, messages, personaPovContext), personaPovRuntimeGuidance(settings, personaPovContext)].filter(Boolean).join('\n\n')
+export function resolveIllustratorStoryPrompt(
+  settings: ProseIllustratorSettings,
+  messages: LlmMessage[] = [],
+  personaPovContext?: PersonaPovContext,
+  profileCatalog: PromptPresetProfile[] = BUILT_IN_PROMPT_PROFILES,
+  inheritedProfileId: PromptProfileId = 'auto',
+): string {
+  return [
+    activeIllustratorPrompt(settings),
+    buildIllustratorRuntimeDirective(settings, messages, personaPovContext, profileCatalog, inheritedProfileId),
+    personaPovRuntimeGuidance(settings, personaPovContext),
+  ].filter(Boolean).join('\n\n')
 }
 
 function maybeWarnUtilityNotInjected(chatId: string, userId?: string): void {
@@ -2912,6 +3012,17 @@ const NATIVE_RENDER_TAG_RE = new RegExp(
   `(?:<|\\[)(?:${[...new Set([...NATIVE_SURFACE_CANDIDATE_ROOT_TAGS, 'reverie-illustration', 'image_request', 'image_request_error', 'scene_image'])].map(escapeRegExp).join('|')})(?=[\\s>\\]])`,
   'i',
 )
+
+function containsEnabledCustomSurfaceRoot(markup: string, studio: CustomSurfaceStudioState): boolean {
+  const source = String(markup || '')
+  return Object.values(studio.definitions || {}).some(definition => {
+    if (definition.builtIn || definition.enabled === false || studio.activePresetIds?.[definition.baseSurfaceId] !== definition.surfaceId) return false
+    const root = String(definition.canonicalOuterWrapper || '').replace(/[^A-Za-z0-9_-]/g, '')
+    if (!root) return false
+    const escaped = escapeRegExp(root)
+    return new RegExp(`(?:\\[${escaped}(?:\\s|\\])|<${escaped}\\b)`, 'i').test(source)
+  })
+}
 
 const NARRATIVE_ACTION_ROOT_RE = /\[(?:Plot_Sparks\]|WHATIF\|)/i
 const narrativeActionScriptIdsCache = new Map<string, { expiresAt: number; promise: Promise<Record<string, string>> }>()
@@ -2970,7 +3081,7 @@ if (typeof registerMessageContentProcessor === 'function') {
         .filter(record => !context.messageId || record.messageId === context.messageId)
         .filter(record => renderSwipeId === undefined || record.swipeId === renderSwipeId)
       const narrativeCandidate = containsNarrativeRegexMarkup(source)
-      if (!NATIVE_RENDER_TAG_RE.test(source) && !narrativeCandidate) return
+      if (!NATIVE_RENDER_TAG_RE.test(source) && !containsEnabledCustomSurfaceRoot(source, snapshot.studio) && !narrativeCandidate) return
       // Slot lifecycle changes are patched into the existing media island by the
       // frontend. A state fingerprint prevents a later host render from reusing
       // stale pending markup, while the host message itself remains untouched.
@@ -3006,7 +3117,7 @@ if (typeof registerMessageContentProcessor === 'function') {
       // the frontend. Projecting them through the host content processor made
       // every lifecycle tick a different message body, which remounted the
       // prose, moved the scroll anchor, and could briefly paint an empty root.
-      const nativeCandidate = NATIVE_RENDER_TAG_RE.test(renderedContent)
+      const nativeCandidate = NATIVE_RENDER_TAG_RE.test(renderedContent) || containsEnabledCustomSurfaceRoot(renderedContent, snapshot.studio)
       // Narrative Utilities are not part of the 46 built-in registry. Relay
       // executes their approved, bundled display transformations through this
       // isolated adapter in every renderer mode. This keeps a cold or stale
@@ -3199,11 +3310,12 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
       const storedSettings = proseSettingsForChat(state, chatId)
       const settings = await resolveCharacterOnlySettingsForPrompt(storedSettings, chatId, context?.userId, context)
       const personaPovContext = settings.perspectiveMode === 'persona-pov' ? await resolvePersonaPovContext(chatId, context?.userId) : undefined
-      const runtimeDirective = buildIllustratorRuntimeDirective(settings, cleaned, personaPovContext)
-      const illustratorPrompt = resolveIllustratorStoryPrompt(settings, cleaned, personaPovContext)
+      const inheritedProfileId = effectiveGenerationProfile(routerConfig, chatId).defaultPromptProfileId
+      const runtimeDirective = buildIllustratorRuntimeDirective(settings, cleaned, personaPovContext, routerConfig.promptProfiles, inheritedProfileId)
+      const illustratorPrompt = resolveIllustratorStoryPrompt(settings, cleaned, personaPovContext, routerConfig.promptProfiles, inheritedProfileId)
       latestIllustratorRuntimeByChat.set(chatId, { directive: runtimeDirective, createdAt: Date.now() })
       const studio = state.customSurfaces
-      const macroUtility = buildEnabledSurfaceUtility(studio, 'macro')
+      const macroUtility = buildEnabledSurfaceUtility(studio, 'macro', routerConfig.promptProfiles, inheritedProfileId)
       const narrativeUtility = buildResolvedNarrativeUtilityPrompt(routerConfig)
       let surfaceMacroExpanded = false
       let illustratorMacroExpanded = false
@@ -3215,7 +3327,7 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
         // Current Lumiverse resolves Relay macros before this interceptor. The
         // Relay-owned Core/App/UI and Narrative wrappers are reconciled against
         // current config below before either suppresses automatic composition.
-        if (/<reverie_illustrator_runtime\b|\[?REVERIE RELAY\s+[—-]\s+(?:MODEL-PLACED|RELAY-PLANNED|INLINE PROTOCOL)/i.test(content)) illustratorMacroExpanded = true
+        if (/<reverie_illustrator_runtime\b|\[?REVERIE RELAY\s+[—-]\s+(?:MODEL-PLACED|MODEL PLANNED|RELAY-PLANNED|INLINE PROTOCOL)/i.test(content)) illustratorMacroExpanded = true
         ALL_MACRO_MARKER.lastIndex = 0
         if (ALL_MACRO_MARKER.test(content)) {
           surfaceMacroExpanded = true
@@ -3285,7 +3397,7 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
       })
 
       const automaticUtility = studio.utilityInjectionEnabled && !surfaceMacroExpanded
-        ? buildEnabledSurfaceUtility(studio, 'automatic')
+        ? buildEnabledSurfaceUtility(studio, 'automatic', routerConfig.promptProfiles, inheritedProfileId)
         : null
       if (!studio.utilityInjectionEnabled && !surfaceMacroExpanded) maybeWarnUtilityNotInjected(chatId, context?.userId)
 
@@ -3437,7 +3549,7 @@ for (const alias of ['reverie_enabled_surfaces', 'reverie_relay_utility']) {
 }
 
 for (const macro of [
-  { name: 'reverie_illustration_protocol', description: 'Complete Model-Placed prose illustration protocol. Active settings arrive separately in the live runtime.', value: REVERIE_ILLUSTRATION_PROTOCOL },
+  { name: 'reverie_illustration_protocol', description: 'Legacy alias for the Model Planned prose illustration protocol. Active settings arrive separately in the live runtime.', value: REVERIE_INLINE_PROTOCOL },
   { name: 'reverie_artifact_media_protocol', description: 'Complete secure generated-media protocol for authored HTML artifacts.', value: REVERIE_ARTIFACT_MEDIA_PROTOCOL },
   { name: 'reverie_surface_protocol', description: 'Complete semantic contract for Relay surfaces.', value: REVERIE_SURFACE_PROTOCOL },
 ]) {
@@ -3701,7 +3813,10 @@ async function handleGenerationEnded(payload: any, userId?: string): Promise<voi
   const runtimeExpectedMatch = runtime?.directive.match(new RegExp(`<${runtimeExpectedTag}>(\\d+)<\\/${runtimeExpectedTag}>`, 'i'))
   const expectedInlineIllustrations = runtimeExpectedMatch ? Number(runtimeExpectedMatch[1]) : null
   const expectPlotSparks = config.narrativeDlcEnabled && config.narrativeDlcUtilityNames.includes('Plot Sparks')
-  const outputInspection = inspectStoryModelOutputContracts(payloadContent, { expectedInlineIllustrations, inlineCountMode, expectPlotSparks })
+  const outputInspection = inspectStoryModelOutputContracts(payloadContent, {
+    expectedInlineIllustrations, inlineCountMode, expectPlotSparks,
+    plotSparksImagesEnabled: config.narrativeUtilityImageEnabled['Plot Sparks'] !== false,
+  })
   if (!outputInspection.valid) {
     await mutateState(cleanString(payload.chatId), userId, state => {
       appendStateLog(state, {
@@ -3867,9 +3982,14 @@ function relayPlannedContextForResponse(input: {
 }): RelayPlannedContext {
   const references = selectProseReferenceAssets(input.state, input.chatId, input.settings, false)
   const locationReferences = selectProseReferenceAssets(input.state, input.chatId, input.settings, true)
-  const priorIllustrations = Object.values(input.state.proseIllustrator.plans)
+  const plans = Object.values(input.state.proseIllustrator.plans)
+  const previousShot = previousSequenceShotContext(plans, input.chatId, input.messageId, input.settings.perspectiveMode)
+  const priorIllustrations = [
+    ...(previousShot ? [previousShot] : []),
+    ...plans
     .filter(plan => plan.chatId === input.chatId && plan.messageId === input.messageId && plan.swipeId === input.swipeId)
-    .map(plan => ({ planId: plan.planId, title: plan.title, subjects: plan.namedSubjects, paragraphIndex: plan.anchor.paragraphIndex, status: plan.status }))
+    .map(plan => ({ scope: 'current-response', planId: plan.planId, title: plan.title, subjects: plan.namedSubjects, paragraphIndex: plan.anchor.paragraphIndex, status: plan.status })),
+  ]
   const native = nativeSnapshotFromConfig(input.config)?.settings || {}
   return {
     version: RELAY_PLANNED_V2,
@@ -4151,7 +4271,7 @@ async function discoverProseOpportunities(input: {
       appendStateLog(next, {
         severity: 'warning', stage: 'prose-opportunity-discovery', eventType: 'prose_sidecar_unavailable',
         chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
-        message: 'Planner unavailable. Configure a Relay-Planned connection or use Model-Placed mode.',
+        message: 'Planner unavailable. Configure a Relay-Planned connection or use Model Planned mode.',
         details: { settingsFingerprint, source: input.source },
       })
     })
@@ -4704,6 +4824,11 @@ async function flushProseOpportunityScan(scheduled: Omit<NonNullable<ReturnType<
     return
   }
   if (!message || !isAssistantMessage(message) || isOwnMessage(message)) return
+  // A replayed MESSAGE_SENT is not permission to run the hands-off planner:
+  // the original completed image request may still be present under Relay's
+  // state projection. Explicit user message edits remain eligible when their
+  // configured reanalysis path requested this scan.
+  if (!hasFreshGenerationBoundary(scheduled.sources) && !scheduled.sources.has('message-edited')) return
   const swipeId = Number.isFinite(Number(scheduled.swipeId)) ? Number(scheduled.swipeId) : activeSwipeId(message)
   const content = scheduled.sourceContent || getSwipeContent(message, swipeId)
   await discoverProseOpportunities({
@@ -4741,10 +4866,40 @@ async function flushAssistantScan(scheduled: Omit<NonNullable<ReturnType<typeof 
       retryAttempt: scheduled.attempt,
     },
   }))
-  // Auto Generate controls provider dispatch, not discovery.  This keeps
-  // authored inline-protocol requests visible as manual Relay slots while
-  // making a backend dispatch impossible until the user explicitly asks.
-  await scanAndGenerate(scheduled.chatId, scheduled.messageId, swipeId, scheduled.userId, undefined, sourceContent, !config.autoGenerate)
+  // MESSAGE_SENT can be replayed while switching extensions/opening an old
+  // chat. Stored request markup is intentionally preserved beneath Relay's
+  // state-backed image projection, so a replay must never turn that historical
+  // request into fresh provider work. GENERATION_ENDED is the fresh-work proof.
+  // Auto Generate still controls dispatch after a confirmed completed turn.
+  const hasFreshGeneration = hasFreshGenerationBoundary(scheduled.sources)
+  if (!hasFreshGeneration && !config.autoRescanOnChatOpen && isChatOpenReplayScan(scheduled.sources)) return
+  await scanAndGenerate(
+    scheduled.chatId, scheduled.messageId, swipeId, scheduled.userId, undefined, sourceContent,
+    !config.autoGenerate || !hasFreshGeneration,
+  )
+}
+
+/** Preserve a replay's register-only restriction across duplicate scan deferral. */
+export function mergeDeferredRegisterOnly(existing: boolean | undefined, incoming: boolean): boolean {
+  return existing === undefined ? incoming : existing && incoming
+}
+
+/** A completed response scan must supersede a deferred partial-stream scan. */
+export function mergeDeferredStreaming(existing: boolean | undefined, incoming: boolean): boolean {
+  return existing === undefined ? incoming : existing && incoming
+}
+
+export function hasFreshGenerationBoundary(sources: Iterable<string>): boolean {
+  for (const source of sources) if (source === 'generation-ended') return true
+  return false
+}
+
+/** MESSAGE_SENT is replayed when Lumiverse reopens historical chats. Keep that
+ * register-only reconciliation behind the user's Auto-rescan on chat open
+ * preference; edits, swipes, and fresh generations remain independent. */
+export function isChatOpenReplayScan(sources: Iterable<string>): boolean {
+  const values = [...sources]
+  return values.length > 0 && values.every(source => source === 'message-sent' || source === 'authoritative-message-retry')
 }
 
 function deletedMessageIdentity(payload: any): { chatId: string; messageId: string } {
@@ -5027,8 +5182,34 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
       await reconcileInstalledNarrativeOnStartup(userId)
       await sendState(userId, payload.chatId ?? undefined)
       return
-    case 'scan_message':
-      await scanAndGenerate(payload.chatId, payload.messageId ?? undefined, payload.swipeId, userId, snapshotFromPayload(payload), payload.sourceContent)
+    case 'scan_message': {
+      const config = payload.automatic === true || payload.streaming === true ? await getConfig(userId) : null
+      if (payload.automatic === true && config?.autoRescanOnChatOpen === false) return
+      if (payload.streaming === true) {
+        const streamingConfig = config || await getConfig(userId)
+        if (!streamingConfig.enabled || payload.automatic !== false) return
+        const state = await getState(payload.chatId, userId)
+        const settings = proseSettingsForChat(state, payload.chatId)
+        if (!settings.enabled || settings.mode !== 'inline-protocol' || !settings.instantIllustrationDispatch) return
+      }
+      await scanAndGenerate(payload.chatId, payload.messageId ?? undefined, payload.swipeId, userId, snapshotFromPayload(payload), payload.sourceContent, payload.automatic === true, payload.streaming === true)
+      return
+    }
+    case 'instant_stream_probe':
+      await mutateState(payload.chatId, userId, state => appendStateLog(state, {
+        severity: 'info', stage: 'instant-stream', eventType: 'instant_stream_probe',
+        chatId: payload.chatId, messageId: payload.messageId, requestId: cleanString(payload.requestId) || undefined,
+        message: `Instant stream ${payload.phase} observed.`,
+        details: {
+          phase: payload.phase,
+          streaming: payload.streaming === true,
+          instantEnabled: payload.instantEnabled === true,
+          mode: cleanString(payload.mode),
+          cardFound: payload.cardFound,
+          anchorLength: Number.isFinite(Number(payload.anchorLength)) ? Number(payload.anchorLength) : undefined,
+          sourceReady: payload.sourceReady,
+        },
+      }))
       return
     case 'frontend_session': {
       const broker = nativeSettingsBroker(userId)
@@ -5107,7 +5288,10 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
         const state = chatId ? await getState(chatId, userId) : null
         const studio = state?.customSurfaces || normalizeCustomSurfaceStudio(current.globalSurfaceStudio || defaultCustomSurfaceStudio())
         const settings = state ? proseSettingsForChat(state, chatId!) : current.proseIllustratorSettings
-        const surfaceUtility = buildEnabledSurfaceUtility(studio, 'automatic')
+        const inheritedProfileId = chatId
+          ? effectiveGenerationProfile(current, chatId).defaultPromptProfileId
+          : current.defaultGenerationProfile.defaultPromptProfileId
+        const surfaceUtility = buildEnabledSurfaceUtility(studio, 'automatic', current.promptProfiles, inheritedProfileId)
         const narrativeUtility = buildResolvedNarrativeUtilityPrompt(current)
         const surfaceProtocol = registryPrompt(settings, 'story.surface-protocol')
         const prompt = [surfaceProtocol, surfaceUtility.content, narrativeUtility.content].filter(Boolean).join('\n\n')
@@ -5144,14 +5328,16 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
             ? await inspectNarrativeRegex(spindle.regex_scripts, variant, userId, current.surfaceColorMode)
             : await reconcileNarrativeRegex(spindle.regex_scripts, variant, userId, current.surfaceColorMode)
         await setConfig({
-          narrativeDlcEnabled: payload.action === 'remove' ? false : current.narrativeDlcEnabled || payload.action === 'install',
+        // Installing the optional display reference pack must not toggle the
+        // independent Story Model Narrative Utility prompts.
+        narrativeDlcEnabled: current.narrativeDlcEnabled,
           narrativeDlcVariant: variant,
           narrativeDlcLastSync: health,
         }, userId)
         spindle.sendToFrontend({ type: 'relay_notice', level: health.status === 'healthy' || health.status === 'removed' ? 'success' : 'warning', message: health.message }, userId)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        const expected = narrativeRegexScripts(variant).length
+        const expected = relayRegexImportScripts(variant, current.surfaceColorMode).length
         const failed: NarrativeDlcHealth = {
           status: 'failed', variant, expected, installed: current.narrativeDlcLastSync?.installed || 0,
           healthy: 0, drifted: expected, blocked: /outside Relay ownership/i.test(message) ? 1 : 0,
@@ -5193,9 +5379,18 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
     case 'retry_failed':
       await retryFailed(payload.chatId, userId)
       return
-    case 'rescan_chat':
-      await rescanChatForSlots(payload.chatId, userId, payload.automatic === true, payload.includeInactiveSwipes)
+    case 'rescan_chat': {
+      const automatic = payload.automatic === true
+      // The frontend may have scheduled this request from a state response
+      // that raced a preference change. Recheck persisted config at the work
+      // boundary so disabling Auto-rescan always suppresses automatic scans.
+      if (automatic && !(await getConfig(userId)).autoRescanOnChatOpen) {
+        spindle.sendToFrontend({ type: 'rescan_result', summary: emptyRescanSummary(), automatic: true }, userId)
+        return
+      }
+      await rescanChatForSlots(payload.chatId, userId, automatic, payload.includeInactiveSwipes)
       return
+    }
     case 'generate_recovered':
       await generateRecoveredSlot(payload.key, snapshotFromPayload(payload), userId)
       return
@@ -5283,7 +5478,19 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
       await handleProseIllustratorAction(payload, snapshotFromPayload(payload), userId)
       return
     case 'custom_surface_action':
+      if (payload.requestId && (payload.action === 'create' || payload.action === 'edit')) {
+        try {
+          await handleCustomSurfaceAction(payload, userId)
+          spindle.sendToFrontend({ type: 'custom_surface_action_result', requestId: payload.requestId, ok: true }, userId)
+        } catch (error) {
+          spindle.sendToFrontend({ type: 'custom_surface_action_result', requestId: payload.requestId, ok: false, error: error instanceof Error ? error.message : String(error) }, userId)
+        }
+        return
+      }
       await handleCustomSurfaceAction(payload, userId)
+      return
+    case 'surface_renderer_script_action':
+      await handleSurfaceRendererScriptAction(payload, userId)
       return
     case 'bulk_chat_media_action':
       await handleBulkChatMediaAction(payload, userId)
@@ -5497,7 +5704,7 @@ function dryRunReportFromPlan(input: {
     promptMode: 'dry-run', promptPresetId: null, parserUsed: false, parserOutput: '', parserConnectionId: null, parserModel: '', parserParameters: {},
     promptPipeline: emptyPromptPipeline({ originalNegativePrompt: finalNegative, resolvedNegativePrompt: finalNegative }),
   })
-  assertProviderRequestSafe(finalPrompt, finalNegative, parameters)
+  assertProviderRequestSafe(finalPrompt, finalNegative, parameters, input.plan.authoritativeSourceParagraph)
   return {
     id: `dry-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     kind: input.kind,
@@ -5719,7 +5926,7 @@ export function buildFullCompleteDryRunReport(input: {
         enabledUtilityModuleIds: input.surfaceUtility.moduleIds,
         enabledUtilities: input.surfaceUtility.content,
         rendererOwner: input.surfaceStudio?.rendererMode || 'relay',
-        reviewedRegexScripts: input.surfaceStudio?.rendererMode === 'hybrid' ? [...REVIEWED_REGEX_SURFACE_IDS] : [],
+        reviewedRegexScripts: [],
         contractTrace: r45SurfaceAuthorityScripts('plain', 'realistic').map(script => ({
           scriptId: script.script_id,
           expectedPackVersion: r45SurfaceAuthorityPack('plain', 'realistic').version,
@@ -5765,12 +5972,15 @@ async function handleFullCompleteDryRun(payload: Extract<FrontendMessage, { type
   const settings = proseSettingsForChat(state, chatId || UTILITY_STATE_ID)
   const messages = chatId ? await spindle.chat.getMessages(chatId).catch(() => []) as LlmMessage[] : []
   const personaPovContext = settings.perspectiveMode === 'persona-pov' && chatId ? await resolvePersonaPovContext(chatId, userId) : undefined
-  const surfaceUtility = buildEnabledSurfaceUtility(state.customSurfaces, 'automatic')
+  const inheritedProfileId = chatId
+    ? effectiveGenerationProfile(config, chatId).defaultPromptProfileId
+    : config.defaultGenerationProfile.defaultPromptProfileId
+  const surfaceUtility = buildEnabledSurfaceUtility(state.customSurfaces, 'automatic', config.promptProfiles, inheritedProfileId)
   const narrativeUtility = buildResolvedNarrativeUtilityPrompt(config)
   const report = buildFullCompleteDryRunReport({
     chatId,
-    illustratorPrompt: resolveIllustratorStoryPrompt(settings, messages, personaPovContext),
-    runtimeDirective: buildIllustratorRuntimeDirective(settings, messages, personaPovContext),
+    illustratorPrompt: resolveIllustratorStoryPrompt(settings, messages, personaPovContext, config.promptProfiles, inheritedProfileId),
+    runtimeDirective: buildIllustratorRuntimeDirective(settings, messages, personaPovContext, config.promptProfiles, inheritedProfileId),
     adultFidelity: registryPrompt(settings, 'story.adult-content-fidelity'),
     surfaceProtocol: registryPrompt(settings, 'story.surface-protocol'),
     surfaceUtility,
@@ -6600,6 +6810,7 @@ async function scanAndGenerate(
   nativeSnapshot?: NativeSettingsSnapshot,
   sourceContent?: string,
   registerOnly = false,
+  streaming = false,
 ): Promise<void> {
   // Capture the user-wide cancellation epoch before any discovery or parser
   // work. Jobs waiting inside the bounded batch are not active attempts yet,
@@ -6614,7 +6825,10 @@ async function scanAndGenerate(
 
   const lockKey = `${chatId}:${messageId ?? '__latest__'}:${forcedSwipeId ?? '__active__'}`
   if (messageLocks.has(lockKey)) {
-    deferredScans.set(lockKey, [chatId, messageId, forcedSwipeId, userId, nativeSnapshot, sourceContent])
+    const existingDeferred = deferredScans.get(lockKey)
+    const deferredRegisterOnly = mergeDeferredRegisterOnly(existingDeferred?.[6], registerOnly)
+    const deferredStreaming = mergeDeferredStreaming(existingDeferred?.[7], streaming)
+    deferredScans.set(lockKey, [chatId, messageId, forcedSwipeId, userId, nativeSnapshot, sourceContent, deferredRegisterOnly, deferredStreaming])
     return
   }
   messageLocks.add(lockKey)
@@ -6639,7 +6853,10 @@ async function scanAndGenerate(
     const config = await getConfig(userId)
     if (!config.enabled) return
 
-    const message = await resolveMessage(chatId, messageId)
+    const resolvedMessage = await resolveMessage(chatId, messageId)
+    const message = resolvedMessage || (streaming && messageId && containsRelayRequestMarkup(sourceContent || '')
+      ? createStreamingAssistantSnapshot(messageId, Number.isFinite(Number(forcedSwipeId)) ? Number(forcedSwipeId) : 0) as ChatMessage
+      : null)
     if (!message || !isAssistantMessage(message) || isOwnMessage(message)) {
       await sendState(userId, chatId)
       return
@@ -6647,14 +6864,18 @@ async function scanAndGenerate(
 
     const swipeId = Number.isFinite(Number(forcedSwipeId)) ? Number(forcedSwipeId) : Number(message.swipe_id ?? 0)
     const rawStoredContent = getAuthoritativeSwipeContent(message, swipeId)
-    const storedProseNormalization = normalizeProseIllustrationContracts(rawStoredContent)
-    const storedContent = normalizeRelaySurfaceContracts(storedProseNormalization.markup)
-    if (storedContent !== rawStoredContent) await patchSwipeContent(chatId, message, swipeId, storedContent)
+    const storedProseNormalization = streaming
+      ? { markup: rawStoredContent, repairs: [] as ReturnType<typeof normalizeProseIllustrationContracts>['repairs'] }
+      : normalizeProseIllustrationContracts(rawStoredContent)
+    const storedContent = streaming ? rawStoredContent : normalizeRelaySurfaceContracts(storedProseNormalization.markup)
+    if (!streaming && storedContent !== rawStoredContent) await patchSwipeContent(chatId, message, swipeId, storedContent)
     const pending = messageId ? pendingGenerationContent.get(pendingContentKey(chatId, message.id)) : undefined
     const rawCapturedContent = sourceContent || pending?.content || ''
     const capturedProseNormalization = normalizeProseIllustrationContracts(rawCapturedContent)
     const capturedContent = normalizeRelaySurfaceContracts(capturedProseNormalization.markup)
-    const content = containsRelayRequestMarkup(capturedContent) ? capturedContent : storedContent
+    const content = streaming
+      ? (containsRelayRequestMarkup(capturedContent) ? capturedContent : '')
+      : (containsRelayRequestMarkup(capturedContent) ? capturedContent : storedContent)
     const storedContainsImageRequest = containsRelayRequestMarkup(storedContent)
     const capturedContainsImageRequest = containsRelayRequestMarkup(capturedContent)
     const proseContractRepairs = [...storedProseNormalization.repairs, ...capturedProseNormalization.repairs]
@@ -6667,14 +6888,18 @@ async function scanAndGenerate(
         details: { repairs: proseContractRepairs.map(repair => ({ code: repair.code, slot: repair.slot, index: repair.index })) },
       }))
     }
-    try {
-      // The same assistant turn must update continuity before Relay snapshots its image jobs.
-      await ensureAppearanceReadyForTurn({ chatId, messageId: message.id, swipeId, content, userId, nativeSnapshot, reason: 'scan-and-generate' })
-    } catch (error) {
-      await mutateState(chatId, userId, state => {
-        state.continuityVault.appearanceSidecar.lastError = error instanceof Error ? error.message : String(error)
-        appendStateLog(state, { severity: 'warning', stage: 'appearance-sidecar', eventType: 'appearance_sidecar_failed', chatId, messageId: message.id, swipeId, message: `Appearance Sidecar fallback: ${state.continuityVault.appearanceSidecar.lastError}` })
-      })
+    if (!streaming) {
+      try {
+        // Completed-response discovery waits for continuity. Instant scans use
+        // only the accepted appearance memory already available; the normal
+        // generation-ended hook still reconciles the full response afterward.
+        await ensureAppearanceReadyForTurn({ chatId, messageId: message.id, swipeId, content, userId, nativeSnapshot, reason: 'scan-and-generate' })
+      } catch (error) {
+        await mutateState(chatId, userId, state => {
+          state.continuityVault.appearanceSidecar.lastError = error instanceof Error ? error.message : String(error)
+          appendStateLog(state, { severity: 'warning', stage: 'appearance-sidecar', eventType: 'appearance_sidecar_failed', chatId, messageId: message.id, swipeId, message: `Appearance Sidecar fallback: ${state.continuityVault.appearanceSidecar.lastError}` })
+        })
+      }
     }
     if (!containsRelayRequestMarkup(content)) {
       logStage(config, 'request_detection', {
@@ -6683,6 +6908,8 @@ async function scanAndGenerate(
         swipeId,
         payloadContainsImageRequest: capturedContainsImageRequest,
         storedMessageContainsImageRequest: storedContainsImageRequest,
+        streaming,
+        registerOnly,
         parsedRequestCount: 0,
         reason: 'no image_request or reverie-illustration request found in stored message or captured payload',
       }, 'warn')
@@ -6690,7 +6917,11 @@ async function scanAndGenerate(
       return
     }
 
-    const requests = parseSafeSurfaceImageRequests(content)
+    const allParsedRequests = parseSafeSurfaceImageRequests(content)
+    const parsedRequests = suppressTextOnlyNarrativeRequests(content, allParsedRequests, config.narrativeUtilityImageEnabled)
+    // The streaming lane is intentionally narrow: other Surface families keep
+    // their existing completed-response Status Card path.
+    const requests = streaming ? parsedRequests.filter(request => request.target === 'prose.illustration') : parsedRequests
     const invalidProseIllustrations = inspectProseIllustrationSchemas(content)
     if (invalidProseIllustrations.length) {
       await mutateState(chatId, userId, state => {
@@ -6712,11 +6943,14 @@ async function scanAndGenerate(
       swipeId,
       payloadContainsImageRequest: capturedContainsImageRequest,
       storedMessageContainsImageRequest: storedContainsImageRequest,
+      streaming,
+      registerOnly,
       rawTagCount: rawTags.length,
       parsedRequestCount: requests.length,
+      suppressedTextOnlyNarrativeRequests: allParsedRequests.length - parsedRequests.length,
       requestIdsFound: requests.map(request => request.id),
       targetsFound: requests.map(request => request.target),
-      ignoredRawTags: rawTags.length > requests.length ? rawTags.slice(requests.length) : [],
+      ignoredRawTags: rawTags.length > allParsedRequests.length ? rawTags.slice(allParsedRequests.length) : [],
     }, requests.length === 0 ? 'warn' : 'info')
     if (requests.length === 0) {
       await sendState(userId, chatId)
@@ -6745,6 +6979,12 @@ async function scanAndGenerate(
         .filter((record): record is SlotRecord => Boolean(record))
       const blocking = registered.find(record => record.status !== 'queued')
       const queuedRecords = registered.filter(record => record.status === 'queued')
+      const paragraphSource = proseRequestAnchor(req, content, message.id, swipeId)
+      const selectedProfileId = registered.find(record => record.selectedPromptProfileId)?.selectedPromptProfileId
+        || selectedPromptProfileForImageRequest(req, content, state.customSurfaces, state, config, chatId)
+      const requestAspect = req.target === 'prose.illustration'
+        ? resolveIllustrationRequestAspect(req.aspect, proseSettingsForChat(state, chatId).defaultAspectRatio)
+        : req.aspect
       const job: RouterJob = {
         chatId,
         messageId: message.id,
@@ -6757,13 +6997,16 @@ async function scanAndGenerate(
         alt: req.alt || '',
         caption: req.caption,
         time: req.time,
-        aspect: req.aspect,
+        aspect: requestAspect,
         originalSceneBrief: req.prompt,
         originalNegativePrompt: req.negative || '',
         originalRequestXml: req.fullMatch,
         cast: req.cast,
         promptSource: req.promptSource,
+        promptProfileId: selectedProfileId,
         sourceContent: content,
+        authoritativeSourceParagraph: paragraphSource?.paragraph,
+        proseAnchor: paragraphSource?.anchor,
       }
       if (blocking) {
         logStage(config, 'request_skipped', {
@@ -6793,6 +7036,11 @@ async function scanAndGenerate(
         continue
       }
       if (queuedRecords.length === slots.length) {
+        for (const record of queuedRecords) {
+          record.authoritativeSourceParagraph ||= paragraphSource?.paragraph
+          record.proseAnchor ||= paragraphSource?.anchor
+          if (requestAspect) record.requestAspect = requestAspect
+        }
         logStage(config, 'request_registered', {
           chatId,
           messageId: message.id,
@@ -6830,7 +7078,9 @@ async function scanAndGenerate(
           caption: req.caption,
           time: req.time,
           count: req.count,
-          requestAspect: req.aspect,
+          requestAspect,
+          authoritativeSourceParagraph: paragraphSource?.paragraph,
+          proseAnchor: paragraphSource?.anchor,
           createdAt: previous?.createdAt ?? now,
           discoveredAt: previous?.discoveredAt ?? now,
           registeredAt: previous?.registeredAt ?? now,
@@ -6842,7 +7092,7 @@ async function scanAndGenerate(
           queuedAt: now,
           updatedAt: now,
           highResMode: previous?.highResMode ?? config.highResMode,
-          selectedPromptProfileId: previous?.selectedPromptProfileId ?? effectiveGenerationProfile(config, chatId).defaultPromptProfileId,
+          selectedPromptProfileId: previous?.selectedPromptProfileId ?? selectedProfileId,
           attempts: previous?.attempts ?? [],
           promptPipeline: previous?.promptPipeline ?? emptyPromptPipeline({ caption: req.caption, originalNegativePrompt: req.negative || '' }),
           history: previous?.history ?? [],
@@ -6912,7 +7162,10 @@ async function scanAndGenerate(
       }
       return
     }
-    await runWithConcurrency(jobs, config.queueConcurrencyLimit, job => dispatchRelayJob(job, {
+    // An authored illustration sequence is ordered storytelling, not an
+    // unordered provider batch. Its first request must enter generation first.
+    const initialConcurrency = jobs.some(job => job.target === 'prose.illustration') ? 1 : config.queueConcurrencyLimit
+    await runWithConcurrency(jobs, initialConcurrency, job => dispatchRelayJob(job, {
       replaceExisting: false,
       reparse: true,
       triggerType: 'initial',
@@ -6972,12 +7225,24 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
     await assertPersonaPovDispatchAllowed(job, userId)
     if (options.triggerType !== 'initial') await preflightJobReplacement(job)
     const config = await getConfig(userId)
+    if (job.target === 'prose.illustration') {
+      const currentState = await getState(job.chatId, userId)
+      const aspectPolicy = proseSettingsForChat(currentState, job.chatId).defaultAspectRatio
+      const enforcedAspect = job.regenerationIntent?.aspectRatio
+        || resolveIllustrationRequestAspect(job.aspect, aspectPolicy)
+      if (enforcedAspect && enforcedAspect !== job.aspect) job = { ...job, aspect: enforcedAspect }
+    }
     if (options.automaticDispatch && !config.autoGenerate) {
       await mutateJobState(job, userId, state => {
         for (const slot of job.slots) {
           const record = state.slots[slotKey({ ...job, slot })]
           if (!record) continue
           record.status = 'queued'
+          if (job.target === 'prose.illustration') {
+            record.requestAspect = job.aspect
+            record.authoritativeSourceParagraph ||= job.authoritativeSourceParagraph
+            record.proseAnchor ||= job.proseAnchor
+          }
           record.updatedAt = Date.now()
         }
         appendStateLog(state, {
@@ -6994,6 +7259,11 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
       startBackgroundTask(state, { id: backgroundTaskId, chatId: job.chatId, source: job.target === 'prose.illustration' ? 'relay-illustrator' : 'relay-slot', label: job.target === 'prose.illustration' ? `Illustrate ${job.alt || job.requestId}` : `Generate ${job.target}`, stage: 'analyzing', statusText: 'Analyzing 1/3', current: 1, total: 3, requestId: job.requestId, slotKey: job.slots[0] ? slotKey({ ...job, slot: job.slots[0] }) : undefined, planId: job.prosePlanId })
       for (const slot of job.slots) {
         const record = state.slots[slotKey({ ...job, slot })]
+        if (record && job.target === 'prose.illustration') {
+          record.requestAspect = job.aspect
+          record.authoritativeSourceParagraph ||= job.authoritativeSourceParagraph
+          record.proseAnchor ||= job.proseAnchor
+        }
         appendStateLog(state, {
           severity: 'info', stage: 'parser-start', eventType: 'parser_started', chatId: job.chatId, messageId: job.messageId,
           swipeId: job.swipeId, requestId: job.requestId, slot, target: job.target, attemptNumber: record.attemptNumber,
@@ -7024,9 +7294,12 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
       let imagePlan: ImagePlan
       let prepared: PreparedPrompt
       let attemptNumber: number | undefined
+      let regenerateSwarmSeed = false
       try {
       failureStage = 'provider-validation'
       imagePlan = await raceWithAbort(prepareImagePlan(config, job, record, options.nativeSnapshot, userId, highResMode), options.signal)
+      regenerateSwarmSeed = options.triggerType.startsWith('regenerate') && isSwarmUiProvider(imagePlan.provider)
+      if (regenerateSwarmSeed) imagePlan.finalParameters = withSwarmRegenerationSeed(imagePlan.finalParameters, imagePlan.provider, true)
       await mutateJobState(job, userId, state => stampImagePlan(state.slots[key], imagePlan))
       scheduleStateBroadcast(userId, job.chatId)
       if (isJobCancelled(job)) throw new JobCancelledError()
@@ -7035,7 +7308,7 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
       failureStage = 'parser-failed'
       if (isJobCancelled(job)) throw new JobCancelledError()
       prepared = options.reparse
-        ? await raceWithAbort(parseSlotPrompt(job, slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings as NativeImageSettings, highResMode, options.triggerType === 'reparse' || options.triggerType === 'intent-regeneration'), options.signal)
+        ? await raceWithAbort(parseSlotPrompt(job, slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings as NativeImageSettings, highResMode, options.triggerType === 'reparse'), options.signal)
         : resolvedPromptFromRecord(record, config)
       if (isJobCancelled(job)) throw new JobCancelledError()
       enrichPromptPipelineWithImagePlan(prepared.promptPipeline, imagePlan, prepared.prompt, prepared.negativePrompt)
@@ -7092,6 +7365,7 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
         slotKey: key,
         requestId: job.requestId,
         origin: providerOrigin,
+        randomizeSwarmSeed: regenerateSwarmSeed,
         previousSlotStatus: options.previousSlotStatus || record.status,
         cancellationEpoch: providerAbortEpoch,
         authorizedSlotKey: options.authorizedSlotKey || (options.automaticDispatch ? undefined : key),
@@ -7402,10 +7676,118 @@ export function parseSafeSurfaceImageRequests(content: string): ReturnType<typeo
   return parseImageRequests(safe.markup)
 }
 
+const NARRATIVE_REQUEST_OWNERS: Readonly<Record<string, RegExp>> = {
+  'Character Phone': /\[character_phone\][\s\S]*?\[\/character_phone\]/gi,
+  'Dramatic Cutaway': /\[dramatic_parallel\][\s\S]*?\[\/dramatic_parallel\]/gi,
+  'Plot Sparks': /\[Plot_Sparks\][\s\S]*?\[\/Plot_Sparks\]/gi,
+  'Scene Shift': /\[SCENE\|[^\]]*\][\s\S]*?\[\/SCENE\]/gi,
+  'Parallel Scene': /\[PARALLEL\|[^\]]*\][\s\S]*?\[\/PARALLEL\]/gi,
+  'Cast Introduction': /\[NPC:(?:MAJOR|SUPPORT|MINOR|UP)\|[^\]]*\][\s\S]*?\[\/NPC\]/gi,
+  'Backstage Secrets': /\[SECRET\|[^\]]*\][\s\S]*?\[\/SECRET\]/gi,
+  'Setting the Scene': /\[WORLD\|[^\]]*\][\s\S]*?\[\/WORLD\]/gi,
+  'Off-Stage': /\[\[else\s[^\]]*\]\][\s\S]*?\[\[\/else\]\]/gi,
+  'Character Dossier': /\[\[npc\s[^\]]*\]\][\s\S]*?\[\[\/npc\]\]/gi,
+  'Location File': /\[\[place\s[^\]]*\]\][\s\S]*?\[\[\/place\]\]/gi,
+  'In Another Life': /\[WHATIF\|[^\]]*\][\s\S]*?\[\/WHATIF\]/gi,
+  'Archive Entry': /\[dossier_ui\][\s\S]*?\[\/dossier_ui\]/gi,
+  'Relationship Map': /\[relationship_map\][\s\S]*?\[\/relationship_map\]/gi,
+  'Cast Sheet': /\[character_profile\][\s\S]*?\[\/character_profile\]/gi,
+  'Persona Wardrobe': /\[persona_wardrobe\][\s\S]*?\[\/persona_wardrobe\]/gi,
+}
+
+/** Images-off applies to future automatic work. Explicit actions on an
+ * existing slot still use its saved request and never pass through this filter. */
+export function suppressTextOnlyNarrativeRequests<T extends ImageRequest>(
+  content: string,
+  requests: T[],
+  imageEnabled: Record<string, boolean> = {},
+): T[] {
+  const disabledOwners = Object.entries(NARRATIVE_REQUEST_OWNERS).filter(([name]) => imageEnabled[name] === false)
+  if (!disabledOwners.length || !requests.length) return requests
+  const ranges = disabledOwners.flatMap(([, owner]) => [...content.matchAll(owner)].map(match => [match.index, match.index + match[0].length] as const))
+  if (!ranges.length) return requests
+  return requests.filter(request => {
+    const offset = sourceOffsetForImageRequest(content, request)
+    return offset < 0 || !ranges.some(([start, end]) => offset >= start && offset < end)
+  })
+}
+
+function sourceOffsetForImageRequest(content: string, request: ImageRequest): number {
+  if (content.slice(request.index, request.index + request.fullMatch.length) === request.fullMatch) return request.index
+  const first = content.indexOf(request.fullMatch)
+  if (first < 0 || content.indexOf(request.fullMatch, first + request.fullMatch.length) >= 0) return -1
+  return first
+}
+
+function owningSurfaceDefinitionForImageRequest(
+  content: string,
+  request: ImageRequest,
+  studio: CustomSurfaceStudioState,
+): CustomSurfaceDefinition | undefined {
+  const requestOffset = sourceOffsetForImageRequest(content, request)
+  if (requestOffset < 0) return undefined
+  const definitionsByRoot = new Map<string, CustomSurfaceDefinition[]>()
+  for (const definition of activeSurfaceDefinitions(studio)) {
+    const root = cleanString(definition.canonicalOuterWrapper).toLocaleLowerCase()
+    if (!root) continue
+    definitionsByRoot.set(root, [...(definitionsByRoot.get(root) || []), definition])
+  }
+
+  const stack: Array<{ name: string; grammar: 'bracket' | 'xml'; definition?: CustomSurfaceDefinition }> = []
+  const token = /\[\s*(\/?)\s*([A-Za-z_][A-Za-z0-9_.:-]*)\s*\]|<\s*(\/?)\s*([A-Za-z_][A-Za-z0-9_.:-]*)\b[^>]*>/g
+  let match: RegExpExecArray | null
+  while ((match = token.exec(content)) !== null && match.index < requestOffset) {
+    const bracket = match[2] !== undefined
+    const grammar = bracket ? 'bracket' : 'xml'
+    const closing = bracket ? Boolean(match[1]) : Boolean(match[3])
+    const name = String(bracket ? match[2] : match[4]).toLocaleLowerCase()
+    if (closing) {
+      for (let index = stack.length - 1; index >= 0; index -= 1) {
+        if (stack[index].grammar !== grammar || stack[index].name !== name) continue
+        stack.splice(index)
+        break
+      }
+      continue
+    }
+    const selfClosing = !bracket && /\/\s*>$/.test(match[0])
+    const voidElement = !bracket && ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'].includes(name)
+    if (selfClosing || voidElement) continue
+    const candidates = definitionsByRoot.get(name) || []
+    stack.push({ name, grammar, definition: candidates.length === 1 ? candidates[0] : undefined })
+  }
+  return [...stack].reverse().find(entry => entry.definition)?.definition
+}
+
+function selectedPromptProfileForImageRequest(
+  request: ImageRequest,
+  content: string,
+  studio: CustomSurfaceStudioState,
+  state: StateFile,
+  config: RouterConfig,
+  chatId: string,
+): PromptProfileId {
+  const surface = owningSurfaceDefinitionForImageRequest(content, request, studio)
+  if (surface) {
+    const surfaceProfileId = cleanString(surface.defaultPromptProfileId) as PromptProfileId
+    if (surfaceProfileId && surfaceProfileId !== 'auto') return surfaceProfileId
+  }
+  if (request.target === 'prose.illustration') {
+    const proseProfileId = cleanString(proseSettingsForChat(state, chatId).defaultPromptProfileId) as PromptProfileId
+    if (proseProfileId && proseProfileId !== 'auto') return proseProfileId
+  }
+  return effectiveGenerationProfile(config, chatId).defaultPromptProfileId || 'auto'
+}
+
 async function preflightJobReplacement(job: RouterJob): Promise<void> {
   const message = await resolveMessage(job.chatId, job.messageId)
   if (!message) throw new ReplacementPreflightError('This recovered slot no longer has a message to update. Remove the Relay record or rebuild the request in an existing message.')
   const content = strictSwipeContent(message, job.swipeId)
+  // Synthetic Relay-Planned prose slots are projected from durable state; the
+  // authored message has no router marker until a completed image is placed.
+  // Permit a failed-slot retry only while its original source swipe is exact.
+  if (job.target === 'prose.illustration' && job.synthetic && job.proseAnchor?.sourceContentFingerprint
+    && job.slots.length === 1 && job.slots[0] === 'illustration'
+    && contentFingerprint(content) === job.proseAnchor.sourceContentFingerprint) return
   const requests = parseSafeSurfaceImageRequests(content)
   const request = requests.find(candidate => candidate.id === job.requestId && candidate.target === job.target)
   const unresolvedSlots = request ? new Set(slotsForRequest(request)) : new Set<string>()
@@ -7999,10 +8381,13 @@ async function rescanChatForSlots(chatId: string, userId?: string, automatic = f
           continue
         }
 
-        const requests = parseSafeSurfaceImageRequests(content)
+        const allParsedRequests = parseSafeSurfaceImageRequests(content)
+        const requests = automatic
+          ? suppressTextOnlyNarrativeRequests(content, allParsedRequests, config.narrativeUtilityImageEnabled)
+          : allParsedRequests
         summary.unresolvedRequestsFound += requests.length
         const rawTags = inspectRawImageRequestTags(content)
-        const malformedRaw = Math.max(0, (content.match(/<image_request\b/gi)?.length || 0) - requests.length)
+        const malformedRaw = Math.max(0, (content.match(/<image_request\b/gi)?.length || 0) - allParsedRequests.length)
         if (malformedRaw) {
           summary.malformedSources += malformedRaw
           malformed.push({
@@ -8012,6 +8397,10 @@ async function rescanChatForSlots(chatId: string, userId?: string, automatic = f
           })
         }
         for (const request of requests) {
+          const paragraphSource = proseRequestAnchor(request, content, message.id, swipeId)
+          const requestAspect = request.target === 'prose.illustration'
+            ? resolveIllustrationRequestAspect(request.aspect, proseSettingsForChat(stateAtScanStart, chatId).defaultAspectRatio)
+            : request.aspect
           for (const slot of slotsForRequest(request)) {
             const key = slotKey({ chatId, messageId: message.id, swipeId, requestId: request.id, slot })
             discoveries.set(key, {
@@ -8019,12 +8408,13 @@ async function rescanChatForSlots(chatId: string, userId?: string, automatic = f
                 key, chatId, messageId: message.id, swipeId, requestId: request.id, target: request.target,
                 targetApp: targetApp(request.target), slot, status: 'recovered-pending',
                 originalSceneBrief: request.prompt, originalNegativePrompt: request.negative || '', originalRequestXml: request.fullMatch,
-                alt: request.alt || '', caption: request.caption, time: request.time, count: request.count, requestAspect: request.aspect,
+                alt: request.alt || '', caption: request.caption, time: request.time, count: request.count, requestAspect,
+                authoritativeSourceParagraph: paragraphSource?.paragraph, proseAnchor: paragraphSource?.anchor,
                 createdAt: discoveredAt, discoveredAt, registeredAt: discoveredAt, recoveredAt: discoveredAt,
                 recoverySource: 'unresolved-request', recoveryCompleteness: 'full', missingRecoveryFields: [],
                 recoveredFromInactiveSwipe: inactive, activeSwipeAtRecovery: activeSwipe, updatedAt: discoveredAt,
                 highResMode: config.highResMode, attempts: [],
-                selectedPromptProfileId: effectiveGenerationProfile(config, chatId).defaultPromptProfileId,
+                selectedPromptProfileId: selectedPromptProfileForImageRequest(request, content, stateAtScanStart.customSurfaces, stateAtScanStart, config, chatId),
                 promptPipeline: emptyPromptPipeline({ caption: request.caption, originalNegativePrompt: request.negative || '' }), history: [],
               },
             })
@@ -8389,6 +8779,18 @@ async function reconcileChatState(chatId: string, userId?: string, onlyMessageId
       }
     }
     if (isProcessing(record)) {
+      summary.valid += 1
+      continue
+    }
+    // Relay-Planned prose media is projected from durable slot state; it has
+    // no marker in the authored host message. An unchanged source swipe still
+    // owns the projection after completion and state compaction.
+    if (record.target === 'prose.illustration' && record.proseSynthetic === true
+      && record.proseAnchor?.sourceContentFingerprint
+      && contentFingerprint(currentSwipeContent) === record.proseAnchor.sourceContentFingerprint) {
+      if (record.orphaned || record.orphanReason) changed = true
+      record.orphaned = false
+      record.orphanReason = undefined
       summary.valid += 1
       continue
     }
@@ -9646,7 +10048,9 @@ async function handleQueueAction(payload: Extract<FrontendMessage, { type: 'queu
     const selected = new Set(payload.selectedKeys || [])
     if (payload.action === 'generate_pending' && !selected.size) throw new Error('Generate Selected Pending requires at least one selected slot.')
     const pending = selectPendingRecordsForExplicitAction(Object.values(state.slots), selected, payload.action === 'generate_all_pending')
-    await runWithConcurrency(groupRecordsIntoJobs(pending), config.queueConcurrencyLimit, job => dispatchRelayJob(job, {
+    const pendingJobs = groupRecordsIntoJobs(pending)
+    const pendingConcurrency = pendingJobs.some(job => job.target === 'prose.illustration') ? 1 : config.queueConcurrencyLimit
+    await runWithConcurrency(pendingJobs, pendingConcurrency, job => dispatchRelayJob(job, {
       replaceExisting: false,
       reparse: true,
       triggerType: 'initial',
@@ -9737,13 +10141,19 @@ async function handleProseIllustratorAction(
   switch (payload.action) {
     case 'preview_prompt': {
       const state = await getState(chatId, userId)
-      const settings = proseSettingsForChat(state, chatId)
+      const config = await getConfig(userId)
+      // A settings save can still be in flight when the user opens this preview.
+      // Resolve from the exact visible draft sent by the frontend, not an older
+      // persisted echo. This path is preview-only and never dispatches a model.
+      const settings = { ...proseSettingsForChat(state, chatId), ...(payload.settings || {}) }
       const messages = await spindle.chat.getMessages(chatId) as LlmMessage[]
       const personaPovContext = settings.perspectiveMode === 'persona-pov' ? await resolvePersonaPovContext(chatId, userId) : undefined
+      const inheritedProfileId = effectiveGenerationProfile(config, chatId).defaultPromptProfileId
       spindle.sendToFrontend({
         type: 'prompt_registry_preview',
         chatId,
-        prompt: resolveIllustratorStoryPrompt(settings, messages, personaPovContext),
+        requestId: payload.requestId,
+        prompt: resolveIllustratorStoryPrompt(settings, messages, personaPovContext, config.promptProfiles, inheritedProfileId),
         registryIds: [
           settings.mode === 'relay-planned' ? 'story.relay-planned' : settings.mode === 'inline-protocol' ? 'story.inline-protocol' : 'story.model-placed',
           `story.framing.${settings.perspectiveMode}`,
@@ -9980,7 +10390,7 @@ async function planProseIllustrationForMessage(
     })
     return selectProseOpportunity(chatId, analysis.opportunities[0].opportunityId, userId)
   }
-  if (!settings.plannerConnectionId) throw new Error('Planner unavailable. Select a Prose Illustrator planner connection or use Model-Placed mode with the preset prompt.')
+  if (!settings.plannerConnectionId) throw new Error('Planner unavailable. Select a Prose Illustrator planner connection or use Model Planned mode with the preset prompt.')
   const paragraphs = proseParagraphs(content)
   const plannerMessages = await buildProsePlannerMessages(chatId, message.id, swipeId, content, paragraphs, settings, userId)
   const connection = await spindle.connections.get(settings.plannerConnectionId, userId)
@@ -10060,7 +10470,15 @@ const UNDERAGE_SCENE_PATTERN = /\b(?:minor|child|teen(?:ager)?|underage|schoolgi
 const EXPLICIT_SEXUAL_SCENE_PATTERN = /\b(?:having sex|sexual intercourse|intercourse|sex scene|sex act|making love|penetrat(?:e|ed|es|ing|ion)|masturbat(?:e|ed|es|ing|ion)|oral sex|fellatio|cunnilingus|blowjob|handjob|anal sex|vaginal sex|genital contact|erect penis|sexual climax|orgasm(?:ic|ing|ed)?|explicit genital contact)\b/i
 const EXPLICIT_ESCALATION_PATTERN = /\b(?:explicit sexual content|adult-only explicit sexual|erect penis|penis|vagina|genitalia|genitals|penetrat(?:e|ed|es|ing|ion)|masturbat(?:e|ed|es|ing|ion)|oral sex|fellatio|cunnilingus|blowjob|handjob|anal sex|vaginal sex|sexual intercourse|having sex|sex act|orgasm(?:ic|ing|ed)?)\b/i
 
-function authoritativeSceneText(job: Pick<RouterJob, 'originalSceneBrief' | 'caption' | 'alt'>): string {
+function authoritativeIllustrationParagraph(job: Pick<RouterJob, 'target' | 'promptSource' | 'authoritativeSourceParagraph'>): string {
+  return job.target === 'prose.illustration' && job.promptSource === 'visual_prompt'
+    ? cleanString(job.authoritativeSourceParagraph)
+    : ''
+}
+
+function authoritativeSceneText(job: Pick<RouterJob, 'originalSceneBrief' | 'caption' | 'alt' | 'target' | 'promptSource' | 'authoritativeSourceParagraph'>): string {
+  const paragraph = authoritativeIllustrationParagraph(job)
+  if (paragraph) return paragraph
   return [job.originalSceneBrief, job.caption, job.alt].map(cleanString).filter(Boolean).join(' ')
 }
 
@@ -10150,9 +10568,8 @@ export async function composePromptForOpportunity(
   if (!rawPositivePrompt) throw new Error('Sidecar prompt composer returned no positivePrompt.')
   const authoritativeScene = [opportunity.sceneSummary, opportunity.selectedExcerpt, content].map(cleanString).filter(Boolean).join(' ')
   const sexualEscalationRejected = hasUnrequestedExplicitEscalation(authoritativeScene, rawPositivePrompt)
-  if (sexualEscalationRejected) warnings.push('Prompt composer added explicit sexual content that was absent from the selected scene; Relay used the authoritative scene instead.')
-  const safeRawPositivePrompt = sexualEscalationRejected ? (cleanString(opportunity.sceneSummary) || cleanString(opportunity.selectedExcerpt) || compact(content, 1800)) : rawPositivePrompt
-  const cleanedPositivePrompt = settings.stripGenericStyleBoilerplate ? stripGenericIllustratorStyleBoilerplate(safeRawPositivePrompt) : safeRawPositivePrompt
+  if (sexualEscalationRejected) throw new Error('Sidecar prompt composer added explicit content absent from the selected scene; Relay stopped before provider dispatch instead of substituting narrative prose for an image prompt.')
+  const cleanedPositivePrompt = settings.stripGenericStyleBoilerplate ? stripGenericIllustratorStyleBoilerplate(rawPositivePrompt) : rawPositivePrompt
   const positivePrompt = [
     settings.customPromptPrefix,
     cleanedPositivePrompt,
@@ -10168,7 +10585,7 @@ export async function composePromptForOpportunity(
     composerConnectionId: connection.id,
     composerModel: settings.plannerModel || connection.model,
     composedAt: Date.now(),
-    sceneBrief: sexualEscalationRejected ? (cleanString(opportunity.sceneSummary) || cleanString(opportunity.selectedExcerpt)) : (cleanString(parsed.sceneBrief) || opportunity.sceneSummary),
+    sceneBrief: cleanString(parsed.sceneBrief) || opportunity.sceneSummary,
     positivePrompt: contextualSexual.prompt,
     negativePrompt: contextualSexual.negativePrompt,
     framing: cleanString(parsed.framing) || opportunity.composition,
@@ -10208,8 +10625,9 @@ export async function buildProsePromptComposerMessages(
   const references = selectProseReferenceAssets(state, chatId, settings, false)
   const locationReferences = selectProseReferenceAssets(state, chatId, settings, true)
   const personaPovContext = settings.perspectiveMode === 'persona-pov' ? await resolvePersonaPovContext(chatId, userId) : undefined
-  return sidecarRegistryMessages(settings, 'composer', {
+  const messages = sidecarRegistryMessages(settings, 'composer', {
     composerVersion: PROSE_PROMPT_COMPOSER_VERSION,
+    providerPromptContract: 'positivePrompt is sent to an image model: write a standalone declarative description of only visible image content from the selected story beat. Do not copy or summarize the narrative paragraph or dialogue, and do not include Relay/Story instructions, framing-mode rules, XML/slot/placement metadata, caption intent, speech bubbles, or subtitles. Include readable text only when a physical text-bearing object is explicitly part of the beat.',
     settings: {
       mode: settings.mode, maximumCharacters: settings.maximumCharacters,
       framingPrompt: effectiveFramingPrompt(settings), highResolutionModifier: settings.highResolutionModifier,
@@ -10223,6 +10641,10 @@ export async function buildProsePromptComposerMessages(
     appearanceMemory: settings.appearanceMemoryEnabled ? formatProjectedAppearanceFacts(facts) : '',
     references, locationReferences, opportunity, activeMessage: compact(content, 5000),
   })
+  const channelGuard = 'PROVIDER PROMPT CHANNEL GUARD: The positivePrompt field is sent directly to the image model. Return only an image-ready description of visible content from the selected story beat. Never copy the narrative paragraph/dialogue, Relay placement or wrapper rules, story framing contract, caption intent, or instructions to the Story Model. Do not invent text bubbles, subtitles, or captions.'
+  if (messages[0]?.role === 'system') messages[0].content = `${messages[0].content}\n\n${channelGuard}`
+  else messages.unshift({ role: 'system', content: channelGuard })
+  return messages
 }
 
 function parseProsePromptCompositionJson(raw: string): Record<string, unknown> {
@@ -10709,6 +11131,40 @@ function proseAnchor(
   }
 }
 
+/**
+ * Return the last narrative paragraph before an authored image request. The
+ * request payload is excluded by proseAnalysisText, so it cannot become the
+ * paragraph anchor even when the Story Model places the XML directly beside
+ * the prose.
+ */
+export function proseParagraphBeforeImageRequest(content: string, requestIndex: number): {
+  paragraph: string
+  paragraphIndex: number
+} | null {
+  const safeIndex = Math.max(0, Math.min(content.length, Math.trunc(Number(requestIndex) || 0)))
+  const precedingParagraphs = proseParagraphs(content.slice(0, safeIndex))
+  if (!precedingParagraphs.length) return null
+  return { paragraph: precedingParagraphs[precedingParagraphs.length - 1], paragraphIndex: precedingParagraphs.length - 1 }
+}
+
+function proseRequestAnchor(
+  request: { target: string; promptSource?: string; index: number },
+  content: string,
+  messageId: string,
+  swipeId: number,
+): { paragraph: string; anchor: ProseIllustrationAnchor } | null {
+  if (request.target !== 'prose.illustration' || request.promptSource !== 'visual_prompt') return null
+  const preceding = proseParagraphBeforeImageRequest(content, request.index)
+  if (!preceding) return null
+  const paragraphs = proseParagraphs(content)
+  const paragraphIndex = Math.min(preceding.paragraphIndex, Math.max(0, paragraphs.length - 1))
+  const paragraph = paragraphs[paragraphIndex] || preceding.paragraph
+  return {
+    paragraph,
+    anchor: proseAnchor(messageId, swipeId, content, paragraphs, paragraphIndex, paragraph, 'after'),
+  }
+}
+
 function placementSideFromPolicy(policy: ProseIllustratorSettings['placementPolicy']): ProseIllustrationAnchor['insertionSide'] {
   if (policy === 'before-beat') return 'before'
   if (policy === 'end-of-message') return 'end'
@@ -10823,6 +11279,7 @@ function jobFromProsePlan(plan: ProseIllustrationPlan, pendingMarker: string): R
     caption: plan.caption,
     aspect: plan.aspectRatio,
     originalSceneBrief: proseSceneBrief(plan),
+    authoritativeSourceParagraph: plan.selectedExcerpt,
     originalNegativePrompt: '',
     originalRequestXml: pendingMarker,
     promptProfileId: plan.promptProfileId,
@@ -10846,7 +11303,6 @@ function proseSceneBrief(plan: ProseIllustrationPlan): string {
     plan.timeOfDay ? `Time of day: ${plan.timeOfDay}` : '',
     plan.mood ? `Mood: ${plan.mood}` : '',
     plan.importantProps.length ? `Important props: ${plan.importantProps.join(', ')}` : '',
-    `This is a visual-novel-style inline prose illustration anchored to this excerpt: ${plan.selectedExcerpt}`,
   ].filter(Boolean).join('\n')
 }
 
@@ -11704,6 +12160,7 @@ function defaultCustomSurfaceStudio(): CustomSurfaceStudioState {
     utilityInjectionEnabled: true,
       utilityInjectionPosition: 'after-chat-history',
     utilityTemplate: REVERIE_SURFACE_UTILITY_TEMPLATE,
+    rendererScriptOverrides: {},
     validationErrors: validateCustomSurfaceDefinitions(definitions),
     lastInjectedModuleIds: [],
     lastInjectionAt: 0,
@@ -11734,8 +12191,6 @@ function normalizeCustomSurfaceStudio(value: unknown): CustomSurfaceStudioState 
           // obsolete pre-bracket templates are migrated back to the R4.5 default.
           promptModule: containsStalePromptTemplate(normalized.promptModule) ? builtIn.promptModule : cleanString(normalized.promptModule) || builtIn.promptModule,
           shellMode: normalized.shellMode || builtIn.shellMode,
-          hybridOwner: normalized.hybridOwnerConfigured ? normalized.hybridOwner : builtIn.hybridOwner,
-          hybridOwnerConfigured: normalized.hybridOwnerConfigured === true,
           defaultOpen: normalized.defaultOpen,
           updatedAt: Math.max(builtIn.updatedAt, normalized.updatedAt || 0),
         }
@@ -11749,7 +12204,7 @@ function normalizeCustomSurfaceStudio(value: unknown): CustomSurfaceStudioState 
     if (requested && definitions[requested]?.baseSurfaceId === definition.baseSurfaceId) activePresetIds[definition.baseSurfaceId] = requested
   }
   const rendererMode = cleanString(raw.rendererMode)
-  const migratedRendererMode: CustomSurfaceStudioState['rendererMode'] = ['relay', 'legacy-regex', 'hybrid'].includes(rendererMode)
+  const migratedRendererMode: CustomSurfaceStudioState['rendererMode'] = ['relay', 'legacy-regex'].includes(rendererMode)
     ? rendererMode as CustomSurfaceStudioState['rendererMode']
     : 'relay'
   const injectionPosition = cleanString(raw.utilityInjectionPosition)
@@ -11779,6 +12234,7 @@ function normalizeCustomSurfaceStudio(value: unknown): CustomSurfaceStudioState 
     utilityInjectionEnabled: automaticSurfaceInjectionEnabled,
     utilityInjectionPosition: validInjectionPositions.includes(injectionPosition as SurfaceUtilityInjectionPosition) ? injectionPosition as SurfaceUtilityInjectionPosition : defaults.utilityInjectionPosition,
     utilityTemplate: canonicalSurfaceUtilityTemplate(raw.utilityTemplate),
+    rendererScriptOverrides: normalizeSurfaceRendererScriptOverrides(raw.rendererScriptOverrides),
     validationErrors: validateCustomSurfaceDefinitions(definitions),
     lastInjectedModuleIds: stringList(raw.lastInjectedModuleIds),
     lastInjectionAt: Math.max(0, Number(raw.lastInjectionAt) || 0),
@@ -11811,7 +12267,13 @@ function emptyProseIllustratorState(): ProseIllustratorState {
   }
 }
 
-export function buildIllustratorRuntimeDirective(settings: ProseIllustratorSettings, messages: LlmMessage[], personaPovContext?: PersonaPovContext): string {
+export function buildIllustratorRuntimeDirective(
+  settings: ProseIllustratorSettings,
+  messages: LlmMessage[],
+  personaPovContext?: PersonaPovContext,
+  profileCatalog: PromptPresetProfile[] = BUILT_IN_PROMPT_PROFILES,
+  inheritedProfileId: PromptProfileId = 'auto',
+): string {
   const mode = settings.enabled && !settings.paused ? settings.mode : 'off'
   const assistantCount = messages.filter(message => cleanString((message as any)?.role).toLocaleLowerCase() === 'assistant').length
   const nextEligibleIndex = assistantCount + 1
@@ -11844,7 +12306,7 @@ export function buildIllustratorRuntimeDirective(settings: ProseIllustratorSetti
       ? `You MUST emit from ${minimum} through ${target} Scene Snapshot-style Inline Reverie Relay illustration requests, inclusive. ${utilityCountScope}`
       : `You MUST emit exactly ${target} Scene Snapshot-style Inline Reverie Relay illustration request${target === 1 ? '' : 's'}. ${utilityCountScope}`
   const subjects = selectedCharacterOnlySubjects(settings)
-  return expandPromptTemplate(registryPrompt(settings, 'story.runtime-directives'), {
+  const runtime = expandPromptTemplate(registryPrompt(settings, 'story.runtime-directives'), {
     mode,
     request_illustrations: requestIllustrations,
     target_count: requestIllustrations ? target : 0,
@@ -11857,9 +12319,16 @@ export function buildIllustratorRuntimeDirective(settings: ProseIllustratorSetti
     framing_mode: settings.perspectiveMode,
     maximum_visible_characters: settings.maximumCharacters,
     selected_character_subjects: subjects.join(','),
-    prompt_profile: settings.defaultPromptProfileId,
+    prompt_profile: 'Relay resolves and applies the selected profile after authorship; do not add profile-specific style, framing, or negative terms.',
     continuity_strength: settings.appearanceMemoryEnabled ? settings.continuityStrength : 'off',
   })
+  // Profile selection is a Relay/provider concern. Sending profile cues to
+  // the Story Model and applying the same profile after authoring duplicated
+  // style/framing instructions in both Model Planned and Relay-Planned modes.
+  // Keep these parameters for callers that share the runtime-directive API.
+  void profileCatalog
+  void inheritedProfileId
+  return runtime
 }
 
 function escapeXmlText(value: unknown): string {
@@ -11870,7 +12339,8 @@ export function defaultProseIllustratorSettings(): ProseIllustratorSettings {
   return {
     enabled: true,
     automaticProtocolInjection: true,
-    mode: 'model-placed',
+    instantIllustrationDispatch: false,
+    mode: 'inline-protocol',
     plannerConnectionId: null,
     plannerModel: '',
     plannerParameters: {},
@@ -12079,18 +12549,21 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
   const rawRegistryVersions = cleanParameters(raw.promptRegistryVersions)
   const promptRegistry: Record<string, string> = {}
   const supersededDefaults: Record<string, string[]> = {
-    'story.inline-protocol': ['751:58ec8abc'],
+    'story.model-placed': ['4125:05d30e81'],
+    'story.inline-protocol': ['751:58ec8abc', '9481:878d0951', '12351:8f280e39', '12370:7d37ba18', '13138:8404697d', '15872:e257a1a3'],
+    'story.relay-planned': ['800:b83ca877', '1867:08747a40'],
+    'relay-planned.director.system': ['8647:a0bdffe2'],
     'sidecar.appearance.system': ['949:be700edb'],
-    'sidecar.appearance.request': ['1303:3e03e978'],
+    'sidecar.appearance.request': ['1303:3e03e978', '1767:cfea28ca'],
     'sidecar.composer.request': ['417:efc17757', '1230:866f8aaa', '1521:19bf99cf', '1126:39abad5f'],
     'sidecar.appearance.field-refresh': ['1079:dce646d7'],
     'sidecar.parser.request': ['209:1016af91', '883:c2956739'],
     'sidecar.parser.repair': ['193:1d11cac7'],
     'story.framing.scene-snapshot': ['1775:c849c434'],
-    'story.framing.sequence': ['973:4473f87f'],
+    'story.framing.sequence': ['973:4473f87f', '659:3225c7ae'],
     'story.framing.emotional-beat': ['889:37d0359f'],
     'story.framing.solo-scene': ['1245:00682bff'],
-    'story.framing.persona-pov': ['374:078a3a0c', '1489:0572269d'],
+    'story.framing.persona-pov': ['374:078a3a0c', '1489:0572269d', '865:9964018d', '1131:1f3d5f03'],
     'story.framing.scene-led': ['391:4a3c1ff7'],
     'story.framing.continuity-frame': ['239:d3cc0320'],
     'story.framing.expressive-frame': ['432:3d535eb2'],
@@ -12124,9 +12597,9 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
     else promptRegistry[canonicalId] = stored
   }
   const mode = cleanString(raw.mode)
-  const normalizedMode: ProseIllustratorMode = ['off', 'relay-planned', 'model-placed', 'inline-protocol'].includes(mode)
-    ? mode as ProseIllustratorMode
-    : defaults.mode
+  const normalizedMode: ProseIllustratorMode = mode === 'model-placed' || mode === 'model-planned'
+    ? 'inline-protocol'
+    : ['off', 'relay-planned', 'inline-protocol'].includes(mode) ? mode as ProseIllustratorMode : defaults.mode
   const frequencyMode = cleanString(raw.frequencyMode)
   const placementPolicy = cleanString(raw.placementPolicy)
   const strength = cleanString(raw.continuityStrength)
@@ -12140,9 +12613,10 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
   return {
     ...defaults,
     enabled: raw.enabled !== false,
-    // Model-Placed always receives its real runtime contract through the
+    // Model Planned always receives its real runtime contract through the
     // interceptor path; the retired optional setting cannot silently omit it.
     automaticProtocolInjection: normalizedMode === 'model-placed' || normalizedMode === 'inline-protocol' ? true : raw.automaticProtocolInjection === true,
+    instantIllustrationDispatch: normalizedMode === 'inline-protocol' && raw.instantIllustrationDispatch === true,
     mode: normalizedMode,
     plannerConnectionId: cleanNullableString(raw.plannerConnectionId),
     plannerModel: cleanString(raw.plannerModel),
@@ -12264,6 +12738,7 @@ function normalizeCustomSurfaceDefinition(surfaceId: string, value: unknown): Cu
     declarativeLayoutFields: cleanParameters(raw.declarativeLayoutFields) as Record<string, string>,
     validationRules: stringList(raw.validationRules),
     sampleXml: sanitizeDeclarativeMarkup(cleanString(raw.sampleXml)),
+    mediaRequired: typeof raw.mediaRequired === 'boolean' ? raw.mediaRequired : undefined,
     deterministicPreviewFixture: cleanParameters(raw.deterministicPreviewFixture),
     builtIn: raw.builtIn === true,
     enabled: raw.enabled !== false,
@@ -12273,15 +12748,35 @@ function normalizeCustomSurfaceDefinition(surfaceId: string, value: unknown): Cu
       : defaultSurfacePromptCategory(baseSurfaceId),
     promptModule: cleanString(raw.promptModule) || DEFAULT_SURFACE_PROMPT_MODULES[baseSurfaceId] || `SURFACE: ${cleanString(raw.displayName) || titleCase(baseSurfaceId)}\nUse [${wrapper || `${baseSurfaceId.replace(/-/g, '_')}_surface`}]...[/${wrapper || `${baseSurfaceId.replace(/-/g, '_')}_surface`}] only when this enabled Relay surface is appropriate.`,
     triggerGuidance: cleanString(raw.triggerGuidance) || undefined,
-    hybridOwner: ['relay', 'regex'].includes(cleanString(raw.hybridOwner)) ? cleanString(raw.hybridOwner) as CustomSurfaceDefinition['hybridOwner'] : undefined,
-    hybridOwnerConfigured: raw.hybridOwnerConfigured === true,
     updatedAt: Number(raw.updatedAt) || Date.now(),
   }
 }
 
 function sanitizeDeclarativeCss(value: string): string {
-  if (!value) return ''
-  return /<\/style|<script|javascript:|@import/i.test(value) ? '' : value
+  // Keep invalid source available for an actionable validation error. Saves
+  // reject it before persistence and the render path also fails closed.
+  return String(value || '')
+}
+
+function normalizeSurfaceRendererScriptOverrides(value: unknown): Record<string, SurfaceRendererScriptOverride> {
+  const normalized: Record<string, SurfaceRendererScriptOverride> = {}
+  const raw = cleanParameters(value)
+  for (const [key, value] of Object.entries(raw)) {
+    const [source, presentation, color, ...idParts] = key.split(':')
+    const scriptId = idParts.join(':')
+    if (!['bracket', 'legacy-xml'].includes(source) || !['inline', 'plain', 'sparkling', 'glass'].includes(presentation) || !['realistic', 'primary', 'glass'].includes(color) || !scriptId) continue
+    const base = r45RendererScripts(source as R45ScriptSource, presentation as R45PresentationMode, color as CustomSurfaceStudioState['colorMode']).find(script => script.script_id === scriptId)
+    if (!base) continue
+    const row = cleanParameters(value)
+    const name = cleanString(row.name) || base.name
+    const findRegex = cleanString(row.findRegex)
+    const replaceString = typeof row.replaceString === 'string' ? row.replaceString : base.replace_string
+    const flags = cleanString(row.flags)
+    const order = Number(row.order)
+    if (!name || name.length > 180 || validateRendererRegex(findRegex, flags) || replaceString.length > 250_000 || /<script\b|javascript\s*:|\son[a-z]+\s*=/i.test(replaceString) || !Number.isFinite(order) || order < 0 || order > 10_000) continue
+    normalized[key] = { name, findRegex, replaceString, flags, order }
+  }
+  return normalized
 }
 
 function validateCustomSurfaceDefinitions(definitions: Record<string, CustomSurfaceDefinition>): Record<string, string[]> {
@@ -12306,12 +12801,19 @@ function validateCustomSurfaceDefinition(definition: CustomSurfaceDefinition): s
   if (!isImageTarget(definition.targetId)) errors.push('Invalid image target ID.')
   if (!sanitizeWrapperName(definition.canonicalOuterWrapper)) errors.push('Invalid wrapper name.')
   if (!sanitizeWrapperName(definition.imageSlotSelector)) errors.push('Invalid image slot selector.')
+  errors.push(...validateDeclarativeSurfaceCss(definition.advancedCss, definition.surfaceId))
   const unsafe = `${definition.resolvedImageChildFormat}\n${definition.sampleXml}`
-  if (/<script\b|on[a-z]+\s*=|javascript:/i.test(unsafe)) errors.push('Unsafe script or event-handler markup is not allowed.')
-  if ((definition.sampleXml.match(new RegExp(`<${definition.canonicalOuterWrapper}\\b`, 'gi')) || []).length !== (definition.sampleXml.match(new RegExp(`</${definition.canonicalOuterWrapper}>`, 'gi')) || []).length) errors.push('Sample XML wrapper is unbalanced.')
+  const unsafeEventAttribute = [...unsafe.matchAll(/\s(on[a-z]+)\s*=/gi)]
+    .some(match => match[1].toLocaleLowerCase() !== 'online')
+  if (/<script\b|javascript:/i.test(unsafe) || unsafeEventAttribute) errors.push('Unsafe script or event-handler markup is not allowed.')
+  const rootOpenCount = (definition.sampleXml.match(new RegExp(`<${definition.canonicalOuterWrapper}\\b`, 'gi')) || []).length
+  const rootCloseCount = (definition.sampleXml.match(new RegExp(`</${definition.canonicalOuterWrapper}>`, 'gi')) || []).length
+  if (rootOpenCount !== 1 || rootCloseCount !== 1) errors.push('Validation fixture must contain exactly one balanced Surface root.')
   if (!definition.resolvedImageChildFormat.includes('{{imageUrl}}')) errors.push('Resolved child format must include {{imageUrl}}.')
-  const mediaOptional = ['news', 'dispatch', 'letter', 'character-profile', 'inline-chat'].includes(definition.baseSurfaceId)
-  if (!mediaOptional && !definition.sampleXml.includes('<image_request') && !definition.sampleXml.includes('<reverie-illustration')) errors.push('Sample XML must include an image request fixture.')
+  // Old shipped and user presets predate this toggle. Their validated fixture
+  // is the compatibility source of truth until the user explicitly chooses.
+  const mediaRequired = definition.mediaRequired ?? /<(?:image_request|reverie-illustration)\b/i.test(definition.sampleXml)
+  if (mediaRequired && !/<(?:image_request|reverie-illustration)\b/i.test(definition.sampleXml)) errors.push('This Surface requires an image request in its validation fixture. Switch off Require Image for a text-only Surface.')
   return errors
 }
 
@@ -12425,6 +12927,27 @@ function removeNativeSurfaceRequest(content: string, rootTag: string, requestId:
   return content
 }
 
+async function handleSurfaceRendererScriptAction(payload: Extract<FrontendMessage, { type: 'surface_renderer_script_action' }>, userId?: string): Promise<void> {
+  if (!['bracket', 'legacy-xml'].includes(payload.source)
+    || !['inline', 'plain', 'sparkling', 'glass'].includes(payload.presentation)
+    || !['realistic', 'primary', 'glass'].includes(payload.colorMode)) throw new Error('Renderer script scope is invalid.')
+  const config = await getConfig(userId)
+  const studio = normalizeCustomSurfaceStudio(config.globalSurfaceStudio || defaultCustomSurfaceStudio())
+  const shipped = r45RendererScripts(payload.source, payload.presentation, payload.colorMode).find(script => script.script_id === payload.scriptId)
+  if (!shipped) throw new Error('The requested shipped renderer script was not found in this presentation/color scope.')
+  const key = r45ScriptOverrideKey(payload.source, payload.presentation, payload.colorMode, shipped.script_id)
+  if (payload.action === 'reset') {
+    delete (studio.rendererScriptOverrides ||= {})[key]
+  } else {
+    ;(studio.rendererScriptOverrides ||= {})[key] = createValidatedRendererOverride(shipped, payload.override || {})
+  }
+  studio.updatedAt = Date.now()
+  await setConfig({ globalSurfaceStudio: studio, surfacePreferencesInitialized: true }, userId)
+  invalidateRenderCaches(undefined, userId)
+  await sendState(userId, payload.chatId || undefined)
+  spindle.sendToFrontend({ type: 'relay_notice', level: 'success', message: payload.action === 'reset' ? `Restored ${shipped.name} to its bundled default.` : `Saved a local override for ${shipped.name}.` }, userId)
+}
+
 async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { type: 'custom_surface_action' }>, userId?: string): Promise<void> {
   const chatId = payload.chatId || 'global'
   if (payload.action === 'bind_collection' || payload.action === 'unbind_collection') {
@@ -12445,7 +12968,7 @@ async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { typ
     const currentConfig = await getConfig(userId)
     const globalStudio = normalizeCustomSurfaceStudio(currentConfig.globalSurfaceStudio || defaultCustomSurfaceStudio())
     if (payload.action === 'set_renderer_mode') {
-      if (!payload.rendererMode || !['relay', 'legacy-regex', 'hybrid'].includes(payload.rendererMode)) throw new Error('Renderer mode is invalid.')
+      if (!payload.rendererMode || !['relay', 'legacy-regex'].includes(payload.rendererMode)) throw new Error('Renderer mode is invalid.')
       configPatch.surfaceRendererMode = payload.rendererMode
       globalStudio.rendererMode = payload.rendererMode
     } else if (payload.action === 'set_default_shell_mode') {
@@ -12500,7 +13023,7 @@ async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { typ
     const id = sanitizeSurfaceId(cleanString(payload.surfaceId) || cleanString(payload.definition?.surfaceId) || `surface-${now}`)
     const existing = id ? studio.definitions[id] : undefined
     if (payload.action === 'set_renderer_mode') {
-      if (!payload.rendererMode || !['relay', 'legacy-regex', 'hybrid'].includes(payload.rendererMode)) throw new Error('Renderer mode is invalid.')
+      if (!payload.rendererMode || !['relay', 'legacy-regex'].includes(payload.rendererMode)) throw new Error('Renderer mode is invalid.')
       studio.rendererMode = payload.rendererMode
       configPatch.surfaceRendererMode = payload.rendererMode
       configPatch.surfacePreferencesInitialized = true
@@ -12518,6 +13041,8 @@ async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { typ
     } else if (payload.action === 'create' || payload.action === 'import') {
       const definition = normalizeCustomSurfaceDefinition(id, { ...payload.definition, surfaceId: id, builtIn: false, enabled: payload.definition?.enabled !== false })
       if (!definition) throw new Error('Surface preset definition is invalid.')
+      const definitionErrors = validateCustomSurfaceDefinition(definition)
+      if (definitionErrors.length) throw new Error(definitionErrors[0])
       studio.definitions[definition.surfaceId] = definition
       studio.activePresetIds[definition.baseSurfaceId] = definition.surfaceId
     } else if (payload.action === 'duplicate') {
@@ -12542,7 +13067,11 @@ async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { typ
     } else if (payload.action === 'edit') {
       if (!existing) throw new Error('Surface preset not found.')
       if (existing.builtIn) throw new Error('Built-in surface presets are protected. Duplicate or use Edit as Preset first.')
-      studio.definitions[id] = normalizeCustomSurfaceDefinition(id, { ...existing, ...payload.definition, surfaceId: id, baseSurfaceId: existing.baseSurfaceId, targetId: existing.targetId, builtIn: false, updatedAt: now })!
+      const definition = normalizeCustomSurfaceDefinition(id, { ...existing, ...payload.definition, surfaceId: id, baseSurfaceId: existing.baseSurfaceId, targetId: existing.targetId, builtIn: false, updatedAt: now })
+      if (!definition) throw new Error('Surface preset definition is invalid.')
+      const definitionErrors = validateCustomSurfaceDefinition(definition)
+      if (definitionErrors.length) throw new Error(definitionErrors[0])
+      studio.definitions[id] = definition
     } else if (payload.action === 'activate') {
       if (!existing) throw new Error('Surface preset not found.')
       studio.activePresetIds[existing.baseSurfaceId] = existing.surfaceId
@@ -12555,20 +13084,17 @@ async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { typ
       if (!existing) throw new Error('Surface preset not found.')
       existing.promptEnabled = payload.promptEnabled === true
       existing.updatedAt = now
-    } else if (payload.action === 'set_hybrid_owner') {
-      if (!existing) throw new Error('Surface preset not found.')
-      if (!payload.hybridOwner || !['relay', 'regex'].includes(payload.hybridOwner)) throw new Error('Hybrid owner is invalid.')
-      existing.hybridOwner = payload.hybridOwner
-      existing.hybridOwnerConfigured = true
-      existing.updatedAt = now
     } else if (payload.action === 'set_category_prompt_enabled') {
       if (!payload.promptCategory) throw new Error('Surface prompt category is required.')
       applySurfaceCategoryPromptEnabled(studio, payload.promptCategory, payload.promptEnabled === true, now)
     } else if (payload.action === 'set_prompt_module') {
       if (!existing) throw new Error('Surface preset not found.')
+      // A cleared editor or explicit reset must restore the active shipped R4.5
+      // module, not an older protocol-table fallback with different wording.
+      const bundledModule = builtInSurfaceDefinitions(now)[existing.baseSurfaceId]?.promptModule
       existing.promptModule = containsStalePromptTemplate(payload.promptModule)
-        ? DEFAULT_SURFACE_PROMPT_MODULES[existing.baseSurfaceId] || existing.promptModule
-        : cleanString(payload.promptModule) || DEFAULT_SURFACE_PROMPT_MODULES[existing.baseSurfaceId] || existing.promptModule
+        ? bundledModule || DEFAULT_SURFACE_PROMPT_MODULES[existing.baseSurfaceId] || existing.promptModule
+        : cleanString(payload.promptModule) || bundledModule || DEFAULT_SURFACE_PROMPT_MODULES[existing.baseSurfaceId] || existing.promptModule
       existing.updatedAt = now
     } else if (payload.action === 'set_utility_settings') {
       const requestedInjectionState = typeof payload.utilityInjectionEnabled === 'boolean' ? payload.utilityInjectionEnabled : undefined
@@ -12781,11 +13307,11 @@ async function buildAuthoritativeVisualPrompt(
 ): Promise<PreparedPrompt> {
   const classification = context.classification
   const humanPolicy = targetHumanPolicy(job, classification)
-  const profileBase = resolvePromptProfileDecision(job, config)
+  const profileBase = resolveProviderPromptProfileDecision(job, config)
   const profiled = applyPromptProfileToPositivePrompt(job.originalSceneBrief, profileBase)
   const shaped = shapeSceneLedIdentityPrompt(profiled.prompt, job, context, humanPolicy.allowHumanPrompt)
   const identityCorrection = shaped.identityCorrection
-  const finalized = finalizeParsedPositivePrompt(shaped.prompt, classification, job)
+  const finalized = finalizeParsedPositivePrompt(shaped.prompt, classification, job, context.perspectiveMode, context.personaPovCameraHolderNames)
   const specialIntent = applySpecialImageIntent(finalized, job.intent, authoritativeSceneText(job))
   const contextualSexual = applyContextualSexualGuidance(specialIntent.prompt, '', authoritativeSceneText(job))
   const nativeNegative = firstString(nativeSettings?.customNegativePrompt, nativeSettings?.negativePrompt, config.nativeNegativePrompt)
@@ -12794,7 +13320,7 @@ async function buildAuthoritativeVisualPrompt(
     request: job.originalNegativePrompt,
     subject: humanPolicy.allowHumanPrompt ? context.subjectNegativePrompt : '',
     parser: contextualSexual.negativePrompt,
-    router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : '', config.additionalNegativePrompt].filter(Boolean).join(', '),
+    router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : '', context.perspectiveMode === 'persona-pov' ? context.personaPovNegativePrompt : '', config.additionalNegativePrompt].filter(Boolean).join(', '),
   })
   const humanConflict = humanPolicy.allowHumanPrompt
     ? removeConflictingHumanNegatives(normalized.negative)
@@ -12816,10 +13342,11 @@ async function buildAuthoritativeVisualPrompt(
     parserRequest: [],
     rawParserResponse: '',
     parsedPositivePrompt: contextualSexual.prompt,
-    parserRequested: false,
+    parserRequested: parserDecision.startsWith('Relay fallback'),
     parserSucceeded: false,
-    parserFailed: false,
-    parserFallbackUsed: false,
+    parserFailed: parserDecision.startsWith('Relay fallback'),
+    parserFallbackUsed: parserDecision.startsWith('Relay fallback'),
+    parserFallbackReason: parserDecision.startsWith('Relay fallback') ? parserDecision : undefined,
     parserDecision,
     unresolvedMacros: context.unresolvedMacros,
     requestClassification: classification,
@@ -12857,6 +13384,7 @@ async function buildAuthoritativeVisualPrompt(
     ...c5aPromptLengthMetrics(context, identityCorrection, contextualSexual.prompt),
     warnings: [
       ...c5aIdentityWarnings(context, identityCorrection.corrections),
+      ...(parserDecision.startsWith('Relay fallback') ? [{ code: 'model-planned-relay-fallback', message: `${parserDecision}; Relay retained the image-only visual_prompt and applied its protected scene, identity, and safety rules.`, sources: ['Model Planned Reparse fallback'] }] : []),
       ...(humanConflict.removed.length ? [{ code: 'human-negative-conflict-repaired', message: `Removed generic human-suppression negatives from an explicit people scene: ${humanConflict.removed.join(', ')}`, sources: ['defensive prompt conflict check'] }] : []),
     ],
   }
@@ -13180,23 +13708,41 @@ export async function parseSlotPrompt(
   highResMode = config.highResMode,
   forceSemanticRewrite = false,
 ): Promise<PreparedPrompt> {
-  if (job.promptSource === 'visual_prompt' && job.originalSceneBrief.trim() && !forceSemanticRewrite) {
+  const paragraphLock = authoritativeIllustrationParagraph(job)
+  const requiresParserModel = forceSemanticRewrite && job.target === 'prose.illustration' && job.promptSource === 'visual_prompt'
+  // Keep the authored XML visual_prompt as the image prompt. The adjacent
+  // paragraph remains an authority for semantic validation/safety only; it
+  // must never replace the provider-bound image description.
+  if (job.promptSource === 'visual_prompt' && !forceSemanticRewrite) {
+    if (!job.originalSceneBrief.trim()) {
+      throw new Error('Model Planned request is missing its authored <visual_prompt>; Relay will not ask a Parser to invent one. Reparse the Story Model request or restore its prompt.')
+    }
     const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings)
-    if (!config.parserConnectionId) return buildAuthoritativeVisualPrompt(job, slot, config, context, nativeSettings, 'Skipped — No Parser connection configured')
+    return buildAuthoritativeVisualPrompt(
+      job,
+      slot,
+      config,
+      context,
+      nativeSettings,
+      'Skipped — Story Model visual_prompt passed through; use Reparse for Parser rewriting',
+    )
   }
   if (job.composedPositivePrompt?.trim()) {
     const locallyCompiledRelayPlan = job.prosePromptComposition?.rawOutput?.plannerVersion === RELAY_PLANNED_V2
     const classification = classifyImageRequest(job)
-    const profile = resolvePromptProfileDecision(job, config)
+    const profile = resolveProviderPromptProfileDecision(job, config)
     const humanPolicy = targetHumanPolicy(job, classification)
     const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings)
     const authoritativeScene = authoritativeSceneText(job)
     const composedSexualEscalationRejected = hasUnrequestedExplicitEscalation(authoritativeScene, job.composedPositivePrompt)
+    if (composedSexualEscalationRejected && job.target === 'prose.illustration') {
+      throw new Error('Relay blocked a composed prose illustration because its positive prompt escalated beyond the selected story beat; narrative prose is never used as an image-prompt fallback.')
+    }
     const safeComposedPrompt = composedSexualEscalationRejected ? job.originalSceneBrief : job.composedPositivePrompt
     const profiled = applyPromptProfileToPositivePrompt(safeComposedPrompt, profile)
     const shaped = shapeSceneLedIdentityPrompt(profiled.prompt, job, context, humanPolicy.allowHumanPrompt)
     const identityCorrection = shaped.identityCorrection
-    const finalizedPositivePrompt = finalizeParsedPositivePrompt(shaped.prompt, classification, job)
+    const finalizedPositivePrompt = finalizeParsedPositivePrompt(shaped.prompt, classification, job, context.perspectiveMode, context.personaPovCameraHolderNames)
     const specialIntent = applySpecialImageIntent(finalizedPositivePrompt, job.intent, authoritativeScene)
     const contextualSexual = applyContextualSexualGuidance(specialIntent.prompt, job.composedNegativePrompt || '', authoritativeScene)
     const positivePrompt = contextualSexual.prompt
@@ -13216,7 +13762,7 @@ export async function parseSlotPrompt(
       request: job.originalNegativePrompt,
       subject: humanPolicy.allowHumanPrompt ? context.subjectNegativePrompt : '',
       parser: job.composedNegativePrompt || '',
-      router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : '', config.additionalNegativePrompt].filter(Boolean).join(', '),
+      router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : '', context.perspectiveMode === 'persona-pov' ? context.personaPovNegativePrompt : '', config.additionalNegativePrompt].filter(Boolean).join(', '),
     })
     const humanConflict = humanPolicy.allowHumanPrompt ? removeConflictingHumanNegatives(negative.negative) : { negative: negative.negative, removed: [] as string[] }
     negative.negative = humanConflict.negative
@@ -13303,10 +13849,12 @@ export async function parseSlotPrompt(
   } catch (error) {
     if (job.promptSource !== 'visual_prompt') throw error
     const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings)
-    return buildAuthoritativeVisualPrompt(job, slot, config, context, nativeSettings, 'Skipped — Parser connection unavailable')
+    return buildAuthoritativeVisualPrompt(job, slot, config, context, nativeSettings, forceSemanticRewrite
+      ? `Relay fallback — Parser connection unavailable: ${error instanceof Error ? error.message : String(error)}`
+      : 'Skipped — Parser connection unavailable')
   }
   const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings)
-  const instruction = parserInstruction(job, slot, config, highResMode)
+  const instruction = parserInstruction(job, slot, config, highResMode, context.perspectiveMode)
   const parserState = await getState(job.chatId, userId)
   const parserSettings = proseSettingsForChat(parserState, job.chatId)
   const sceneFraming = job.target === 'prose.illustration' ? effectiveFramingPrompt(parserSettings) : ''
@@ -13325,6 +13873,7 @@ export async function parseSlotPrompt(
       let parsed = parsePromptJson(raw)
       const authoritativeScene = authoritativeSceneText(job)
       if (hasUnrequestedExplicitEscalation(authoritativeScene, parsed.prompt)) {
+        if (requiresParserModel) throw new Error('Parser added content outside the authored illustration beat.')
         return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw, 'Parser added explicit sexual content that was absent from the authoritative scene brief.')
       }
       if (job.promptSource === 'visual_prompt') {
@@ -13341,7 +13890,8 @@ export async function parseSlotPrompt(
           context.context,
         )
         if (missingSemantics.length) {
-          return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw, `Parser changed protected Model-Placed semantics: ${missingSemantics.join(', ')}.`)
+          if (requiresParserModel) throw new Error(`Parser changed protected Model Planned semantics: ${missingSemantics.join(', ')}.`)
+          return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw, `Parser changed protected Model Planned semantics: ${missingSemantics.join(', ')}.`)
         }
       }
       let parserHumanContaminationDetected = false
@@ -13364,11 +13914,11 @@ export async function parseSlotPrompt(
           if (remaining.length) throw new Error(`Parser returned human-contaminated prompt for ${humanPolicy.targetClass} target after repair: ${remaining.join(', ')}`)
         }
       }
-      const profileBase = resolvePromptProfileDecision(job, config)
+      const profileBase = resolveProviderPromptProfileDecision(job, config)
       const profiled = applyPromptProfileToPositivePrompt(parsed.prompt, profileBase)
       const shaped = shapeSceneLedIdentityPrompt(profiled.prompt, job, context, humanPolicy.allowHumanPrompt)
       const identityCorrection = shaped.identityCorrection
-      const finalizedPositivePrompt = finalizeParsedPositivePrompt(shaped.prompt, context.classification, job)
+      const finalizedPositivePrompt = finalizeParsedPositivePrompt(shaped.prompt, context.classification, job, context.perspectiveMode, context.personaPovCameraHolderNames)
       const specialIntent = applySpecialImageIntent(finalizedPositivePrompt, job.intent, authoritativeScene)
       const contextualSexual = applyContextualSexualGuidance(specialIntent.prompt, cleanString(parsed.negativeAdditions), authoritativeScene)
       const positivePrompt = contextualSexual.prompt
@@ -13382,7 +13932,7 @@ export async function parseSlotPrompt(
         request: job.originalNegativePrompt,
         subject: subjectNegative,
         parser: disciplined.negativeAdditions,
-        router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : '', config.additionalNegativePrompt].filter(Boolean).join(', '),
+        router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : '', context.perspectiveMode === 'persona-pov' ? context.personaPovNegativePrompt : '', config.additionalNegativePrompt].filter(Boolean).join(', '),
       })
       const humanConflict = humanPolicy.allowHumanPrompt ? removeConflictingHumanNegatives(normalized.negative) : { negative: normalized.negative, removed: [] as string[] }
       normalized.negative = humanConflict.negative
@@ -13457,7 +14007,7 @@ export async function parseSlotPrompt(
         parserFailed: false,
         parserFallbackUsed: false,
         parserDecision: job.promptSource === 'visual_prompt'
-          ? 'Used — Model-Placed constrained normalization'
+          ? 'Used — Model Planned constrained normalization'
           : 'Used — Relay Parser normalization',
       }
       return {
@@ -13668,10 +14218,10 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
   const identityFixSavings = Math.max(0, Number(prepared.promptPipeline.finalPromptCharsBeforeIdentityFix || 0) - Number(prepared.promptPipeline.finalPromptChars || 0))
   prepared.promptPipeline.finalPromptChars = effectivePrompt.length
   prepared.promptPipeline.finalPromptCharsBeforeIdentityFix = effectivePrompt.length + identityFixSavings
-  const parameters = buildImageParameters(plan, effectivePrepared)
+  const parameters = buildImageParameters(plan, effectivePrepared, streamContext?.randomizeSwarmSeed === true)
   // Last provider-bound seam: retrieval prose, raw markup, provenance labels,
   // and malformed LoRA weights cannot cross into a live image request.
-  assertProviderRequestSafe(effectivePrompt, effectivePrepared.negativePrompt, parameters)
+  assertProviderRequestSafe(effectivePrompt, effectivePrepared.negativePrompt, parameters, plan.authoritativeSourceParagraph)
   const resolvedOwnerChatId = cleanString(ownerChatId || chatId)
   const ownerCharacterId = resolvedOwnerChatId ? await ownerCharacterIdForChat(resolvedOwnerChatId, userId) : ''
   const shouldLinkToGallery = streamContext?.addToGallery === true && (source === 'relay-slot' || source === 'relay-illustrator')
@@ -13970,6 +14520,7 @@ async function prepareImagePlan(
     const storedSlotOverrides = { ...cloneRecord(record.slotOverrides), ...regenerationOverrides }
     const storedFinalParameters = { ...cloneRecord(record.finalImageParameters || record.imageParameters), ...regenerationOverrides }
     const plan: ImagePlan = {
+      authoritativeSourceParagraph: job.authoritativeSourceParagraph,
       connection,
       connectionId: record.imageConnectionId ?? connection?.id ?? null,
       connectionName: record.imageConnectionName || connection?.name || record.imageConnectionId || '',
@@ -14030,6 +14581,7 @@ async function prepareImagePlan(
   const baseTagPlan = filterBaseTagsForTarget(loraPlan.baseTags, job, classifyImageRequest(job), highResMode)
   const loraApplication = applyLorasToProviderParameters(connection.provider || '', finalParameters, loraPlan.effectiveLoras, connection)
   const plan: ImagePlan = {
+    authoritativeSourceParagraph: job.authoritativeSourceParagraph,
     connection,
     connectionId: connection.id || null,
     connectionName: connection.name || connection.id || '',
@@ -14069,8 +14621,13 @@ function validateImagePlan(plan: ImagePlan): void {
   throw new Error(`${plan.provider} ImageGen connection "${plan.connectionName}" is missing parameters.workflow. Configure/select a native ComfyUI workflow before Reverie Relay generation.`)
 }
 
-function buildImageParameters(plan: ImagePlan, prepared: PreparedPrompt): Record<string, unknown> {
-  const parameters = cloneRecord(plan.finalParameters)
+export function withSwarmRegenerationSeed(parameters: Record<string, unknown>, provider: string, isRegeneration: boolean): Record<string, unknown> {
+  return isRegeneration && isSwarmUiProvider(provider) ? { ...parameters, seed: -1 } : parameters
+}
+
+function buildImageParameters(plan: ImagePlan, prepared: PreparedPrompt, randomizeSwarmSeed = false): Record<string, unknown> {
+  const randomize = randomizeSwarmSeed && isSwarmUiProvider(plan.provider)
+  const parameters = withSwarmRegenerationSeed(cloneRecord(plan.finalParameters), plan.provider, randomize)
   if (!parameters.workflow || typeof parameters.workflow !== 'object') return parameters
 
   const comfy = readComfyConfig(plan.connection?.metadata)
@@ -14082,7 +14639,7 @@ function buildImageParameters(plan: ImagePlan, prepared: PreparedPrompt): Record
     negativePrompt: prepared.negativePrompt,
     model: plan.model,
     checkpoint: plan.model,
-    seed: Math.floor(Math.random() * 2147483647),
+    seed: randomize ? -1 : Math.floor(Math.random() * 2147483647),
   })
   parameters.workflowFormat = parameters.workflowFormat || 'api_prompt'
   parameters.preserveImportedWorkflow = parameters.preserveImportedWorkflow ?? true
@@ -14097,17 +14654,26 @@ export function dimensionsForAspect(value: unknown): { width: number; height: nu
   const normalized = cleanString(value).replace(/\s+/g, '')
   const map: Record<string, [number, number]> = {
     '1:1': [1024, 1024],
-    '3:2': [1216, 832],
-    '2:3': [832, 1216],
-    '4:3': [1152, 896],
-    '3:4': [896, 1152],
+    '3:2': [1152, 768],
+    '2:3': [768, 1152],
+    '4:3': [1152, 864],
+    '3:4': [864, 1152],
     '4:5': [896, 1120],
     '5:4': [1120, 896],
-    '16:9': [1344, 768],
-    '9:16': [768, 1344],
+    '16:9': [1280, 720],
+    '9:16': [720, 1280],
   }
   const dims = map[normalized]
   return dims ? { width: dims[0], height: dims[1], aspectRatio: normalized } : null
+}
+
+const FIXED_ILLUSTRATION_ASPECTS = new Set(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9'])
+
+/** A fixed user policy outranks a model-authored request ratio; adaptive/native leave it alone. */
+export function resolveIllustrationRequestAspect(requestAspect: unknown, aspectPolicy: unknown): string | undefined {
+  const policy = cleanString(aspectPolicy).replace(/\s+/g, '')
+  if (FIXED_ILLUSTRATION_ASPECTS.has(policy)) return policy
+  return cleanString(requestAspect).replace(/\s+/g, '') || undefined
 }
 
 function buildSlotOverrides(job: RouterJob, provider = ''): Record<string, unknown> {
@@ -14734,9 +15300,13 @@ async function buildParserContext(
   const nativeIncludeCharacters = typeof nativeSettings?.includeCharacters === 'boolean' ? nativeSettings.includeCharacters : config.nativeIncludeCharacters
   const nativeIncludePersona = typeof nativeSettings?.includePersona === 'boolean' ? nativeSettings.includePersona : config.nativeIncludePersona
   const promptPresets = clonePromptPresets(nativeSettings?.promptPresets ?? config.nativePromptPresets)
+  const state = await getState(job.chatId, _userId)
+  const continuityFramingMode = job.prosePromptComposition?.perspectiveMode
+    || (job.target === 'prose.illustration' ? proseSettingsForChat(state, job.chatId).perspectiveMode : '')
+  const personaPovMode = continuityFramingMode === 'persona-pov'
   const [activeCharacter, activePersona] = await Promise.all([
     visibleIdentityRequest || castRequirements.character ? readChatCharacterIdentity(job.chatId, _userId).catch(() => null) : Promise.resolve(null),
-    visibleIdentityRequest || castRequirements.persona ? readCurrentHostPersona(_userId, job.chatId) : Promise.resolve(null),
+    visibleIdentityRequest || castRequirements.persona || personaPovMode ? readCurrentHostPersona(_userId, job.chatId) : Promise.resolve(null),
   ])
   const characterNamed = requestReferencesActiveIdentity(job, activeCharacter)
   const personaNamed = requestReferencesActiveIdentity(job, activePersona)
@@ -14745,12 +15315,11 @@ async function buildParserContext(
     && !suppressIdentityContext
     && requestDepictsCharacter(classification, job.originalSceneBrief)
     && (!personaExplicit || characterNamed)))
-  const personaApplicable = humanPolicy.allowHumanContext && (castRequirements.persona || (!job.cast
+  const personaApplicable = !personaPovMode && humanPolicy.allowHumanContext && (castRequirements.persona || (!job.cast
     && !suppressIdentityContext
     && personaExplicit))
   const characterOwnership = resolveActiveCharacterOwnership(job, classification, activeCharacter)
   const characterApplicable = characterCandidate && characterOwnership.applies
-  const state = await getState(job.chatId, _userId)
   const [characterCard, personaCard, lorebookContext] = await Promise.all([
     characterApplicable ? readCharacterContext(job.chatId, _userId, job.originalSceneBrief) : Promise.resolve(''),
     personaApplicable ? readActivePersonaContext(_userId, job.originalSceneBrief, 'routine', job.chatId) : Promise.resolve(''),
@@ -14770,12 +15339,18 @@ async function buildParserContext(
   const illustratorAppearanceStrength = job.target === 'prose.illustration'
     ? effectiveIllustratorAppearanceStrength(proseSettingsForChat(state, job.chatId), state.continuityVault.strength)
     : state.continuityVault.strength
-  const continuityFramingMode = job.prosePromptComposition?.perspectiveMode
-    || (job.target === 'prose.illustration' ? proseSettingsForChat(state, job.chatId).perspectiveMode : '')
-  const continuityExpectedPeopleCount = Math.max(
+  const authoredExpectedPeopleCount = Math.max(
     Number(job.prosePromptComposition?.expectedPeopleCount || 0),
     job.cast === 'char+user' ? 2 : job.cast === 'char' || job.cast === 'user' ? 1 : 0,
   )
+  const activePersonaNames = [activePersona?.id, activePersona?.name, ...(activePersona?.aliases || [])]
+    .map(normalizeIdentityOwner)
+    .filter(Boolean)
+  const personaInAuthoredCast = castRequirements.persona || ['user', 'char+user'].includes(job.cast || '')
+  const personaNamedAsVisibleSubject = (job.prosePromptComposition?.namedSubjects || []).some(name => activePersonaNames.includes(normalizeIdentityOwner(name)))
+  const continuityExpectedPeopleCount = personaPovMode
+    ? Math.max(castRequirements.character ? 1 : 0, authoredExpectedPeopleCount - (personaInAuthoredCast || personaNamedAsVisibleSubject ? 1 : 0))
+    : authoredExpectedPeopleCount
   const continuityPromptFor = (name: string): string => {
     if (!name || illustratorAppearanceStrength === 'off') return ''
     const selected = projectContinuityForGeneration(state.continuityVault, {
@@ -14810,7 +15385,7 @@ async function buildParserContext(
   const matchedSubjects = humanPolicy.allowHumanContext ? resolveNamedVisualSubjects(job.originalSceneBrief, promptPresets) : []
   const castSubjects: VisualSubjectPrompt[] = []
   const includeCharacter = characterApplicable && (castRequirements.character || config.includeCharacterInfo)
-  const includePersona = personaApplicable && (castRequirements.persona || config.includePersonaInfo)
+  const includePersona = !personaPovMode && personaApplicable && (castRequirements.persona || config.includePersonaInfo)
   if (includeCharacter) castSubjects.push({
     id: cleanString(activeCharacter?.id) || undefined,
     name: cleanString(activeCharacter?.name) || 'active character',
@@ -14836,12 +15411,20 @@ async function buildParserContext(
     const keys = [subject.id || '', subject.name || ''].map(value => cleanString(value).toLocaleLowerCase().replace(/[\s_-]+/g, ''))
     return !keys.some(key => key && activeSubjectKeys.has(key))
   })
-  const visualSubjects = job.cast
+  const castScopedVisualSubjects = job.cast
     ? [...castSubjects, ...independentlyMatchedNpcSubjects].filter((subject, index, all) => {
       const key = cleanString(subject.id || subject.name).toLocaleLowerCase().replace(/[\s_-]+/g, '')
       return Boolean(key) && all.findIndex(candidate => cleanString(candidate.id || candidate.name).toLocaleLowerCase().replace(/[\s_-]+/g, '') === key) === index
     })
     : matchedSubjects
+  const personaPovCameraHolderNames = personaPovMode
+    ? [...new Set([
+      activePersona?.name,
+      ...(activePersona?.aliases || []),
+      ...castScopedVisualSubjects.filter(subject => isSceneNamedPersonaPovCameraHolder(subject.name, job.originalSceneBrief)).map(subject => subject.name),
+    ].map(cleanString).filter(Boolean))]
+    : []
+  const visualSubjects = filterPersonaPovVisualSubjects(castScopedVisualSubjects, continuityFramingMode, activePersona, job.originalSceneBrief)
   const appliedIdentityBindingIds = identityBindings
     .filter(binding => visualSubjects.some(subject => {
       if (subject.kind !== binding.kind) return false
@@ -14852,6 +15435,7 @@ async function buildParserContext(
   await ensureCanonicalSubjectsForGeneration(job.chatId, visualSubjects, _userId)
   const namedSubjectContext = formatVisualSubjectPrompts(visualSubjects)
   const visualSubjectNegativePrompt = visualSubjects.map(subject => subject.negativePrompt).filter(Boolean).join(', ')
+  const personaPovNegativePrompt = personaPovMode ? buildPersonaPovNegativePrompt(personaPovCameraHolderNames) : ''
   const character = characterPrompt
   const persona = personaPrompt
   const effectiveIncludeCharacters = includeCharacter && Boolean(characterPrompt || castRequirements.character)
@@ -14881,7 +15465,14 @@ async function buildParserContext(
   const recent = humanPolicy.allowHumanContext ? selectRelevantRecentContext(messages, targetIndex, job, visualSubjects, Math.min(2, config.includeRecentMessages)) : ''
   if (recent) blocks.push(`Nearest relevant visual continuity only:\n${recent}`)
   const continuity = humanPolicy.allowHumanContext
-    ? selectContinuityForJob(state, job, classification, visualSubjects.map(subject => subject.name))
+    ? selectContinuityForJob(
+      state,
+      job,
+      classification,
+      visualSubjects.map(subject => subject.name),
+      personaPovMode ? [activePersona?.id, activePersona?.name, ...(activePersona?.aliases || [])].filter((name): name is string => Boolean(name)) : [],
+      continuityExpectedPeopleCount,
+    )
     : { included: [], projectedIncluded: [], excluded: [], projectedExcluded: [], projectedNegativePrompt: '', projectionNotes: [], attachedReferenceAssetIds: [], conflicts: [], strength: illustratorAppearanceStrength }
   const projectedContinuityIncludedOnce = continuity.projectedIncluded.filter(fact => {
     if (!sidecarFallbackSubjectKeys.size) return true
@@ -14903,6 +15494,7 @@ async function buildParserContext(
   const unresolvedMacros: string[] = []
   if (effectiveIncludePersona) blocks.push(`Persona appearance only:\n${persona}`)
   if (effectiveIncludeCharacters) blocks.push(`${visualSubjects.length ? 'Matched depicted subjects' : 'Character appearance only'}:\n${character}`)
+  if (personaPovMode) blocks.push(`${PERSONA_POV_VISIBILITY_CONTRACT}${personaPovCameraHolderNames.length ? ` The camera-holder identity is ${personaPovCameraHolderNames.join(' / ')}; do not depict this person anywhere in the image.` : ''}`)
   const parserSettings = proseSettingsForChat(state, job.chatId)
   const parserInstructionOwnership = isolateRelayParserInstructions(activeNativeGenerationPromptTemplate, [
     registryPrompt(parserSettings, 'sidecar.parser.system'),
@@ -14914,6 +15506,8 @@ async function buildParserContext(
   if (!humanPolicy.allowHumanPrompt) blocks.push(`Visible subject policy:\n${noHumanParserPolicyInstruction(humanPolicy)}`)
 
   return {
+    perspectiveMode: continuityFramingMode,
+    personaPovCameraHolderNames,
     context: blocks.join('\n\n---\n\n'), ...parserInstructionOwnership,
     contextMetrics: { tier: 'routine', expansionReason: '', historyMessages: recent ? (recent.match(/^(?:user|assistant):/gm) || []).length : 0, characterChars: characterCard.length, personaChars: personaCard.length, appearanceMemoryChars: formatProjectedAppearanceFacts(continuity.projectedIncluded).length, ...(lorebookContextMetrics.get(job.chatId) || {}) },
     characterContext: effectiveIncludeCharacters ? character : '', personaContext: effectiveIncludePersona ? persona : '', unresolvedMacros,
@@ -14922,7 +15516,7 @@ async function buildParserContext(
       suppressIdentityContext ? `${gatingReason}; profile suppressed character/persona context` : gatingReason,
       !humanPolicy.allowHumanContext ? `${humanPolicy.targetClass} target suppressed character/persona/recent-human context` : '',
     ].filter(Boolean).join('; '),
-    sanitizedRecentContext: [parentContext, recent].filter(Boolean).join('\n\n'), visualSubjects, subjectNegativePrompt,
+    sanitizedRecentContext: [parentContext, recent].filter(Boolean).join('\n\n'), visualSubjects, subjectNegativePrompt, personaPovNegativePrompt,
     includedContinuityFacts: continuity.included,
     projectedContinuityFacts: continuity.projectedIncluded,
     projectedContinuityFactsForPromptAppend: projectedContinuityIncludedOnce,
@@ -14943,35 +15537,49 @@ function normalizePromptInstructionText(value: string): string {
   return cleanString(value).toLocaleLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 }
 
-function parserInstruction(job: RouterJob, slot: string, config: RouterConfig, highResMode = config.highResMode): string {
+function parserInstruction(
+  job: RouterJob,
+  slot: string,
+  config: RouterConfig,
+  highResMode = config.highResMode,
+  perspectiveMode: ProseIllustratorSettings['perspectiveMode'] | '' = job.prosePromptComposition?.perspectiveMode || '',
+): string {
   const classification = classifyImageRequest(job)
   const humanPolicy = targetHumanPolicy(job, classification)
   const framingCues = detectPreservedFramingCues(job)
-  const profileDecision = resolvePromptProfileDecision(job, config)
+  const profileDecision = resolveProviderPromptProfileDecision(job, config)
+  const paragraphLock = authoritativeIllustrationParagraph(job)
   return [
-    `Original scene brief (authoritative):\n${job.originalSceneBrief}`,
-    job.caption ? `Context caption / alt text:\n${job.caption}` : '',
+    paragraphLock
+      ? `Authoritative story moment (the complete narrative paragraph immediately preceding this request tag):\n${paragraphLock}\nUse this paragraph to validate the depicted action, contact, cast, and instant. Do not copy its prose or dialogue as image text. The image description remains the Story Model-authored <visual_prompt>; refine it only into concrete visible image content and never include Relay placement or wrapper instructions.`
+      : `Original scene brief (authoritative):\n${job.originalSceneBrief}`,
+    paragraphLock && job.promptSource === 'visual_prompt' ? `Story Model-authored <visual_prompt> (candidate image-only description):\n${job.originalSceneBrief}` : '',
+    job.caption && job.target !== 'prose.illustration' ? `Context caption / alt text:\n${job.caption}` : '',
     'Create a concrete provider-ready image prompt that preserves the requested subject exactly and uses only characters named in the authoritative brief.',
     'Treat this as the in-universe asset assigned to the specified social app target; the authoritative scene brief defines its content.',
     `Target: ${job.target}`,
+    job.target === 'prose.illustration' && job.aspect ? `Required illustration aspect ratio: ${job.aspect}.` : '',
     `Image intent: ${normalizeImageIntent(job.intent)}`,
     isSpecialImageIntent(job.intent) ? `Special social-image intent is active (${normalizeImageIntent(job.intent)}). Preserve the requested joke, caption, identity, clothing, location, action, continuity, target, aspect ratio, and underlying scene while adapting incompatible generic polish.` : '',
     `Request classification: ${classification}`,
     `Detected target class: ${humanPolicy.targetClass}`,
+    perspectiveMode === 'persona-pov' ? PERSONA_POV_VISIBILITY_CONTRACT : '',
     !humanPolicy.allowHumanPrompt ? noHumanParserPolicyInstruction(humanPolicy) : '',
-    `Selected Relay prompt profile: ${profileDecision.selectedProfileName}`,
-    profileDecision.framingGuidance ? `Profile framing guidance:\n${profileDecision.framingGuidance}` : '',
-    profileDecision.promptAdditions ? `Profile positive additions to preserve where compatible:\n${profileDecision.promptAdditions}` : '',
-    profileDecision.negativeAdditions ? `Profile negative additions to merge:\n${profileDecision.negativeAdditions}` : '',
-    profileDecision.suppressedContext.length ? `Profile context suppression:\n${profileDecision.suppressedContext.map(item => `${item.source}: ${item.reason}`).join('\n')}` : '',
+    job.target === 'prose.illustration'
+      ? 'Relay applies the selected Prompt Profile once after prompt authoring. Do not add profile style, framing, or negative terms here.'
+      : `Selected Relay prompt profile: ${profileDecision.selectedProfileName}`,
+    job.target !== 'prose.illustration' && profileDecision.framingGuidance ? `Profile framing guidance:\n${profileDecision.framingGuidance}` : '',
+    job.target !== 'prose.illustration' && profileDecision.promptAdditions ? `Profile positive additions to preserve where compatible:\n${profileDecision.promptAdditions}` : '',
+    job.target !== 'prose.illustration' && profileDecision.negativeAdditions ? `Profile negative additions to merge:\n${profileDecision.negativeAdditions}` : '',
+    job.target !== 'prose.illustration' && profileDecision.suppressedContext.length ? `Profile context suppression:\n${profileDecision.suppressedContext.map(item => `${item.source}: ${item.reason}`).join('\n')}` : '',
     job.regenerationIntent ? `Regeneration direction:\n${job.regenerationIntent.label}: ${job.regenerationIntent.promptDelta || job.regenerationIntent.customText}` : '',
     job.regenerationIntent?.aspectRatio ? `Regeneration aspect ratio: ${job.regenerationIntent.aspectRatio}` : '',
     job.regenerationIntent?.negativeDelta ? `Regeneration-specific avoid guidance:\n${job.regenerationIntent.negativeDelta}` : '',
     `Request ID: ${job.requestId}`,
-    slotDescription(job, slot),
-    targetFramingInstruction(job.target, classification),
+    job.target === 'prose.illustration' ? '' : slotDescription(job, slot),
+    job.target === 'prose.illustration' ? '' : targetFramingInstruction(job.target, classification),
     highResMode
-      ? `High-Res / Polished Capture Mode is enabled. Improve rendering quality, anatomy, identity consistency, texture retention, lighting balance, and coherence while preserving the requested camera position, subject distance, and candid, evidence, surveillance, or phone capture language.${framingCues.length ? ` Preserve these capture cues: ${framingCues.join(', ')}.` : ''}`
+      ? `High-Res / Polished Capture Mode is enabled. Improve rendering coherence without changing the requested capture medium, camera position, or subject distance. For evidence or surveillance footage, preserve the intentionally low-resolution/compressed source look, fixed wide view, and distant subject scale; do not upscale the subject into a close-up portrait or erase camera artifacts.${framingCues.length ? ` Preserve these capture cues: ${framingCues.join(', ')}.` : ''}`
       : 'Normal target-aware mode is enabled. Preserve the requested capture fidelity, imperfections, camera language, and original finish.',
     job.originalNegativePrompt ? `Request negative prompt:\n${job.originalNegativePrompt}` : '',
     'Use sanitized chat context to fill missing visual continuity while keeping the authoritative scene brief primary.',
@@ -15130,19 +15738,24 @@ function buildParserFallbackPrompt(
   parserOutput: string,
   parserError: string,
 ): PreparedPrompt {
+  if (job.target === 'prose.illustration' && (job.promptSource !== 'visual_prompt' || !job.originalSceneBrief.trim())) {
+    throw new Error('Relay stopped prose illustration fallback because no image-only <visual_prompt> was available; it will not substitute the surrounding story paragraph.')
+  }
   const classification = context.classification
   const humanPolicy = targetHumanPolicy(job, classification)
-  const profileBase = resolvePromptProfileDecision(job, config)
-  const visibleBase = [
-    job.originalSceneBrief,
-    job.caption ? `Context: ${job.caption}` : '',
-    targetFramingInstruction(job.target, classification),
-    slotDescription(job, slot),
-  ].filter(Boolean).join(', ')
+  const profileBase = resolveProviderPromptProfileDecision(job, config)
+  const visibleBase = job.target === 'prose.illustration'
+    ? job.originalSceneBrief
+    : [
+      job.originalSceneBrief,
+      job.caption ? `Context: ${job.caption}` : '',
+      targetFramingInstruction(job.target, classification),
+      slotDescription(job, slot),
+    ].filter(Boolean).join(', ')
   const profiled = applyPromptProfileToPositivePrompt(visibleBase, profileBase)
   const shaped = shapeSceneLedIdentityPrompt(profiled.prompt, job, context, humanPolicy.allowHumanPrompt)
   const identityCorrection = shaped.identityCorrection
-  const finalizedPositivePrompt = finalizeParsedPositivePrompt(shaped.prompt, classification, job)
+  const finalizedPositivePrompt = finalizeParsedPositivePrompt(shaped.prompt, classification, job, context.perspectiveMode, context.personaPovCameraHolderNames)
   const authoritativeScene = authoritativeSceneText(job)
   const specialIntent = applySpecialImageIntent(finalizedPositivePrompt, job.intent, authoritativeScene)
   const contextualSexual = applyContextualSexualGuidance(specialIntent.prompt, '', authoritativeScene)
@@ -15156,7 +15769,7 @@ function buildParserFallbackPrompt(
     request: job.originalNegativePrompt,
     subject: humanPolicy.allowHumanPrompt ? context.subjectNegativePrompt : '',
     parser: contextualSexual.negativePrompt,
-    router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : '', config.additionalNegativePrompt].filter(Boolean).join(', '),
+    router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : '', context.perspectiveMode === 'persona-pov' ? context.personaPovNegativePrompt : '', config.additionalNegativePrompt].filter(Boolean).join(', '),
   })
   const humanConflict = humanPolicy.allowHumanPrompt
     ? removeConflictingHumanNegatives(normalized.negative)
@@ -15197,7 +15810,7 @@ function buildParserFallbackPrompt(
     characterContextSuppressed: !context.effectiveIncludeCharacters,
     personaContextSuppressed: !context.effectiveIncludePersona,
     noHumanGuardrailsApplied: !humanPolicy.allowHumanPrompt,
-    contextGatingReason: `${context.gatingReason}; malformed parser output fell back to the authoritative scene brief`,
+    contextGatingReason: `${context.gatingReason}; parser output was unusable or violated a protected rule, so Relay retained the authoritative visual brief`,
     faceExpressionApplicable: humanPolicy.allowHumanPrompt && requestHasVisibleFace(classification),
     visualCharacterPrompt: humanPolicy.allowHumanPrompt ? context.characterContext : '',
     visualPersonaPrompt: humanPolicy.allowHumanPrompt ? context.personaContext : '',
@@ -15223,7 +15836,7 @@ function buildParserFallbackPrompt(
       ...c5aIdentityWarnings(context, identityCorrection.corrections),
       {
         code: 'parser-fallback-used',
-        message: `The sidecar parser returned unusable JSON (${parserError}). Relay continued with the authoritative scene brief instead of failing the image.`,
+        message: `Parser output could not be safely applied (${parserError}). Relay continued with the authoritative visual brief instead of failing the image.`,
         sources: ['parser resilience fallback'],
       },
       ...context.unresolvedMacros.map(macro => ({ code: 'unresolved-parser-macro', message: `${macro} could not be resolved from active context.`, sources: ['native parser template'] })),
@@ -15363,6 +15976,17 @@ function normalizeNarrativeUtilityOverrides(value: unknown): RouterConfig['narra
   return normalized
 }
 
+function normalizeNarrativeUtilityImageEnabled(value: unknown): RouterConfig['narrativeUtilityImageEnabled'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const allowed = new Set(narrativeUtilityNames())
+  const normalized: RouterConfig['narrativeUtilityImageEnabled'] = {}
+  for (const [name, enabled] of Object.entries(value as Record<string, unknown>)) {
+    const canonicalName = narrativeUtilityDisplayName(name)
+    if (allowed.has(canonicalName) && enabled === false) normalized[canonicalName] = false
+  }
+  return normalized
+}
+
 function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
   const legacy = raw as Partial<RouterConfig> & Record<string, unknown>
   const {
@@ -15398,7 +16022,7 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     enableRelayOrb: raw.enableRelayOrb === true,
     tutorialModeEnabled: raw.tutorialModeEnabled !== false,
     tutorialStep: clampInt(raw.tutorialStep, 0, 12, 0),
-    autoRescanOnChatOpen: raw.autoRescanOnChatOpen !== false,
+    autoRescanOnChatOpen: raw.autoRescanOnChatOpen === true,
     includeInactiveSwipesInRescan: raw.includeInactiveSwipesInRescan === true,
     followNativeParser: raw.followNativeParser !== false,
     followNativeImageGen: raw.followNativeImageGen !== false,
@@ -15435,7 +16059,9 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     nativePromptPresets: clonePromptPresets(raw.nativePromptPresets),
     nativeImageSettingsSnapshot: cloneRecord(raw.nativeImageSettingsSnapshot),
     nativeSettingsCapturedAt: Number.isFinite(Number(raw.nativeSettingsCapturedAt)) ? Number(raw.nativeSettingsCapturedAt) : 0,
-    interfaceTheme: raw.interfaceTheme === 'clean-panel' ? 'clean-panel' : 'velvet-prism',
+    interfaceTheme: ['velvet-prism', 'clean-panel'].includes(String(raw.interfaceTheme))
+      ? raw.interfaceTheme as RouterConfig['interfaceTheme']
+      : DEFAULT_CONFIG.interfaceTheme,
     orbPositionDesktop: normalizeOrbPosition(raw.orbPositionDesktop, DEFAULT_CONFIG.orbPositionDesktop),
     orbPositionMobile: normalizeOrbPosition(raw.orbPositionMobile, DEFAULT_CONFIG.orbPositionMobile),
     orbSize: ['small', 'medium', 'large'].includes(String(raw.orbSize)) ? raw.orbSize as RouterConfig['orbSize'] : DEFAULT_CONFIG.orbSize,
@@ -15458,7 +16084,7 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     galleryAutoLink: raw.galleryAutoLink !== false,
     generationRecipes: normalizeGenerationRecipes(raw.generationRecipes),
     activeGenerationRecipeId: cleanNullableString(raw.activeGenerationRecipeId),
-    surfaceRendererMode: ['relay', 'legacy-regex', 'hybrid'].includes(String(raw.surfaceRendererMode))
+    surfaceRendererMode: ['relay', 'legacy-regex'].includes(String(raw.surfaceRendererMode))
       ? raw.surfaceRendererMode as RouterConfig['surfaceRendererMode']
       : 'relay',
     surfaceDefaultShellMode: ['inline', 'plain', 'sparkling', 'glass', 'plain-glass'].includes(String(raw.surfaceDefaultShellMode))
@@ -15481,6 +16107,7 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
       ? narrativeUtilityNames().filter(name => requestedNarrativeUtilities.has(name))
       : narrativeUtilityNames(),
     narrativeUtilityOverrides: normalizeNarrativeUtilityOverrides(raw.narrativeUtilityOverrides),
+    narrativeUtilityImageEnabled: normalizeNarrativeUtilityImageEnabled(raw.narrativeUtilityImageEnabled),
     characterPhoneDefaultApps: normalizeCharacterPhoneDefaultApps(raw.characterPhoneDefaultApps, {
       migrateMissing: !Object.prototype.hasOwnProperty.call(raw, 'characterPhoneDefaultApps'),
     }),
@@ -16633,7 +17260,9 @@ function narrativeUtilityRegistry(config: RouterConfig): Array<{
   name: string
   defaultContent: string
   effectiveContent: string
+  injectedContent: string
   enabled: boolean
+  imageEnabled: boolean
   revision: number
   source: 'default' | 'user-override'
   updatedAt?: number
@@ -16650,7 +17279,9 @@ function narrativeUtilityRegistry(config: RouterConfig): Array<{
       name: item.loomName,
       defaultContent: item.loomContent,
       effectiveContent,
+      injectedContent: config.narrativeUtilityImageEnabled[item.loomName] === false ? textOnlyNarrativeUtilityContent(item.loomName) : effectiveContent,
       enabled: enabled.has(item.loomName),
+      imageEnabled: config.narrativeUtilityImageEnabled[item.loomName] !== false,
       revision: override?.revision || 0,
       source: usesOverride ? 'user-override' : 'default',
       updatedAt: override?.updatedAt,
@@ -16669,7 +17300,7 @@ export function applyRelaySettingsPatchToConfig(current: RouterConfig, patch: Re
   const studio = normalizeCustomSurfaceStudio(current.globalSurfaceStudio || defaultCustomSurfaceStudio())
   if (patch.kind === 'surface-preferences') {
     if (patch.rendererMode !== undefined) {
-      if (!['relay', 'legacy-regex', 'hybrid'].includes(patch.rendererMode)) throw new Error('Renderer mode is invalid.')
+      if (!['relay', 'legacy-regex'].includes(patch.rendererMode)) throw new Error('Renderer mode is invalid.')
       studio.rendererMode = patch.rendererMode
       next.surfaceRendererMode = patch.rendererMode
     }
@@ -16707,6 +17338,12 @@ export function applyRelaySettingsPatchToConfig(current: RouterConfig, patch: Re
     const selected = new Set(patch.enabledNames)
     next.narrativeDlcUtilityNames = narrativeUtilityNames().filter(name => selected.has(name))
     next.narrativeDlcEnabled = next.narrativeDlcUtilityNames.length > 0
+  } else if (patch.kind === 'narrative-image-enabled') {
+    if (!narrativeUtilityNames().includes(patch.utilityName)) throw new Error('Narrative Utility not found.')
+    const imageEnabled = { ...current.narrativeUtilityImageEnabled }
+    if (patch.enabled) delete imageEnabled[patch.utilityName]
+    else imageEnabled[patch.utilityName] = false
+    next.narrativeUtilityImageEnabled = imageEnabled
   } else if (patch.kind === 'narrative-override') {
     if (!narrativeUtilityNames().includes(patch.utilityName)) throw new Error('Narrative Utility not found.')
     const overrides = { ...current.narrativeUtilityOverrides }
@@ -17019,6 +17656,8 @@ function normalizeVersionNode(versionId: string, value: unknown): VersionTreeNod
 
 function rebuildAssetLibraryAndVersionTrees(state: StateFile): void {
   const preserved = state.assetLibrary?.assets || {}
+  const knownCharacterNames = Object.values(state.continuityVault.characters)
+    .flatMap(character => [character.canonicalCharacterName, ...character.aliases])
   const nextLibrary = emptyAssetLibrary()
   nextLibrary.compare = state.assetLibrary?.compare || {}
 
@@ -17033,7 +17672,7 @@ function rebuildAssetLibraryAndVersionTrees(state: StateFile): void {
 
   const nextTrees: Record<string, VersionTree> = {}
   for (const record of Object.values(state.slots)) {
-    rebuildSlotAssetsAndTree(record, nextLibrary, nextTrees, preserved)
+    rebuildSlotAssetsAndTree(record, nextLibrary, nextTrees, preserved, knownCharacterNames)
   }
   state.assetLibrary = nextLibrary
   state.versionTrees = nextTrees
@@ -17044,6 +17683,7 @@ function rebuildSlotAssetsAndTree(
   library: AssetLibraryState,
   trees: Record<string, VersionTree>,
   preserved: Record<string, VisualAssetReference>,
+  knownCharacterNames: string[],
 ): void {
   const versions: Array<{ snapshot: GenerationSnapshot; source: VisualAssetReference['source']; current: boolean }> = []
   for (const snapshot of [...(record.history || [])].reverse()) versions.push({ snapshot, source: 'history', current: false })
@@ -17064,7 +17704,7 @@ function rebuildSlotAssetsAndTree(
     updatedAt: record.updatedAt || Date.now(),
   }
   for (const item of versions) {
-    const asset = assetFromSnapshot(record, item.snapshot, item.source, preserved)
+    const asset = assetFromSnapshot(record, item.snapshot, item.source, preserved, knownCharacterNames)
     if (!asset) continue
     if (item.current) asset.lastUsedAt = record.updatedAt || Date.now()
     const versionId = versionIdForSnapshot(record.key, item.snapshot)
@@ -17108,12 +17748,27 @@ function assetFromSnapshot(
   snapshot: GenerationSnapshot,
   source: VisualAssetReference['source'],
   preserved: Record<string, VisualAssetReference>,
+  knownCharacterNames: string[],
 ): VisualAssetReference | null {
   if (!snapshot.imageUrl && !snapshot.imageId) return null
   const assetId = assetIdForImage(snapshot.imageId, snapshot.imageUrl)
   const prior = preserved[assetId]
   const createdAt = snapshot.generatedAt || record.completedAt || record.updatedAt || Date.now()
-  const characterOwner = singleCharacterOwnerName(`${record.originalSceneBrief} ${snapshot.resolvedPositivePrompt}`)
+  // Archive character filters contain resolved subjects only. Alt text and
+  // scene prose remain searchable, but their capitalized opening adjectives
+  // (for example "Empty" or "Dim") are not evidence of named characters.
+  const visualSubjects = (snapshot.promptPipeline?.visualSubjectPrompts?.length
+    ? snapshot.promptPipeline.visualSubjectPrompts
+    : record.promptPipeline?.visualSubjectPrompts || []).map(subject => subject.name)
+  const authoredSubjects = record.prosePromptComposition?.namedSubjects || []
+  // Older slots have neither subject field. Accept an alt-text candidate only
+  // when it matches a character already known to this chat's Appearance vault;
+  // otherwise sentence-initial adjectives such as "Empty" become fake cast.
+  const knownAltSubjects = extractCharacterCandidates(record.alt).filter(candidate =>
+    knownCharacterNames.some(name => name.toLocaleLowerCase() === candidate.toLocaleLowerCase()
+      || name.toLocaleLowerCase().startsWith(`${candidate.toLocaleLowerCase()} `)))
+  const characterNames = [...new Set([...visualSubjects, ...authoredSubjects, ...knownAltSubjects]
+    .map(name => cleanString(name)).filter(isLikelyGeneticCharacterName))].slice(0, 6)
   return {
     assetId,
     imageId: snapshot.imageId || imageIdFromUrl(snapshot.imageUrl),
@@ -17124,7 +17779,7 @@ function assetFromSnapshot(
     tags: prior?.tags ? [...prior.tags] : [],
     caption: record.caption || '',
     alt: record.alt || '',
-    characterNames: characterOwner ? [characterOwner] : [],
+    characterNames,
     locationNames: extractLocationHints(`${record.originalSceneBrief} ${snapshot.resolvedPositivePrompt}`),
     promptProfileId: snapshot.promptProfile?.selectedProfileId || record.selectedPromptProfileId || snapshot.promptPresetId || undefined,
     target: record.target,
@@ -17164,7 +17819,8 @@ function commitSlotAssetVersion(state: StateFile, record: SlotRecord, result: Sl
   if (!tree) {
     const seedLibrary = emptyAssetLibrary()
     const seedTrees: Record<string, VersionTree> = {}
-    rebuildSlotAssetsAndTree(record, seedLibrary, seedTrees, state.assetLibrary.assets)
+    rebuildSlotAssetsAndTree(record, seedLibrary, seedTrees, state.assetLibrary.assets,
+      Object.values(state.continuityVault.characters).flatMap(character => [character.canonicalCharacterName, ...character.aliases]))
     tree = seedTrees[treeId] || {
       treeId,
       chatId: record.chatId,
@@ -17178,7 +17834,8 @@ function commitSlotAssetVersion(state: StateFile, record: SlotRecord, result: Sl
     for (const asset of Object.values(seedLibrary.assets)) state.assetLibrary.assets[asset.assetId] = asset
   }
 
-  const asset = assetFromSnapshot(record, result, 'current-slot', state.assetLibrary.assets)
+  const asset = assetFromSnapshot(record, result, 'current-slot', state.assetLibrary.assets,
+    Object.values(state.continuityVault.characters).flatMap(character => [character.canonicalCharacterName, ...character.aliases]))
   if (!asset) return
   const previousVersionId = previousSnapshot?.versionId || record.currentVersionId || tree.currentVersionId
   const rootVersionId = tree.rootVersionId || previousSnapshot?.rootVersionId || previousVersionId || versionIdForSnapshot(record.key, result)
@@ -17453,7 +18110,14 @@ function updateContinuityFromAcceptedAsset(state: StateFile, record: SlotRecord,
   vault.updatedAt = now
 }
 
-function selectContinuityForJob(state: StateFile, job: RouterJob, _classification: RequestClassification, resolvedSubjectNames: string[] = []): {
+function selectContinuityForJob(
+  state: StateFile,
+  job: RouterJob,
+  _classification: RequestClassification,
+  resolvedSubjectNames: string[] = [],
+  excludedSubjectNames: string[] = [],
+  expectedPeopleCountOverride?: number,
+): {
   included: ContinuityFact[]
   projectedIncluded: ContinuityFact[]
   excluded: ContinuityDecision[]
@@ -17490,11 +18154,14 @@ function selectContinuityForJob(state: StateFile, job: RouterJob, _classificatio
   }
   const proseSubjects = job.prosePromptComposition?.namedSubjects || []
   const sceneSubjects = extractCharacterCandidates(`${job.originalSceneBrief} ${job.caption || ''} ${job.alt || ''}`)
-  const subjects = [...new Set([...resolvedSubjectNames, ...proseSubjects, ...sceneSubjects].map(cleanString).filter(Boolean))]
+  const excludedKeys = new Set(excludedSubjectNames.map(normalizeIdentityOwner).filter(Boolean))
+  const subjects = [...new Set([...resolvedSubjectNames, ...proseSubjects, ...sceneSubjects]
+    .map(cleanString)
+    .filter(name => Boolean(name) && !excludedKeys.has(normalizeIdentityOwner(name))))]
   const sceneBrief = [job.originalSceneBrief, job.prosePromptComposition?.sceneBrief, job.prosePromptComposition?.framing, job.caption, job.alt].map(cleanString).filter(Boolean).join(' ')
   const framingMode = job.prosePromptComposition?.perspectiveMode
     || (job.target === 'prose.illustration' ? proseSettingsForChat(state, job.chatId).perspectiveMode : '')
-  const expectedPeopleCount = Math.max(
+  const expectedPeopleCount = expectedPeopleCountOverride ?? Math.max(
     Number(job.prosePromptComposition?.expectedPeopleCount || 0),
     job.cast === 'char+user' ? 2 : job.cast === 'char' || job.cast === 'user' ? 1 : 0,
   )
@@ -17568,19 +18235,21 @@ async function ensureCompletedStateCompacted(chatId: string, userId?: string): P
     for (const record of completed) {
       const compact = compactCompletedRecord(record)
       const existing = state.completedArchive[record.key]
-      if (!existing?.diagnosticArchivedAt && completedRecordHasHeavyData(record)) {
+      const heavyData = completedRecordHasHeavyData(record)
+      const diagnosticNeedsWrite = completedDiagnosticArchiveNeedsWrite(record, existing, heavyData)
+      if (diagnosticNeedsWrite) {
         await spindle.userStorage.setJson(completedDiagnosticPath(chatId, compact.diagnosticArchiveId!), {
           schemaVersion: 1,
           archivedAt: Date.now(),
           record,
         }, { indent: 2, userId })
-        compact.diagnosticArchiveId = compact.diagnosticArchiveId || completedArchiveId(record)
       }
+      const diagnosticArchiveUnchanged = existing?.diagnosticArchiveId === compact.diagnosticArchiveId
       state.completedArchive[record.key] = {
         ...existing,
         ...compact,
         historyVersionIds: (record.history || []).map(version => version.versionId).filter((id): id is string => Boolean(id)),
-        diagnosticArchivedAt: existing?.diagnosticArchivedAt || (completedRecordHasHeavyData(record) ? Date.now() : undefined),
+        diagnosticArchivedAt: diagnosticNeedsWrite ? Date.now() : diagnosticArchiveUnchanged ? existing?.diagnosticArchivedAt : undefined,
       }
     }
     const hot = completed.slice(0, RECENT_COMPLETED_HOT_LIMIT)
@@ -18190,6 +18859,9 @@ function compactAssetLibraryForState(library: AssetLibraryState): AssetLibrarySt
     ...library,
     assets: Object.fromEntries(selected.map(asset => [asset.assetId, {
       ...asset,
+      searchIndex: [asset.originalSceneBrief, asset.resolvedPositivePrompt]
+        .map(value => cleanString(value).replace(/\s+/g, ' ').slice(0, 360))
+        .filter(Boolean).join(' ').slice(0, 720),
       originalSceneBrief: '',
       resolvedPositivePrompt: '',
       resolvedNegativePrompt: '',
@@ -18485,6 +19157,7 @@ function jobFromRecord(record: SlotRecord): RouterJob {
     proseIllustrationId: record.proseIllustrationId,
     prosePlanId: record.prosePlanId,
     proseAnchor: record.proseAnchor,
+    authoritativeSourceParagraph: record.authoritativeSourceParagraph,
     synthetic: record.proseSynthetic,
   }
 }
@@ -18642,16 +19315,55 @@ async function readCharacterContext(chatId: string, userId?: string, query = '',
  * spindle.personas.getActive(userId?) returns the current PersonaDTO or null.
  * Persona access intentionally stays separate from the chat-character path.
  */
+function personaBindingRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
+
+/** Resolve a chat's active Persona before consulting the global active Persona. */
+export function chatBoundPersonaId(chat: unknown, messages: ChatMessage[] = []): string {
+  const chatRecord = personaBindingRecord(chat)
+  const metadata = personaBindingRecord(chatRecord.metadata)
+  const chatPersonaId = cleanString(
+    metadata.active_persona_id || metadata.activePersonaId || metadata.persona_id || metadata.personaId
+    || chatRecord.active_persona_id || chatRecord.activePersonaId || chatRecord.persona_id || chatRecord.personaId,
+  )
+  if (chatPersonaId) return chatPersonaId
+
+  for (const message of [...messages].reverse()) {
+    if (!(message.is_user === true || cleanString(message.role).toLocaleLowerCase() === 'user')) continue
+    const extra = personaBindingRecord(message.extra)
+    const messageMetadata = personaBindingRecord(message.metadata)
+    const personaId = cleanString(
+      extra.persona_id || extra.personaId || messageMetadata.persona_id || messageMetadata.personaId,
+    )
+    if (personaId) return personaId
+  }
+  return ''
+}
+
 async function resolveHostPersonaBinding(userId?: string, chatId?: string): Promise<{ persona: any | null; context: PersonaPovContext }> {
   const unavailable: PersonaPovContext = { available: false, binding: 'unavailable' }
   if (!spindle.permissions.has('personas')) return { persona: null, context: unavailable }
 
   // Lumiverse persists the conversation's selection separately from the
-  // global active Persona. Read that exact binding before the global fallback.
+  // global active Persona. Prefer explicit chat metadata, then the latest
+  // authored user-message Persona, before using the global fallback.
   if (chatId && spindle.permissions.has('chats') && typeof spindle.personas?.get === 'function') {
     try {
       const chat = await spindle.chats.get(chatId, userId)
-      const personaId = cleanString(chat?.metadata?.active_persona_id)
+      const messages = typeof spindle.chat?.getMessages === 'function'
+        ? await spindle.chat.getMessages(chatId) as ChatMessage[]
+        : []
+      const personaId = chatBoundPersonaId(chat, messages)
       if (personaId) {
         const persona = await spindle.personas.get(personaId, userId)
         if (persona) {
@@ -18793,8 +19505,10 @@ function slotDescription(job: RouterJob, slot: string): string {
 }
 
 export function hasExplicitNoHumanIntent(job: Pick<RouterJob, 'originalSceneBrief' | 'caption' | 'alt' | 'cast'>): boolean {
-  if (job.cast === 'none') return true
   const authoritative = `${job.originalSceneBrief} ${job.caption || ''} ${job.alt || ''}`
+  // The cast attribute controls only whether the bound chat Character and/or
+  // Persona are depicted. Model Planned may still name visible NPCs while
+  // correctly using cast="none" for those unbound identities.
   return /\b(?:no people(?: visible)?|no person(?:s)?(?: visible)?|without (?:any )?(?:people|persons|humans|characters)|empty (?:room|lounge|office|hallway|classroom|studio|interior|building|street|scene)|unoccupied|vacant|environment only|location only|object only|no message)\b/i.test(authoritative)
 }
 
@@ -18809,11 +19523,19 @@ function usesNarrativeSceneProfile(
   if ((job.target !== 'prose.illustration' && job.target !== 'custom.artifact-media') || hasExplicitSocialPhotoIntent(authoritative)) return false
   const framingMode = job.prosePromptComposition?.perspectiveMode || 'scene-snapshot'
   if (!['scene-snapshot', 'sequence', 'emotional-beat', 'persona-pov'].includes(framingMode)) return false
+  if (explicitNamedVisibleSubjectCount(authoritative) > 1) return true
   if (job.target === 'custom.artifact-media' && !/\b(?:wide|medium|long|establishing|over[- ]the[- ]shoulder|detail|scene|environment|foreground|background|beside|opposite|across|standing|walking|sitting|seated|lying|sleeping|speaking|arguing|confronting|holding|reaching|turned)\b/i.test(authoritative)) return false
   if (job.cast === 'char' || job.cast === 'user' || job.cast === 'char+user') return true
   if (Number(job.prosePromptComposition?.expectedPeopleCount || 0) > 0 || (job.prosePromptComposition?.namedSubjects || []).length > 0) return true
   return /\b(?:person|people|woman|man|girl|boy|character|face|couple|duo|arguing|confronting|embrace|kissing|speaking|standing|walking|sitting|lying|sleeping|asleep)\b/i.test(authoritative)
     || /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+(?:argued|confronted|stood|walked|sat|slept|was asleep|looked|held|reached|turned)\b/.test(authoritative)
+}
+
+function explicitNamedVisibleSubjectCount(authoritative: string): number {
+  if (!/\b(?:exactly\s+)?(?:two|2)\s+visible\s+subjects?\b/i.test(authoritative)) return 0
+  const activities = /\b([\p{Lu}][\p{L}\p{M}'’\-]+(?:\s+[\p{Lu}][\p{L}\p{M}'’\-]+)?)\s+(?:is\s+)?(?:sit(?:s|ting)?|stand(?:s|ing)?|lie(?:s|ying)?|sleep(?:s|ing)?|hold(?:s|ing)?|reach(?:es|ing)?|pass(?:es|ing)?|extend(?:s|ing)?|offer(?:s|ing)?|take(?:s|ing)?|look(?:s|ing)?|face(?:s|ing)?|lean(?:s|ing)?|touch(?:es|ing)?)\b/gu
+  const names = new Set([...authoritative.matchAll(activities)].map(match => match[1].trim().toLocaleLowerCase()))
+  return names.size > 1 ? 2 : 0
 }
 
 export function classifyImageRequest(job: Pick<RouterJob, 'originalSceneBrief' | 'caption' | 'alt' | 'target' | 'prosePromptComposition' | 'composedPositivePrompt' | 'cast'>): RequestClassification {
@@ -18823,6 +19545,7 @@ export function classifyImageRequest(job: Pick<RouterJob, 'originalSceneBrief' |
   const authoritative = `${job.originalSceneBrief} ${job.caption || ''} ${job.alt || ''}`
   const text = authoritative.toLocaleLowerCase()
   const explicitNoHumans = hasExplicitNoHumanIntent(job) || peoplePolicy === 'forbidden'
+  const explicitNamedCount = explicitNamedVisibleSubjectCount(authoritative)
 
   // Explicit no-human/environment intent is authoritative. Names mentioned as
   // backstory (for example “the chair where Alpha sat”) are not visible subjects.
@@ -18848,9 +19571,10 @@ export function classifyImageRequest(job: Pick<RouterJob, 'originalSceneBrief' |
   const explicitNamedPerson = namedSubjects.some(name => namedEntityPosition(authoritative, name) >= 0)
     || /\b(?:photo|picture|candid|portrait|selfie) of [A-Z][a-z]+\b/.test(authoritative)
     || /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+(?:wearing|smiling|standing|walking|sitting|entering|looking|holding|lying|hovering|braced|kissing|embracing|sprawling|sprawls)\b/.test(authoritative)
-  const explicitPerson = /\b(selfie|person|people|woman|man|girl|boy|teen|staff member|performer|dancer|singer|actor|face|expression|candid of|couple|duo|embrace|kissing)\b/i.test(authoritative) || explicitNamedPerson
+  const explicitPerson = /\b(selfie|person|people|woman|man|girl|boy|teen|staff member|performer|dancer|singer|actor|face|expression|candid of|couple|duo|embrace|kissing)\b/i.test(authoritative) || explicitNamedPerson || explicitNamedCount > 0
   const authoritativeSubjects = namedSubjects.filter(name => namedEntityPosition(authoritative, name) >= 0)
-  const statedPeopleCount = /\b(?:three|3)\s+(?:people|persons|characters)\b/i.test(authoritative) ? 3
+  const statedPeopleCount = explicitNamedCount > 0 ? explicitNamedCount
+    : /\b(?:three|3)\s+(?:people|persons|characters)\b/i.test(authoritative) ? 3
     : /\b(?:two|2)\s+(?:people|persons|characters)\b|\b(?:couple|duo)\b/i.test(authoritative) ? 2
       : explicitPerson ? 1 : 0
   const authoritativePeopleCount = Math.max(statedPeopleCount, authoritativeSubjects.length)
@@ -18884,14 +19608,15 @@ export function targetHumanPolicy(
   const text = `${job.originalSceneBrief} ${job.caption || ''} ${job.alt || ''}`
   const castRequirements = c5aCastRequirements(job.cast)
   const castRequiresIdentity = castRequirements.character || castRequirements.persona
+  const explicitNamedCount = explicitNamedVisibleSubjectCount(text)
   const explicitNoHumans = hasExplicitNoHumanIntent(job) || job.prosePromptComposition?.peoplePolicy === 'forbidden'
-  const explicitHumanPresence = job.cast === 'char' || job.cast === 'user' || job.cast === 'char+user' || /\b(person|people|woman|man|girl|boy|teen|character|face|portrait|selfie|hand|hands|held|holding|someone|body|legs|feet|dancer|performer|couple|duo|embrace|kissing)\b/i.test(text)
-  const compositionPeople = !explicitNoHumans && explicitHumanPresence && (Math.max(0, Number(job.prosePromptComposition?.expectedPeopleCount || 0)) > 0 || (job.prosePromptComposition?.namedSubjects || []).some(name => namedEntityPosition(text, cleanString(name)) >= 0))
+  const explicitHumanPresence = job.cast === 'char' || job.cast === 'user' || job.cast === 'char+user' || explicitNamedCount > 0 || /\b(person|people|woman|man|girl|boy|teen|character|face|portrait|selfie|hand|hands|held|holding|someone|body|legs|feet|dancer|performer|couple|duo|embrace|kissing)\b/i.test(text)
+  const compositionPeople = !explicitNoHumans && explicitHumanPresence && (Math.max(0, Number(job.prosePromptComposition?.expectedPeopleCount || 0), explicitNamedCount) > 0 || (job.prosePromptComposition?.namedSubjects || []).some(name => namedEntityPosition(text, cleanString(name)) >= 0))
   const explicitHeldObject = /\b(?:phone|object|device|camera|paper|document)\s+(?:being\s+)?(?:held|held by|in hand|in someone's hand)|\bholding\s+(?:a\s+)?(?:phone|object|device|camera|paper|document)\b/i.test(text)
   const targetClass: TargetHumanPolicy['targetClass'] =
     classification === 'group photo' ? 'group'
       : classification === 'narrative-scene'
-        ? (job.cast === 'char+user' || Number(job.prosePromptComposition?.expectedPeopleCount || 0) > 1 ? 'group' : 'character')
+        ? (job.cast === 'char+user' || Number(job.prosePromptComposition?.expectedPeopleCount || 0) > 1 || explicitNamedCount > 1 ? 'group' : 'character')
       : requestHasVisibleFace(classification) ? 'character'
         : classification === 'location/interior' || classification === 'scenery' ? 'location'
           : classification === 'document' ? 'document'
@@ -18978,18 +19703,40 @@ export function finalizeParsedPositivePrompt(
   prompt: string,
   classification: RequestClassification,
   job: RouterJob,
+  perspectiveMode: ProseIllustratorSettings['perspectiveMode'] | '' = job.prosePromptComposition?.perspectiveMode || '',
+  cameraHolderNames: string[] = [],
 ): string {
   const castRequirements = c5aCastRequirements(job.cast)
   const disciplinedPrompt = castRequirements.character || castRequirements.persona
     ? prompt
     : disciplineParsedPositivePrompt(prompt, classification, job)
   const surfaceFramedPrompt = enforceDirectSurfaceFraming(disciplinedPrompt, classification)
-  if (classification !== 'selfie') return surfaceFramedPrompt
+  const enforcePersonaPovVisibility = (value: string): string => {
+    if (perspectiveMode !== 'persona-pov') return value
+    const cameraHolderSafe = removePersonaPovCameraHolderNames(value, cameraHolderNames)
+    return /Persona POV visibility lock:/i.test(cameraHolderSafe)
+      ? cameraHolderSafe
+      : `${cameraHolderSafe}${cameraHolderSafe ? ', ' : ''}${PERSONA_POV_VISIBILITY_CONTRACT}`
+  }
+  if (classification !== 'selfie') {
+    return enforcePersonaPovVisibility(surfaceFramedPrompt)
+  }
   const repairResult = repairSelfieDeviceContamination(surfaceFramedPrompt, '', requestsVisibleDeviceHardware(job))
   if (repairResult.contaminated) {
     throw new Error('[SelfieDeviceRepair] Visible-device contamination persisted after one repair pass, while the authoritative scene brief did not explicitly request visible hardware.')
   }
-  return repairResult.prompt
+  return enforcePersonaPovVisibility(repairResult.prompt)
+}
+
+/** Remove camera-holder identity from positive visual text so it cannot cue a depiction. */
+export function removePersonaPovCameraHolderNames(prompt: string, cameraHolderNames: string[] = []): string {
+  let result = prompt
+  const names = [...new Set(cameraHolderNames.map(cleanString).filter(Boolean))].sort((left, right) => right.length - left.length)
+  for (const name of names) {
+    const escaped = escapeRegExp(name)
+    result = result.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'giu'), 'the camera-holder')
+  }
+  return result.replace(/\bthe camera-holder\s+the camera-holder\b/giu, 'the camera-holder')
 }
 
 export function repairSelfieDeviceContamination(prompt: string, negative: string, requestedHardwareExplicitly: boolean): { prompt: string; negative: string; contaminated: boolean } {
@@ -19064,6 +19811,20 @@ export function resolvePromptProfileDecision(
   }
 }
 
+function resolveProviderPromptProfileDecision(
+  job: Parameters<typeof resolvePromptProfileDecision>[0],
+  config: RouterConfig,
+): PromptProfileDecision {
+  const decision = resolvePromptProfileDecision(job, config)
+  if (job.target !== 'prose.illustration' || decision.requestedProfileId !== 'auto') return decision
+  return {
+    ...decision,
+    reason: `${decision.reason} Automatic positive framing additions are withheld for prose illustrations so the selected mode's authored scene composition remains authoritative.`,
+    framingGuidance: '',
+    promptAdditions: '',
+  }
+}
+
 export function autoPromptProfileId(
   job: Pick<RouterJob, 'target' | 'originalSceneBrief' | 'caption' | 'alt' | 'prosePromptComposition' | 'composedPositivePrompt'>,
   classification: RequestClassification,
@@ -19131,6 +19892,15 @@ export function applyPromptProfileToPositivePrompt(prompt: string, decision: Pro
       return false
     })
     promptAdditions = retained.join(', ')
+  }
+  if (promptAdditions) {
+    const authoredPrompt = normalizePromptInstructionText(next)
+    promptAdditions = promptAdditions.split(',').map(fragment => fragment.trim()).filter(Boolean).filter(fragment => {
+      const normalizedFragment = normalizePromptInstructionText(fragment)
+      if (!normalizedFragment || !authoredPrompt.includes(normalizedFragment)) return true
+      removed.push({ fragment, reason: 'The Story Model already included this profile addition in its authored prompt.' })
+      return false
+    }).join(', ')
   }
   if (promptAdditions) next = `${next}, ${promptAdditions}`
   return {
@@ -19259,7 +20029,7 @@ export function sanitizeRecentVisualContext(value: string): string {
 }
 
 export function resolveNamedVisualSubjects(sceneBrief: string, presets: Array<Record<string, unknown>>): VisualSubjectPrompt[] {
-  const matches: Array<VisualSubjectPrompt & { position: number }> = []
+  const matches = new Map<string, VisualSubjectPrompt & { position: number }>()
   for (const preset of presets) {
     const kind = cleanString(preset.kind).toLocaleLowerCase()
     if (kind !== 'character' && kind !== 'persona') continue
@@ -19268,16 +20038,86 @@ export function resolveNamedVisualSubjects(sceneBrief: string, presets: Array<Re
     if (!name || !prompt) continue
     const position = namedEntityPosition(sceneBrief, name)
     if (position < 0) continue
-    matches.push({
+    const subject = {
       id: cleanString(preset.id) || undefined,
       name,
       kind,
       prompt,
       negativePrompt: sanitizeVisualPreset(firstString(preset.negativePrompt, preset.negative_prompt, preset.negative)),
       position,
-    })
+    }
+    const key = normalizeIdentityOwner(name)
+    const existing = matches.get(key)
+    if (!existing) {
+      matches.set(key, subject)
+      continue
+    }
+    existing.id ||= subject.id
+    existing.position = Math.min(existing.position, position)
+    existing.prompt = [...new Set([existing.prompt, subject.prompt].map(cleanString).filter(Boolean))].join('; ')
+    existing.negativePrompt = [...new Set([existing.negativePrompt, subject.negativePrompt].map(cleanString).filter(Boolean))].join(', ')
   }
-  return matches.sort((a, b) => a.position - b.position).map(({ position: _position, ...subject }) => subject)
+  return [...matches.values()].sort((a, b) => a.position - b.position).map(({ position: _position, ...subject }) => subject)
+}
+
+/** The active Persona is a camera-holder, not a visible subject, in Persona POV. */
+export function filterPersonaPovVisualSubjects(
+  subjects: VisualSubjectPrompt[],
+  perspectiveMode: string,
+  activePersona?: { id?: string; name?: string; aliases?: string[] } | null,
+  sceneBrief = '',
+): VisualSubjectPrompt[] {
+  if (perspectiveMode !== 'persona-pov') return subjects
+  const cameraHolderKeys = new Set(
+    [activePersona?.id, activePersona?.name, ...(activePersona?.aliases || [])]
+      .map(normalizeIdentityOwner)
+      .filter(Boolean),
+  )
+  return subjects.filter(subject => {
+    if (cleanString(subject.kind).toLocaleLowerCase() === 'persona') return false
+    const subjectKeys = [subject.id, subject.name].map(normalizeIdentityOwner).filter(Boolean)
+    if (subjectKeys.some(key => cameraHolderKeys.has(key))) return false
+    return !isSceneNamedPersonaPovCameraHolder(subject.name, sceneBrief)
+  })
+}
+
+function isSceneNamedPersonaPovCameraHolder(name: string, sceneBrief: string): boolean {
+  // Older chats may lack explicit chat Persona metadata. A named perspective
+  // holder in the authoritative brief is still the camera, not a visible cast
+  // member whose preset should be appended to the provider prompt.
+  const escapedName = escapeRegExp(cleanString(name))
+  if (!escapedName) return false
+  const possessiveView = new RegExp(
+    `\\b${escapedName}['’]s\\s+(?:(?:standing|seated|first[- ]person|eye[- ]level)\\s+)*(?:eyes?|view|perspective|point\\s+of\\s+view|pov|eye[- ]level|viewpoint|vantage(?:\\s+point)?)\\b`,
+    'iu',
+  )
+  const fromPossessiveView = new RegExp(
+    `\\bfrom\\s+${escapedName}['’]s\\s+(?:(?:standing|seated|first[- ]person|eye[- ]level)\\s+)*(?:eyes?|view|perspective|point\\s+of\\s+view|pov|eye[- ]level|viewpoint|vantage(?:\\s+point)?)\\b`,
+    'iu',
+  )
+  const explicitCameraOwner = new RegExp(
+    `\\b${escapedName}(?:['’]s)?\\s+(?:is\\s+)?(?:the\\s+)?(?:camera[- ]holder|viewer|pov|point\\s+of\\s+view)\\b`,
+    'iu',
+  )
+  return possessiveView.test(sceneBrief) || fromPossessiveView.test(sceneBrief) || explicitCameraOwner.test(sceneBrief)
+}
+
+const PERSONA_POV_VISIBILITY_CONTRACT = 'Persona POV visibility lock: the active Persona is the camera only and is never a visible subject. Show no part of the camera-holder (hands, arms, legs, shoulders, or torso), and no camera-holder reflection, mirror image, screen image, photograph, video, portrait, poster, avatar, silhouette, or shadow anywhere in frame. Do not invent people, faces, photographs, portraits, posters, or avatars on background monitors, phones, displays, or framed material; unless the scene explicitly requires such content, keep those surfaces blank, dark, or abstract. Never show an image or likeness of the camera-holder. Count only other people who are actually visible in the scene.'
+const PERSONA_POV_NEGATIVE_GUARDRAILS = 'visible POV character, visible camera holder, viewer face, viewer portrait, viewer body, viewer hands, viewer arms, viewer legs, viewer torso, portrait of camera holder, photograph of camera holder, video image of camera holder, camera holder on a screen, camera holder on a monitor, reflection of viewer, mirror image of viewer, screen image of viewer, silhouette of viewer, shadow of viewer, mirror selfie'
+
+export function buildPersonaPovNegativePrompt(cameraHolderNames: string[] = []): string {
+  const namedGuards = [...new Set(cameraHolderNames.map(cleanString).filter(Boolean))].flatMap(name => [
+    `${name} as a visible subject`,
+    `face of ${name}`,
+    `portrait of ${name}`,
+    `photograph of ${name}`,
+    `video image of ${name}`,
+    `${name} on a screen`,
+    `${name} on a monitor`,
+    `reflection of ${name}`,
+    `silhouette of ${name}`,
+  ])
+  return [...new Set([PERSONA_POV_NEGATIVE_GUARDRAILS, ...namedGuards])].join(', ')
 }
 
 function namedEntityPosition(sceneBrief: string, name: string): number {

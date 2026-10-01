@@ -17,6 +17,7 @@ import type {
   SurfaceShellMode,
   SurfaceColorMode,
   SurfaceUtilityInjectionPosition,
+  SurfaceRendererScriptOverride,
   GenerationProfile,
   GenerationSnapshot,
   GenerationRecipe,
@@ -52,20 +53,29 @@ import { canAbortSlotStatus, countCurrentChatOverview, isFailureRecoveryStatus, 
 import { C5B_CACHE_LIMITS, normalizeGalleryLinkCache, rememberBoundedMap, summarizeRelayHealth, type RelayHealthCheck } from './c5bReliability'
 import { BUILD_ID, EXTENSION_VERSION } from './build'
 import { ORB_IMAGE_DESIGNS, ORB_IMAGE_DESIGN_URLS, type OrbImageDesignId } from './orbIconData'
-import { REVERIE_RELAY_SIDEBAR_ICON_URL, REVERIE_RELAY_TAB_ICON_URL } from './brandIconData'
+import { REVERIE_RELAY_OVERVIEW_ICON_URL, REVERIE_RELAY_SIDEBAR_ICON_URL } from './brandIconData'
 import { applyKakaoColorBinding } from './kakaoColor'
 import { bindImageLightboxZoom } from './imageLightboxZoom'
 import { lifecycleRuntimeCss, NATIVE_SURFACE_ROOT_TAGS, renderCompletedProseLifecycleProjection, renderGenerationPlaceholderEffect, renderNativeSurfaceMarkup } from './nativeSurfaces'
-import { hybridSurfaceOwner, shippedSurfaceDefinitions } from './shippedSurfaceDefinitions'
+import { shippedSurfaceDefinitions } from './shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
-import { DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK } from './protocols'
+import { DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_INLINE_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK } from './protocols'
 import { CHARACTER_PHONE_APPS, characterPhoneAppLabel, normalizeCharacterPhoneDefaultApps, type CharacterPhoneAppId } from './characterPhoneConfig'
 import { NARRATIVE_UTILITY_OVERVIEWS, SURFACE_UTILITY_OVERVIEWS, settingHelp } from './uxCopy'
 import { bracketExampleFromXml } from './bracketSurfaceAuthoring'
 import { narrativeUtilityDisplayName } from './narrativeRegexAssets'
+import { surfaceIconMarkup } from './surfaceIcons'
 import { narrativeGlassButtonPresentationCss, narrativeVariantForSurfaceShellMode } from './surfacePresentation'
+import { updateNarrativeUtilitySelection } from './narrativeUtilitySelection'
 import { emptyRelayChatStats, type RelayChatStats } from './completedState'
 import { shouldDeferPanelRenderForControl } from './panelRenderPolicy'
+import { regexSurfaceParityScripts } from './regexSurfaceParity'
+import type { R45PresentationMode, R45ScriptSource } from './r45SurfaceAuthority'
+import { r45ScriptOverrideKey } from './r45SurfaceAuthority'
+import { validateDeclarativeSurfaceCss } from './surfaceCssSafety'
+import { validateRendererRegex } from './surfaceRendererValidation'
+import { activeSurfaceDefinitions } from './surfacePromptSelection'
+import { buildInstantIllustrationSource } from './instantIllustrationStream'
 
 const COPYABLE_IMAGE_REQUEST_TEMPLATE = `<reverie-illustration
   request="generate"
@@ -112,7 +122,7 @@ function frontendSurfaceFallback(): CustomSurfaceStudioState {
     definitions,
     activePresetIds: Object.fromEntries(Object.values(definitions).map(definition => [definition.baseSurfaceId, definition.surfaceId])),
     collectionPresets: {}, rendererMode: 'relay', defaultShellMode: 'plain', colorMode: 'realistic', utilityInjectionEnabled: true,
-    utilityInjectionPosition: 'after-chat-history', utilityTemplate: '', validationErrors: {}, lastInjectedModuleIds: [],
+    utilityInjectionPosition: 'after-chat-history', utilityTemplate: '', rendererScriptOverrides: {}, validationErrors: {}, lastInjectedModuleIds: [],
     lastInjectionAt: 0, lastInjectionSource: 'none', lastInjectionPosition: 'none', lastInjectionSummary: 'Built-in surface fallback is loading.', updatedAt: 0,
   }
 }
@@ -210,6 +220,7 @@ type RouterConfig = {
   narrativeDlcVariant: 'sparkle-button' | 'plain-button' | 'inline' | 'glass' | 'plain-glass'
   narrativeDlcUtilityNames: string[]
   narrativeUtilityOverrides: Record<string, { content: string; revision: number; updatedAt: number }>
+  narrativeUtilityImageEnabled: Record<string, boolean>
   characterPhoneDefaultApps: CharacterPhoneAppId[]
   narrativeDlcLastSync: {
     status: 'not-installed' | 'healthy' | 'drifted' | 'failed' | 'removed'
@@ -233,6 +244,7 @@ type RelaySettingsPatch =
   | { kind: 'surface-prompt-enabled'; values: Record<string, boolean>; categoryId?: string }
   | { kind: 'character-phone-apps'; defaultApps: CharacterPhoneAppId[] }
   | { kind: 'narrative-enabled'; enabledNames: string[] }
+  | { kind: 'narrative-image-enabled'; utilityName: string; enabled: boolean }
   | { kind: 'narrative-override'; utilityName: string; content: string | null }
   | { kind: 'prompt-registry-override'; promptId: string; content: string | null; version: number }
 
@@ -241,7 +253,9 @@ type NarrativeUtilityInjectionRecord = {
   name: string
   defaultContent: string
   effectiveContent: string
+  injectedContent: string
   enabled: boolean
+  imageEnabled: boolean
   revision: number
   source: 'default' | 'user-override'
   updatedAt?: number
@@ -288,8 +302,9 @@ type BackendMessage =
   | { type: 'narrative_utility_registry'; requestId: string; settingsRevision: number; records: NarrativeUtilityInjectionRecord[] }
   | { type: 'prose_opportunities_ready'; chatId: string; messageId: string; swipeId: number; opportunities: ProseIllustrationOpportunity[]; source: string }
   | { type: 'model_placed_requests_missing'; chatId: string; messageId: string; runtimeDirective: string }
-  | { type: 'prompt_registry_preview'; chatId: string; prompt: string; registryIds: string[] }
+  | { type: 'prompt_registry_preview'; chatId: string; requestId?: string; prompt: string; registryIds: string[] }
   | { type: 'surface_prompt_preview'; requestId: string; prompt: string; surfaceModuleIds: string[]; narrativeUtilityNames: string[]; surfaceInjectionEnabled: boolean; narrativeInjectionEnabled: boolean; error?: string }
+  | { type: 'custom_surface_action_result'; requestId: string; ok: boolean; error?: string }
   | { type: 'narrative_lorebook_export_result'; requestId: string; ok: boolean; message: string; bookId?: string; entryId?: string }
   | { type: 'lora_catalog_result'; requestId: string; connectionId: string; status: 'completed' | 'failed'; items: string[]; error?: string }
   | { type: 'dry_run_result'; report: DryRunReport }
@@ -502,10 +517,12 @@ export function setup(ctx: SpindleFrontendContext) {
   const proseRevealGuardStyles = new Map<Document | ShadowRoot, HTMLStyleElement>()
   const slotActionFeedback = new SlotActionFeedbackCoordinator()
   const pendingSurfacePromptPreviews = new Map<string, { setValue: (value: string) => void }>()
+  const pendingCustomSurfaceSaves = new Map<string, (ok: boolean, error?: string) => void>()
   const appearanceActionStatuses = new Map<string, AppearanceMemoryActionStatus & { receivedAt: number }>()
   const optimisticSlotActions = new Map<string, { status: SlotRecord['status']; statusText: string; intent?: RegenerationIntent; basedOnUpdatedAt: number }>()
   const activeSwipeByMessage = new Map<string, number>()
   const openedSlotPreviewKeys = new Set<string>()
+  let activeSlotPreviewKey: string | null = null
   let parserConnections: ParserConnection[] = []
   let frontendParserConnections: ParserConnection[] | null = null
   let imageConnections: ImageConnection[] = []
@@ -519,6 +536,7 @@ export function setup(ctx: SpindleFrontendContext) {
   let stateRevision = -1
   let lastDisplayContractSignature = ''
   let pendingProseSettingsWrite: { settings: ProseIllustratorSettings; sentAt: number } | null = null
+  let pendingPromptPreviewRequestId: string | null = null
   let pendingConfigPatches: Array<{ patch: Partial<RouterConfig>; sentAt: number }> = []
   const settingsPatchQueue: Array<{ operationId: string; expectedRevision: number; patch: RelaySettingsPatch }> = []
   let settingsPatchInFlight: string | null = null
@@ -558,7 +576,6 @@ export function setup(ctx: SpindleFrontendContext) {
   let assetQuery = ''
   let assetFavoriteOnly = false
   let allChatsQuery = ''
-  let allChatsChatFilter = 'all'
   let allChatsCharacterFilter = 'all'
   let allChatsTargetFilter = 'all'
   let allChatsSurfaceFilter = 'all'
@@ -613,13 +630,18 @@ export function setup(ctx: SpindleFrontendContext) {
       shellMode: nextConfig.surfaceDefaultShellMode,
       colorMode: nextConfig.surfaceColorMode,
       activePresetIds: studio.activePresetIds,
+      rendererScriptOverrides: studio.rendererScriptOverrides || {},
       definitions,
     })
   }
 
   function invalidateDisplayIfContractChanged(nextConfig: RouterConfig, studio: CustomSurfaceStudioState): void {
     const signature = surfaceDisplayContractSignature(nextConfig, studio)
-    const changed = Boolean(lastDisplayContractSignature && lastDisplayContractSignature !== signature)
+    // A cold host render can happen before Relay receives the saved custom
+    // Surface registry. Refresh once on first hydration too, otherwise those
+    // already-visible messages keep raw [custom_root] text until some later
+    // unrelated setting change happens to invalidate Lumiverse's display.
+    const changed = lastDisplayContractSignature !== signature
     lastDisplayContractSignature = signature
     // Display invalidation remounts the host's resolved Surface DOM. Restrict it
     // to actual renderer-contract changes; slot status and preview updates are
@@ -693,32 +715,119 @@ export function setup(ctx: SpindleFrontendContext) {
   type NativeSurfaceTagPayload = {
     chatId?: string
     messageId?: string
+    tagName?: string
+    attrs?: Record<string, string>
+    content?: string
+    fullMatch?: string
     isUser?: boolean
     isStreaming?: boolean
   }
   const lifecycleScanTimers = new Map<string, number>()
   const lifecycleScanCooldown = new Map<string, number>()
+  const lifecycleStreamingSignatures = new Map<string, string>()
   const lifecycleInterceptorCleanups: Array<() => void> = []
 
   function scheduleLifecycleAutoScan(payload: NativeSurfaceTagPayload): void {
-    if (payload?.isUser || payload?.isStreaming === true) return
+    if (payload?.isUser) return
     const chatId = String(payload?.chatId || activeChatId || '')
     const messageId = String(payload?.messageId || '')
     if (!chatId || !messageId) return
+    const liveSettings = currentProseSettings()
+    const instantStreaming = payload.isStreaming === true
+      && String(payload.tagName || '').toLocaleLowerCase() === 'reverie-illustration'
+      && String(payload.attrs?.request || '').toLocaleLowerCase() === 'generate'
+      && chatId === activeChatId
+      && liveSettings.enabled
+      && liveSettings.mode === 'inline-protocol'
+      && liveSettings.instantIllustrationDispatch
+    if (instantStreaming) ctx.sendToBackend({
+      type: 'instant_stream_probe', chatId, messageId,
+      requestId: String(payload.attrs?.slot || payload.attrs?.id || ''),
+      phase: 'interceptor', streaming: true,
+      instantEnabled: true, mode: liveSettings.mode,
+    })
+    if (payload.isStreaming === true && !instantStreaming) return
     const key = `${chatId}:${messageId}`
     const existing = lifecycleScanTimers.get(key)
     if (existing) window.clearTimeout(existing)
+    if (!instantStreaming) lifecycleStreamingSignatures.delete(key)
     const timer = window.setTimeout(() => {
       lifecycleScanTimers.delete(key)
+      if (instantStreaming) {
+        void scanInstantStreamingModelPlannedMessage(chatId, messageId, key, payload)
+        return
+      }
       const now = Date.now()
       if (now - (lifecycleScanCooldown.get(key) || 0) < 900) return
       lifecycleScanCooldown.set(key, now)
       // First-paint path: tell the backend to discover the request immediately.
       // Native settings sync is useful but must never delay the inline Status Card.
-      ctx.sendToBackend({ type: 'scan_message', chatId, messageId })
+      ctx.sendToBackend({ type: 'scan_message', chatId, messageId, automatic: true })
       void syncNativeSettings().catch(() => null)
     }, 10)
     lifecycleScanTimers.set(key, timer)
+  }
+
+  function proseParagraphBeforeStreamingRequest(messageContent: HTMLElement, payload: NativeSurfaceTagPayload): { cardFound: boolean; text: string | null } {
+    const requestId = String(payload.attrs?.slot || payload.attrs?.id || '').trim()
+    if (!requestId) return { cardFound: false, text: null }
+    const card = Array.from(messageContent.querySelectorAll<HTMLElement>('[data-rrn-native-request]'))
+      .find(candidate => candidate.getAttribute('data-rrn-native-request') === requestId)
+    if (!card) return { cardFound: false, text: null }
+    const island = card.closest<HTMLElement>('.dgir-prose-lifecycle-projection')
+      || card.closest<HTMLElement>('.rrl-island')
+    if (!island || !messageContent.contains(island)) return { cardFound: true, text: null }
+
+    const previous = island.previousElementSibling as HTMLElement | null
+    if (!previous || previous.matches('.rrl-island, .dgir-prose-lifecycle-projection, [data-rrn-native-request]')) return { cardFound: true, text: null }
+    if (previous.matches('p, blockquote, li')) return { cardFound: true, text: String(previous.innerText || previous.textContent || '').trim() || null }
+    const paragraphs = previous.querySelectorAll<HTMLElement>('p, blockquote, li')
+    const lastParagraph = paragraphs.item(paragraphs.length - 1)
+    return { cardFound: true, text: String(lastParagraph?.innerText || lastParagraph?.textContent || '').trim() || null }
+  }
+
+  async function scanInstantStreamingModelPlannedMessage(chatId: string, messageId: string, key: string, payload: NativeSurfaceTagPayload): Promise<void> {
+    const settings = currentProseSettings()
+    if (!settings.enabled || settings.mode !== 'inline-protocol' || !settings.instantIllustrationDispatch || chatId !== activeChatId) return
+    try {
+      const domApi = (ctx as any).dom
+      const bubble = typeof domApi?.findMessageElement === 'function' ? domApi.findMessageElement(messageId) : null
+      const messageContent = bubble?.querySelector?.('[data-component="MessageContent"]') as HTMLElement | null
+      const renderedText = String(messageContent?.innerText || messageContent?.textContent || '')
+      const anchor = messageContent ? proseParagraphBeforeStreamingRequest(messageContent, payload) : { cardFound: false, text: null }
+      const precedingAnchorText = anchor.text
+      const sourceContent = buildInstantIllustrationSource(renderedText, payload, precedingAnchorText)
+      ctx.sendToBackend({
+        type: 'instant_stream_probe', chatId, messageId,
+        requestId: String(payload.attrs?.slot || payload.attrs?.id || ''),
+        phase: 'source-resolution', streaming: payload.isStreaming === true,
+        instantEnabled: true, mode: settings.mode,
+        cardFound: anchor.cardFound, anchorLength: precedingAnchorText?.length || 0,
+        sourceReady: Boolean(sourceContent),
+      })
+      if (!sourceContent) return
+
+      const messagesApi = (ctx as any).messages
+      const recentMessages = typeof messagesApi?.getRecent === 'function' ? messagesApi.getRecent(16) : []
+      const message = Array.isArray(recentMessages) ? recentMessages.find(candidate => candidate?.id === messageId) : null
+      if (message?.is_user === true) return
+      const swipeId = Number.isFinite(Number(message?.swipe_id)) ? Number(message.swipe_id) : 0
+      let hash = 2166136261
+      for (let cursor = 0; cursor < sourceContent.length; cursor += 1) hash = Math.imul(hash ^ sourceContent.charCodeAt(cursor), 16777619)
+      const slot = String(payload.attrs?.slot || 'request')
+      const signature = `${slot}:${sourceContent.length}:${hash >>> 0}`
+      if (lifecycleStreamingSignatures.get(key) === signature) return
+      lifecycleStreamingSignatures.set(key, signature)
+      if (lifecycleStreamingSignatures.size > 512) lifecycleStreamingSignatures.delete(lifecycleStreamingSignatures.keys().next().value as string)
+      // Message-tag interceptors expose the complete tag while it streams, but
+      // the host message store does not expose its live text buffer. Read only
+      // the rendered message body, recover the preceding prose, and append the
+      // exact intercepted tag. Never write partial text back to Lumiverse.
+      ctx.sendToBackend({ type: 'scan_message', chatId, messageId, swipeId, sourceContent, automatic: false, streaming: true })
+      void syncNativeSettings().catch(() => null)
+    } catch (error) {
+      if (config?.debugLogging) console.warn('[Reverie Relay] Instant Model Planned stream scan failed.', error)
+    }
   }
 
   function registerLifecycleAutoScanInterceptors(): void {
@@ -742,44 +851,47 @@ export function setup(ctx: SpindleFrontendContext) {
 
   const removeStyle = ctx.dom.addStyle(`
     .dg-router-panel {
-      --dgir-bg: color-mix(in srgb, var(--lumiverse-fill, #17121a) 82%, #09070d);
-      --dgir-surface: color-mix(in srgb, var(--lumiverse-fill, #211825) 94%, #08060a);
-      --dgir-surface-raised: color-mix(in srgb, var(--lumiverse-fill-subtle, #2c2130) 96%, #08060a);
-      --dgir-surface-soft: color-mix(in srgb, var(--lumiverse-fill-subtle, #2c2130) 86%, #08060a);
-      --dgir-border: color-mix(in srgb, var(--lumiverse-border, #5a465d) 72%, transparent);
-      --dgir-border-bright: color-mix(in srgb, var(--lumiverse-primary, #e980b7) 58%, var(--lumiverse-border, #5a465d));
+      --dgir-bg: color-mix(in srgb, var(--lumiverse-fill, #17121a) 88%, transparent);
+      --dgir-surface: color-mix(in srgb, var(--lumiverse-fill, #211825) 86%, transparent);
+      --dgir-surface-raised: color-mix(in srgb, var(--lumiverse-fill-subtle, #2c2130) 90%, transparent);
+      --dgir-surface-soft: color-mix(in srgb, var(--lumiverse-fill-subtle, #2c2130) 76%, transparent);
+      --dgir-border: color-mix(in srgb, var(--lumiverse-border, #5a465d) 44%, transparent);
+      --dgir-border-bright: color-mix(in srgb, var(--lumiverse-primary, #e980b7) 34%, var(--lumiverse-border, #5a465d));
       --dgir-text: var(--lumiverse-text, #f8f3fa);
       --dgir-text-muted: var(--lumiverse-text-muted, #c2b3c5);
       --dgir-text-dim: var(--lumiverse-text-dim, #8e7f92);
       --dgir-accent: var(--lumiverse-primary, var(--lumiverse-accent, #e980b7));
       --dgir-accent-text: var(--lumiverse-primary-text, var(--lumiverse-accent-fg, #fff7fb));
-      --dgir-accent-soft: color-mix(in srgb, var(--dgir-accent) 18%, transparent);
-      --dgir-accent-glow: color-mix(in srgb, var(--dgir-accent) 35%, transparent);
+      --dgir-accent-soft: color-mix(in srgb, var(--dgir-accent) 14%, transparent);
+      --dgir-accent-glow: color-mix(in srgb, var(--dgir-accent) 28%, transparent);
       --dgir-lavender: color-mix(in srgb, var(--dgir-accent) 56%, #c8b5ff);
       --dgir-success: var(--lumiverse-success, #91d7bd);
       --dgir-danger: var(--lumiverse-danger, #e88396);
       --dgir-warning: var(--lumiverse-warning, #e7c079);
-      --dgir-shadow: 0 14px 36px rgba(4, 2, 8, .3);
-      --dgir-radius-sm: 5px;
-      --dgir-radius-md: 7px;
-      --dgir-radius-lg: 8px;
+      --dgir-glass-line: color-mix(in srgb, var(--lumiverse-border, #5a465d) 30%, transparent);
+      --dgir-glass-highlight: color-mix(in srgb, var(--lumiverse-primary, #e980b7) 4%, rgba(255,255,255,.045));
+      --dgir-shadow: 0 12px 32px rgba(5, 2, 12, .26);
+      --dgir-radius-sm: 12px;
+      --dgir-radius-md: 17px;
+      --dgir-radius-lg: 22px;
       position: relative;
       isolation: isolate;
       overflow: hidden;
       padding: 12px;
       color: var(--dgir-text);
       background:
-        linear-gradient(132deg, transparent 0 38%, color-mix(in srgb, var(--dgir-accent) 5%, transparent) 38.3% 38.8%, transparent 39.1% 100%),
-        linear-gradient(48deg, transparent 0 72%, rgba(255,255,255,.025) 72.3% 72.6%, transparent 72.9% 100%),
-        radial-gradient(circle at 92% 4%, var(--dgir-accent-soft), transparent 34%),
-        linear-gradient(165deg, var(--dgir-bg), color-mix(in srgb, var(--dgir-bg) 86%, #241129));
-      border: 1px solid color-mix(in srgb, var(--dgir-border) 75%, transparent);
+        radial-gradient(ellipse at 88% 0%, color-mix(in srgb, var(--dgir-accent) 13%, transparent), transparent 36%),
+        radial-gradient(ellipse at 4% 42%, color-mix(in srgb, var(--dgir-lavender) 7%, transparent), transparent 34%),
+        linear-gradient(155deg, color-mix(in srgb, var(--dgir-bg) 88%, transparent), color-mix(in srgb, var(--dgir-bg) 78%, transparent));
+      border: 1px solid var(--dgir-glass-line);
       border-radius: var(--dgir-radius-lg);
-      box-shadow: inset 0 1px rgba(255,255,255,.045);
+      box-shadow: var(--dgir-shadow), inset 0 1px var(--dgir-glass-highlight);
+      -webkit-backdrop-filter: blur(18px);
+      backdrop-filter: blur(18px);
       font-family: var(--lumiverse-font-family, system-ui, sans-serif);
       letter-spacing: 0;
     }
-    .dg-router-panel::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: .24; background-image: radial-gradient(circle, color-mix(in srgb, var(--dgir-accent) 45%, transparent) 0 1px, transparent 1.4px); background-size: 39px 39px; mask-image: linear-gradient(to bottom, #000, transparent 72%); }
+    .dg-router-panel::before { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: .22; background-image: radial-gradient(1px 1px at 9% 13%, color-mix(in srgb, var(--dgir-accent) 76%, white) 0 70%, transparent 100%), radial-gradient(1px 1px at 29% 31%, rgba(255,255,255,.72) 0 65%, transparent 100%), radial-gradient(1px 1px at 71% 18%, color-mix(in srgb, var(--dgir-lavender) 82%, white) 0 68%, transparent 100%), radial-gradient(1px 1px at 91% 42%, rgba(255,255,255,.65) 0 65%, transparent 100%), radial-gradient(1px 1px at 45% 72%, color-mix(in srgb, var(--dgir-accent) 70%, white) 0 65%, transparent 100%), radial-gradient(1px 1px at 16% 88%, rgba(255,255,255,.6) 0 65%, transparent 100%); background-size: 100% 100%; mask-image: linear-gradient(to bottom, #000, transparent 80%); }
     :root[data-dgir-theme="clean-panel"] .dg-router-panel {
       --dgir-bg: color-mix(in srgb, var(--lumiverse-fill, #19171d) 92%, #06060a);
       --dgir-surface: color-mix(in srgb, var(--lumiverse-fill-subtle, #25222b) 86%, #101014);
@@ -789,6 +901,8 @@ export function setup(ctx: SpindleFrontendContext) {
       --dgir-border-bright: color-mix(in srgb, var(--lumiverse-primary, #9db6ff) 44%, var(--lumiverse-border, #5c5666));
       --dgir-shadow: 0 8px 22px rgba(0,0,0,.24);
       background: linear-gradient(180deg, var(--dgir-bg), color-mix(in srgb, var(--dgir-bg) 88%, var(--dgir-surface)));
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
     }
     :root[data-dgir-theme="clean-panel"] .dg-router-panel::before,
     :root[data-dgir-theme="clean-panel"] .dg-router-panel .dg-head::after,
@@ -796,22 +910,30 @@ export function setup(ctx: SpindleFrontendContext) {
     :root[data-dgir-theme="clean-panel"] .dg-router-panel .dg-head,
     :root[data-dgir-theme="clean-panel"] .dg-router-panel .dg-section,
     :root[data-dgir-theme="clean-panel"] .dg-router-panel .dg-slot-card,
-    :root[data-dgir-theme="clean-panel"] .dg-router-panel .dg-relay-candidate {
+    :root[data-dgir-theme="clean-panel"] .dg-router-panel .dg-relay-candidate,
+    :root[data-dgir-theme="clean-panel"] .dg-router-panel .dg-surface-card,
+    :root[data-dgir-theme="clean-panel"] .dg-router-panel .dg-suite-primary {
       background: var(--dgir-surface);
       box-shadow: none;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
     }
+    :root[data-dgir-theme="clean-panel"] .dg-router-panel .dg-btn { background: var(--dgir-surface-soft); -webkit-backdrop-filter: none; backdrop-filter: none; }
+    :root[data-dgir-theme="clean-panel"] .dg-router-panel .dg-btn-primary { background: var(--dgir-accent-soft); }
     :root[data-dgir-theme="clean-panel"] .dg-router-panel .dg-tab-active {
       background: var(--dgir-surface-raised);
       box-shadow: none;
     }
-    .dg-router-panel .dg-head { position: relative; display: grid; gap: 10px; padding: 12px; margin-bottom: 10px; border: 1px solid var(--dgir-border-bright); border-radius: var(--dgir-radius-lg); background: linear-gradient(145deg, color-mix(in srgb, var(--dgir-surface-raised) 92%, transparent), color-mix(in srgb, var(--dgir-surface) 75%, transparent)); box-shadow: var(--dgir-shadow), inset 0 1px rgba(255,255,255,.065); overflow: hidden; }
-    .dg-router-panel .dg-head::after { content: ''; position: absolute; top: -18px; right: 16%; width: 54px; height: 54px; border: 1px solid color-mix(in srgb, var(--dgir-accent) 24%, transparent); transform: rotate(45deg); opacity: .35; pointer-events: none; }
+    .dg-router-panel .dg-head { position: relative; display: grid; gap: 10px; padding: 14px; margin-bottom: 11px; border: 1px solid var(--dgir-glass-line); border-radius: var(--dgir-radius-lg); background: radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--dgir-accent) 11%, transparent), transparent 48%), linear-gradient(145deg, color-mix(in srgb, var(--dgir-surface-raised) 74%, transparent), color-mix(in srgb, var(--dgir-surface) 62%, transparent)); box-shadow: 0 12px 32px rgba(5,2,12,.2), inset 0 1px var(--dgir-glass-highlight); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); overflow: hidden; }
+    .dg-router-panel .dg-head::after { content: ''; position: absolute; top: -86px; right: -34px; width: 190px; height: 190px; border: 0; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--dgir-accent) 18%, transparent), transparent 70%); opacity: .75; pointer-events: none; }
     .dg-router-panel .dg-head-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
     .dg-router-panel .dg-brand { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
-    .dg-router-panel .dg-prism { position: relative; flex: 0 0 28px; width: 28px; height: 28px; display: grid; place-items: center; color: var(--dgir-accent-text); border: 1px solid var(--dgir-border-bright); border-radius: var(--dgir-radius-md); background: linear-gradient(145deg, var(--dgir-accent-soft), rgba(255,255,255,.035)); box-shadow: inset 0 0 14px var(--dgir-accent-soft); }
-    .dg-router-panel .dg-prism::before { content: ''; width: 10px; height: 10px; border: 1px solid currentColor; transform: rotate(45deg); }
-    .dg-router-panel .dg-prism::after { content: ''; position: absolute; width: 3px; height: 3px; top: 4px; right: 4px; border-radius: 50%; background: #fff; box-shadow: 0 0 7px var(--dgir-accent); }
-    .dg-router-panel .dg-title { font-family: ui-serif, Georgia, Cambria, serif; font-size: 16px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
+    .dg-router-panel .dg-prism { position: relative; flex: 0 0 36px; width: 36px; height: 36px; display: grid; place-items: center; overflow: hidden; color: var(--dgir-accent-text); border: 1px solid var(--dgir-border-bright); border-radius: var(--dgir-radius-md); background: linear-gradient(145deg, var(--dgir-accent-soft), rgba(255,255,255,.035)); box-shadow: inset 0 0 14px var(--dgir-accent-soft); }
+    .dg-router-panel .dg-prism::before, .dg-router-panel .dg-prism::after { content: none; display: none; }
+    .dg-router-panel .dg-prism-image { display: block; width: 100%; height: 100%; padding: 2px; object-fit: contain; }
+    .dg-router-panel .dg-prism-overview { flex: 0 0 54px; width: 54px; height: 54px; overflow: visible; border: 0; border-radius: 0; background: transparent !important; background-color: transparent !important; box-shadow: none !important; }
+    .dg-router-panel .dg-prism-overview .dg-prism-image { width: 100%; height: 100%; padding: 0; object-fit: contain; }
+    .dg-router-panel .dg-title { font-family: var(--lumiverse-font-family, system-ui, sans-serif); font-size: 17px; font-weight: 800; letter-spacing: -.025em; line-height: 1.15; overflow-wrap: anywhere; }
     .dg-router-panel .dg-title-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
     .dg-router-panel .dg-build-chip { padding: 2px 5px; border: 1px solid var(--dgir-border); border-radius: 999px; color: var(--dgir-text-dim); font: 10px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .dg-router-panel .dg-sub { margin-top: 3px; color: var(--dgir-text-muted); font-size: 11px; line-height: 1.35; }
@@ -819,8 +941,11 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-count { position: relative; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; padding: 7px 8px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-md); background: color-mix(in srgb, var(--dgir-surface-soft) 76%, transparent); }
     .dg-router-panel .dg-count-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dgir-text-dim); box-shadow: 0 0 7px currentColor; }
     .dg-router-panel .dg-count-processing .dg-count-dot { color: var(--dgir-lavender); background: currentColor; }
+    .dg-router-panel .dg-count-ready .dg-count-dot { color: #f29a63; background: currentColor; }
     .dg-router-panel .dg-count-failed .dg-count-dot { color: var(--dgir-danger); background: currentColor; }
     .dg-router-panel .dg-count-completed .dg-count-dot { color: var(--dgir-success); background: currentColor; }
+    .dg-router-panel .dg-main-ready-indicator { display: inline-flex; align-items: center; gap: 7px; }
+    .dg-router-panel .dg-main-ready-indicator::before { content: ''; flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: #f29a63; box-shadow: 0 0 8px rgba(242,154,99,.58); }
     .dg-router-panel .dg-count-copy { min-width: 0; }
     .dg-router-panel .dg-count b { display: block; font-size: 14px; line-height: 1; }
     .dg-router-panel .dg-count span { display: block; margin-top: 2px; color: var(--dgir-text-muted); font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
@@ -830,24 +955,26 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-tab-active { color: var(--dgir-accent-text); background: linear-gradient(180deg, var(--dgir-accent-soft), rgba(255,255,255,.025)); box-shadow: inset 0 0 12px var(--dgir-accent-soft); }
     .dg-router-panel .dg-tab-active::after { content: ''; position: absolute; left: 18%; right: 18%; bottom: 1px; height: 1px; background: var(--dgir-accent); box-shadow: 0 0 8px var(--dgir-accent-glow); }
     .dg-router-panel .dg-router-empty { color: var(--dgir-text-muted); font-size: 12px; line-height: 1.45; padding: 14px 4px; }
-    .dg-router-panel .dg-section { border: 1px solid var(--dgir-border); background: color-mix(in srgb, var(--dgir-surface) 84%, transparent); border-radius: var(--dgir-radius-lg); padding: 10px; margin-bottom: 10px; box-shadow: inset 0 1px rgba(255,255,255,.035); }
-    .dg-router-panel .dg-section-title { margin: 0 0 9px; color: var(--dgir-text); font: 700 13px/1.2 ui-serif, Georgia, Cambria, serif; }
+    .dg-router-panel .dg-section { border: 1px solid var(--dgir-glass-line); background: linear-gradient(145deg, color-mix(in srgb, var(--dgir-surface) 72%, transparent), color-mix(in srgb, var(--dgir-surface-soft) 68%, transparent)); border-radius: var(--dgir-radius-lg); padding: 11px; margin-bottom: 10px; box-shadow: 0 9px 24px rgba(5,2,12,.12), inset 0 1px var(--dgir-glass-highlight); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+    .dg-router-panel .dg-section-title { margin: 0 0 9px; color: var(--dgir-text); font: 750 12px/1.25 var(--lumiverse-font-family, system-ui, sans-serif); letter-spacing: .075em; }
     .dg-router-panel details.dg-section > summary.dg-section-title { margin:0; cursor:pointer; list-style-position:inside; }
     .dg-router-panel details.dg-section[open] > summary.dg-section-title { margin-bottom:9px; }
     .dg-router-panel .dg-section-sub { margin: -4px 0 9px; color: var(--dgir-text-muted); font-size: 12px; line-height: 1.4; }
     .dg-router-panel .dg-field-help { margin-top: 5px; color: var(--dgir-text-dim); font-size: 10px; line-height: 1.45; }
     .dg-router-panel .dg-label-with-help,.dg-router-panel .dg-toggle-title-row { display:flex; align-items:center; gap:6px; min-width:0; }
+    .dg-router-panel .dg-narrative-utility-row .rr-surface-svg-icon,.dg-router-panel .dg-narrative-utility-heading .rr-surface-svg-icon { display:inline-grid; place-items:center; flex:0 0 17px; width:17px; height:17px; color:var(--lumiverse-primary,#ff70bd); }
+    .dg-router-panel .dg-narrative-utility-row .rr-surface-svg-icon svg,.dg-router-panel .dg-narrative-utility-heading .rr-surface-svg-icon svg { display:block; width:100%; height:100%; }
+    .dg-router-panel .dg-narrative-utility-heading { display:flex; align-items:center; gap:8px; }
     .dg-router-panel .dg-toggle-title-row .dg-toggle-title { min-width:0; }
     .dg-router-panel .dg-help { position:relative; display:inline-grid; flex:0 0 auto; place-items:center; vertical-align:middle; }
     .dg-router-panel .dg-help-trigger { display:grid; place-items:center; width:17px; height:17px; padding:0; border:1px solid color-mix(in srgb,var(--dgir-accent) 45%,var(--dgir-border)); border-radius:50%; background:linear-gradient(145deg,var(--dgir-accent-soft),var(--dgir-surface-soft)); color:var(--dgir-accent-text); font:800 10px/1 var(--lumiverse-font-family,system-ui,sans-serif); cursor:help; box-shadow:inset 0 1px rgba(255,255,255,.08),0 0 8px color-mix(in srgb,var(--dgir-accent) 12%,transparent); }
     .dg-router-panel .dg-help-trigger:hover,.dg-router-panel .dg-help-trigger:focus-visible { border-color:var(--dgir-accent); outline:none; box-shadow:0 0 0 2px var(--dgir-accent-soft),0 0 12px var(--dgir-accent-glow); }
-    .dg-router-panel .dg-help-popover { position:absolute; z-index:120; left:50%; bottom:calc(100% + 8px); width:min(280px,calc(100vw - 24px)); box-sizing:border-box; padding:10px 11px; border:1px solid color-mix(in srgb,var(--dgir-accent) 54%,#80506e); border-radius:var(--dgir-radius-md); background-color:#21121d; background-image:linear-gradient(145deg,#321b2b 0%,#21121d 58%,#140d13 100%); color:#fff7fc; font:600 11px/1.5 var(--lumiverse-font-family,system-ui,sans-serif); text-align:left; text-shadow:0 1px 1px rgba(0,0,0,.65); box-shadow:0 16px 38px rgba(0,0,0,.72),inset 0 1px rgba(255,255,255,.09); transform:translateX(-50%) translateY(3px); opacity:0; visibility:hidden; pointer-events:none; transition:opacity .14s ease,transform .14s ease,visibility .14s; }
-    .dg-router-panel .dg-help:focus-within .dg-help-popover,.dg-router-panel .dg-help.is-open .dg-help-popover { opacity:1; visibility:visible; transform:translateX(-50%) translateY(0); pointer-events:auto; }
-    @media(hover:hover){.dg-router-panel .dg-help:hover .dg-help-popover{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0);pointer-events:auto}}
+    .dg-router-panel .dg-help-popover { position:absolute; z-index:120; left:50%; bottom:calc(100% + 8px); width:min(244px,calc(100vw - 24px)); box-sizing:border-box; padding:8px 9px; border:1px solid color-mix(in srgb,var(--dgir-accent) 54%,#80506e); border-radius:var(--dgir-radius-md); background-color:#21121d; background-image:linear-gradient(145deg,#321b2b 0%,#21121d 58%,#140d13 100%); color:#fff7fc; font:600 10px/1.4 var(--lumiverse-font-family,system-ui,sans-serif); text-align:left; text-shadow:0 1px 1px rgba(0,0,0,.65); box-shadow:0 16px 38px rgba(0,0,0,.72),inset 0 1px rgba(255,255,255,.09); transform:translateX(-50%) translateY(3px); opacity:0; visibility:hidden; pointer-events:none; transition:opacity .14s ease,transform .14s ease,visibility .14s; }
+    .dg-router-panel .dg-help.is-open .dg-help-popover { opacity:1; visibility:visible; transform:translateX(-50%) translateY(0); pointer-events:auto; }
     .dg-help-portal { position:fixed; inset:0; z-index:2147483000; pointer-events:none; }
     .dg-router-panel.dg-help-portal { padding:0; overflow:visible; isolation:auto; border:0; border-radius:0; background:none!important; box-shadow:none; }
     .dg-router-panel.dg-help-portal::before { content:none!important; display:none!important; }
-    .dg-help-portal .dg-help-popover { position:fixed; right:auto; bottom:auto; max-height:min(320px,calc(100vh - 24px)); overflow:auto; transform:none; pointer-events:none; }
+    .dg-help-portal .dg-help-popover { position:fixed; right:auto; bottom:auto; max-height:min(240px,calc(100vh - 24px)); overflow:auto; transform:none; pointer-events:none; }
     .dg-help-portal .dg-help-popover.is-open { opacity:1; visibility:visible; transform:none; pointer-events:auto; }
     .dg-router-panel .dg-info-note { margin:7px 0; padding:10px 11px; border:1px solid color-mix(in srgb,var(--dgir-accent) 32%,var(--dgir-border)); border-left:3px solid var(--dgir-accent); border-radius:var(--dgir-radius-md); background:radial-gradient(circle at 0 0,var(--dgir-accent-soft),transparent 54%),color-mix(in srgb,var(--dgir-surface-soft) 92%,transparent); color:var(--dgir-text-muted); font-size:11px; line-height:1.5; box-shadow:inset 0 1px rgba(255,255,255,.035); }
     .dg-router-panel .dg-surface-creator { display: grid; gap: 12px; }
@@ -865,8 +992,15 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-creator-actions { position: sticky; bottom: 0; z-index: 3; justify-content: flex-end; padding: 10px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: color-mix(in srgb,var(--dgir-bg) 92%,transparent); backdrop-filter: blur(12px); }
     @media(max-width:680px){.dg-router-panel .dg-creator-grid,.dg-router-panel .dg-creator-advanced-body{grid-template-columns:1fr}.dg-router-panel .dg-creator-grid > *,.dg-router-panel .dg-creator-advanced-body > *{grid-column:1!important}}
     .dg-router-panel .dg-settings { margin: 0; }
-    .dg-router-panel .dg-settings-grid, .dg-router-panel .dg-filter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .dg-router-panel .dg-settings-grid, .dg-router-panel .dg-filter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: stretch; }
+    .dg-router-panel .dg-settings-grid > *, .dg-router-panel .dg-filter-grid > * { min-width: 0; }
+    .dg-router-panel .dg-settings-grid > .dg-btn { display: inline-flex; width: 100%; min-width: 0; min-height: 36px; justify-content: center; align-items: center; text-align: center; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
+    .dg-router-panel .dg-settings-grid > .dg-actions { grid-column: 1 / -1; width: 100%; }
+    .dg-router-panel .dg-settings-grid > .dg-actions > .dg-btn { flex: 1 1 132px; max-width: 100%; min-width: 0; justify-content: center; text-align: center; white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
     .dg-router-panel .dg-toggle-grid { display: grid; grid-template-columns: 1fr; gap: 6px; }
+    .dg-router-panel .dg-narrative-utility-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: 6px; min-width: 0; }
+    .dg-router-panel .dg-narrative-image-button { min-width: 82px; min-height: 32px; align-self: center; padding: 6px 8px; white-space: normal; line-height: 1.2; text-align: center; }
+    .dg-router-panel .dg-narrative-image-button[aria-pressed="true"] { border-color: var(--dgir-border-bright); color: var(--dgir-accent-text); }
     .dg-router-panel .dg-toggle { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; min-width: 0; padding: 8px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-md); background: var(--dgir-surface-soft); cursor: pointer; }
     .dg-router-panel .dg-toggle:hover { border-color: var(--dgir-border-bright); }
     .dg-router-panel .dg-toggle-on { border-color: var(--dgir-border-bright); background: linear-gradient(120deg, var(--dgir-accent-soft), var(--dgir-surface-soft)); }
@@ -884,7 +1018,7 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-input, .dg-router-panel .dg-select, .dg-router-panel .dg-textarea { border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-md); background: color-mix(in srgb, var(--dgir-bg) 72%, transparent); color: var(--dgir-text); font: 12px/1.4 var(--lumiverse-font-family, system-ui, sans-serif); padding: 7px 8px; width: 100%; min-width: 0; box-sizing: border-box; outline: none; }
     .dg-router-panel .dg-input:focus, .dg-router-panel .dg-select:focus, .dg-router-panel .dg-textarea:focus { border-color: var(--dgir-accent); box-shadow: 0 0 0 2px var(--dgir-accent-soft); }
     .dg-router-panel .dg-textarea { min-height: 78px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .dg-router-panel .dg-slot-card { position: relative; border: 1px solid var(--dgir-border); background: radial-gradient(circle at 8% 0, var(--dgir-accent-soft), transparent 34%), linear-gradient(145deg, color-mix(in srgb, var(--dgir-surface-raised) 88%, transparent), color-mix(in srgb, var(--dgir-surface) 76%, transparent)); border-radius: var(--dgir-radius-lg); padding: 11px; margin-bottom: 10px; box-shadow: 0 8px 22px rgba(5,2,8,.16), inset 0 1px rgba(255,255,255,.055); transition: transform .16s ease, border-color .16s ease; }
+    .dg-router-panel .dg-slot-card { position: relative; border: 1px solid var(--dgir-glass-line); background: radial-gradient(ellipse at 8% 0, color-mix(in srgb, var(--dgir-accent) 8%, transparent), transparent 42%), linear-gradient(145deg, color-mix(in srgb, var(--dgir-surface-raised) 70%, transparent), color-mix(in srgb, var(--dgir-surface) 64%, transparent)); border-radius: var(--dgir-radius-lg); padding: 12px; margin-bottom: 10px; box-shadow: 0 10px 26px rgba(5,2,8,.15), inset 0 1px var(--dgir-glass-highlight); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
     .dg-router-panel .dg-slot-card:hover { transform: translateY(-1px); border-color: var(--dgir-border-bright); }
     .dg-router-panel .dg-slot-workflow { display: grid; gap: 8px; }
     .dg-router-panel .dg-slot-mode-actions .dg-btn { flex: 1 1 150px; }
@@ -922,6 +1056,7 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-chip-generating, .dg-router-panel .dg-chip-provider-waiting, .dg-router-panel .dg-chip-parsing, .dg-router-panel .dg-chip-queued { color: var(--dgir-lavender); border-color: color-mix(in srgb, var(--dgir-lavender) 55%, var(--dgir-border)); }
     .dg-router-panel .dg-actions { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
     .dg-router-panel .dg-primary-actions { padding-top: 1px; }
+    .dg-router-panel .dg-illustrator-overview-actions > .dg-btn { flex: 1 1 108px; min-width: 0; min-height: 36px; justify-content: center; text-align: center; white-space: normal; }
     .dg-router-panel .dg-background-queue { display: grid; gap: 7px; margin: 0 0 11px; padding: 10px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: radial-gradient(circle at 8% 0, color-mix(in srgb, var(--dgir-lavender) 14%, transparent), transparent 42%), color-mix(in srgb, var(--dgir-surface-soft) 92%, transparent); box-shadow: inset 0 1px rgba(255,255,255,.035); }
     .dg-router-panel .dg-background-queue:empty { display: none; }
     .dg-router-panel .dg-queue-heading { display: flex; align-items: center; justify-content: space-between; gap: 9px; flex-wrap: wrap; }
@@ -937,17 +1072,27 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-next-action > strong { color: var(--dgir-accent-text); font: 800 14px/1.3 ui-serif, Georgia, serif; }
     .dg-router-panel .dg-next-action > p { margin: 0; color: var(--dgir-text-muted); font-size: 11px; line-height: 1.5; }
     .dg-router-panel .dg-diagnostic-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border: 1px dashed color-mix(in srgb, var(--dgir-border-bright) 72%, transparent); border-radius: var(--dgir-radius-md); background: color-mix(in srgb, var(--dgir-accent-soft) 35%, transparent); }
-    .dg-router-panel .dg-btn { min-height: 29px; border: 1px solid var(--dgir-border); background: var(--dgir-surface-soft); color: var(--dgir-text); border-radius: var(--dgir-radius-md); padding: 6px 8px; font: 700 11px/1.1 var(--lumiverse-font-family, system-ui, sans-serif); cursor: pointer; transition: border-color .14s ease, background .14s ease, transform .08s ease; }
+    .dg-router-panel button { text-align: center; }
+    .dg-router-panel .dg-btn { min-height: 32px; display: inline-flex; align-items: center; justify-content: center; text-align: center; border: 1px solid var(--dgir-glass-line); background: linear-gradient(145deg, color-mix(in srgb, var(--dgir-surface-raised) 60%, transparent), color-mix(in srgb, var(--dgir-surface-soft) 56%, transparent)); color: var(--dgir-text); border-radius: var(--dgir-radius-md); padding: 7px 10px; font: 700 11px/1.1 var(--lumiverse-font-family, system-ui, sans-serif); cursor: pointer; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .12s ease; }
     .dg-router-panel .dg-btn:hover:not(:disabled) { border-color: var(--dgir-border-bright); background: color-mix(in srgb, var(--dgir-surface-raised) 82%, var(--dgir-accent-soft)); }
     .dg-router-panel .dg-btn:active:not(:disabled) { transform: translateY(1px); }
     .dg-router-panel .dg-btn:focus-visible, .dg-router-panel .dg-tab:focus-visible, .dg-router-panel .dg-toggle:focus-within { outline: 2px solid var(--dgir-accent); outline-offset: 2px; }
+    .dg-toast-stack { position: fixed; z-index: 2147483500; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); display: grid; gap: 8px; width: min(380px, calc(100vw - 24px)); pointer-events: none; }
+    .dg-toast { display: grid; grid-template-columns: 8px minmax(0, 1fr) 26px; align-items: start; gap: 10px; padding: 11px 10px; border: 1px solid color-mix(in srgb, var(--dgir-accent) 34%, var(--dgir-glass-line)); border-radius: var(--dgir-radius-lg); color: var(--dgir-text); background: radial-gradient(ellipse at 0 0, color-mix(in srgb, var(--dgir-accent) 15%, transparent), transparent 62%), linear-gradient(145deg, color-mix(in srgb, var(--dgir-surface-raised) 90%, transparent), color-mix(in srgb, var(--dgir-surface) 92%, transparent)); box-shadow: 0 14px 36px rgba(0,0,0,.38), inset 0 1px var(--dgir-glass-highlight); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); font: 650 12px/1.45 var(--lumiverse-font-family, system-ui, sans-serif); pointer-events: auto; }
+    .dg-toast::before { content: ''; width: 7px; height: 7px; margin-top: 5px; border-radius: 50%; background: var(--dgir-lavender); box-shadow: 0 0 10px currentColor; }
+    .dg-toast[data-level="success"]::before { background: var(--dgir-success); }
+    .dg-toast[data-level="warning"]::before { background: var(--dgir-warning); }
+    .dg-toast[data-level="error"]::before { background: var(--dgir-danger); }
+    .dg-toast-copy { min-width: 0; overflow-wrap: anywhere; }
+    .dg-toast-dismiss { display: grid; place-items: center; width: 26px; height: 26px; margin: -4px -3px 0 0; padding: 0; border: 1px solid transparent; border-radius: 50%; color: var(--dgir-text-muted); background: transparent; font: 500 18px/1 system-ui,sans-serif; cursor: pointer; }
+    .dg-toast-dismiss:hover { border-color: var(--dgir-glass-line); color: var(--dgir-text); background: var(--dgir-accent-soft); }
     .dg-router-panel .dg-btn:disabled { opacity: .64; color: var(--dgir-text-dim); cursor: not-allowed; filter: saturate(.55); }
-    .dg-router-panel .dg-btn-primary { color: var(--dgir-accent-text); border-color: var(--dgir-border-bright); background: linear-gradient(135deg, color-mix(in srgb, var(--dgir-accent) 28%, var(--dgir-surface-raised)), var(--dgir-surface-soft)); box-shadow: inset 0 0 11px var(--dgir-accent-soft); }
+    .dg-router-panel .dg-btn-primary { color: var(--dgir-accent-text); border-color: color-mix(in srgb, var(--dgir-accent) 28%, var(--dgir-glass-line)); background: linear-gradient(135deg, color-mix(in srgb, var(--dgir-accent) 17%, transparent), color-mix(in srgb, var(--dgir-surface-soft) 55%, transparent)); box-shadow: inset 0 1px rgba(255,255,255,.07), 0 5px 16px rgba(5,2,12,.12); }
     .dg-router-panel .dg-btn-subtle { color: var(--dgir-text-muted); background: transparent; }
     .dg-router-panel .dg-btn-danger { color: var(--dgir-danger); border-color: color-mix(in srgb, var(--dgir-danger) 38%, var(--dgir-border)); background: color-mix(in srgb, var(--dgir-danger) 8%, transparent); }
     .dg-router-panel .dg-btn-icon { width: 29px; padding: 0; display: inline-grid; place-items: center; font-size: 16px; }
     .dg-router-panel .dg-manage { margin-top: 9px; border-top: 1px solid color-mix(in srgb, var(--dgir-border) 65%, transparent); padding-top: 7px; }
-    .dg-router-panel .dg-manage > summary { width: max-content; min-height: 28px; display: flex; align-items: center; padding: 3px 5px; border-radius: var(--dgir-radius-sm); color: var(--dgir-text-muted); font-size: 11px; cursor: pointer; user-select: none; }
+    .dg-router-panel .dg-manage > summary { width: max-content; min-height: 28px; display: flex; align-items: center; justify-content: center; padding: 3px 5px; border-radius: var(--dgir-radius-sm); color: var(--dgir-text-muted); font-size: 11px; text-align: center; cursor: pointer; user-select: none; }
     .dg-router-panel .dg-manage > summary:hover, .dg-router-panel .dg-manage > summary:focus-visible { color: var(--dgir-text); background: var(--dgir-surface-soft); outline: none; }
     .dg-router-panel .dg-manage[open] > summary { margin-bottom: 6px; color: var(--dgir-text-muted); }
     .dg-router-panel .dg-error { margin-top: 8px; padding: 7px 8px; border-left: 2px solid var(--dgir-danger); background: color-mix(in srgb, var(--dgir-danger) 7%, transparent); color: color-mix(in srgb, var(--dgir-danger) 82%, var(--dgir-text)); font-size: 11px; line-height: 1.4; }
@@ -985,7 +1130,7 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-asset-card-chips { margin: 1px 0 2px; }
     .dg-router-panel .dg-asset-card-actions { margin-top: auto; }
     .dg-router-panel.dg-asset-lightbox { width: min(1120px, calc(100dvw - 24px)) !important; max-width: none !important; }
-    .dg-router-panel .dg-asset-lightbox-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, 310px); align-items: start; align-content: start; gap: 14px; min-height: 0; }
+    .dg-router-panel .dg-modal-body.dg-asset-lightbox-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, 310px); align-items: start; align-content: start; gap: 14px; min-height: 0; border-radius: var(--dgir-radius-lg); }
     .dg-router-panel .dg-asset-lightbox-stage { min-width: 0; min-height: 0; height: auto; max-height: min(78dvh, 780px); display: grid; place-items: center; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: #030203; overflow: hidden; touch-action: none; }
     .dg-router-panel .dg-asset-lightbox-image { width: auto; height: auto; max-width: 100%; max-height: min(78dvh, 780px); object-fit: contain; border: 0; border-radius: 0; }
     .dg-router-panel .dg-asset-lightbox-details { min-width: 0; display: flex; flex-direction: column; gap: 12px; justify-content: flex-end; padding: 10px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: var(--dgir-surface-soft); }
@@ -1015,6 +1160,29 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-image-lightbox-viewport { position: relative; display: grid; place-items: center; align-content: start; width: 100%; height: auto; min-height: 0; max-height: min(72vh, 820px); overflow: hidden; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: #030203; touch-action: none; }
     .dg-router-panel .dg-image-lightbox-viewport > .dg-lightbox-img { display: block; width: auto; height: auto; max-width: 100%; max-height: min(72vh, 820px); border: 0; border-radius: 0; background: transparent; object-fit: contain; transform-origin: center center; touch-action: none; user-select: none; -webkit-user-drag: none; cursor: zoom-in; }
     .dg-router-panel .dg-image-lightbox-viewport > .dg-lightbox-img.dg-image-lightbox-zoomed { cursor: grab; }
+    .dg-router-panel.dg-slot-lightbox { width: min(1480px, 100%) !important; max-width: 100% !important; max-height: calc(100dvh - 24px) !important; margin-inline: auto !important; overflow: hidden; box-sizing: border-box; border-radius: var(--dgir-radius-xl, 22px) !important; }
+    .dg-relay-lightbox-modal-frame { width: 100% !important; max-width: 100% !important; min-width: 0; height: auto !important; max-height: calc(100dvh - 24px) !important; overflow: visible !important; }
+    .dg-relay-lightbox-scroll-frame { display: flex !important; justify-content: center; align-items: flex-start; width: 100% !important; min-width: 0; height: auto !important; max-height: calc(100dvh - 24px) !important; padding: 12px !important; box-sizing: border-box; overflow: visible !important; }
+    .dg-router-panel .dg-slot-lightbox-body { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, auto) auto; align-content: start; align-items: start; gap: 8px; width: 100%; max-height: calc(100dvh - 100px); min-width: 0; min-height: 0; padding: 8px; box-sizing: border-box; overflow: hidden; border-radius: inherit; }
+    .dg-router-panel .dg-slot-lightbox-body > .dg-image-lightbox-viewport { justify-self: center; width: fit-content; max-width: 100%; height: auto; max-height: min(64dvh, calc(100dvh - 350px), 760px); align-content: center; overflow: hidden; border-color: var(--dgir-glass-line); border-radius: var(--dgir-radius-lg); background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--dgir-accent) 11%, transparent), transparent 58%), linear-gradient(145deg, color-mix(in srgb, var(--dgir-surface-raised) 86%, transparent), color-mix(in srgb, var(--dgir-surface) 92%, transparent)); box-shadow: inset 0 1px var(--dgir-glass-highlight), 0 8px 22px rgba(0,0,0,.18); }
+    .dg-router-panel .dg-slot-lightbox-body > .dg-image-lightbox-viewport > .dg-lightbox-img { max-width: 100%; max-height: min(64dvh, calc(100dvh - 350px), 760px); border-radius: inherit; }
+    .dg-router-panel .dg-slot-lightbox-controls { display: grid; gap: 5px; min-width: 0; padding: 6px; overflow: hidden; border: 1px solid var(--dgir-glass-line); border-radius: var(--dgir-radius-lg); background: radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--dgir-accent) 9%, transparent), transparent 54%), linear-gradient(145deg, color-mix(in srgb, var(--dgir-surface-raised) 82%, transparent), color-mix(in srgb, var(--dgir-surface) 90%, transparent)); box-shadow: inset 0 1px var(--dgir-glass-highlight); }
+    .dg-router-panel .dg-slot-lightbox-primary-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 5px; min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+    .dg-router-panel .dg-slot-lightbox-primary-actions .dg-btn { flex: 0 1 auto; min-height: 32px; }
+    .dg-router-panel .dg-slot-lightbox-history-manage { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; min-width: 0; }
+    .dg-router-panel .dg-slot-lightbox-history-manage:has(> .dg-manage[open]) { flex: 1 1 100%; flex-wrap: wrap; }
+    .dg-router-panel .dg-slot-lightbox-history-manage > .dg-manage[open] { flex: 1 1 100%; }
+    .dg-router-panel .dg-slot-lightbox-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; min-width: 0; padding: 5px 0 0; border: 0; border-top: 1px solid color-mix(in srgb, var(--dgir-border) 66%, transparent); border-radius: 0; background: transparent; }
+    .dg-router-panel .dg-slot-lightbox-footer .dg-actions { gap: 5px; }
+    .dg-router-panel .dg-slot-lightbox-primary-actions > .dg-manage { flex: 0 0 auto; min-width: 0; margin: 0; border: 0; padding: 0; }
+    .dg-router-panel .dg-slot-lightbox-primary-actions > .dg-manage > summary { min-height: 32px; padding: 6px 9px; }
+    .dg-router-panel .dg-slot-lightbox-primary-actions > .dg-manage[open] { flex: 1 1 100%; }
+    .dg-router-panel .dg-slot-lightbox-primary-actions > .dg-manage[open] .dg-actions { max-height: none; overflow: visible; }
+    .dg-router-panel .dg-slot-history-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); gap: 12px; }
+    .dg-router-panel .dg-slot-history-version { display: flex; flex-direction: column; gap: 9px; min-width: 0; padding: 10px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: var(--dgir-surface-soft); }
+    .dg-router-panel .dg-slot-history-version img { display: block; width: 100%; height: 190px; object-fit: contain; border-radius: var(--dgir-radius-md); background: #030203; cursor: zoom-in; }
+    .dg-router-panel .dg-slot-history-version strong { font-size: 12px; }
+    .dg-router-panel .dg-slot-history-version small { color: var(--dgir-text-muted); overflow-wrap: anywhere; }
     .dg-router-panel .dg-stream-status { margin-top: 5px; color: var(--dgir-accent-text); font-size: 10px; font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; }
     .dg-router-panel .dg-thumb-streaming { position: relative; display: block; overflow: hidden; border: 1px solid var(--dgir-border-bright) !important; outline: 0 !important; box-shadow: none !important; }
     .dg-router-panel .dg-thumb-streaming::before, .dg-router-panel .dg-thumb-streaming::after { display: none !important; }
@@ -1113,7 +1281,7 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-modal-footer { position: sticky; bottom: 0; z-index: 2; justify-content: flex-end; padding-top: 12px; border-top: 1px solid var(--dgir-border); background: linear-gradient(180deg, transparent, var(--dgir-bg) 24%); }
     .dg-router-panel .dg-illustrator-settings { display: grid; gap: 12px; }
     .dg-router-panel .dg-illustrator-mode-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; }
-    .dg-router-panel .dg-illustrator-mode-card { appearance: none; min-height: 82px; display: grid; align-content: start; gap: 5px; padding: 11px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-md); color: var(--dgir-text); background: var(--dgir-surface-soft); text-align: left; cursor: pointer; transition: border-color .12s ease, background .12s ease, transform .12s ease; }
+    .dg-router-panel .dg-illustrator-mode-card { appearance: none; min-height: 82px; display: grid; align-content: center; justify-items: center; gap: 5px; padding: 11px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-md); color: var(--dgir-text); background: var(--dgir-surface-soft); text-align: center; cursor: pointer; transition: border-color .12s ease, background .12s ease, transform .12s ease; }
     .dg-router-panel .dg-illustrator-mode-card:hover { border-color: var(--dgir-border-bright); transform: translateY(-1px); }
     .dg-router-panel .dg-illustrator-mode-card strong { font-size: 12px; }
     .dg-router-panel .dg-illustrator-mode-card small { color: var(--dgir-text-muted); font-size: 10px; line-height: 1.35; }
@@ -1123,6 +1291,10 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-choice-compact.dg-choice-three { grid-template-columns: repeat(3, minmax(0,1fr)); }
     .dg-router-panel .dg-choice-compact.dg-choice-four { grid-template-columns: repeat(4, minmax(0,1fr)); }
     .dg-router-panel .dg-choice-compact.dg-choice-five { grid-template-columns: repeat(5, minmax(0,1fr)); }
+    .dg-router-panel .dg-prose-mode-selector { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 4px; }
+    .dg-router-panel .dg-prose-mode-selector .dg-illustrator-mode-card { min-width: 0; min-height: 34px; align-content: center; justify-items: center; padding: 5px 3px; text-align: center; }
+    .dg-router-panel .dg-prose-mode-selector .dg-illustrator-mode-card strong { white-space: nowrap; font-size: 10px; }
+    .dg-router-panel .dg-prose-mode-selector .dg-illustrator-mode-card small { display: none; }
     .dg-router-panel .dg-choice-compact .dg-illustrator-mode-card { min-height: 58px; align-content: center; gap: 3px; padding: 8px; }
     .dg-router-panel .dg-choice-compact .dg-illustrator-mode-card strong { font-size: 11px; line-height: 1.2; }
     .dg-router-panel .dg-choice-compact .dg-illustrator-mode-card small { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 9px; line-height: 1.2; }
@@ -1231,44 +1403,44 @@ export function setup(ctx: SpindleFrontendContext) {
 
     /* Reverie Suite · Reverie Suite shell. Inspired by LumiBooks' calm hierarchy,
        but keeps Relay's own prism, living-surface, and archive identity. */
-    .dg-router-panel.dg-suite-shell { container: dg-suite / inline-size; padding: 14px; border-radius: 12px; }
+    .dg-router-panel.dg-suite-shell { container: dg-suite / inline-size; padding: 14px; border-radius: var(--dgir-radius-lg); }
     .dg-router-panel .dg-suite-stage { min-width: 0; }
     .dg-router-panel .dg-suite-head { gap: 14px; padding: 15px; margin-bottom: 12px; }
     .dg-router-panel .dg-suite-head::after { opacity: .18; }
-    .dg-router-panel .dg-overview-label { display: flex; align-items: center; gap: 12px; color: var(--dgir-text-dim); font: 700 10px/1 ui-serif, Georgia, serif; letter-spacing: .18em; text-transform: uppercase; }
+    .dg-router-panel .dg-overview-label { display: flex; align-items: center; gap: 12px; color: var(--dgir-text-muted); font: 700 9px/1.2 var(--lumiverse-font-family, system-ui, sans-serif); letter-spacing: .2em; text-transform: uppercase; }
     .dg-router-panel .dg-overview-label::before, .dg-router-panel .dg-overview-label::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--dgir-border), transparent); }
     .dg-router-panel .dg-head-actions { justify-content: flex-end; }
     .dg-router-panel .dg-suite-navigation { display: grid; gap: 8px; margin-bottom: 12px; }
-    .dg-router-panel .dg-suite-primary { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 3px; padding: 5px; overflow: hidden; border: 1px solid var(--dgir-border); border-radius: 11px; background: color-mix(in srgb, var(--dgir-surface) 91%, transparent); box-shadow: inset 0 1px rgba(255,255,255,.035); }
-    .dg-router-panel .dg-suite-primary-tab { min-width: 0; min-height: 58px; display: grid; place-items: center; align-content: center; gap: 5px; border: 0; border-radius: 8px; padding: 8px 4px; color: var(--dgir-text-dim); background: transparent; font: 700 10px/1.1 var(--lumiverse-font-family, system-ui, sans-serif); letter-spacing: .02em; cursor: pointer; transition: background .16s ease, color .16s ease, transform .16s ease; overflow: hidden; }
+    .dg-router-panel .dg-suite-primary { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; padding: 5px; overflow: hidden; border: 1px solid var(--dgir-glass-line); border-radius: var(--dgir-radius-lg); background: color-mix(in srgb, var(--dgir-surface) 92%, transparent); box-shadow: inset 0 1px var(--dgir-glass-highlight); }
+    .dg-router-panel .dg-suite-primary-tab { min-width: 0; min-height: 58px; display: grid; place-items: center; align-content: center; gap: 5px; border: 0; border-radius: var(--dgir-radius-md); padding: 8px 4px; color: var(--dgir-text-dim); background: transparent; font: 700 10px/1.1 var(--lumiverse-font-family, system-ui, sans-serif); letter-spacing: .02em; cursor: pointer; transition: background-color .16s ease, color .16s ease; overflow: hidden; }
     .dg-router-panel .dg-suite-primary-tab:hover { color: var(--dgir-text); background: rgba(255,255,255,.035); }
-    .dg-router-panel .dg-suite-primary-tab.is-active { color: var(--dgir-accent-text); background: linear-gradient(180deg, color-mix(in srgb, var(--dgir-accent) 16%, var(--dgir-surface-raised)), color-mix(in srgb, var(--dgir-accent) 8%, var(--dgir-surface))); box-shadow: inset 0 -2px var(--dgir-accent), 0 7px 18px rgba(0,0,0,.14); }
-    .dg-router-panel .dg-suite-primary-icon { color: var(--dgir-accent); font: 500 19px/1 ui-serif, Georgia, serif; text-shadow: 0 0 10px var(--dgir-accent-glow); }
+    .dg-router-panel .dg-suite-primary-tab.is-active { color: var(--dgir-accent-text); background: var(--dgir-accent-soft); box-shadow: inset 0 -2px var(--dgir-accent); }
+    .dg-router-panel .dg-suite-primary-icon { color: var(--dgir-accent); font: 500 19px/1 var(--lumiverse-font-family, system-ui, sans-serif); }
     .dg-router-panel .dg-suite-primary-tab.is-active .dg-suite-primary-icon { color: var(--dgir-accent-text); }
     .dg-router-panel .dg-suite-secondary { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; padding: 2px 4px; }
-    .dg-router-panel .dg-suite-secondary-tab { position: relative; min-height: 32px; border: 0; border-bottom: 1px solid transparent; padding: 7px 13px; color: var(--dgir-text-dim); background: transparent; font: 700 10px/1 var(--lumiverse-font-family, system-ui, sans-serif); letter-spacing: .09em; text-transform: uppercase; cursor: pointer; }
+    .dg-router-panel .dg-suite-secondary-tab { position: relative; min-height: 34px; border: 1px solid transparent; border-radius: 999px; padding: 8px 13px; color: var(--dgir-text-dim); background: transparent; font: 700 10px/1 var(--lumiverse-font-family, system-ui, sans-serif); letter-spacing: .09em; text-transform: uppercase; cursor: pointer; }
     .dg-router-panel .dg-suite-secondary-tab:hover { color: var(--dgir-text); }
-    .dg-router-panel .dg-suite-secondary-tab.is-active { color: var(--dgir-accent-text); border-bottom-color: var(--dgir-accent); background: linear-gradient(180deg, transparent, var(--dgir-accent-soft)); }
-    .dg-router-panel .dg-section { padding: 15px; margin-bottom: 12px; border-radius: 11px; background: linear-gradient(165deg, color-mix(in srgb, var(--dgir-surface) 95%, transparent), color-mix(in srgb, var(--dgir-surface-soft) 82%, transparent)); }
-    .dg-router-panel .dg-section-title { display: flex; align-items: center; gap: 11px; margin: 0 0 13px; color: var(--dgir-accent-text); font: 700 12px/1.2 ui-serif, Georgia, Cambria, serif; letter-spacing: .16em; text-align: center; text-transform: uppercase; }
-    .dg-router-panel .dg-section-title::before, .dg-router-panel .dg-section-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--dgir-border-bright), transparent); }
+    .dg-router-panel .dg-suite-secondary-tab.is-active { color: var(--dgir-accent-text); border-color: var(--dgir-glass-line); background: var(--dgir-accent-soft); }
+    .dg-router-panel .dg-section { padding: 14px; margin-bottom: 12px; border-radius: var(--dgir-radius-lg); background: color-mix(in srgb, var(--dgir-surface) 94%, transparent); box-shadow: 0 8px 22px rgba(5,2,12,.14), inset 0 1px var(--dgir-glass-highlight); }
+    .dg-router-panel .dg-section-title { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--dgir-text-muted); font: 750 10px/1.3 var(--lumiverse-font-family, system-ui, sans-serif); letter-spacing: .17em; text-align: left; text-transform: uppercase; }
+    .dg-router-panel .dg-section-title::before, .dg-router-panel .dg-section-title::after { content: none; }
     .dg-router-panel .dg-section-sub { line-height: 1.55; }
     .dg-router-panel .dg-surface-intro { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
     .dg-router-panel .dg-surface-intro > div:first-child { display: grid; gap: 5px; min-width: 0; }
-    .dg-router-panel .dg-surface-intro strong { font: 700 15px/1.2 ui-serif, Georgia, serif; }
+    .dg-router-panel .dg-surface-intro strong { font: 750 15px/1.2 var(--lumiverse-font-family, system-ui, sans-serif); letter-spacing: -.02em; }
     .dg-router-panel .dg-surface-intro span { color: var(--dgir-text-muted); font-size: 11px; line-height: 1.5; }
     .dg-router-panel .dg-surface-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
-    .dg-router-panel .dg-surface-card { min-width: 0; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 11px; border: 1px solid var(--dgir-border); border-left: 2px solid var(--dgir-border); border-radius: 9px; background: color-mix(in srgb, var(--dgir-surface-soft) 86%, transparent); }
+    .dg-router-panel .dg-surface-card { min-width: 0; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 11px; border: 1px solid var(--dgir-glass-line); border-left: 2px solid var(--dgir-border); border-radius: var(--dgir-radius-md); background: color-mix(in srgb, var(--dgir-surface-soft) 64%, transparent); box-shadow: inset 0 1px rgba(255,255,255,.06); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
     .dg-router-panel .dg-surface-card.is-enabled { border-left-color: var(--dgir-accent); }
     .dg-router-panel .dg-surface-card.has-error { border-left-color: var(--dgir-danger); }
-    .dg-router-panel .dg-surface-icon { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--dgir-border); border-radius: 8px; color: var(--dgir-accent); background: var(--dgir-accent-soft); font: 500 16px/1 ui-serif, Georgia, serif; }
+    .dg-router-panel .dg-surface-icon { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-sm); color: var(--dgir-accent); background: var(--dgir-accent-soft); font: 500 16px/1 var(--lumiverse-font-family, system-ui, sans-serif); }
     .dg-router-panel .dg-surface-body { min-width: 0; display: grid; gap: 4px; }
-    .dg-router-panel .dg-surface-body > strong { font: 700 13px/1.25 ui-serif, Georgia, serif; }
+    .dg-router-panel .dg-surface-body > strong { font: 700 13px/1.25 var(--lumiverse-font-family, system-ui, sans-serif); }
     .dg-router-panel .dg-surface-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dgir-text-dim); font: 10px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .dg-router-panel .dg-surface-body p { margin: 2px 0 4px; color: var(--dgir-text-muted); font-size: 11px; line-height: 1.45; }
     .dg-router-panel .dg-surface-actions { margin-top: 3px; }
-    .dg-router-panel .dg-surface-empty { grid-column: 1 / -1; display: grid; gap: 5px; padding: 15px; border: 1px dashed var(--dgir-border); border-radius: 9px; text-align: center; }
-    .dg-router-panel .dg-surface-empty strong { font: 700 13px/1.2 ui-serif, Georgia, serif; }
+    .dg-router-panel .dg-surface-empty { grid-column: 1 / -1; display: grid; gap: 5px; padding: 15px; border: 1px dashed var(--dgir-border); border-radius: var(--dgir-radius-md); text-align: center; }
+    .dg-router-panel .dg-surface-empty strong { font: 700 13px/1.2 var(--lumiverse-font-family, system-ui, sans-serif); }
     .dg-router-panel .dg-surface-empty span { color: var(--dgir-text-muted); font-size: 11px; }
     .dg-router-panel .dg-protocol-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px; border: 1px solid var(--dgir-border); border-left: 2px solid var(--dgir-accent); border-radius: 9px; background: color-mix(in srgb, var(--dgir-accent) 5%, var(--dgir-surface-soft)); }
     .dg-router-panel .dg-protocol-card > div:first-child { display: grid; gap: 5px; min-width: 0; }
@@ -1283,16 +1455,17 @@ export function setup(ctx: SpindleFrontendContext) {
       .dg-suite-stage .dg-head-top { align-items: stretch; flex-direction: column; }
       .dg-suite-stage .dg-head-actions { justify-content: flex-start; flex-wrap: wrap; }
       .dg-suite-stage .dg-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .dg-suite-stage .dg-suite-primary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .dg-suite-stage .dg-suite-primary-tab { min-height: 48px; padding: 6px 3px; font-size: 9px; }
-      .dg-suite-stage .dg-suite-secondary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); justify-content: stretch; }
-      .dg-suite-stage .dg-suite-secondary-tab { min-width: 0; padding-inline: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .dg-suite-navigation .dg-suite-primary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .dg-suite-navigation .dg-suite-primary-tab { min-height: 48px; padding: 6px 3px; font-size: 9px; }
+      .dg-suite-navigation .dg-suite-secondary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); justify-content: stretch; }
+      .dg-suite-navigation .dg-suite-secondary-tab { min-width: 0; padding-inline: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .dg-suite-stage .dg-section { padding: 10px; }
       .dg-suite-stage .dg-choice-grid,
       .dg-suite-stage .dg-choice-compact.dg-choice-three,
       .dg-suite-stage .dg-choice-compact.dg-choice-four,
       .dg-suite-stage .dg-choice-compact.dg-choice-five,
       .dg-suite-stage .dg-illustrator-mode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .dg-suite-stage .dg-prose-mode-selector { grid-template-columns: repeat(3, minmax(0,1fr)); }
       .dg-suite-stage .dg-illustrator-essentials,
       .dg-suite-stage .dg-illustrator-advanced-body,
       .dg-suite-stage .dg-settings-grid,
@@ -1320,14 +1493,16 @@ export function setup(ctx: SpindleFrontendContext) {
     @media (max-width: 470px) {
       .dg-router-panel.dg-suite-shell { padding: 8px; }
       .dg-router-panel .dg-suite-head { padding: 11px; }
-      .dg-router-panel .dg-suite-primary { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-      .dg-router-panel .dg-suite-primary-tab { min-width: 0; min-height: 52px; padding: 6px 2px; font-size: 8px; letter-spacing: 0; }
+      .dg-router-panel .dg-suite-primary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .dg-router-panel .dg-suite-primary-tab { min-width: 0; min-height: 48px; padding: 6px 3px; font-size: 9px; letter-spacing: 0; }
       .dg-router-panel .dg-suite-primary-icon { font-size: 17px; }
       .dg-router-panel .dg-suite-secondary { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0,1fr); justify-content: stretch; overflow: hidden; flex-wrap: nowrap; scrollbar-width: none; }
-      .dg-router-panel .dg-suite-secondary-tab { white-space: nowrap; }
+      .dg-router-panel .dg-suite-secondary-tab { white-space: nowrap; padding: 7px 4px; font-size: 9px; letter-spacing: 0; }
       .dg-router-panel .dg-choice-compact .dg-illustrator-mode-card { min-height: 48px; padding: 7px 5px; text-align: center; place-items: center; }
       .dg-router-panel .dg-choice-compact .dg-illustrator-mode-card small { display: none; }
       .dg-router-panel .dg-choice-compact.dg-choice-five { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .dg-router-panel .dg-prose-mode-selector { grid-template-columns: repeat(3, minmax(0,1fr)); }
+      .dg-router-panel .dg-prose-mode-selector .dg-illustrator-mode-card { min-height: 34px; padding: 4px 2px; }
       .dg-router-panel .dg-surface-intro, .dg-router-panel .dg-protocol-card { align-items: stretch; flex-direction: column; }
       .dg-router-panel .dg-surface-grid { grid-template-columns: 1fr; }
       .dg-router-panel .dg-surface-card { grid-template-columns: 34px minmax(0, 1fr); }
@@ -1347,11 +1522,24 @@ export function setup(ctx: SpindleFrontendContext) {
       .dg-router-panel .dg-asset-card-summary { -webkit-line-clamp: 2; font-size: 10px; }
       .dg-router-panel .dg-asset-card-chips { display: none; }
       .dg-router-panel .dg-asset-card-actions .dg-btn { min-height: 28px; padding: 5px 7px; }
-      .dg-router-panel.dg-asset-lightbox { width: 100dvw !important; min-height: 100dvh !important; height: auto !important; max-height: 100dvh !important; margin: 0 !important; border-radius: 0 !important; overflow-y: auto; }
-      .dg-router-panel .dg-asset-lightbox-body { grid-template-columns: 1fr; grid-template-rows: auto auto; min-height: 0; max-height: calc(100dvh - 72px); overflow-y: auto; padding: 6px; }
+      .dg-router-panel.dg-asset-lightbox { width: calc(100dvw - 20px) !important; min-height: 0 !important; height: auto !important; max-height: calc(100dvh - 20px) !important; margin: 0 !important; border-radius: var(--dgir-radius-lg) !important; overflow-y: auto; }
+      .dg-router-panel .dg-modal-body.dg-asset-lightbox-body { grid-template-columns: 1fr; grid-template-rows: auto auto; min-height: 0; max-height: calc(100dvh - 72px); overflow-y: auto; padding: 6px; }
       .dg-router-panel .dg-asset-lightbox-stage { height: auto; min-height: 0; max-height: min(72dvh, calc(100dvh - 230px)); }
       .dg-router-panel .dg-asset-lightbox-image { max-height: min(72dvh, calc(100dvh - 230px)); }
       .dg-router-panel .dg-asset-lightbox-details { padding: 8px; }
+      .dg-relay-lightbox-scroll-frame, .dg-relay-lightbox-modal-frame { max-height: calc(100dvh - 20px) !important; }
+      .dg-relay-lightbox-scroll-frame { padding: 8px !important; }
+      .dg-router-panel.dg-slot-lightbox { width: min(1480px, 100%) !important; max-width: 100% !important; max-height: calc(100dvh - 20px) !important; min-height: 0 !important; margin: 0 auto !important; border-radius: var(--dgir-radius-lg) !important; overflow: hidden; }
+      .dg-router-panel .dg-slot-lightbox-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, auto) auto; gap: 6px; width: 100%; max-height: calc(100dvh - 98px); padding: 6px; }
+      .dg-router-panel .dg-slot-lightbox-body > .dg-image-lightbox-viewport { max-height: min(35dvh, calc(100dvh - 375px), 360px); }
+      .dg-router-panel .dg-slot-lightbox-body > .dg-image-lightbox-viewport > .dg-lightbox-img { max-height: min(35dvh, calc(100dvh - 375px), 360px); }
+      .dg-router-panel .dg-slot-lightbox-controls { gap: 4px; padding: 5px; border-radius: var(--dgir-radius-lg); }
+      .dg-router-panel .dg-slot-lightbox-primary-actions { gap: 4px; }
+      .dg-router-panel .dg-slot-lightbox-primary-actions .dg-btn { min-height: 29px; padding: 5px 7px; font-size: 9px; }
+      .dg-router-panel .dg-slot-lightbox-footer { justify-content: center; gap: 4px; padding-top: 4px; }
+      .dg-router-panel .dg-slot-lightbox-footer .dg-actions { justify-content: center; gap: 4px; }
+      .dg-router-panel .dg-slot-lightbox-footer .dg-btn { min-height: 28px; padding: 5px 6px; font-size: 9px; }
+      .dg-router-panel .dg-slot-lightbox-primary-actions > .dg-manage > summary { min-height: 29px; padding: 5px 7px; font-size: 9px; }
       .dg-router-panel .dg-plan-row { grid-template-columns: 1fr; gap: 3px; }
       .dg-router-panel .dg-meta-grid { grid-template-columns: 1fr; }
       .dg-router-panel .dg-meta-label { margin-top: 5px; }
@@ -1365,6 +1553,98 @@ export function setup(ctx: SpindleFrontendContext) {
     @media (prefers-reduced-motion: reduce) {
       .dg-router-panel *, .dg-router-panel *::before, .dg-router-panel *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
     }
+
+    /* Keep Relay chrome compositor-light. The panel and its floating InputArea
+       controls sit above Lumiverse's live chat; backdrop filters and layered
+       gradients there can make the host UI repaint/flicker on mobile GPUs. */
+    .dg-router-panel,
+    .dg-router-panel *,
+    .dg-router-panel::before,
+    .dg-router-panel::after,
+    .dg-router-panel *::before,
+    .dg-router-panel *::after {
+      background-image: none !important;
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+    }
+    .dg-router-panel,
+    :root[data-dgir-theme="clean-panel"] .dg-router-panel {
+      background-color: var(--dgir-bg) !important;
+      border-color: var(--dgir-glass-line);
+      border-radius: var(--dgir-radius-lg);
+      box-shadow: var(--dgir-shadow), inset 0 1px var(--dgir-glass-highlight);
+    }
+    .dg-router-panel::before { content: none !important; display: none !important; }
+    .dg-router-panel .dg-head,
+    .dg-router-panel .dg-section,
+    .dg-router-panel .dg-slot-card,
+    .dg-router-panel .dg-asset-card,
+    .dg-router-panel .dg-beat-card.is-selected,
+    .dg-router-panel .dg-background-queue,
+    .dg-router-panel .dg-next-action,
+    .dg-router-panel .dg-confirm-dialog,
+    .dg-router-panel .dg-lab-hero,
+    .dg-router-panel .dg-vault-editor-hero,
+    .dg-router-panel .dg-illustrator-essentials,
+    .dg-router-panel .dg-tutorial,
+    .dg-router-panel .dg-creator-section,
+    .dg-router-panel .dg-creator-advanced,
+    .dg-router-panel .dg-protocol-card,
+    .dg-router-panel .dg-relay-candidate,
+    .dg-router-panel .dg-vault-character-card,
+    .dg-router-panel .dg-lora-card,
+    .dg-router-panel .dg-log,
+    .dg-router-panel .dg-rescan-result { background-color: var(--dgir-surface) !important; }
+    .dg-router-panel .dg-head,
+    .dg-router-panel .dg-section,
+    .dg-router-panel .dg-slot-card,
+    .dg-router-panel .dg-asset-card,
+    .dg-router-panel .dg-background-queue,
+    .dg-router-panel .dg-next-action,
+    .dg-router-panel .dg-confirm-dialog,
+    .dg-router-panel .dg-lab-hero,
+    .dg-router-panel .dg-vault-editor-hero,
+    .dg-router-panel .dg-illustrator-essentials,
+    .dg-router-panel .dg-tutorial,
+    .dg-router-panel .dg-creator-section,
+    .dg-router-panel .dg-creator-advanced,
+    .dg-router-panel .dg-relay-candidate,
+    .dg-router-panel .dg-lora-card { border-radius: var(--dgir-radius-lg); }
+    .dg-router-panel .dg-prism:not(.dg-prism-overview),
+    .dg-router-panel .dg-tab-active,
+    .dg-router-panel .dg-toggle-on,
+    .dg-router-panel .dg-btn-primary,
+    .dg-router-panel .dg-suite-primary-tab.is-active,
+    .dg-router-panel .dg-suite-secondary-tab.is-active { background-color: var(--dgir-accent-soft) !important; }
+    .dg-router-panel .dg-prism.dg-prism-overview { border: 0 !important; border-radius: 0 !important; background: transparent !important; background-color: transparent !important; box-shadow: none !important; }
+    .dg-router-panel .dg-help-trigger,
+    .dg-router-panel .dg-info-note,
+    .dg-router-panel .dg-creator-notice,
+    .dg-router-panel .dg-thumb-empty,
+    .dg-router-panel .dg-btn,
+    .dg-router-panel .dg-suite-primary,
+    .dg-router-panel .dg-surface-card { background-color: var(--dgir-surface-soft) !important; }
+    .dg-router-panel .dg-suite-primary { border-radius: var(--dgir-radius-lg); }
+    .dg-router-panel .dg-surface-card { border-radius: var(--dgir-radius-md); }
+    .dg-router-panel .dg-surface-icon { border-radius: var(--dgir-radius-sm); }
+    .dg-router-panel .dg-btn { min-height: 36px; border-radius: var(--dgir-radius-md); }
+    .dg-router-panel .dg-btn-subtle { background-color: transparent !important; }
+    .dg-router-panel .dg-help-popover,
+    .dg-router-panel .dg-menu { background-color: #21121d !important; }
+    .dg-router-panel .dg-beat-review-controls,
+    .dg-router-panel .dg-modal-footer { background-color: var(--dgir-bg) !important; }
+    .dg-router-panel .dg-history-track::before,
+    .dg-router-panel .dg-overview-label::before,
+    .dg-router-panel .dg-overview-label::after { background-color: var(--dgir-border) !important; }
+    .dg-router-panel .dg-section-title::before,
+    .dg-router-panel .dg-section-title::after { background-color: var(--dgir-border-bright) !important; }
+    .dg-router-panel .dg-thumb-processing::after { content: none !important; animation: none !important; }
+    .dg-sidecar-global-notice,
+    .dg-relay-orb,
+    .dg-relay-orb-design-glass { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+    .dg-sidecar-global-fill { background: var(--lumiverse-primary, #e980b7) !important; }
+    .dg-relay-orb,
+    .dg-relay-orb-design-glass { background-image: none !important; background-color: color-mix(in srgb, var(--lumiverse-fill, #211825) 92%, var(--lumiverse-primary, #e980b7)) !important; }
   `)
   // Message renderers may sanitize detached <style> nodes from processed prose.
   // Keep the same reservation CSS registered through the extension-owned host
@@ -1374,7 +1654,7 @@ export function setup(ctx: SpindleFrontendContext) {
   const tab = ctx.ui.registerDrawerTab({
     id: 'reverie-relay',
     title: 'Reverie Relay',
-    shortName: 'R³',
+    shortName: 'PR',
     headerTitle: 'Reverie Relay · Surface Suite',
     description: 'Living-world surfaces, prose illustrations, visual memory, and media archives',
     keywords: ['reverie', 'relay', 'surface', 'illustrator', 'media', 'instagram', 'twitter', 'smartphone', 'kakao'],
@@ -1384,12 +1664,12 @@ export function setup(ctx: SpindleFrontendContext) {
   const inputRelayAction = ctx.ui.registerInputBarAction({
     id: 'open-reverie-relay',
     label: 'Open Reverie Relay',
-    iconUrl: REVERIE_RELAY_TAB_ICON_URL,
+    iconUrl: REVERIE_RELAY_OVERVIEW_ICON_URL,
   })
   const inputSurfacesAction = ctx.ui.registerInputBarAction({
     id: 'open-reverie-surfaces',
     label: 'Open Surface Registry',
-    iconUrl: REVERIE_RELAY_TAB_ICON_URL,
+    iconUrl: REVERIE_RELAY_SIDEBAR_ICON_URL,
   })
   const unsubInputRelay = inputRelayAction.onClick(() => tab.activate())
   const unsubInputSurfaces = inputSurfacesAction.onClick(() => { activeTab = 'surfaces'; tab.activate(); renderPanel() })
@@ -1504,7 +1784,7 @@ export function setup(ctx: SpindleFrontendContext) {
         renderRelayOrb()
         maybeOpenSlotImagePreviews()
         updateSidecarTicker()
-        if (activeChatId && config.autoRescanOnChatOpen && !autoRescannedChats.has(activeChatId)) {
+        if (activeChatId && message.chatId === activeChatId && config.autoRescanOnChatOpen && !autoRescannedChats.has(activeChatId)) {
           autoRescannedChats.add(activeChatId)
           const chatId = activeChatId
           window.setTimeout(() => {
@@ -1576,13 +1856,16 @@ export function setup(ctx: SpindleFrontendContext) {
         runtimeDirective: message.runtimeDirective || '',
       }
       if (message.chatId === activeChatId) {
-        showToast('warning', 'Model-Placed requested illustrations, but the story model returned no valid Reverie illustration tags.')
+        showToast('warning', 'Model Planned requested illustrations, but the story model returned no valid Reverie illustration tags.')
         renderPanel()
       }
       return
     }
     if (message.type === 'prompt_registry_preview') {
-      if (message.chatId === activeChatId) openTextModal(`Resolved Illustrator Prompt · ${message.registryIds.join(' + ')}`, message.prompt)
+      if (message.chatId !== activeChatId || !pendingPromptPreviewRequestId) return
+      if (message.requestId && message.requestId !== pendingPromptPreviewRequestId) return
+      pendingPromptPreviewRequestId = null
+      openTextModal(`Resolved Illustrator Prompt · ${message.registryIds.join(' + ')}`, message.prompt)
       return
     }
     if (message.type === 'surface_prompt_preview') {
@@ -1597,6 +1880,12 @@ export function setup(ctx: SpindleFrontendContext) {
       pendingSurfacePromptPreviews.delete(message.requestId)
       if (pending) pending.setValue(value)
       else openTextModal('Enabled Surface Prompt Dry Run · no model calls', value)
+      return
+    }
+    if (message.type === 'custom_surface_action_result') {
+      const finish = pendingCustomSurfaceSaves.get(message.requestId)
+      pendingCustomSurfaceSaves.delete(message.requestId)
+      finish?.(message.ok, message.error)
       return
     }
     if (message.type === 'narrative_lorebook_export_result') {
@@ -1790,7 +2079,7 @@ export function setup(ctx: SpindleFrontendContext) {
       for (const pending of settingsPatchQueue) applyRelaySettingsDraft(pending.patch)
       if (message.status === 'failed') showToast('error', `Setting was rolled back: ${message.error || 'backend persistence failed'}`)
       else if (message.warnings.length) showToast('warning', message.warnings[0])
-      if (completed?.patch.kind === 'narrative-override') requestNarrativeUtilityRegistry(true)
+      if (completed?.patch.kind === 'narrative-override' || completed?.patch.kind === 'narrative-image-enabled') requestNarrativeUtilityRegistry(true)
       renderPanel()
       dispatchNextRelaySettingsPatch()
       return
@@ -1866,6 +2155,7 @@ export function setup(ctx: SpindleFrontendContext) {
     if (chatId === activeChatId) return
     clearPlacementVisualHeartbeats()
     activeChatId = chatId
+    pendingPromptPreviewRequestId = null
     sendFrontendSession(true)
     slotActionFeedback.clear()
     optimisticSlotActions.clear()
@@ -2204,6 +2494,26 @@ export function setup(ctx: SpindleFrontendContext) {
     if (!buttonEl) return
     event.preventDefault()
     event.stopImmediatePropagation()
+    if (buttonEl.dataset.rrnAction === 'wardrobe-wear') {
+      const owner = buttonEl.closest<HTMLElement>('.pw-wardrobe')
+      const draft = owner && buttonEl.closest<HTMLElement>('.pw-panel')?.querySelector<HTMLElement>('.pw-wearcopy')?.textContent?.trim()
+      const composer = document.querySelector<HTMLTextAreaElement>('textarea[name="chat-message"]')
+      if (!owner || !draft || draft.length > 1200 || !composer || !composer.isConnected) {
+        showToast('warning', 'Could not find this look or the current chat Composer.')
+        return
+      }
+      // React owns the textarea. Its prototype setter plus a bubbling input
+      // event updates the actual draft state; setting an attribute would only
+      // paint temporary text, then lose it on the next host render.
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+      if (!setter) { showToast('warning', 'The chat Composer is not available.'); return }
+      setter.call(composer, draft)
+      composer.dispatchEvent(new Event('input', { bubbles: true }))
+      composer.focus()
+      composer.setSelectionRange(draft.length, draft.length)
+      showToast('success', 'Outfit added to Composer as a draft. Review it before sending.')
+      return
+    }
     const host = buttonEl.closest<HTMLElement>('[data-rrn-editable-surface]')
     if (buttonEl.dataset.rrnAction === 'edit-surface' || buttonEl.dataset.rrnAction === 'repair-surface') {
       openSurfaceMarkupEditor(buttonEl)
@@ -2880,7 +3190,11 @@ export function setup(ctx: SpindleFrontendContext) {
     // decoding finishes; the guard lives outside the replaced message markup.
     const rules = [...proseRevealGuards.entries()].map(([key, guard]) => {
       const owner = `.rrl-card[data-rrn-record-key=${cssEscape(key)}][data-rrn-live-status="completed"] .rrl-media-slot`
-      const resolvedImage = guard.imageUrl ? `img[src=${JSON.stringify(guard.imageUrl)}]{visibility:hidden!important}` : ''
+      // The URL can also be shown in a review modal, Slots thumbnail, or
+      // Gallery. Guard only the owning message's image during its reveal.
+      const resolvedImage = guard.imageUrl
+        ? `[data-message-id=${JSON.stringify(guard.messageId)}] img[src=${JSON.stringify(guard.imageUrl)}],img[data-dgir-message-id=${JSON.stringify(guard.messageId)}][src=${JSON.stringify(guard.imageUrl)}]{visibility:hidden!important}`
+        : ''
       return `${resolvedImage}${owner} .rrl-slot-image{visibility:hidden!important}${owner} .rrl-media-skeleton{display:grid!important;opacity:1!important}`
     }).join('')
     const scopes = new Set<Document | ShadowRoot>([document, ...proseRevealGuardStyles.keys()])
@@ -3133,13 +3447,17 @@ export function setup(ctx: SpindleFrontendContext) {
   function ensureSyntheticProseProjection(record: SlotRecord, root: Element): void {
     if (record.target !== 'prose.illustration' || record.proseSynthetic !== true) return
     const projectionSelector = `[data-dgir-prose-projection="${cssEscape(record.key)}"]`
-    if (!record.proseAnchor || !record.originalRequestXml || record.orphaned || record.status === 'superseded') {
+    if (!record.proseAnchor || record.orphaned || record.status === 'superseded') {
       for (const projection of deepQueryAll<HTMLElement>(root as ParentNode, projectionSelector)) projection.remove()
       return
     }
     if (deepQueryAll<HTMLElement>(root as ParentNode, `${projectionSelector}, [data-rrn-native-request="${cssEscape(record.requestId)}"]`).length) return
 
-    const rendered = renderNativeSurfaceMarkup(record.originalRequestXml, customSurfaces, {
+    // Completed-state compaction discards the original request XML. Rebuild
+    // only the inert reservation markup for this exact synthetic request;
+    // renderNativeSurfaceMarkup hydrates it from the durable completed record.
+    const reservation = record.originalRequestXml || `<scene_image pending="true" requestId="${escapeHtml(record.requestId)}" alt="${escapeHtml(record.alt || 'Scene illustration')}">${escapeHtml(record.caption || record.alt || 'Scene illustration')}</scene_image>`
+    const rendered = renderNativeSurfaceMarkup(reservation, customSurfaces, {
       chatId: record.chatId,
       messageId: record.messageId,
       swipeId: record.swipeId,
@@ -3554,7 +3872,9 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function applyGlobalInterfaceSettings(): void {
-    const theme = config?.interfaceTheme === 'clean-panel' ? 'clean-panel' : 'velvet-prism'
+    const theme = ['velvet-prism', 'clean-panel'].includes(String(config?.interfaceTheme))
+      ? config!.interfaceTheme
+      : 'velvet-prism'
     document.documentElement.dataset.dgirTheme = theme
     const prose = currentProseSettings()
     const imageSize = prose.imageSize || 'medium'
@@ -3585,7 +3905,7 @@ export function setup(ctx: SpindleFrontendContext) {
   function renderQuickStartOverview(onFinish?: () => void): HTMLElement {
     const sections = [
       ['Relay', 'Semantic image requests stay attached to their exact message position while Relay parses, queues, generates, inserts, recovers, and archives them.'],
-      ['Illustrator', 'Relay-Planned selects visual beats after the response. Model-Placed follows exact inline request anchors authored through the active preset prompt.'],
+      ['Illustrator', 'Relay-Planned selects visual beats after the response. Model Planned follows exact inline request anchors authored through the active preset prompt.'],
       ['Surfaces', 'Relay Rendering creates native interactive surfaces. Regex Rendering keeps the supplied visual packs available as a compatibility renderer.'],
       ['Appearance Memory', 'Appearance Sidecar keeps stable identity, wardrobe, and current-scene appearance separately from full chat, card, persona, lorebook, native binding, and accepted continuity context.'],
       ['Archive', 'Media Archive keeps completed outputs, deleted-message assets, candidates, prompt metadata, and recovery history together.'],
@@ -4267,8 +4587,13 @@ export function setup(ctx: SpindleFrontendContext) {
     const brand = document.createElement('div')
     brand.className = 'dg-brand'
     const prism = document.createElement('div')
-    prism.className = 'dg-prism'
+    prism.className = 'dg-prism dg-prism-overview'
     prism.setAttribute('aria-hidden', 'true')
+    const prismImage = document.createElement('img')
+    prismImage.className = 'dg-prism-image'
+    prismImage.src = REVERIE_RELAY_OVERVIEW_ICON_URL
+    prismImage.alt = ''
+    prism.appendChild(prismImage)
     const copy = document.createElement('div')
     copy.style.minWidth = '0'
     const titleLine = document.createElement('div')
@@ -4307,7 +4632,7 @@ export function setup(ctx: SpindleFrontendContext) {
     summary.className = 'dg-summary'
     summary.append(
       countBox('Generating', counts.processing, 'processing'),
-      countBox('Ready', counts.readyToPlace, 'completed'),
+      countBox('Ready', counts.readyToPlace, 'ready'),
       countBox('Failed', counts.failed, 'failed'),
       countBox('Completed', counts.completed, 'completed'),
     )
@@ -4466,6 +4791,7 @@ memory: [['genetics', 'Appearance Memory']],
       )
     } else {
       title.textContent = 'Ready'
+      title.classList.add('dg-main-ready-indicator')
       copy.textContent = 'Relay is ready to route semantic surface media and handle prose illustrations automatically.'
       actions.append(
         button('Open Relay Slots', () => { activeTab = 'slots'; renderPanel() }, false, 'primary'),
@@ -4703,12 +5029,11 @@ memory: [['genetics', 'Appearance Memory']],
     const recordsForChat = Object.values(proseIllustrator.records || {}).filter(record => proseIllustrator.plans[record.planId]?.chatId === activeChatId).sort((a, b) => b.createdAt - a.createdAt)
 
     const modeControls = document.createElement('div')
-    modeControls.className = 'dg-illustrator-mode-grid dg-choice-compact'
+    modeControls.className = 'dg-illustrator-mode-grid dg-choice-compact dg-prose-mode-selector'
     const modeOptions: Array<{ id: ProseIllustratorSettings['mode']; label: string; description: string }> = [
       { id: 'off', label: 'Off', description: 'Pause illustrations.' },
-      { id: 'relay-planned', label: 'Relay-Planned', description: 'Relay picks the moments.' },
-      { id: 'model-placed', label: 'Model-Placed', description: 'The model places requests.' },
-      { id: 'inline-protocol', label: 'Inline Protocol', description: 'One-pass model-authored requests.' },
+      { id: 'relay-planned', label: 'Relay', description: 'Relay picks the moments.' },
+      { id: 'inline-protocol', label: 'Story Model', description: 'The model chooses and places requests.' },
     ]
     for (const option of modeOptions) {
       const control = document.createElement('button')
@@ -4756,17 +5081,18 @@ memory: [['genetics', 'Appearance Memory']],
     const chips = document.createElement('div')
     chips.className = 'dg-status-chips'
     chips.append(
-      chip(settings.mode === 'relay-planned' ? 'Relay-Planned' : settings.mode === 'inline-protocol' ? 'Inline Protocol' : settings.mode === 'model-placed' ? 'Model-Placed' : 'Off', settings.mode === 'off' ? '' : 'completed'),
+      chip(settings.mode === 'relay-planned' ? 'Relay-Planned' : settings.mode === 'inline-protocol' || settings.mode === 'model-placed' ? 'Model Planned' : 'Off', settings.mode === 'off' ? '' : 'completed'),
       chip(`${settings.illustrationsPerRun || 1} per response`, ''),
       chip(settings.frequencyMode.replace(/-/g, ' '), ''),
       chip(settings.defaultAspectRatio, ''),
       chip(`${recordsForChat.length} generated`, ''),
     )
     const actions = document.createElement('div')
-    actions.className = 'dg-actions dg-primary-actions'
+    actions.className = 'dg-actions dg-primary-actions dg-illustrator-overview-actions'
     if (settings.mode === 'off') {
-      actions.append(button('Enable Model-Placed', () => patchProseSettings({ mode: 'model-placed', enabled: true }), false, 'primary'))
+      actions.append(button('Enable Model Planned', () => patchProseSettings({ mode: 'inline-protocol', enabled: true }), false, 'primary'))
     } else if (settings.mode === 'relay-planned') {
+      const readyPlan = plans.find(plan => plan.status === 'ready' && !proseIllustrator.records[plan.planId])
       actions.append(
         button(settings.paused ? 'Resume Relay-Planned' : 'Pause Relay-Planned', () => sendProseAction({ action: settings.paused ? 'resume_auto' : 'pause_auto' }), !activeChatId, settings.paused ? 'primary' : 'subtle'),
         button('Plan Latest Once', () => sendProseAction({ action: 'plan_latest' }), !activeChatId || !settings.plannerConnectionId, 'primary'),
@@ -4775,10 +5101,14 @@ memory: [['genetics', 'Appearance Memory']],
           nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt,
         })), !activeChatId || !settings.plannerConnectionId, 'subtle', 'Runs the real Director, validator, optional repair, and local compiler without generating or inserting images.'),
       )
+      if (readyPlan) actions.append(button('Generate Planned Image', async () => {
+        const snapshot = await syncNativeSettings()
+        sendProseAction({ action: 'generate_plan', planId: readyPlan.planId, nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt } as any)
+      }, false, 'primary'))
     } else {
       actions.append(
-        button('Copy Preset Prompt', () => void copyText(REVERIE_ILLUSTRATION_PROTOCOL, 'Full Model-Placed preset prompt copied'), false, 'primary'),
-        button('Copy Macro', () => void copyText('{{reverie_illustration_protocol}}', 'Illustrator macro copied'), false, 'subtle'),
+        button('Copy Preset Prompt', () => void copyText(REVERIE_INLINE_PROTOCOL, 'Full Model Planned preset prompt copied'), false, 'primary'),
+        button('Copy Macro', () => void copyText('{{reverie_illustrator}}', 'Illustrator macro copied'), false, 'subtle'),
       )
     }
     actions.append(button('Copy Image Request Template', () => void copyText(COPYABLE_IMAGE_REQUEST_TEMPLATE, 'Complete image request template copied'), false, 'subtle', 'Copies the complete canonical request block for a preset or prompt.'))
@@ -4791,10 +5121,8 @@ memory: [['genetics', 'Appearance Memory']],
     explanation.className = 'dg-recovery-note'
     explanation.textContent = settings.mode === 'relay-planned'
       ? `Relay independently chooses up to ${settings.illustrationsPerRun || 1} distinct moments and ${settings.relayInsertionMode === 'review' ? 'waits for approval before insertion' : 'inserts finished images automatically'}.`
-      : settings.mode === 'inline-protocol'
+      : settings.mode === 'inline-protocol' || settings.mode === 'model-placed'
         ? 'The Story Model writes one complete request in its exact prose position. Relay parses that same canonical request and dispatches it automatically only when Auto Generate is enabled.'
-        : settings.mode === 'model-placed'
-        ? `Illustration requests are read from their exact prose positions and generated in place.`
         : 'The Illustrator is disabled.'
     box.appendChild(panelSection('Illustrator Overview', documentFragment(chips, actions, explanation)))
 
@@ -4808,7 +5136,7 @@ memory: [['genetics', 'Appearance Memory']],
       const missingActions = document.createElement('div')
       missingActions.className = 'dg-actions'
       missingActions.append(
-        button('Copy Preset Prompt', () => void copyText(REVERIE_ILLUSTRATION_PROTOCOL, 'Full Model-Placed preset prompt copied'), false, 'primary'),
+        button('Copy Preset Prompt', () => void copyText(REVERIE_INLINE_PROTOCOL, 'Full Model Planned preset prompt copied'), false, 'primary'),
         button('Use Relay-Planned Once', () => {
           const request = modelPlacedMissingRequest
           if (!request) return
@@ -4820,18 +5148,18 @@ memory: [['genetics', 'Appearance Memory']],
         button('Dismiss', () => { modelPlacedMissingRequest = null; renderPanel() }, false, 'subtle'),
       )
       missing.append(title, detail, missingActions)
-      box.appendChild(panelSection('Model-Placed Recovery', missing))
+      box.appendChild(panelSection('Model Planned Recovery', missing))
     }
 
     const protocol = document.createElement('div')
     protocol.className = 'dg-protocol-card'
     const protocolCopy = document.createElement('div')
-    protocolCopy.innerHTML = '<strong>Model-Placed preset prompt</strong><span>Copy Preset Prompt gives users a complete ready-to-paste instruction block. The macro expands to this full protocol, while Relay separately injects the active runtime settings into every generation.</span>'
+    protocolCopy.innerHTML = '<strong>Model Planned preset prompt</strong><span>Copy Preset Prompt gives users a complete ready-to-paste instruction block. The Illustrator macro expands to the active protocol and runtime settings for the current chat.</span>'
     const protocolActions = document.createElement('div')
     protocolActions.className = 'dg-actions'
     protocolActions.append(
-      button('Copy Preset Prompt', () => void copyText(REVERIE_ILLUSTRATION_PROTOCOL, 'Full Model-Placed preset prompt copied'), false, 'primary'),
-      button('Copy Macro', () => void copyText('{{reverie_illustration_protocol}}', 'Illustrator macro copied'), false, 'subtle'),
+      button('Copy Preset Prompt', () => void copyText(REVERIE_INLINE_PROTOCOL, 'Full Model Planned preset prompt copied'), false, 'primary'),
+      button('Copy Macro', () => void copyText('{{reverie_illustrator}}', 'Illustrator macro copied'), false, 'subtle'),
     )
     protocol.append(protocolCopy, protocolActions)
     box.appendChild(panelSection('Illustration Protocol', protocol))
@@ -5082,8 +5410,14 @@ memory: [['genetics', 'Appearance Memory']],
     essentials.className = 'dg-settings-grid dg-illustrator-essentials'
     essentials.append(selectField('Generation Placeholder Effect', normalizeGenerationPlaceholderEffect(config?.generationPlaceholderEffect), [['glitter', 'Glitter'], ['spinner', 'Spinner'], ['dream-orb', 'Dream Orb'], ['none', 'None']], value => patchConfig({ generationPlaceholderEffect: normalizeGenerationPlaceholderEffect(value) })))
     if (settings.mode !== 'off') essentials.append(prosePlannerSelect(settings), plannerModelControl(settings))
-    if (settings.mode === 'model-placed') {
-      essentials.append(toggleCard('Illustration Runtime Contract', 'Model-Placed sends the configured protocol, exact count/range, aspect policy, and framing to the Story Model through the final prompt path.', true, () => patchProseSettings({ automaticProtocolInjection: true })))
+    if (settings.mode === 'inline-protocol' || settings.mode === 'model-placed') {
+      essentials.append(toggleCard('Illustration Runtime Contract', 'Model Planned sends the configured protocol, exact count/range, aspect policy, and framing to the Story Model through the final prompt path.', true, () => patchProseSettings({ automaticProtocolInjection: true })))
+      essentials.append(toggleCard(
+        'Instant',
+        'Off: keep the normal Status Card flow and wait for the response to finish. On: dispatch each complete Model Planned request as soon as it streams. Auto Generate still controls provider dispatch; image placement remains Relay-managed.',
+        settings.instantIllustrationDispatch,
+        checked => patchProseSettings({ instantIllustrationDispatch: checked }),
+      ))
     }
     essentials.append(selectField('Illustration Count', settings.modelPlacedCountMode, [['fixed', 'Fixed exact count'], ['range', 'Inclusive range']], value => patchProseSettings({ modelPlacedCountMode: value as ProseIllustratorSettings['modelPlacedCountMode'] })))
     if (settings.modelPlacedCountMode === 'range') {
@@ -5257,9 +5591,17 @@ memory: [['genetics', 'Appearance Memory']],
     return field
   }
 
-  function openFinalPromptPreview(settings: ProseIllustratorSettings): void {
+  function openFinalPromptPreview(_settings: ProseIllustratorSettings): void {
     if (!activeChatId) { showToast('warning', 'Open a chat to resolve its final Illustrator prompt.'); return }
-    ctx.sendToBackend({ type: 'prose_illustrator_action', chatId: activeChatId, action: 'preview_prompt' })
+    if (pendingPromptPreviewRequestId) return
+    const requestId = `illustrator-preview-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+    pendingPromptPreviewRequestId = requestId
+    ctx.sendToBackend({ type: 'prose_illustrator_action', chatId: activeChatId, action: 'preview_prompt', requestId, settings: currentProseSettings() })
+    window.setTimeout(() => {
+      if (pendingPromptPreviewRequestId !== requestId) return
+      pendingPromptPreviewRequestId = null
+      showToast('warning', 'Illustrator prompt preview timed out. Please try again.')
+    }, 20_000)
   }
 
   function installAccessibleModalDismissal(modal: { root: HTMLElement; dismiss(): void }, label: string): () => void {
@@ -5302,6 +5644,9 @@ memory: [['genetics', 'Appearance Memory']],
   }
 
   function openPromptRegistry(settings: ProseIllustratorSettings): void {
+    // The host allows multiple copies of the same modal. A rapid second
+    // activation must not stack another editor over a still-open draft.
+    if (document.querySelector('[role="dialog"][aria-label="Prompt Registry"]')) return
     const modal = ctx.ui.showModal({ title: 'Prompt Registry', width: 980, persistent: true })
     modal.root.classList.add('dg-router-panel', 'dg-modal-host')
     installAccessibleModalDismissal(modal, 'Prompt Registry')
@@ -5314,9 +5659,10 @@ memory: [['genetics', 'Appearance Memory']],
     const search = document.createElement('input'); search.className = 'dg-input'; search.placeholder = 'Search prompts'
     const categorySelect = document.createElement('select'); categorySelect.className = 'dg-select'
     const registryCategories = [['all', 'All categories'], ['story-model', 'Story Model'], ['sidecars', 'Sidecars']] as Array<[string, string]>
+    const visibleDefinitions = PROMPT_REGISTRY_DEFINITIONS.filter(definition => definition.id !== 'story.model-placed')
     // Image Interpretation has no shipped workflow in this build. Do not
     // advertise an empty category; it returns if a definition is registered.
-    if (PROMPT_REGISTRY_DEFINITIONS.some(definition => definition.category === 'image-interpretation')) registryCategories.splice(2, 0, ['image-interpretation', 'Image Interpretation'])
+    if (visibleDefinitions.some(definition => definition.category === 'image-interpretation')) registryCategories.splice(2, 0, ['image-interpretation', 'Image Interpretation'])
     for (const [value, label] of registryCategories) {
       const option = document.createElement('option'); option.value = value; option.textContent = label; categorySelect.appendChild(option)
     }
@@ -5345,7 +5691,7 @@ memory: [['genetics', 'Appearance Memory']],
     }
     const render = () => {
       list.replaceChildren()
-      const filtered = PROMPT_REGISTRY_DEFINITIONS.filter(definition => {
+      const filtered = visibleDefinitions.filter(definition => {
         if (category !== 'all' && definition.category !== category) return false
         if (customizedOnly && !hasOverride(definition.id)) return false
         const haystack = `${definition.displayName} ${definition.description} ${definition.id}`.toLocaleLowerCase()
@@ -5614,7 +5960,7 @@ memory: [['genetics', 'Appearance Memory']],
 
   function currentProseSettings(): ProseIllustratorSettings {
     const fallback: ProseIllustratorSettings = {
-      enabled: true, automaticProtocolInjection: false, mode: 'model-placed', plannerConnectionId: config?.parserConnectionId || null, plannerModel: config?.parserModel || '',
+      enabled: true, automaticProtocolInjection: true, instantIllustrationDispatch: false, mode: 'inline-protocol', plannerConnectionId: config?.parserConnectionId || null, plannerModel: config?.parserModel || '',
       plannerParameters: {}, contextMessageCount: 4, maximumCharacters: 2, frequencyMode: 'key-moments',
       everyNEligibleMessages: 3, maximumOpportunitiesPerMessage: 3, maximumIllustrationsPerMessage: 3, illustrationsPerRun: 1,
       minimumImages: 1, maximumImages: 3, modelPlacedCountMode: 'fixed', perspectiveMode: 'scene-snapshot', imageAlignment: 'center', imageSize: 'medium', adaptiveMode: true,
@@ -5629,7 +5975,8 @@ memory: [['genetics', 'Appearance Memory']],
     }
     const globalSettings = pendingProseSettingsWrite?.settings || config?.proseIllustratorSettings || proseIllustrator.settings?.__global__ || fallback
     const chatSettings = activeChatId ? proseIllustrator.settings?.[activeChatId] : undefined
-    return { ...fallback, ...globalSettings, paused: chatSettings?.paused === true }
+    const effective = { ...fallback, ...globalSettings, paused: chatSettings?.paused === true }
+    return effective.mode === 'model-placed' ? { ...effective, mode: 'inline-protocol', automaticProtocolInjection: true } : effective
   }
 
   function settingsModeOff(): boolean {
@@ -5671,7 +6018,8 @@ memory: [['genetics', 'Appearance Memory']],
     ctx.sendToBackend({ type: 'queue_action', chatId: activeChatId, action: 'abort_all' })
     localSidecarAnalysisStartedAt = 0
     updateSidecarTicker()
-    showToast('info', 'Relay is globally freezing provider handoff and stopping work across chats.')
+    // The backend sends one authoritative abort acknowledgement/notice. Avoid
+    // an optimistic toast here; it used to stack on top of that notice.
     renderRelayOrb()
   }
 
@@ -6002,6 +6350,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     if (!asset.imageUrl) return
     const modal = ctx.ui.showModal({ title: asset.caption || asset.alt || `${appLabel(asset)} / ${slotLabel(asset)}`, width: 1120 })
     modal.root.classList.add('dg-router-panel', 'dg-modal-host', 'dg-asset-lightbox')
+    fitRelayLightboxHost(modal)
     const body = document.createElement('div')
     body.className = 'dg-modal-body dg-asset-lightbox-body'
     const stage = document.createElement('div')
@@ -6054,6 +6403,33 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     contextSummary.className = 'dg-recovery-note'
     contextSummary.textContent = 'Appearance Sidecar maintains stable identity, wardrobe, and current scene state from the active conversation and bound native identity context. Current-scene details always win; every field remains manually editable.'
     box.appendChild(panelSection('Appearance Memory', documentFragment(controls, contextSummary)))
+
+    if (config) {
+      const current = config
+      const sidecar = document.createElement('div')
+      sidecar.className = 'dg-settings-grid'
+      sidecar.append(
+        selectField('Global Appearance Sidecar Connection', current.appearanceSidecarConnectionId || '', [['', 'Use Relay Parser Connection'], ...parserConnections.map(connection => [connection.id, `${connection.name} / ${connection.model}`] as [string, string])], value => {
+          patchConfig({
+            appearanceSidecarConnectionId: value || null,
+            appearanceSidecarModel: compatibleSidecarModel(current.appearanceSidecarModel, value || current.parserConnectionId || ''),
+          })
+        }),
+        appearanceSidecarModelField(
+          'Global Appearance Sidecar Model',
+          current.appearanceSidecarConnectionId,
+          current.appearanceSidecarModel,
+          current.parserConnectionId,
+          current.parserModel || parserConnections.find(connection => connection.id === current.parserConnectionId)?.model || '',
+          value => patchConfig({ appearanceSidecarModel: value }),
+        ),
+        textareaInput('Global Appearance Sidecar Parameters', JSON.stringify(current.appearanceSidecarParameters || {}, null, 2), value => {
+          try { patchConfig({ appearanceSidecarParameters: JSON.parse(value || '{}') }) }
+          catch { showToast('warning', 'Appearance Sidecar parameters must be valid JSON.') }
+        }),
+      )
+      box.appendChild(panelDisclosure('Appearance Sidecar Routing', sidecar))
+    }
 
     const sheets = continuityVault.characterSheets || {}
     const summary = document.createElement('div')
@@ -6377,7 +6753,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
         'Choose Auto Insert, Prompt Preview, or Image Preview Before Insert in Settings. Image Preview opens the finished result before write-back with Reparse, Regenerate, and Insert controls.',
       ]],
       ['Prose Illustrator', [
-        'Relay-Planned analyzes and inserts automatically. Model-Placed lets the narrative model place exact request anchors using the full preset prompt and injected runtime settings.',
+        'Relay-Planned analyzes and inserts automatically. Model Planned lets the narrative model place exact request anchors using the full preset prompt and injected runtime settings.',
         'Relay-Planned selection is automatic and does not open a separate scene-suggestion or manual picker workflow.',
         'Generated replacement candidates and completed inline illustration logs are stored under History instead of crowding the main Illustrator tab.',
         'Open Generation Details on any slot to inspect the chosen scene, visible subjects, profile reason, Appearance facts, references, model, LoRAs, prompts, requested and actual dimensions, anchor, and warnings.',
@@ -6424,6 +6800,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
   const NARRATIVE_DLC_UTILITY_NAMES = [
     'Character Phone', 'Dramatic Cutaway', 'Plot Sparks', 'Scene Shift', 'Parallel Scene', 'Cast Introduction',
     'Backstage Secrets', 'Setting the Scene', 'Off-Stage', 'Character Dossier', 'Location File', 'In Another Life', 'Archive Entry',
+    'Relationship Map', 'Cast Sheet', 'Persona Wardrobe',
   ] as const
 
   function removeAppearanceMemoryOptimistically(characterId: string, removeCharacter: boolean): void {
@@ -6501,28 +6878,12 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
 
   function renderNarrativeUtilityCategory(current: RouterConfig): HTMLElement {
     const category = document.createElement('div')
-    const narrativeStatus = document.createElement('div')
-    narrativeStatus.className = current.narrativeDlcLastSync?.status === 'failed' || current.narrativeDlcLastSync?.blocked
-      ? 'dg-error'
-      : 'dg-recovery-note'
-    narrativeStatus.textContent = current.narrativeDlcLastSync?.message || 'Narrative Regex scripts have not been inspected or installed by Relay.'
-    const narrativeActions = document.createElement('div')
-    narrativeActions.className = 'dg-actions'
-    const runNarrativeAction = (action: 'install' | 'repair' | 'inspect' | 'remove') => {
-      ctx.sendToBackend({ type: 'narrative_dlc_action', chatId: activeChatId, action, variant: narrativeVariantForSurfaceShellMode(current.surfaceDefaultShellMode) })
-      showToast('info', action === 'remove' ? 'Removing Relay-owned Narrative scripts…' : action === 'inspect' ? 'Inspecting Narrative scripts…' : 'Reconciling Narrative scripts…')
-    }
-    narrativeActions.append(
-      button(current.narrativeDlcLastSync?.status === 'healthy' ? 'Repair / Reinstall' : 'Install Narrative DLC', () => runNarrativeAction('install'), false, 'primary'),
-      button('Check Health', () => runNarrativeAction('inspect'), false, 'subtle'),
-      button('Remove Relay Install', () => runNarrativeAction('remove'), !current.narrativeDlcLastSync?.installed, 'danger'),
-    )
     const selectedNarrativeUtilities = new Set(current.narrativeDlcUtilityNames || [])
     const allEnabled = current.narrativeDlcEnabled && selectedNarrativeUtilities.size === NARRATIVE_DLC_UTILITY_NAMES.length
     const someEnabled = current.narrativeDlcEnabled && selectedNarrativeUtilities.size > 0
     const categoryControl = toggleCard(
-      'Enable Narrative Utilities',
-      `${NARRATIVE_DLC_UTILITY_NAMES.length} utility modules · ${someEnabled ? allEnabled ? 'all injected' : 'partially injected' : 'none injected'}`,
+      'Toggle All Narrative Utilities',
+      `Turns all ${NARRATIVE_DLC_UTILITY_NAMES.length} Narrative Utilities on or off together. Use the individual switches below for a partial selection. (${someEnabled ? allEnabled ? 'all injected' : 'partially injected' : 'none injected'})`,
       allEnabled,
       checked => enqueueRelaySettingsPatch({ kind: 'narrative-enabled', enabledNames: checked ? [...NARRATIVE_DLC_UTILITY_NAMES] : [] }),
     )
@@ -6532,44 +6893,42 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     utilityToggles.className = 'dg-settings-grid'
     for (const name of NARRATIVE_DLC_UTILITY_NAMES) {
       const displayName = narrativeUtilityDisplayName(name)
-      const overview = NARRATIVE_UTILITY_OVERVIEWS[displayName] || 'Adds a structured story-aware Narrative module to the prompt.'
-      utilityToggles.appendChild(toggleCard(displayName, `${overview} · ${selectedNarrativeUtilities.has(name) ? 'Included in prompt' : 'Not injected'}`, current.narrativeDlcEnabled && selectedNarrativeUtilities.has(name), checked => {
-        const next = new Set(config?.narrativeDlcUtilityNames || [])
-        if (checked) next.add(name)
-        else next.delete(name)
-        const narrativeDlcUtilityNames = NARRATIVE_DLC_UTILITY_NAMES.filter(item => next.has(item))
+      const imagesEnabled = current.narrativeUtilityImageEnabled?.[name] !== false
+      const overview = !imagesEnabled && name === 'Character Phone'
+        ? 'Builds a story-aware character phone with apps, messages, records, and a text-only Photos gallery.'
+        : NARRATIVE_UTILITY_OVERVIEWS[displayName] || 'Adds a structured story-aware Narrative module to the prompt.'
+      const row = document.createElement('div')
+      row.className = 'dg-narrative-utility-row'
+      const utilityToggle = toggleCard(displayName, `${overview} · ${selectedNarrativeUtilities.has(name) ? 'Included in prompt' : 'Not injected'}`, current.narrativeDlcEnabled && selectedNarrativeUtilities.has(name), checked => {
+        const narrativeDlcUtilityNames = updateNarrativeUtilitySelection(
+          current.narrativeDlcUtilityNames,
+          current.narrativeDlcEnabled,
+          name,
+          checked,
+          NARRATIVE_DLC_UTILITY_NAMES,
+        )
         enqueueRelaySettingsPatch({ kind: 'narrative-enabled', enabledNames: narrativeDlcUtilityNames })
-      }))
+      })
+      utilityToggle.querySelector('.dg-toggle-title-row')?.insertAdjacentHTML('afterbegin', surfaceIconMarkup('narrative', displayName))
+      const imageButton = button(imagesEnabled ? 'Images On' : 'Text Only', () => {
+        enqueueRelaySettingsPatch({ kind: 'narrative-image-enabled', utilityName: name, enabled: !imagesEnabled })
+      }, false, 'subtle', `${displayName}: ${imagesEnabled ? 'include image requests' : 'use text-only media'} for this Utility in future Story Model output. Illustrator and other Surfaces are unaffected; existing images and manual slot actions remain available.`)
+      imageButton.classList.add('dg-narrative-image-button')
+      imageButton.setAttribute('aria-pressed', String(imagesEnabled))
+      imageButton.setAttribute('aria-label', `${displayName} images ${imagesEnabled ? 'on' : 'off'}; click to ${imagesEnabled ? 'turn them off' : 'turn them on'}`)
+      row.append(utilityToggle, imageButton)
+      utilityToggles.appendChild(row)
     }
-    const installation = document.createElement('div')
-    installation.className = 'dg-field-stack'
-    installation.append(
-      (() => { const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = `All installed Surfaces inherit the global presentation above: ${current.surfaceDefaultShellMode === 'sparkling' ? 'Sparkling Button' : current.surfaceDefaultShellMode === 'plain' ? 'Button' : current.surfaceDefaultShellMode === 'glass' ? 'Glass Button' : current.surfaceDefaultShellMode === 'plain-glass' ? 'Plain Glass' : 'Inline'}.`; return note })(),
-      narrativeStatus,
-      narrativeActions,
-    )
     category.append(categoryControl, utilityToggles)
     if (current.narrativeDlcEnabled && selectedNarrativeUtilities.has('Character Phone')) category.appendChild(panelSection('Character Phone Apps', renderCharacterPhoneAppSettings(current)))
-    category.appendChild(installation)
     return category
   }
 
   function activeSurfacePromptDefinitions(): CustomSurfaceDefinition[] {
-    const seen = new Set<string>()
-    const rows: CustomSurfaceDefinition[] = []
-    for (const definition of Object.values(customSurfaces.definitions || {})) {
-      const selectedId = customSurfaces.activePresetIds?.[definition.baseSurfaceId]
-      // A saved collection may refer to a preset which was later deleted.  That
-      // must not make its entire base Surface vanish from Creator or Injection.
-      const selected = selectedId && customSurfaces.definitions[selectedId]?.baseSurfaceId === definition.baseSurfaceId
-        ? customSurfaces.definitions[selectedId]
-        : Object.values(customSurfaces.definitions).find(candidate => candidate.baseSurfaceId === definition.baseSurfaceId && candidate.builtIn)
-          || definition
-      if (!selected || selected.baseSurfaceId === 'prose-illustration' || seen.has(selected.baseSurfaceId)) continue
-      seen.add(selected.baseSurfaceId)
-      rows.push(selected)
-    }
-    return rows.sort((a, b) => a.promptCategory.localeCompare(b.promptCategory) || a.displayName.localeCompare(b.displayName))
+    // A saved collection may refer to a preset which was later deleted; the
+    // shared selector restores its built-in fallback so the module stays visible.
+    return activeSurfaceDefinitions(customSurfaces).filter(definition => definition.baseSurfaceId !== 'prose-illustration'
+      && definition.baseSurfaceId !== 'relationship-map' && definition.baseSurfaceId !== 'character-profile')
   }
 
   function buildUtilityPreview(): { content: string; moduleIds: string[] } {
@@ -6596,7 +6955,49 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
 
   function setSurfaceRendererPreference(rendererMode: CustomSurfaceStudioState['rendererMode']): void {
     if (customSurfaces.rendererMode === rendererMode) return
+    if (rendererMode === 'legacy-regex') {
+      const modal = ctx.ui.showModal({ title: 'Regex Rendered', width: 480 })
+      modal.root.classList.add('dg-router-panel', 'dg-modal-host')
+      const body = document.createElement('div')
+      body.className = 'dg-modal-body'
+      const reminder = document.createElement('div')
+      reminder.className = 'dg-info-note'
+      reminder.textContent = 'Relay renders its Core and Narrative Surfaces itself. In Lumiverse’s Native Regex tab, disable only Relay’s Regex Pack scripts if you previously enabled them. Leave your own Regex scripts alone. The optional Relay import starts disabled.'
+      const actions = document.createElement('div')
+      actions.className = 'dg-actions'
+      actions.append(
+        button('Use Regex Rendered', () => { modal.dismiss(); enqueueRelaySettingsPatch({ kind: 'surface-preferences', rendererMode }) }, false, 'primary'),
+        button('Cancel', () => modal.dismiss(), false, 'subtle'),
+      )
+      body.append(reminder, actions)
+      modal.root.appendChild(body)
+      return
+    }
     enqueueRelaySettingsPatch({ kind: 'surface-preferences', rendererMode })
+  }
+
+  function renderOptionalRegexImport(current: RouterConfig): HTMLElement {
+    const wrap = document.createElement('div')
+    wrap.className = 'dg-field-stack'
+    const note = document.createElement('div')
+    note.className = 'dg-info-note'
+    note.textContent = 'Import the Core and Narrative Regex scripts only if you want them in Lumiverse’s Native Regex tab. All imported scripts start disabled. Relay renders Surfaces without this import.'
+    const status = document.createElement('div')
+    status.className = current.narrativeDlcLastSync?.status === 'failed' || current.narrativeDlcLastSync?.blocked ? 'dg-error' : 'dg-recovery-note'
+    status.textContent = current.narrativeDlcLastSync?.message || 'The optional Regex pack is not imported.'
+    const actions = document.createElement('div')
+    actions.className = 'dg-actions'
+    const send = (action: 'install' | 'inspect' | 'remove') => {
+      ctx.sendToBackend({ type: 'narrative_dlc_action', chatId: activeChatId, action, variant: narrativeVariantForSurfaceShellMode(current.surfaceDefaultShellMode) })
+      showToast('info', action === 'remove' ? 'Removing Reverie Relay Regex scripts…' : action === 'inspect' ? 'Checking Regex import…' : 'Importing disabled Core and Narrative Regex scripts…')
+    }
+    actions.append(
+      button(current.narrativeDlcLastSync?.installed ? 'Repair Import' : 'Import Regex Pack', () => send('install'), false, 'primary'),
+      button('Check Import', () => send('inspect'), false, 'subtle'),
+      button('Remove Import', () => send('remove'), !current.narrativeDlcLastSync?.installed, 'danger'),
+    )
+    wrap.append(note, status, actions)
+    return wrap
   }
 
   function setSurfacePresentationPreference(defaultShellMode: SurfaceShellMode): void {
@@ -6609,23 +7010,172 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     enqueueRelaySettingsPatch({ kind: 'surface-preferences', colorMode })
   }
 
-  function setSurfaceHybridOwner(surfaceId: string, owner: 'relay' | 'regex'): void {
-    const existing = customSurfaces.definitions?.[surfaceId]
-    if (!existing || (hybridSurfaceOwner(existing) === owner && existing.hybridOwnerConfigured === true)) return
-    const now = Date.now()
-    customSurfaces = {
-      ...customSurfaces,
-      definitions: { ...customSurfaces.definitions, [surfaceId]: { ...existing, hybridOwner: owner, hybridOwnerConfigured: true, updatedAt: now } },
-      updatedAt: now,
-    }
-    // Paint the owner immediately. A late Lumiverse echo must not make a tap
-    // look ignored on mobile.
-    renderPanel()
-    ctx.sendToBackend({ type: 'custom_surface_action', chatId: activeChatId, action: 'set_hybrid_owner', surfaceId, hybridOwner: owner })
-  }
-
   function setAutomaticSurfaceInjection(enabled: boolean): void {
     enqueueRelaySettingsPatch({ kind: 'surface-preferences', utilityInjectionEnabled: enabled })
+  }
+
+  function openRendererScriptEditor(): void {
+    const modal = ctx.ui.showModal({ title: 'Shipped Renderer Script Editor', width: 960 })
+    modal.root.classList.add('dg-router-panel', 'dg-modal-host')
+    const body = document.createElement('div')
+    body.className = 'dg-modal-body dg-stack'
+    const intro = document.createElement('div')
+    intro.className = 'dg-info-note'
+    intro.textContent = 'These are the effective bundled renderer scripts. Edits are saved as local overlays scoped to renderer format, presentation, and color; bundled JSON stays untouched. Reset removes only that scoped overlay.'
+    const controls = document.createElement('div')
+    controls.className = 'dg-settings-grid'
+    const makeSelect = <T extends string>(labelText: string, initial: T, options: Array<[T, string]>, onChange: (value: T) => void): HTMLLabelElement => {
+      const label = document.createElement('label')
+      label.className = 'dg-field'
+      const caption = document.createElement('span')
+      caption.textContent = labelText
+      const select = document.createElement('select')
+      for (const [value, name] of options) {
+        const option = document.createElement('option')
+        option.value = value
+        option.textContent = name
+        select.appendChild(option)
+      }
+      select.value = initial
+      select.addEventListener('change', () => onChange(select.value as T))
+      label.append(caption, select)
+      return label
+    }
+    let source: R45ScriptSource = 'bracket'
+    let presentation: R45PresentationMode = customSurfaces.defaultShellMode === 'sparkling'
+      ? 'sparkling'
+      : customSurfaces.defaultShellMode === 'glass' || customSurfaces.defaultShellMode === 'plain-glass'
+        ? 'glass'
+        : customSurfaces.defaultShellMode === 'inline' ? 'inline' : 'plain'
+    let colorMode: SurfaceColorMode = customSurfaces.colorMode || 'realistic'
+    let query = ''
+    const search = document.createElement('input')
+    search.type = 'search'
+    search.placeholder = 'Filter by name or script ID'
+    search.setAttribute('aria-label', 'Filter shipped renderer scripts')
+    const list = document.createElement('div')
+    list.className = 'dg-stack'
+    list.style.maxHeight = '44vh'
+    list.style.overflow = 'auto'
+    list.style.padding = '4px'
+    const editor = document.createElement('div')
+    editor.className = 'dg-creator-section'
+    const scriptScopes = (): string => `${source} · ${presentation} · ${colorMode}`
+    const renderRows = () => {
+      editor.replaceChildren()
+      list.replaceChildren()
+      const scripts = regexSurfaceParityScripts(presentation, colorMode, source, customSurfaces.rendererScriptOverrides || {})
+      const filtered = scripts.filter(script => `${script.name} ${script.scriptId}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+      const counter = document.createElement('div')
+      counter.className = 'dg-subtle'
+      counter.textContent = `${filtered.length} of ${scripts.length} effective shipped scripts · ${scriptScopes()}`
+      list.appendChild(counter)
+      for (const script of filtered) {
+        const key = r45ScriptOverrideKey(source, presentation, colorMode, script.scriptId)
+        const overridden = Boolean(customSurfaces.rendererScriptOverrides?.[key])
+        const row = document.createElement('div')
+        row.className = 'dg-creator-notice'
+        const title = document.createElement('strong')
+        title.textContent = script.name
+        const detail = document.createElement('span')
+        const owner = /\\\[([A-Za-z][\w-]*)\\\]/.exec(script.find)?.[1]
+          || /<([A-Za-z][\w-]*)\b/.exec(script.find)?.[1]
+          || 'shared/unanchored'
+        detail.textContent = `owner ${owner} · ${script.scriptId} · order ${script.order} · flags ${script.flags || 'none'} · ${overridden ? 'Local override' : 'Bundled default'}`
+        const actions = document.createElement('div')
+        actions.className = 'dg-actions'
+        actions.appendChild(button('Edit', () => renderEditor(script), false, 'subtle'))
+        if (overridden) actions.appendChild(button('Reset to Shipped Default', () => {
+          ctx.sendToBackend({ type: 'surface_renderer_script_action', chatId: activeChatId || undefined, action: 'reset', source, presentation, colorMode, scriptId: script.scriptId })
+          modal.dismiss()
+        }, false, 'danger'))
+        row.append(title, detail, actions)
+        list.appendChild(row)
+      }
+      if (!filtered.length) {
+        const empty = document.createElement('div')
+        empty.className = 'dg-info-note'
+        empty.textContent = 'No effective shipped scripts match that filter.'
+        list.appendChild(empty)
+      }
+    }
+    const scriptInput = (labelText: string, value: string, multiline = false): HTMLInputElement | HTMLTextAreaElement => {
+      const label = document.createElement('label')
+      label.className = 'dg-field'
+      const caption = document.createElement('span')
+      caption.textContent = labelText
+      const control = multiline ? document.createElement('textarea') : document.createElement('input')
+      control.value = value
+      if (control instanceof HTMLTextAreaElement) {
+        control.rows = labelText === 'Replacement string' ? 12 : 4
+        control.spellcheck = false
+      } else {
+        control.type = 'text'
+        control.spellcheck = false
+      }
+      label.append(caption, control)
+      editor.appendChild(label)
+      return control
+    }
+    const renderEditor = (script: ReturnType<typeof regexSurfaceParityScripts>[number]) => {
+      editor.replaceChildren()
+      const heading = document.createElement('h3')
+      heading.textContent = `Edit ${script.scriptId}`
+      const note = document.createElement('p')
+      note.textContent = 'This only changes the selected renderer/presentation/color copy. Source pack and ownership remain bundled metadata.'
+      editor.append(heading, note)
+      const name = scriptInput('Display name', script.name)
+      const find = scriptInput('Find regex', script.find)
+      const replace = scriptInput('Replacement string', script.replace, true)
+      const flags = scriptInput('Regex flags', script.flags)
+      const order = scriptInput('Sort order', String(script.order))
+      const validationMessage = document.createElement('div')
+      validationMessage.className = 'dg-error'
+      validationMessage.setAttribute('role', 'alert')
+      validationMessage.hidden = true
+      const showValidationMessage = (message: string) => {
+        validationMessage.textContent = message
+        validationMessage.hidden = !message
+        if (message) validationMessage.scrollIntoView({ block: 'nearest' })
+      }
+      for (const field of [name, find, flags, order]) {
+        field.addEventListener('input', () => showValidationMessage(''))
+      }
+      const actions = document.createElement('div')
+      actions.className = 'dg-actions'
+      actions.append(
+        button('Save Local Override', () => {
+          const flagValue = flags.value.trim()
+          const regexError = validateRendererRegex(find.value, flagValue)
+          if (regexError) {
+            showValidationMessage(regexError)
+            return
+          }
+          const orderValue = Number(order.value)
+          if (!name.value.trim() || !order.value.trim() || !Number.isFinite(orderValue) || orderValue < 0 || orderValue > 10_000) {
+            showValidationMessage('Name and sort order are invalid; order must be a number from 0 to 10,000 (decimals allowed).')
+            return
+          }
+          ctx.sendToBackend({
+            type: 'surface_renderer_script_action', chatId: activeChatId || undefined,
+            action: 'save', source, presentation, colorMode, scriptId: script.scriptId,
+            override: { name: name.value.trim(), findRegex: find.value, replaceString: replace.value, flags: flagValue, order: orderValue },
+          })
+          modal.dismiss()
+        }, false, 'primary'),
+        button('Back to Scripts', renderRows, false, 'subtle'),
+      )
+      editor.append(validationMessage, actions)
+    }
+    controls.append(
+      makeSelect('Renderer source', source, [['bracket', 'Bracket Native'], ['legacy-xml', 'Legacy XML Compatibility']], value => { source = value; renderRows() }),
+      makeSelect('Presentation', presentation, [['inline', 'Inline'], ['plain', 'Plain Button'], ['sparkling', 'Sparkling Button'], ['glass', 'Glass Button']], value => { presentation = value; renderRows() }),
+      makeSelect('Color mode', colorMode, [['realistic', 'Realistic'], ['primary', 'Lumiverse Primary'], ['glass', 'Glass Mode']], value => { colorMode = value; renderRows() }),
+    )
+    search.addEventListener('input', () => { query = search.value; renderRows() })
+    body.append(intro, controls, search, list, editor)
+    modal.root.appendChild(body)
+    renderRows()
   }
 
   function setSurfacePromptPreference(surfaceId: string, promptEnabled: boolean): void {
@@ -6647,11 +7197,10 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     wrap.className = 'dg-stack'
 
     const renderer = document.createElement('div')
-    renderer.className = 'dg-illustrator-mode-grid dg-choice-compact dg-choice-three'
+    renderer.className = 'dg-illustrator-mode-grid dg-choice-compact dg-choice-two'
     const rendererOptions: Array<{ id: CustomSurfaceStudioState['rendererMode']; label: string; description: string }> = [
       { id: 'relay', label: 'Relay Rendered', description: 'Built-in surface renderer.' },
-      { id: 'legacy-regex', label: 'Regex Rendered', description: 'Installed Regex renderer.' },
-      { id: 'hybrid', label: 'Hybrid', description: 'Reviewed Regex surfaces; Relay owns the rest.' },
+      { id: 'legacy-regex', label: 'Regex Rendered', description: 'Bundled Regex presentation.' },
     ]
     for (const option of rendererOptions) {
       const control = document.createElement('button')
@@ -6720,7 +7269,15 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const presentationLabel = settingHeading('Default Presentation')
     const colorLabel = settingHeading('Color Mode')
     const injectionLabel = settingHeading('Automatic Injection', 'Controls whether Relay automatically inserts enabled Surface Utilities. The switch below is the setting itself.')
-    wrap.append(rendererLabel, renderer, presentationLabel, presentation, colorLabel, color, injectionLabel, injection)
+    const rendererScripts = document.createElement('div')
+    rendererScripts.className = 'dg-creator-notice'
+    const rendererScriptsTitle = document.createElement('strong')
+    rendererScriptsTitle.textContent = 'Shipped Renderer Scripts'
+    const rendererScriptsDescription = document.createElement('span')
+    rendererScriptsDescription.textContent = 'Inspect the effective shipped transformations, save scoped local overrides, or restore an exact bundled default.'
+    rendererScripts.append(rendererScriptsTitle, rendererScriptsDescription, button('Open Renderer Script Editor', openRendererScriptEditor, false, 'subtle'))
+    wrap.append(rendererLabel, renderer, presentationLabel, presentation, colorLabel, color, injectionLabel, injection, rendererScripts)
+    if (config) wrap.appendChild(panelSection('Optional Core + Narrative Regex Import', renderOptionalRegexImport(config)))
     return wrap
   }
 
@@ -6737,7 +7294,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const narrativeCount = config?.narrativeDlcEnabled ? (config.narrativeDlcUtilityNames || []).length : 0
     const previewActions = document.createElement('div')
     previewActions.className = 'dg-actions'
-    previewActions.appendChild(button('View Exact Injected Prompt', requestEnabledSurfacePromptPreview, false, 'primary', 'Dry-run the enabled original Surface and Narrative Utility prompt without calling a model.'))
+    previewActions.appendChild(button('View Exact Injected Prompt', () => window.setTimeout(requestEnabledSurfacePromptPreview, 0), false, 'primary', 'Dry-run the enabled original Surface and Narrative Utility prompt without calling a model.'))
     intro.append(copy, chip(`${count + narrativeCount} Enabled`, count + narrativeCount ? 'completed' : ''), previewActions)
 
     box.append(startHere)
@@ -6759,7 +7316,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       const categoryEnabled = definitions.every(definition => definition.promptEnabled === true)
       const categorySomeEnabled = definitions.some(definition => definition.promptEnabled === true)
       const categoryControl = toggleCard(
-        `Enable ${SURFACE_CATEGORY_LABELS[category]}`,
+        `Toggle All ${SURFACE_CATEGORY_LABELS[category]}`,
         `${definitions.length} surface module${definitions.length === 1 ? '' : 's'} · ${categorySomeEnabled ? categoryEnabled ? 'all injected' : 'partially injected' : 'none injected'}`,
         categoryEnabled,
         checked => setSurfaceCategoryPromptPreference(category, checked),
@@ -6852,18 +7409,25 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       const card = document.createElement('div')
       card.className = `dg-card${record.enabled ? ' is-enabled' : ''}`
       const title = document.createElement('strong')
-      title.textContent = narrativeUtilityDisplayName(record.name)
+      title.className = 'dg-narrative-utility-heading'
+      title.insertAdjacentHTML('afterbegin', surfaceIconMarkup('narrative', narrativeUtilityDisplayName(record.name)))
+      title.append(document.createTextNode(narrativeUtilityDisplayName(record.name)))
       const status = document.createElement('p')
-      status.textContent = `${record.enabled ? 'Injected' : 'Disabled'} · ${record.source === 'user-override' ? 'User Override' : 'Default'} · ${record.effectiveContent.length.toLocaleString()} chars · ~${Math.ceil(record.effectiveContent.length / 4).toLocaleString()} tokens`
+      status.textContent = `${record.enabled ? 'Injected' : 'Disabled'} · ${record.imageEnabled ? 'Images On' : 'Text Only'} · ${record.source === 'user-override' ? 'User Override' : 'Default'} · ${record.injectedContent.length.toLocaleString()} chars · ~${Math.ceil(record.injectedContent.length / 4).toLocaleString()} tokens`
       const actions = document.createElement('div')
       actions.className = 'dg-actions'
       actions.append(
         button(record.enabled ? 'Disable' : 'Enable', () => {
-          const selected = new Set(config?.narrativeDlcUtilityNames || [])
-          if (record.enabled) selected.delete(record.id)
-          else selected.add(record.id)
-          enqueueRelaySettingsPatch({ kind: 'narrative-enabled', enabledNames: NARRATIVE_DLC_UTILITY_NAMES.filter(name => selected.has(name)) })
+          const enabledNames = updateNarrativeUtilitySelection(
+            config?.narrativeDlcUtilityNames || [],
+            config?.narrativeDlcEnabled === true,
+            record.id,
+            !record.enabled,
+            NARRATIVE_DLC_UTILITY_NAMES,
+          )
+          enqueueRelaySettingsPatch({ kind: 'narrative-enabled', enabledNames })
         }, false, 'subtle'),
+        button(record.imageEnabled ? 'Images On' : 'Text Only', () => enqueueRelaySettingsPatch({ kind: 'narrative-image-enabled', utilityName: record.id, enabled: !record.imageEnabled }), false, 'subtle', 'Controls image requests inside this Utility only. Illustrator, other Surfaces, existing images, and manual slot actions are unaffected.'),
         button('Edit', () => { narrativeUtilityEditorId = record.id; renderPanel() }, false, 'primary'),
         button('Reset to Default', () => enqueueRelaySettingsPatch({ kind: 'narrative-override', utilityName: record.id, content: null }), record.source === 'default', 'subtle'),
       )
@@ -6886,7 +7450,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       heading.textContent = `${narrativeUtilityDisplayName(selected.name)} · Model-Facing Utility Text`
       const source = document.createElement('div')
       source.className = 'dg-recovery-note'
-      source.textContent = `${selected.source === 'user-override' ? 'User Override' : 'Shipped Default'} · revision ${selected.revision}. Bracket Surface syntax and nested image-request XML are preserved literally. Compatibility checks warn; they do not rewrite.`
+      source.textContent = `${selected.source === 'user-override' ? 'User Override' : 'Shipped Default'} · revision ${selected.revision}. This editor changes the Images On prompt; Text Only uses a separate safe contract. Bracket Surface syntax and nested image-request XML are preserved literally. Compatibility checks warn; they do not rewrite.`
       const textarea = document.createElement('textarea')
       textarea.className = 'dg-textarea dg-textarea-tall'
       textarea.spellcheck = false
@@ -6923,7 +7487,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const enabledModules = activeSurfacePromptDefinitions().filter(definition => definition.promptEnabled)
     const enabledNarrativeUtilities = narrativeUtilityRegistry.filter(record => record.enabled)
     const utilityCharacters = enabledModules.reduce((total, definition) => total + String(definition.promptModule || '').length, 0)
-      + enabledNarrativeUtilities.reduce((total, record) => total + record.effectiveContent.length, 0)
+      + enabledNarrativeUtilities.reduce((total, record) => total + record.injectedContent.length, 0)
       + String(customSurfaces.utilityTemplate || '').length
     const utilityEstimate = document.createElement('div')
     utilityEstimate.className = utilityCharacters > 60_000 ? 'dg-build-warning' : 'dg-recovery-note'
@@ -6956,6 +7520,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       })),
     )
     box.appendChild(panelSection('Injection Settings', settings))
+    if (config) box.appendChild(renderSurfaceParserSettings(config))
     box.appendChild(panelSection('Narrative Utilities', renderNarrativeUtilityInjectionEditor()))
 
     const templateWrap = document.createElement('div')
@@ -6991,17 +7556,37 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       const moduleEditor = document.createElement('textarea')
       moduleEditor.className = 'dg-textarea dg-textarea-tall'
       moduleEditor.spellcheck = false
+      const bundledDefinitions = frontendSurfaceFallback().definitions
+      const bundledModule = () => bundledDefinitions[customSurfaces.definitions[moduleSelect.value]?.baseSurfaceId || '']?.promptModule || ''
+      const resetModule = button('Restore Bundled Module', () => {
+        const bundled = bundledModule()
+        if (!bundled) return
+        confirmCleanup({
+          title: 'Restore bundled Surface instructions?',
+          description: 'This replaces your saved edits to this Surface module with the bundled instructions. Other modules are untouched.',
+          scope: moduleSelect.selectedOptions[0]?.textContent || moduleSelect.value,
+          actionLabel: 'Restore Module',
+          onConfirm: () => {
+            moduleEditor.value = bundled
+            resetModule.disabled = true
+            ctx.sendToBackend({ type: 'custom_surface_action', chatId: activeChatId, action: 'set_prompt_module', surfaceId: moduleSelect.value, promptModule: '' })
+          },
+        })
+      }, true, 'subtle')
+      const updateResetState = () => { resetModule.disabled = !bundledModule() || moduleEditor.value === bundledModule() }
       const loadSelected = () => {
         const selected = customSurfaces.definitions[moduleSelect.value]
         moduleEditor.value = selected?.promptModule || ''
+        updateResetState()
       }
       moduleSelect.addEventListener('change', loadSelected)
+      moduleEditor.addEventListener('input', updateResetState)
       loadSelected()
       const moduleActions = document.createElement('div')
       moduleActions.className = 'dg-actions'
       moduleActions.append(button('Save Surface Module', () => ctx.sendToBackend({
         type: 'custom_surface_action', chatId: activeChatId, action: 'set_prompt_module', surfaceId: moduleSelect.value, promptModule: moduleEditor.value,
-      }), false, 'primary'))
+      }), false, 'primary'), resetModule)
       moduleWrap.append(moduleSelect, moduleEditor, moduleActions)
       box.appendChild(panelSection('Surface Module Editor', moduleWrap))
     }
@@ -7075,12 +7660,9 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const meta = document.createElement('span'); meta.className = 'dg-surface-meta'; meta.textContent = `${definition.presetName} · ${titleCase(definition.shellMode)} · [${definition.canonicalOuterWrapper}]`
     const copy = document.createElement('p')
     copy.textContent = `${definition.targetId} · ${definition.supportedAspectRatios.join(' · ') || 'structured surface'} · ${definition.density} · ${definition.mediaFit}`
-    const hybridOwnerControl = customSurfaces.rendererMode === 'hybrid'
-      ? selectField('Hybrid visual owner', hybridSurfaceOwner(definition), [['regex', 'Regex'], ['relay', 'Relay']], value => setSurfaceHybridOwner(definition.surfaceId, value as 'relay' | 'regex'))
-      : null
     const actions = document.createElement('div'); actions.className = 'dg-actions dg-surface-actions'
     actions.append(
-      button(active ? 'Active Preset' : 'Use Preset', () => sendSurfaceAction(definition.surfaceId, 'activate'), active, active ? 'primary' : 'subtle'),
+      button(active ? 'Selected Preset' : 'Use Preset', () => sendSurfaceAction(definition.surfaceId, 'activate'), active, active ? 'primary' : 'subtle'),
       button('Preview', () => openSurfacePreview(definition), false, 'subtle'),
       button('Copy Bracket Example', () => void copyText(bracketExampleFromXml(definition.sampleXml), `${definition.displayName} bracket example copied`), false, 'subtle'),
       button(definition.builtIn ? 'Edit as Preset' : 'Duplicate', () => sendSurfaceAction(definition.surfaceId, 'duplicate'), false, 'subtle'),
@@ -7093,9 +7675,8 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       )
     }
     body.append(title, meta, copy)
-    if (hybridOwnerControl) body.appendChild(hybridOwnerControl)
     body.appendChild(actions)
-    card.append(icon, body, chip(errors.length ? 'Needs Fix' : active ? 'Active' : definition.enabled ? 'Ready' : 'Off', errors.length ? 'failed' : active ? 'completed' : ''))
+    card.append(icon, body, chip(errors.length ? 'Needs Fix' : !definition.enabled ? 'Disabled' : active ? 'Ready to Use' : 'Available', errors.length ? 'failed' : definition.enabled && active ? 'completed' : ''))
     return card
   }
 
@@ -7219,9 +7800,9 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const css = modalTextareaWithHelp(
       'Advanced namespaced CSS',
       existing?.advancedCss || '',
-      'Optional presentation-only CSS. Keep every selector namespaced to this surface. Scripts, event handlers, @import, and javascript: URLs are rejected.',
+      'Optional presentation-only CSS. Every selector must begin with this exact preset scope. Global selectors, nested rules, scripts, imports, and URLs are rejected.',
       false,
-      '.my-surface { ... }',
+      `.rrn-surface[data-rrn-preset="${existing?.surfaceId || 'my-surface'}"] .rrn-title { color: #c24b78; }`,
     )
 
     const shell = selectField('Shell Mode', existing?.shellMode === 'collapsible' ? 'plain' : existing?.shellMode || 'inline', [['inline', 'Inline'], ['plain', 'Button'], ['sparkling', 'Sparkling Button'], ['glass', 'Glass Button'], ['plain-glass', 'Plain Glass']], () => {})
@@ -7237,14 +7818,13 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       ['narrative-visuals', 'Narrative Visuals'],
       ['custom', 'Custom Surfaces'],
     ], () => {})
-    const profile = selectField('Default Prompt Profile', existing?.defaultPromptProfileId || 'auto', [
-      ['auto', 'Automatic'],
-      ['character-portrait', 'Character Portrait'],
-      ['social-candid', 'Social / Candid'],
-      ['evidence-surveillance', 'Evidence / Surveillance'],
-      ['object-prop', 'Object / Prop'],
-      ['environment-location', 'Environment / Establishing'],
-    ], () => {})
+    const promptProfileOptions = new Map<string, [string, string]>([['auto', ['auto', 'Automatic (chat/global default)']]])
+    for (const promptProfile of config?.promptProfiles || []) {
+      if (promptProfile.id !== 'auto') promptProfileOptions.set(promptProfile.id, [promptProfile.id, `${promptProfile.name}${promptProfile.builtIn ? ' (built-in)' : ''}`])
+    }
+    const existingProfileId = existing?.defaultPromptProfileId || 'auto'
+    if (!promptProfileOptions.has(existingProfileId)) promptProfileOptions.set(existingProfileId, [existingProfileId, `Unavailable profile (${existingProfileId})`])
+    const profile = selectField('Default Prompt Profile', existingProfileId, [...promptProfileOptions.values()], () => {})
     const peoplePolicy = selectField('People Policy', existing?.peoplePolicy || 'allow', [
       ['allow', 'Allow people'],
       ['discourage', 'Discourage people'],
@@ -7255,6 +7835,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const defaultOpen = toggleCard('Open Collapsible by Default', 'Only applies when Shell Mode is Collapsible.', existing?.defaultOpen === true, () => {})
     const enabled = toggleCard('Surface Enabled', 'Makes the renderer and Surface Library recognize this surface.', existing?.enabled !== false, () => {})
     const promptEnabled = toggleCard('Inject Surface Utility', 'Adds the Utility / Model Instructions to automatic surface prompt injection.', existing?.promptEnabled !== false, () => {})
+    const mediaRequired = toggleCard('Require Image', 'On: the validation example must include an owned image request. Off: this Surface may be text-only.', existing ? existing.mediaRequired ?? /<(?:image_request|reverie-illustration)\b/i.test(existing.sampleXml) : true, () => {})
 
     const getSelect = (node: HTMLElement) => node.querySelector('select') as HTMLSelectElement
     const getToggle = (node: HTMLElement) => node.querySelector('input') as HTMLInputElement
@@ -7277,11 +7858,24 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       if (!getText(launcher)) setText(launcher, name)
     }, false, 'subtle')
 
-    const utilityStarter = button('Generate Utility Starter', () => {
+    const generateUtilityStarter = () => {
       const name = getText(display) || 'Custom Surface'
       const baseSurfaceId = slugifySurfaceId(getText(base) || getText(id) || name) || 'custom-surface'
       const tag = getText(wrapper) || baseSurfaceId.replace(/[.-]/g, '_')
       const imageTarget = getText(target) || `custom.${baseSurfaceId}`
+      if (!getToggle(mediaRequired).checked) {
+        const fixture = `<${tag}><title>Scene-supported title</title><content>Concise in-world content.</content></${tag}>`
+        setText(utility, `[${name.toLocaleUpperCase()} — REVERIE RELAY UTILITY]
+
+Use this text-only Surface when it adds a clear in-world artifact. Show only information available to the focal viewpoint.
+
+OUTPUT FORMAT — EXACT
+Output one bracket-native Surface only. No markdown fence, XML Surface shell, or explanation. Do not add an image_request.
+
+${bracketExampleFromXml(fixture)}`)
+        if (!getText(sample)) setText(sample, fixture)
+        return
+      }
       const aspect = getText(aspects).split(/[,\s]+/).find(Boolean) || '1:1'
       const fixture = `<${tag}>
 <media>
@@ -7314,7 +7908,44 @@ Output one bracket-native Surface only. No markdown fence, XML Surface shell, or
 
 ${bracketFixture}`)
       if (!getText(sample)) setText(sample, fixture)
-    }, false, 'subtle')
+    }
+    const utilityStarter = button('Generate Utility Starter', generateUtilityStarter, false, 'subtle')
+
+    const exampleChoices = document.createElement('div')
+    exampleChoices.className = 'dg-actions'
+    const loadExample = (kind: 'memo' | 'photo' | 'comparison') => {
+      if (existing) return
+      if ((getText(display) || getText(id) || getText(utility) || getText(sample))
+        && !window.confirm('Replace the current unsaved Surface draft with this example?')) return
+      const name = kind === 'memo' ? 'Field Memo' : kind === 'photo' ? 'Evidence Photo Card' : 'Before and After Board'
+      const surfaceId = kind === 'memo' ? 'field-memo' : kind === 'photo' ? 'evidence-photo-card' : 'before-after-board'
+      const root = surfaceId.replace(/-/g, '_')
+      const imageTarget = `custom.${surfaceId}`
+      setText(display, name)
+      setText(id, surfaceId)
+      setText(base, surfaceId)
+      setText(wrapper, root)
+      setText(target, imageTarget)
+      setText(launcher, `Open ${name}`)
+      setText(icon, kind === 'memo' ? '▤' : kind === 'photo' ? '▧' : '◫')
+      setText(aspects, kind === 'memo' ? '4:3' : kind === 'photo' ? '4:3' : '1:1, 4:3')
+      getToggle(mediaRequired).checked = kind !== 'memo'
+      getSelect(promptCategory).value = kind === 'memo' ? 'narrative-visuals' : 'evidence-editorial'
+      getSelect(shell).value = kind === 'memo' ? 'plain' : 'inline'
+      setText(sample, '')
+      setText(utility, '')
+      generateUtilityStarter()
+      if (kind === 'comparison') {
+        const fixture = `<${root}>\n<title>Scene-supported comparison title</title>\n<before><image_request id="${surfaceId}-before-001" target="${imageTarget}" slot="${surfaceId}-before" aspect="4:3" alt="Before view"><scene_brief>The established before state, with camera position, visible subjects, and environment.</scene_brief></image_request></before>\n<after><image_request id="${surfaceId}-after-001" target="${imageTarget}" slot="${surfaceId}-after" aspect="4:3" alt="After view"><scene_brief>The established after state from a comparable camera position. Describe only changes supported by the story.</scene_brief></image_request></after>\n</${root}>`
+        setText(sample, fixture)
+        setText(utility, `[${name.toLocaleUpperCase()} — REVERIE RELAY UTILITY]\n\nUse this Surface only when two distinct, story-established states can be compared. Never invent a before or after state.\n\nOUTPUT FORMAT — EXACT\nWrite one bracket-native Surface. Keep both image requests in their own [before] and [after] fields, with distinct ids and slots. The nested <image_request> tags are the only XML exception. Describe the two views without asking the image model to draw text or labels.\n\n${bracketExampleFromXml(fixture)}`)
+      }
+    }
+    if (!existing) exampleChoices.append(
+      button('Use Text-Only Memo Example', () => loadExample('memo'), false, 'subtle'),
+      button('Use Single-Image Card Example', () => loadExample('photo'), false, 'subtle'),
+      button('Use Two-Image Board Example', () => loadExample('comparison'), false, 'subtle'),
+    )
 
     const basics = creatorSection(
       '1 · Basics',
@@ -7328,8 +7959,8 @@ ${bracketFixture}`)
     )
     const modelContract = creatorSection(
       '3 · Utility & Surface Contract',
-      'The Utility teaches the Story Model when and how to author bracket-native output. The canonical fixture gives Relay a complete validation and preview example.',
-      promptEnabled, promptCategory, utilityStarter, utility, sample,
+      'The Utility teaches the Story Model when and how to author bracket-native output. Choose whether this Surface needs an image, then generate a starter and tailor the complete validation example.',
+      promptEnabled, mediaRequired, promptCategory, utilityStarter, utility, sample,
     )
     const presentationDetails = document.createElement('details')
     presentationDetails.className = 'dg-creator-advanced'
@@ -7345,9 +7976,7 @@ ${bracketFixture}`)
 
     const actions = document.createElement('div')
     actions.className = 'dg-actions dg-creator-actions'
-    actions.append(
-      button('Cancel', () => modal.dismiss(), false, 'subtle'),
-      button(existing ? 'Save Surface' : 'Create Surface', () => {
+    const saveButton = button(existing ? 'Save Surface' : 'Create Surface', () => {
         const surfaceId = slugifySurfaceId(getText(id) || getText(display))
         const baseSurfaceId = slugifySurfaceId(getText(base) || surfaceId)
         const canonicalOuterWrapper = getText(wrapper).replace(/[^A-Za-z0-9_-]/g, '')
@@ -7357,8 +7986,23 @@ ${bracketFixture}`)
           showToast('error', 'Surface name, Surface ID, Base Surface ID, Bracket Surface Root, and Image Target are required.')
           return
         }
+        const cssErrors = validateDeclarativeSurfaceCss(getText(css), surfaceId)
+        if (cssErrors.length) {
+          presentationDetails.open = true
+          showToast('error', cssErrors[0])
+          return
+        }
         if (getToggle(promptEnabled).checked && !promptModule) {
           showToast('error', 'Write the Surface Utility or switch off Inject Surface Utility.')
+          return
+        }
+        const fixture = getText(sample)
+        if (!fixture.includes(`<${canonicalOuterWrapper}`) || !fixture.includes(`</${canonicalOuterWrapper}>`)) {
+          showToast('error', 'Add one complete XML validation fixture using the Bracket Surface Root.')
+          return
+        }
+        if (getToggle(mediaRequired).checked && !/<(?:image_request|reverie-illustration)\b/i.test(fixture)) {
+          showToast('error', 'Add an owned image request to the fixture, or switch off Require Image for a text-only Surface.')
           return
         }
         const definition: Partial<CustomSurfaceDefinition> = {
@@ -7382,7 +8026,8 @@ ${bracketFixture}`)
           canonicalOuterWrapper,
           imageSlotSelector: 'img',
           resolvedImageChildFormat: existing?.resolvedImageChildFormat || '<img src="{{imageUrl}}" alt="{{alt}}" data-dgir-key="{{slotKey}}" data-dgir-request-id="{{requestId}}" data-dgir-slot="{{slot}}" data-dgir-custom-target="{{target}}" data-dgir-image-id="{{imageId}}">',
-          sampleXml: getText(sample),
+          sampleXml: fixture,
+          mediaRequired: getToggle(mediaRequired).checked,
           defaultPromptProfileId: getSelect(profile).value as CustomSurfaceDefinition['defaultPromptProfileId'],
           supportedAspectRatios: getText(aspects).split(',').map(value => value.trim()).filter(Boolean),
           compatibleRegenerationIntents: existing?.compatibleRegenerationIntents || ['new-angle', 'better-expression', 'preserve-composition-improve-quality', 'full-reimagining'],
@@ -7399,16 +8044,29 @@ ${bracketFixture}`)
           promptCategory: getSelect(promptCategory).value as CustomSurfaceDefinition['promptCategory'],
           promptModule,
         }
-        ctx.sendToBackend({ type: 'custom_surface_action', chatId: activeChatId, action: existing ? 'edit' : 'create', surfaceId: existing?.surfaceId || surfaceId, definition })
-        modal.dismiss()
-      }, false, 'primary'),
-    )
+        const requestId = `surface-save-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        saveButton.disabled = true
+        pendingCustomSurfaceSaves.set(requestId, (ok, error) => {
+          saveButton.disabled = false
+          if (ok) { modal.dismiss(); showToast('success', existing ? 'Surface saved.' : 'Surface created.') }
+          else showToast('error', error || 'Surface could not be saved. Your draft is still here.')
+        })
+        try {
+          ctx.sendToBackend({ type: 'custom_surface_action', chatId: activeChatId, requestId, action: existing ? 'edit' : 'create', surfaceId: existing?.surfaceId || surfaceId, definition })
+        } catch (error) {
+          pendingCustomSurfaceSaves.delete(requestId)
+          saveButton.disabled = false
+          showToast('error', error instanceof Error ? error.message : 'Surface could not be sent. Your draft is still here.')
+        }
+    }, false, 'primary')
+    actions.append(button('Cancel', () => modal.dismiss(), false, 'subtle'), saveButton)
 
     body.append(
       creatorNotice(
         'Guided Custom Surface Creator',
-        'Start with the name, use Fill Recommended IDs, paste or write the model Utility, then provide one complete XML fixture. Presentation settings stay collapsed until you need them.',
+        'Load an example or start with the name. Review the Utility and complete fixture before saving; Relay keeps your draft open until it confirms the save.',
       ),
+      ...(!existing ? [creatorSection('Start from an Example', 'These fill the fields below with text-only, single-image, or two-image ownership patterns. Loading a different example replaces the draft.', exampleChoices)] : []),
       basics,
       identifiers,
       modelContract,
@@ -7530,29 +8188,29 @@ ${bracketFixture}`)
 
   function renderAllReverieImages(): HTMLElement {
     const box = document.createElement('div')
-    const all = Object.values(assetLibrary.assets || {}).sort((a, b) => (b.lastUsedAt || b.updatedAt) - (a.lastUsedAt || a.updatedAt))
-    const chats = [...new Set(all.map(asset => asset.chatId).filter(Boolean))].sort()
+    const all = Object.values(assetLibrary.assets || {})
+      .filter(asset => !activeChatId || asset.chatId === activeChatId)
+      .sort((a, b) => (b.lastUsedAt || b.updatedAt) - (a.lastUsedAt || a.updatedAt))
     const characters = [...new Set(all.flatMap(asset => asset.characterNames || []).filter(Boolean))].sort()
     const targets = [...new Set(all.map(asset => String(asset.target)).filter(Boolean))].sort()
     const surfaces = [...new Set(all.map(asset => String((asset.metadata || {}).surfaceId || asset.targetApp || 'unknown')).filter(Boolean))].sort()
     const controls = document.createElement('div'); controls.className = 'dg-settings-grid'
     const results = document.createElement('div')
     let drawResults = () => {}
-    const search = document.createElement('input'); search.type = 'search'; search.className = 'dg-input'; search.placeholder = 'Search all Relay-generated images'; search.value = allChatsQuery
+    const search = document.createElement('input'); search.type = 'search'; search.className = 'dg-input'; search.placeholder = 'Search this chat’s images'; search.value = allChatsQuery
     search.addEventListener('input', () => { allChatsQuery = search.value; drawResults() })
     controls.append(
-      fieldWrap('Search', search),
-      selectField('Chat', allChatsChatFilter, [['all', 'All Chats'], ...chats.map(value => [value, value] as [string,string])], value => { allChatsChatFilter = value; drawResults() }),
+      fieldWrap('Search', search, 'Find images in this chat by title, image description, character, location, tag, request, or prompt excerpt.'),
       selectField('Character', allChatsCharacterFilter, [['all', 'All Characters'], ...characters.map(value => [value, value] as [string,string])], value => { allChatsCharacterFilter = value; drawResults() }),
       selectField('Target', allChatsTargetFilter, [['all', 'All Targets'], ...targets.map(value => [value, titleCase(value)] as [string,string])], value => { allChatsTargetFilter = value; drawResults() }),
       selectField('Surface', allChatsSurfaceFilter, [['all', 'All Surfaces'], ...surfaces.map(value => [value, titleCase(value)] as [string,string])], value => { allChatsSurfaceFilter = value; drawResults() }),
       selectField('Date', allChatsDateFilter, [['all', 'Any Date'], ['7d', 'Last 7 Days'], ['30d', 'Last 30 Days'], ['90d', 'Last 90 Days']], value => { allChatsDateFilter = value; drawResults() }),
       selectField('Status', allChatsStatusFilter, [['all', 'All Statuses'], ['available', 'Available'], ['unavailable', 'Unavailable'], ['retained', 'Retained after deletion']], value => { allChatsStatusFilter = value; drawResults() }),
     )
-    box.appendChild(panelSection('All Reverie Images Filters', controls))
+    box.appendChild(panelSection('Current Chat Images Filters', controls))
     drawResults = () => {
       const filtered = all.filter(asset => matchesAllReverieImageFilters(asset))
-      const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = `${filtered.length} of ${all.length} Relay-generated images from the host image catalog. Filters update this list immediately.`
+      const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = `${filtered.length} of ${all.length} Relay images in this chat.`
       results.replaceChildren(note)
       if (!filtered.length) {
         results.appendChild(empty('No Relay-generated images match these filters.'))
@@ -7574,7 +8232,7 @@ ${bracketFixture}`)
   }
 
   function matchesAllReverieImageFilters(asset: VisualAssetReference): boolean {
-    if (allChatsChatFilter !== 'all' && asset.chatId !== allChatsChatFilter) return false
+    if (activeChatId && asset.chatId !== activeChatId) return false
     if (allChatsCharacterFilter !== 'all' && !(asset.characterNames || []).includes(allChatsCharacterFilter)) return false
     if (allChatsTargetFilter !== 'all' && String(asset.target) !== allChatsTargetFilter) return false
     const surface = String((asset.metadata || {}).surfaceId || asset.targetApp || 'unknown')
@@ -7588,7 +8246,9 @@ ${bracketFixture}`)
     if (allChatsDateFilter === '90d' && age > 90 * 86400000) return false
     const query = allChatsQuery.trim().toLocaleLowerCase()
     if (!query) return true
-    return JSON.stringify({ chat: asset.chatId, characters: asset.characterNames, target: asset.target, surface, caption: asset.caption, scene: asset.originalSceneBrief, prompt: asset.resolvedPositivePrompt, metadata: asset.metadata }).toLocaleLowerCase().includes(query)
+    return [asset.caption, asset.alt, asset.characterNames.join(' '), asset.locationNames.join(' '), asset.tags.join(' '),
+      asset.requestId, asset.slot, asset.imageId, asset.target, surface, asset.searchIndex,
+    ].join(' ').toLocaleLowerCase().includes(query)
   }
 
   function renderHistoryList(): HTMLElement {
@@ -7596,7 +8256,7 @@ ${bracketFixture}`)
     const tabs = document.createElement('div')
     tabs.className = 'dg-history-subtabs'
     const choices: Array<[HistorySubTab, string]> = [
-      ['all-chats-gallery', 'All Reverie Images'],
+      ['all-chats-gallery', 'Current Chat Images'],
       ['slot-history', 'Current Chat & Versions'],
       ['deleted-message-images', 'Deleted Message Images'],
       ['illustrator-candidates', 'Illustrator Candidates'],
@@ -8160,6 +8820,46 @@ ${bracketFixture}`)
     return manualImage
   }
 
+  function renderSurfaceParserSettings(current: RouterConfig): HTMLElement {
+    const wrap = document.createElement('div')
+    const sidecar = document.createElement('div')
+    sidecar.className = 'dg-settings-grid'
+    sidecar.append(
+      toggleCard('Follow Native Parser', '', current.followNativeParser, checked => patchConfig({ followNativeParser: checked })),
+      parserSelect(current),
+      parserModelField(current),
+    )
+    wrap.appendChild(panelSection('Surface Parser Connection', sidecar))
+    if (current.followNativeParser) {
+      const note = document.createElement('div')
+      note.className = 'dg-recovery-note'
+      note.textContent = 'Native Parser is active. Relay mirrors its connection and instructions, so parser overrides are hidden to avoid conflicting settings.'
+      wrap.appendChild(panelSection('Native Parser', note))
+    } else {
+      const behavior = document.createElement('div')
+      behavior.className = 'dg-settings-grid'
+      behavior.append(
+        numberInput('Parser Retries', current.parserRetries, 0, 5, value => patchConfig({ parserRetries: value })),
+        numberInput('Recent Messages', current.includeRecentMessages, 0, 32, value => patchConfig({ includeRecentMessages: value })),
+      )
+      wrap.appendChild(panelDisclosure('Parser Behavior', behavior))
+      const context = document.createElement('div')
+      context.className = 'dg-toggle-grid'
+      context.append(
+        toggleCard('Character Context', '', current.includeCharacterInfo, checked => patchConfig({ includeCharacterInfo: checked })),
+        toggleCard('Persona Context', '', current.includePersonaInfo, checked => patchConfig({ includePersonaInfo: checked })),
+        toggleCard('Lorebook Context', '', current.includeLorebook, checked => patchConfig({ includeLorebook: checked })),
+      )
+      wrap.appendChild(panelDisclosure('Parser Context Inclusion', context))
+      wrap.appendChild(panelDisclosure('Parser Parameters', textareaInput('JSON', JSON.stringify(current.parserParameters || {}, null, 2), value => {
+        try { patchConfig({ parserParameters: JSON.parse(value || '{}'), followNativeParser: false }) }
+        catch { showToast('warning', 'Parser parameters must be valid JSON.') }
+      })))
+      wrap.appendChild(panelDisclosure('Relay Parser Instructions', textareaInput('Instructions', current.customParserInstructions, value => patchConfig({ customParserInstructions: value }))))
+    }
+    return wrap
+  }
+
   function renderSettings(): HTMLElement {
     const current = config
     const box = document.createElement('div')
@@ -8171,9 +8871,8 @@ ${bracketFixture}`)
     const behavior = document.createElement('div')
     behavior.className = 'dg-toggle-grid'
     behavior.append(
-      toggleCard('Enabled', '', current.enabled, checked => patchConfig({ enabled: checked })),
+      toggleCard('Relay Enabled', '', current.enabled, checked => patchConfig({ enabled: checked })),
       toggleCard('Auto Generate', '', current.autoGenerate, checked => patchConfig({ autoGenerate: checked })),
-      selectField('Slot Mode', current.slotGenerationMode || 'auto-insert', [['auto-insert', 'Generate and Insert'], ['prompt-preview', 'Preview Prompt First'], ['image-preview', 'Preview Image Before Insert']], value => patchConfig({ slotGenerationMode: value as RouterConfig['slotGenerationMode'] })),
       toggleCard('High-Res / Polished Capture', 'Preserves the requested camera style while prioritizing identity, anatomy, clarity, and rendering polish.', current.highResMode, checked => patchConfig({ highResMode: checked })),
       toggleCard('Save completed images to Character Gallery', 'Links completed Relay Surface and Illustrator images to the active character Gallery when Lumiverse confirms the destination.', current.galleryAutoLink, checked => patchConfig({ galleryAutoLink: checked })),
     )
@@ -8184,35 +8883,8 @@ ${bracketFixture}`)
       selectField('Generation Settings Source', current.generationSettingsSource || (current.followNativeImageGen ? 'native' : 'relay'), [['native', 'Native ImageGen'], ['relay', 'Relay Settings']], value => patchConfig({ generationSettingsSource: value as RouterConfig['generationSettingsSource'], followNativeImageGen: value === 'native' })),
       selectField('LoRA Source', current.loraSource || 'native', [['native', 'Native ImageGen'], ['relay', 'Relay Stack'], ['none', 'None']], value => patchConfig({ loraSource: value as RouterConfig['loraSource'] })),
       ...(current.loraSource === 'relay' ? [renderRelayLoraStackControl(current)] : []),
-      selectField('Appearance Memory Strength', current.vaultStrength || 'medium', [['off', 'Off'], ['low', 'Low'], ['medium', 'Medium'], ['strong', 'Strong']], value => {
-        const strength = value as ContinuityStrength
-        patchConfig({ vaultStrength: strength })
-      }),
     )
     box.appendChild(panelSection('Image Generation', imageSettings))
-    const appearanceSidecar = document.createElement('div')
-    appearanceSidecar.className = 'dg-settings-grid'
-    appearanceSidecar.append(
-      selectField('Global Appearance Sidecar Connection', current.appearanceSidecarConnectionId || '', [['', 'Use Relay Parser Connection'], ...parserConnections.map(connection => [connection.id, `${connection.name} / ${connection.model}`] as [string, string])], value => {
-        patchConfig({
-          appearanceSidecarConnectionId: value || null,
-          appearanceSidecarModel: compatibleSidecarModel(current.appearanceSidecarModel, value || current.parserConnectionId || ''),
-        })
-      }),
-      appearanceSidecarModelField(
-        'Global Appearance Sidecar Model',
-        current.appearanceSidecarConnectionId,
-        current.appearanceSidecarModel,
-        current.parserConnectionId,
-        current.parserModel || parserConnections.find(connection => connection.id === current.parserConnectionId)?.model || '',
-        value => patchConfig({ appearanceSidecarModel: value }),
-      ),
-      textareaInput('Global Appearance Sidecar Parameters', JSON.stringify(current.appearanceSidecarParameters || {}, null, 2), value => {
-        try { patchConfig({ appearanceSidecarParameters: JSON.parse(value || '{}') }) }
-        catch { showToast('warning', 'Appearance Sidecar parameters must be valid JSON.') }
-      }),
-    )
-    box.appendChild(panelSection('Appearance Sidecar', appearanceSidecar))
     const advancedBehavior = document.createElement('div')
     advancedBehavior.className = 'dg-toggle-grid'
     advancedBehavior.append(
@@ -8226,7 +8898,10 @@ ${bracketFixture}`)
     interfaceControls.append(
       toggleCard('Enable Floating Relay Orb', 'Shows the Relay shortcut for replacement candidates in the latest relevant assistant message.', current.enableRelayOrb, checked => patchConfig({ enableRelayOrb: checked })),
       button('Reset Orb Position', resetOrbPosition, false, 'subtle'),
-      selectField('Interface Theme', current.interfaceTheme || 'velvet-prism', [['velvet-prism', 'Velvet Prism'], ['clean-panel', 'Clean Panel']], value => patchConfig({ interfaceTheme: value as RouterConfig['interfaceTheme'] })),
+      selectField('Interface Theme', current.interfaceTheme || 'velvet-prism', [
+        ['velvet-prism', 'Velvet Prism'],
+        ['clean-panel', 'Clean Panel'],
+      ], value => patchConfig({ interfaceTheme: value as RouterConfig['interfaceTheme'] })),
       selectField('Orb Size', current.orbSize || 'medium', [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']], value => patchConfig({ orbSize: value as RouterConfig['orbSize'] })),
       selectField('Orb Design', current.orbDesign || 'prism-flower', [
         ['classic', 'Classic'],
@@ -8266,14 +8941,6 @@ ${bracketFixture}`)
       numberInput('Concurrent Relay Preprocessing Jobs', current.queueConcurrencyLimit, 1, 4, value => patchConfig({ queueConcurrencyLimit: value })),
     )
     box.appendChild(panelSection('Workload', workload))
-    const sidecar = document.createElement('div')
-    sidecar.className = 'dg-settings-grid'
-    sidecar.append(
-      toggleCard('Follow Native Parser', '', current.followNativeParser, checked => patchConfig({ followNativeParser: checked })),
-      parserSelect(current),
-      parserModelField(current),
-    )
-    box.appendChild(panelSection('Relay Sidecar · Surface Parsing', sidecar))
     const tutorial = document.createElement('div')
     tutorial.className = 'dg-settings-grid'
     const tutorialNote = document.createElement('div')
@@ -8283,39 +8950,6 @@ ${bracketFixture}`)
     tutorial.append(tutorialNote, tutorialActions)
     box.appendChild(panelSection('Quick Start Overview', tutorial))
     box.appendChild(panelDisclosure('Generation · Prompt Profiles', renderPromptProfileSettings(current)))
-
-    if (current.followNativeParser) {
-        const nativeParserNote = document.createElement('div')
-        nativeParserNote.className = 'dg-recovery-note'
-        nativeParserNote.textContent = 'Native Parser is active. Relay mirrors the native parser connection and instructions, so its parser overrides are hidden to prevent conflicting settings.'
-        box.appendChild(panelSection('Parser · Native Settings', nativeParserNote))
-    } else {
-        const parser = document.createElement('div')
-        parser.className = 'dg-settings-grid'
-        parser.append(
-          numberInput('Parser Retries', current.parserRetries, 0, 5, value => patchConfig({ parserRetries: value })),
-          numberInput('Recent Messages', current.includeRecentMessages, 0, 32, value => patchConfig({ includeRecentMessages: value })),
-        )
-        box.appendChild(panelDisclosure('Advanced · Parser Behavior', parser))
-
-        const context = document.createElement('div')
-        context.className = 'dg-toggle-grid'
-        context.append(
-          toggleCard('Character Context', '', current.includeCharacterInfo, checked => patchConfig({ includeCharacterInfo: checked })),
-          toggleCard('Persona Context', '', current.includePersonaInfo, checked => patchConfig({ includePersonaInfo: checked })),
-          toggleCard('Lorebook Context', '', current.includeLorebook, checked => patchConfig({ includeLorebook: checked })),
-        )
-        box.appendChild(panelDisclosure('Advanced · Context Inclusion', context))
-
-        box.appendChild(panelDisclosure('Advanced · Parser Parameters', textareaInput('JSON', JSON.stringify(current.parserParameters || {}, null, 2), value => {
-          try {
-            patchConfig({ parserParameters: JSON.parse(value || '{}'), followNativeParser: false })
-          } catch {
-            showToast('warning', 'Parser parameters must be valid JSON.')
-          }
-        })))
-        box.appendChild(panelDisclosure('Advanced · Relay Parser Instructions', textareaInput('Instructions', current.customParserInstructions, value => patchConfig({ customParserInstructions: value }))))
-    }
 
     if (current.generationSettingsSource === 'native') {
         const nativeImageGenNote = document.createElement('div')
@@ -8366,9 +9000,18 @@ ${bracketFixture}`)
       }, !selected || selected.builtIn, 'subtle'),
       button('Delete', () => {
         if (!selected || selected.builtIn) return
-        patchConfig({ promptProfiles: profiles.filter(profile => profile.id !== selected.id), defaultPromptProfileId: 'auto' })
+        confirmCleanup({
+          title: 'Delete Prompt Profile?',
+          description: `Delete “${selected.name}”? Its prompt additions and framing guidance will no longer be available to future Relay generations.`,
+          scope: `${selected.name} · ${selected.id}`,
+          actionLabel: 'Delete Profile',
+          onConfirm: () => patchConfig({
+            promptProfiles: profiles.filter(profile => profile.id !== selected.id),
+            defaultPromptProfileId: current.defaultPromptProfileId === selected.id ? 'auto' : current.defaultPromptProfileId,
+          }),
+        })
       }, !selected || selected.builtIn, 'danger'),
-      button('Reset Built-ins', () => patchConfig({ promptProfiles: [] as any, defaultPromptProfileId: 'auto' }), false, 'subtle'),
+      button('Reset Built-ins', () => patchConfig({ promptProfiles: profiles.filter(profile => !profile.builtIn) }), false, 'subtle', 'Restore built-in profiles while keeping custom profiles and the current default.'),
     )
     wrapper.appendChild(actions)
     if (selected) {
@@ -8659,9 +9302,19 @@ ${bracketFixture}`)
         reparseButton = button(unresolvedCarousel ? 'Reparse Carousel' : 'Reparse', () => void submitPopupAction('reparse', reparseButton), !canParse, 'standard', canParse ? '' : unavailable),
         button('Regeneration Direction', () => withCompletedRecord(record, loaded => openRegenerationIntent(loaded, acceptedPopup)), busy || !canParse, 'subtle', canParse ? '' : unavailable),
         button('Edit Prompt', () => withCompletedRecord(record, openEditPrompt), busy || unresolvedCarousel),
-        button('Generation Details', () => withCompletedRecord(record, openResolvedGenerationPlan), false, 'subtle'),
+      // Keep the Lightbox inspection action synchronous. A slow or missing
+      // archive reply must never make its primary Details button feel dead.
+      button('Generation Details', () => openResolvedGenerationPlan(record), false, 'subtle'),
       )
     }
+    const historyAction = button(`History (${record.history.length + (record.imageUrl ? 1 : 0)})`, () => {
+      // History opens another modal; from the lightbox, close this one first
+      // so viewing a version still leaves a slot for Generation Details.
+      acceptedPopup?.()
+      openHistory(record)
+    }, !record.imageUrl && record.history.length === 0, 'standard')
+    historyAction.classList.add('dg-slot-history-action')
+    actions.appendChild(historyAction)
     wrapper.append(actions, popupError)
     const manage = document.createElement('details')
     manage.className = 'dg-manage'
@@ -8671,7 +9324,6 @@ ${bracketFixture}`)
     maintenance.className = 'dg-actions'
     maintenance.append(
       button('Reparse Preview', () => ctx.sendToBackend({ type: 'reparse_preview', key: record.key }), busy || !canParse, 'subtle', canParse ? '' : unavailable),
-      button('History', () => openHistory(record), record.history.length === 0, 'subtle'),
       button('Metadata', () => openMetadata(record), false, 'subtle'),
       button('Dry Run', async () => {
         const snapshot = await syncNativeSettings()
@@ -8729,26 +9381,94 @@ ${bracketFixture}`)
     return { imageId: '', imageUrl: '', width: null, height: null, aspect: record.requestAspect || '', lifecycleStatus: record.status, placementError: record.placementFailure?.reason, source: 'none', promptMetadata: record.diagnostic }
   }
 
-  function renderLightboxDiagnostics(record: SlotRecord, asset: ReturnType<typeof resolveLightboxAsset>, version?: GenerationSnapshot): HTMLElement {
+  function renderLightboxDiagnostics(record: SlotRecord, asset: ReturnType<typeof resolveLightboxAsset>, version?: GenerationSnapshot, options: { includeGenerationDetails?: boolean; includeImageIdentity?: boolean } = {}): HTMLElement {
     const actions = document.createElement('div')
     actions.className = 'dg-actions'
+    const includeGenerationDetails = options.includeGenerationDetails ?? true
+    const includeImageIdentity = options.includeImageIdentity ?? true
+    // History lightboxes describe a specific generation, not merely the
+    // current slot. Keep the stable slot/archive identity, but let the chosen
+    // snapshot supply that generation's prompts and provider settings.
+    const detailsRecord = version ? { ...record, ...version } as SlotRecord : record
+    if (includeGenerationDetails) actions.appendChild(
+      button('Generation Details', () => withCompletedRecordOrCurrent(detailsRecord, loaded => {
+        // If an older/partial history snapshot needs archive enrichment, merge
+        // the selected snapshot last so the modal never shows the latest run's
+        // prompt for a different image version. Empty compact-snapshot fields
+        // are not authoritative and must not erase prompts from the archive.
+        const selectedVersionRecord = version ? {
+          ...mergeCompletedVersionPromptMetadata(loaded, version),
+          key: record.key,
+          chatId: record.chatId,
+          messageId: record.messageId,
+          swipeId: record.swipeId,
+          requestId: record.requestId,
+          target: record.target,
+          targetApp: record.targetApp,
+          slot: record.slot,
+          diagnosticArchiveId: record.diagnosticArchiveId,
+        } as SlotRecord : loaded
+        openResolvedGenerationPlan(selectedVersionRecord)
+      }), false, 'subtle'),
+    )
+    if (!includeGenerationDetails && includeImageIdentity) actions.appendChild(
+      button('Copy Image ID', () => copyText(asset.imageId, 'Image ID copied.'), !asset.imageId, 'subtle'),
+    )
     actions.append(
-      button('Generation Details', () => openResolvedGenerationPlan(record), false, 'subtle'),
       button('Export Diagnostic JSON', () => downloadJson(`reverie-relay-diagnostic-${record.requestId}-${record.slot}.json`, {
         metadata: buildMetadata(record, version || record), asset, lifecycle: { status: record.status, placementFailure: record.placementFailure },
       }), false, 'subtle'),
+    )
+    if (includeImageIdentity) actions.append(
       button('Copy Image URL', () => copyText(asset.imageUrl, 'Image URL copied.'), !asset.imageUrl, 'subtle'),
-      button('Copy Image ID', () => copyText(asset.imageId, 'Image ID copied.'), !asset.imageId, 'subtle'),
+      ...(includeGenerationDetails ? [button('Copy Image ID', () => copyText(asset.imageId, 'Image ID copied.'), !asset.imageId, 'subtle')] : []),
     )
     return actions
   }
 
+  function fitRelayLightboxHost(modal: { root: HTMLElement; dismiss(): void }): void {
+    // Lumiverse's generic modal shell caps regular dialogs at 520px and gives
+    // its inner scroll frame overflow:auto. A Relay image lightbox needs both
+    // frames to grow to the viewport so the image and every action stay
+    // visible together instead of trapping the controls below an inner scroll.
+    const scrollFrame = modal.root.parentElement
+    const modalFrame = scrollFrame?.parentElement
+    scrollFrame?.classList.add('dg-relay-lightbox-scroll-frame')
+    modalFrame?.classList.add('dg-relay-lightbox-modal-frame')
+
+    const dismiss = modal.dismiss.bind(modal)
+    modal.dismiss = () => {
+      scrollFrame?.classList.remove('dg-relay-lightbox-scroll-frame')
+      modalFrame?.classList.remove('dg-relay-lightbox-modal-frame')
+      dismiss()
+    }
+  }
+
   function openLightbox(record: SlotRecord): void {
-    const modal = ctx.ui.showModal({ title: `${appLabel(record)} ${slotLabel(record)}`, width: 860 })
-    modal.root.classList.add('dg-router-panel', 'dg-modal-host')
+    const modal = ctx.ui.showModal({ title: `${appLabel(record)} ${slotLabel(record)}`, width: 1480 })
+    modal.root.classList.add('dg-router-panel', 'dg-modal-host', 'dg-slot-lightbox')
+    fitRelayLightboxHost(modal)
     const body = document.createElement('div')
-    body.className = 'dg-modal-body'
+    body.className = 'dg-slot-lightbox-body'
     const asset = resolveLightboxAsset(record)
+    const controls = renderActionButtons(record, () => modal.dismiss())
+    const primaryActions = controls.querySelector<HTMLElement>('.dg-primary-actions')
+    if (primaryActions) primaryActions.classList.add('dg-slot-lightbox-primary-actions')
+    const controlPanel = document.createElement('div')
+    controlPanel.className = 'dg-slot-lightbox-controls'
+    const footer = document.createElement('div')
+    footer.className = 'dg-slot-lightbox-footer'
+    footer.appendChild(renderLightboxDiagnostics(record, asset, undefined, { includeGenerationDetails: false }))
+    const manage = controls.querySelector<HTMLElement>('.dg-manage')
+    const historyAction = primaryActions?.querySelector<HTMLElement>('.dg-slot-history-action')
+    const actionError = controls.querySelector<HTMLElement>('.dg-error')
+    if (manage && primaryActions && historyAction) {
+      const historyManage = document.createElement('div')
+      historyManage.className = 'dg-slot-lightbox-history-manage'
+      historyAction.after(historyManage)
+      historyManage.append(historyAction, manage)
+    } else if (manage && primaryActions) primaryActions.appendChild(manage)
+    if (actionError) footer.appendChild(actionError)
     if (asset.imageUrl) {
       const img = document.createElement('img')
       img.className = 'dg-lightbox-img'
@@ -8756,16 +9476,19 @@ ${bracketFixture}`)
       img.alt = record.alt || record.slot
       body.appendChild(imageLightboxViewport(img))
     }
-    body.append(renderLightboxDiagnostics(record, asset), renderActionButtons(record, () => modal.dismiss()))
+    if (primaryActions) controlPanel.appendChild(primaryActions)
+    controlPanel.appendChild(footer)
+    body.appendChild(controlPanel)
     modal.root.appendChild(body)
   }
 
   function openHistoryVersionImage(record: SlotRecord, version: GenerationSnapshot, historyIndex: number): void {
     if (!version.imageUrl) return
-    const modal = ctx.ui.showModal({ title: `${appLabel(record)} ${slotLabel(record)} History`, width: 860 })
-    modal.root.classList.add('dg-router-panel', 'dg-modal-host')
+    const modal = ctx.ui.showModal({ title: `${appLabel(record)} ${slotLabel(record)} History`, width: 1480 })
+    modal.root.classList.add('dg-router-panel', 'dg-modal-host', 'dg-slot-lightbox')
+    fitRelayLightboxHost(modal)
     const body = document.createElement('div')
-    body.className = 'dg-modal-body'
+    body.className = 'dg-slot-lightbox-body'
     const img = document.createElement('img')
     img.className = 'dg-lightbox-img'
     img.src = version.imageUrl
@@ -8778,7 +9501,17 @@ ${bracketFixture}`)
       button('Copy Image URL', () => copyText(version.imageUrl, 'Image URL copied.'), false, 'subtle'),
       button('Copy Image ID', () => copyText(version.imageId, 'Image ID copied.'), !version.imageId, 'subtle'),
     )
-    body.append(imageLightboxViewport(img), renderLightboxDiagnostics(record, resolveLightboxAsset(record, version, historyIndex), version), actions)
+    actions.classList.add('dg-slot-lightbox-primary-actions')
+    const controlPanel = document.createElement('div')
+    controlPanel.className = 'dg-slot-lightbox-controls'
+    const footer = document.createElement('div')
+    footer.className = 'dg-slot-lightbox-footer'
+    footer.append(renderLightboxDiagnostics(record, resolveLightboxAsset(record, version, historyIndex), version, { includeImageIdentity: false }), button('All Versions', () => {
+      modal.dismiss()
+      openHistory(record)
+    }, false, 'standard'))
+    controlPanel.append(actions, footer)
+    body.append(imageLightboxViewport(img), controlPanel)
     modal.root.appendChild(body)
   }
 
@@ -8943,13 +9676,72 @@ ${bracketFixture}`)
     ctx.sendToBackend({ type: 'completed_diagnostic', chatId, archiveId, requestId })
   }
 
+  function hasGenerationPromptMetadata(record: SlotRecord): boolean {
+    const pipeline = record.promptPipeline || record.pendingPlacement?.promptPipeline
+    const composition = record.prosePromptComposition
+    const requestPrompt = record.finalImageRequest?.prompt
+    return Boolean(
+      record.originalSceneBrief?.trim()
+      || composition?.sceneBrief?.trim()
+      || record.resolvedPositivePrompt?.trim()
+      || pipeline?.finalProviderPrompt?.trim()
+      || pipeline?.scenePromptBeforePrefix?.trim()
+      || (typeof requestPrompt === 'string' && requestPrompt.trim()),
+    )
+  }
+
+  function mergeCompletedVersionPromptMetadata(loaded: SlotRecord, version: GenerationSnapshot): SlotRecord {
+    const loadedPipeline = loaded.promptPipeline || {} as NonNullable<SlotRecord['promptPipeline']>
+    const versionPipeline = version.promptPipeline || {} as NonNullable<SlotRecord['promptPipeline']>
+    const preferRecordedText = (selected: unknown, archived: unknown): string | undefined =>
+      typeof selected === 'string' && selected.trim()
+        ? selected
+        : typeof archived === 'string' ? archived : undefined
+    return {
+      ...loaded,
+      ...version,
+      originalSceneBrief: loaded.originalSceneBrief,
+      resolvedPositivePrompt: preferRecordedText(version.resolvedPositivePrompt, loaded.resolvedPositivePrompt),
+      resolvedNegativePrompt: preferRecordedText(version.resolvedNegativePrompt, loaded.resolvedNegativePrompt),
+      prosePromptComposition: loaded.prosePromptComposition,
+      promptPipeline: {
+        ...loadedPipeline,
+        ...versionPipeline,
+        finalProviderPrompt: preferRecordedText(versionPipeline.finalProviderPrompt, loadedPipeline.finalProviderPrompt),
+        scenePromptBeforePrefix: preferRecordedText(versionPipeline.scenePromptBeforePrefix, loadedPipeline.scenePromptBeforePrefix),
+        finalProviderNegativePrompt: preferRecordedText(versionPipeline.finalProviderNegativePrompt, loadedPipeline.finalProviderNegativePrompt),
+      } as NonNullable<SlotRecord['promptPipeline']>,
+      finalImageRequest: {
+        ...loaded.finalImageRequest,
+        ...version.finalImageRequest,
+        prompt: preferRecordedText(version.finalImageRequest?.prompt, loaded.finalImageRequest?.prompt),
+        negativePrompt: preferRecordedText(version.finalImageRequest?.negativePrompt, loaded.finalImageRequest?.negativePrompt),
+      },
+      diagnostic: { ...loaded.diagnostic, ...version.diagnostic },
+      promptProfile: version.promptProfile || loaded.promptProfile,
+    } as SlotRecord
+  }
+
   function withCompletedRecord(record: SlotRecord, action: (record: SlotRecord) => void): void {
-    if (!record.diagnosticArchiveId || record.diagnostic || record.promptPipeline || record.resolvedPositivePrompt) action(record)
+    // Compact live slot rows may carry an empty diagnostic shell or a partial
+    // pipeline. Only skip the archive lookup when there's an actual prompt to
+    // show; otherwise Details silently opens with unavailable fields.
+    if (!record.diagnosticArchiveId || hasGenerationPromptMetadata(record)) action(record)
     else requestCompletedRecord(record, loaded => loaded && action(loaded))
   }
 
+  function withCompletedRecordOrCurrent(record: SlotRecord, action: (record: SlotRecord) => void): void {
+    // Generation Details is an inspection action, so it must remain useful for
+    // recovered/older slots even when their archive is missing or unavailable.
+    if (!record.diagnosticArchiveId || hasGenerationPromptMetadata(record)) {
+      action(record)
+      return
+    }
+    requestCompletedRecord(record, loaded => action(loaded || record))
+  }
+
   function openPromptInspector(record: SlotRecord): void {
-    if (record.diagnosticArchiveId && !record.diagnostic && !record.promptPipeline && !record.resolvedPositivePrompt) {
+    if (record.diagnosticArchiveId && !hasGenerationPromptMetadata(record)) {
       requestCompletedRecord(record, loaded => loaded && openPromptInspector(loaded))
       return
     }
@@ -9005,9 +9797,10 @@ ${bracketFixture}`)
     modal.root.appendChild(body)
   }
 
-  function openResolvedGenerationPlan(record: SlotRecord): void {
+  function openResolvedGenerationPlan(initialRecord: SlotRecord): void {
     const modal = ctx.ui.showModal({ title: 'Generation Details', width: 860 })
     modal.root.classList.add('dg-router-panel', 'dg-modal-host')
+    const render = (record: SlotRecord): void => {
     const body = document.createElement('div')
     body.className = 'dg-modal-body dg-generation-plan'
     const pipeline = record.promptPipeline || record.pendingPlacement?.promptPipeline
@@ -9111,7 +9904,20 @@ ${bracketFixture}`)
       }, false, 'subtle'),
     )
     body.prepend(actions)
-    modal.root.appendChild(body)
+    modal.root.replaceChildren(body)
+    }
+    // Compact slot rows can retain the scene brief while their final provider
+    // prompt lives only in the completed diagnostic archive. Open immediately,
+    // then hydrate this same modal instead of showing a second popup.
+    render(initialRecord)
+    if (initialRecord.diagnosticArchiveId
+      && (!initialRecord.resolvedPositivePrompt?.trim()
+        || typeof initialRecord.finalImageRequest?.prompt !== 'string'
+        || !initialRecord.finalImageRequest.prompt.trim())) {
+      requestCompletedRecord(initialRecord, loaded => {
+        if (loaded && modal.root.isConnected) render(loaded)
+      })
+    }
   }
 
   function buildDiagnosticSummary(record: SlotRecord): string {
@@ -9383,22 +10189,41 @@ ${bracketFixture}`)
 
   function maybeOpenSlotImagePreviews(): void {
     const pending = records.filter(record => record.status === 'placement-pending' && record.previewPending && record.pendingPlacement)
-    for (const record of pending) {
-      if (openedSlotPreviewKeys.has(record.key)) continue
-      openedSlotPreviewKeys.add(record.key)
-      openSlotImagePreview(record)
-    }
     for (const key of [...openedSlotPreviewKeys]) {
       const record = recordByKey.get(key)
       if (!record || record.status !== 'placement-pending' || !record.previewPending) openedSlotPreviewKeys.delete(key)
     }
+    if (activeSlotPreviewKey) return
+    const next = pending.find(record => !openedSlotPreviewKeys.has(record.key))
+    if (!next) return
+    try {
+      if (!openSlotImagePreview(next)) return
+      openedSlotPreviewKeys.add(next.key)
+      activeSlotPreviewKey = next.key
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('Maximum of 2 stacked modals')) throw error
+      // Another Relay modal may occupy the host's limited stack. Keep this
+      // slot pending and retry when the frontend receives another state.
+    }
   }
 
-  function openSlotImagePreview(record: SlotRecord): void {
+  function openSlotImagePreview(record: SlotRecord): boolean {
     const result = record.pendingPlacement
-    if (!result) return
+    if (!result) return false
     const modal = ctx.ui.showModal({ title: 'Image Preview · Ready to Insert', width: 900, persistent: true })
     modal.root.classList.add('dg-router-panel', 'dg-modal-host', 'dg-slot-preview-modal')
+    const dismissPreview = () => {
+      if (activeSlotPreviewKey === record.key) activeSlotPreviewKey = null
+      modal.dismiss()
+    }
+    const closePreviewWave = () => {
+      // Closing a review must not immediately replace it with the next
+      // pending preview. Those images remain available in Relay Slots.
+      for (const pending of records) {
+        if (pending.status === 'placement-pending' && pending.previewPending && pending.pendingPlacement) openedSlotPreviewKeys.add(pending.key)
+      }
+      dismissPreview()
+    }
     const body = document.createElement('div'); body.className = 'dg-modal-body'
     const image = document.createElement('img')
     image.className = 'dg-lightbox-img'
@@ -9429,6 +10254,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     let reparseButton: HTMLButtonElement
     let insertButton: HTMLButtonElement
     actions.append(
+      button('Close', closePreviewWave, false, 'subtle'),
       reparseButton = button('Reparse', async () => {
         reparseButton.disabled = true
         showSubmissionError('')
@@ -9438,7 +10264,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
           slotActionFeedback.submit({
             submissionId: id, key: record.key, action: 'reparse', statusText: 'Reparsing…',
             dispatch: () => ctx.sendToBackend({ type: 'reparse_slot', submissionId: id, key: record.key, useCurrentNativeSettings: true, nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt }),
-            closePopup: () => { openedSlotPreviewKeys.delete(record.key); modal.dismiss() },
+            closePopup: dismissPreview,
             setDisabled: disabled => { reparseButton.disabled = disabled },
             showPopupError: showSubmissionError,
             setBusy: setOptimisticSlotBusy,
@@ -9452,18 +10278,19 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
       button('Regenerate', async () => {
         const snapshot = await syncNativeSettings()
         ctx.sendToBackend({ type: 'regenerate_slot', key: record.key, useCurrentNativeSettings: true, nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt })
-        openedSlotPreviewKeys.delete(record.key); modal.dismiss()
+        dismissPreview()
       }),
       insertButton = button(record.status === 'placement-repair-needed' ? 'Repair / Reinsert' : 'Insert', () => {
         submitRepairPlacement(record, {
           trigger: insertButton,
           showPopupError: showSubmissionError,
-          closePopup: () => { openedSlotPreviewKeys.delete(record.key); modal.dismiss() },
+          closePopup: dismissPreview,
         })
       }, false, 'primary'),
     )
     body.append(imageLightboxViewport(image), details, submissionError, actions)
     modal.root.appendChild(body)
+    return true
   }
 
   function openReparsePreview(record: SlotRecord, prompt: string, negativePrompt: string, pipeline: PromptPipeline): void {
@@ -9492,42 +10319,48 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
   }
 
   function openHistory(record: SlotRecord): void {
-    const modal = ctx.ui.showModal({ title: 'Slot History', width: 660 })
+    const modal = ctx.ui.showModal({ title: `${appLabel(record)} ${slotLabel(record)} · History`, width: 1120 })
     modal.root.classList.add('dg-router-panel', 'dg-modal-host')
     const body = document.createElement('div')
-    body.className = 'dg-modal-body'
-    if (record.history.length === 0) {
-      body.appendChild(empty('No previous generations for this slot yet.'))
-    } else {
-      record.history.forEach((entry, index) => {
-        const card = document.createElement('div')
-        card.className = 'dg-slot-card'
-        const grid = document.createElement('div')
-        grid.className = 'dg-slot-grid'
-        const img = document.createElement('img')
-        img.className = 'dg-thumb'
-        img.src = entry.imageUrl
-        img.alt = record.alt || record.slot
-        const main = document.createElement('div')
-        const meta = document.createElement('div')
-        meta.className = 'dg-slot-meta'
-        meta.textContent = `${new Date(entry.generatedAt).toLocaleString()} / ${entry.imageProvider || 'Provider unavailable'} / ${entry.imageModel || 'Model unavailable'}${record.recoverySource ? `\n${recoveryHistoryMessage(record)}` : ''}`
-        const actions = document.createElement('div')
-        actions.className = 'dg-actions'
-        actions.append(
-          button('Restore', () => {
-            ctx.sendToBackend({ type: 'restore_history', chatId: record.chatId, key: record.key, historyIndex: index })
-            modal.dismiss()
-          }),
-          button('Metadata', () => openMetadata(record, entry, index)),
-          button('Copy URL', () => copyText(entry.imageUrl, 'Image URL copied.')),
-        )
-        main.append(meta, actions)
-        grid.append(img, main)
-        card.appendChild(grid)
-        body.appendChild(card)
-      })
+    body.className = 'dg-slot-history-list'
+    const versions: Array<{ entry?: GenerationSnapshot; index?: number }> = [
+      ...(record.imageUrl ? [{}] : []),
+      ...record.history.map((entry, index) => ({ entry, index })),
+    ]
+    const openVersion = (entry?: GenerationSnapshot, index?: number) => {
+      // Replace History with the selected lightbox instead of stacking them.
+      // The host allows only two modal layers, and Details is a second layer.
+      modal.dismiss()
+      if (index === undefined) openLightbox(record)
+      else if (entry) openHistoryVersionImage(record, entry, index)
     }
+    if (!versions.length) body.appendChild(empty('No generated versions for this slot yet.'))
+    versions.forEach(({ entry, index }) => {
+      const version = entry || record
+      const card = document.createElement('div')
+      card.className = 'dg-slot-history-version'
+      const image = document.createElement('img')
+      image.src = version.imageUrl || ''
+      image.alt = record.alt || record.slot
+      image.addEventListener('click', () => openVersion(entry, index))
+      const heading = document.createElement('strong')
+      heading.textContent = index === undefined ? 'Current version' : `Previous version ${record.history.length - index}`
+      const meta = document.createElement('small')
+      const generatedAt = entry?.generatedAt || record.completedAt
+      meta.textContent = `${generatedAt ? new Date(generatedAt).toLocaleString() : 'Date unavailable'} · ${version.imageProvider || 'Provider unavailable'} · ${version.imageModel || 'Model unavailable'}${record.recoverySource ? ` · ${recoveryHistoryMessage(record)}` : ''}`
+      const actions = document.createElement('div')
+      actions.className = 'dg-actions'
+      actions.append(
+        button('View', () => openVersion(entry, index), false, 'primary'),
+        button('Metadata', () => openMetadata(record, entry, index), false, 'subtle'),
+      )
+      if (index !== undefined) actions.appendChild(button('Restore', () => {
+        ctx.sendToBackend({ type: 'restore_history', chatId: record.chatId, key: record.key, historyIndex: index })
+        modal.dismiss()
+      }, false, 'standard'))
+      card.append(image, heading, meta, actions)
+      body.appendChild(card)
+    })
     modal.root.appendChild(body)
   }
 
@@ -9833,6 +10666,14 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
       narrativeUtilityRegistry = narrativeUtilityRegistry.map(record => ({ ...record, enabled: patch.enabledNames.includes(record.id) }))
       return
     }
+    if (patch.kind === 'narrative-image-enabled') {
+      const imageEnabled = { ...(config.narrativeUtilityImageEnabled || {}) }
+      if (patch.enabled) delete imageEnabled[patch.utilityName]
+      else imageEnabled[patch.utilityName] = false
+      config = { ...config, narrativeUtilityImageEnabled: imageEnabled }
+      narrativeUtilityRegistry = narrativeUtilityRegistry.map(record => record.id === patch.utilityName ? { ...record, imageEnabled: patch.enabled } : record)
+      return
+    }
     if (patch.kind === 'prompt-registry-override') {
       const promptRegistry = { ...(config.proseIllustratorSettings.promptRegistry || {}) }
       const promptRegistryVersions = { ...(config.proseIllustratorSettings.promptRegistryVersions || {}) }
@@ -10104,6 +10945,11 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
   function helpTip(labelText: string, helpText = ''): HTMLElement {
     const wrap = document.createElement('span')
     wrap.className = 'dg-help'
+    const resolvedHelp = settingHelp(labelText, helpText)
+    if (!resolvedHelp) {
+      wrap.hidden = true
+      return wrap
+    }
     const trigger = document.createElement('span')
     trigger.className = 'dg-help-trigger'
     trigger.setAttribute('role', 'button')
@@ -10117,7 +10963,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     popover.className = 'dg-help-popover'
     popover.id = tooltipId
     popover.setAttribute('role', 'tooltip')
-    popover.textContent = settingHelp(labelText, helpText)
+    popover.textContent = resolvedHelp
     let portal: HTMLElement | null = null
     let pinned = false
     let closeTimer: ReturnType<typeof window.setTimeout> | null = null
@@ -10130,7 +10976,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     const position = () => {
       if (!portal) return
       const triggerRect = trigger.getBoundingClientRect()
-      const width = Math.max(180, Math.min(280, window.innerWidth - 24))
+      const width = Math.max(180, Math.min(244, window.innerWidth - 24))
       popover.style.width = `${width}px`
       popover.style.left = '12px'
       popover.style.top = '12px'
@@ -10145,6 +10991,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     }
     const close = () => {
       if (closeTimer !== null) { window.clearTimeout(closeTimer); closeTimer = null }
+      pinned = false
       wrap.classList.remove('is-open')
       popover.classList.remove('is-open')
       trigger.setAttribute('aria-expanded', 'false')
@@ -10365,7 +11212,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     return btn
   }
 
-  function countBox(label: string, value: number, status: 'processing' | 'failed' | 'completed'): HTMLElement {
+  function countBox(label: string, value: number, status: 'processing' | 'ready' | 'failed' | 'completed'): HTMLElement {
     const box = document.createElement('div')
     box.className = `dg-count dg-count-${status}`
     const dot = document.createElement('span')
@@ -10515,8 +11362,51 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     return value.replace(/["\\]/g, '\\$&')
   }
 
+  const toastDedupeUntil = new Map<string, number>()
+  let toastStack: HTMLElement | null = null
   function showToast(level: 'info' | 'success' | 'warning' | 'error', message: string): void {
-    ctx.sendToBackend({ type: 'show_toast', level, message })
+    const text = String(message || '').trim()
+    if (!text) return
+    const key = `${level}:${text}`
+    const now = Date.now()
+    if ((toastDedupeUntil.get(key) || 0) > now) return
+    toastDedupeUntil.set(key, now + 1_600)
+    window.setTimeout(() => {
+      if ((toastDedupeUntil.get(key) || 0) <= Date.now()) toastDedupeUntil.delete(key)
+    }, 1_650)
+
+    if (!toastStack?.isConnected) {
+      toastStack = document.createElement('div')
+      toastStack.className = 'dg-toast-stack'
+      toastStack.setAttribute('role', 'region')
+      toastStack.setAttribute('aria-label', 'Relay notifications')
+      toastStack.setAttribute('aria-live', 'polite')
+      document.body.appendChild(toastStack)
+    }
+    const toast = document.createElement('div')
+    toast.className = 'dg-toast'
+    toast.dataset.level = level
+    toast.setAttribute('role', level === 'error' || level === 'warning' ? 'alert' : 'status')
+    const copy = document.createElement('span')
+    copy.className = 'dg-toast-copy'
+    copy.textContent = text
+    const dismiss = document.createElement('button')
+    dismiss.className = 'dg-toast-dismiss'
+    dismiss.type = 'button'
+    dismiss.setAttribute('aria-label', 'Dismiss notification')
+    dismiss.textContent = '×'
+    const remove = () => {
+      window.clearTimeout(timeout)
+      toast.remove()
+      if (toastStack?.isConnected && !toastStack.childElementCount) {
+        toastStack.remove()
+        toastStack = null
+      }
+    }
+    dismiss.addEventListener('click', remove, { once: true })
+    toast.append(copy, dismiss)
+    toastStack.appendChild(toast)
+    const timeout = window.setTimeout(remove, level === 'error' || level === 'warning' ? 6_000 : 4_000)
   }
 
   function sharedConfigError(message: string): boolean {

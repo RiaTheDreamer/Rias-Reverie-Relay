@@ -122,8 +122,6 @@ export function r45SupplementalSurfaceDefinitions(now = Date.now()): CustomSurfa
     promptCategory: row.category,
     promptModule: runtimeUtilityPrompt(row),
     triggerGuidance,
-    hybridOwner: 'relay',
-    hybridOwnerConfigured: false,
     updatedAt: now,
     })
   })

@@ -2,13 +2,15 @@ import { normalizeSurfaceDocument, plainSurfaceText, completeSurfaceSpecs, resid
 import { albumPresentation, dossierPresentation, GALLERY_FULL_IMAGE_CSS } from './surfacePresentation'
 import { KNOWN_APP_SURFACE_DRIFT_ROOTS, normalizeBracketSurfaceDocument } from './bracketSurfaceBridge'
 
-import { parseImageRequests, type CustomSurfaceDefinition, type CustomSurfaceStudioState, type GenerationPlaceholderEffect, type SurfaceColorMode, type SurfaceRendererMode, type SurfaceShellMode } from './contracts'
-import { hybridSurfaceOwner, SHIPPED_SURFACE_BY_ID, SHIPPED_SURFACE_SPECS, type ShippedSurfaceSpec } from './shippedSurfaceDefinitions'
+import { parseImageRequests, type CustomSurfaceDefinition, type CustomSurfaceStudioState, type GenerationPlaceholderEffect, type SurfaceColorMode, type SurfaceRendererMode, type SurfaceRendererScriptOverride, type SurfaceShellMode } from './contracts'
+import { SHIPPED_SURFACE_BY_ID, SHIPPED_SURFACE_SPECS, type ShippedSurfaceSpec } from './shippedSurfaceDefinitions'
 import { decorateSurfaceLauncherMarkup } from './surfaceIcons'
 import { containsRenderedRegexSurface, renderRegexSurfaceParity, type RegexSurfaceParityMode } from './regexSurfaceParity'
 import { R45_SUPPLEMENTAL_ROOTS } from './r45SurfaceCatalog'
 import { isFailureRecoveryStatus, isSlotLifecycleActive } from './slotLifecycle'
 import { sanitizedKakaoColor } from './kakaoColor'
+import { validateDeclarativeSurfaceCss } from './surfaceCssSafety'
+import type { SurfaceNormalizationSpec } from './c5bReliability'
 
 export type NativeSurfaceRenderContext = {
   chatId: string
@@ -24,6 +26,7 @@ export type NativeSurfaceRenderContext = {
   defaultShellMode?: SurfaceShellMode
   colorMode?: SurfaceColorMode
   rendererMode?: SurfaceRendererMode
+  rendererScriptOverrides?: Record<string, SurfaceRendererScriptOverride>
   records?: Array<{
     key?: string
     requestId: string
@@ -130,6 +133,9 @@ export function renderCompletedProseLifecycleProjection(
 export function lifecycleRuntimeCss(): string {
   return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${PROSE_LIFECYCLE_MEDIA_FIT_CSS}${LIFECYCLE_REVEAL_CSS}<style>
 .rrl-card[data-rrn-placement-ready="true"] .rrl-spinner{display:none!important}.rrl-card[data-rrn-placement-ready="true"] .rrl-state-icon{display:block!important}
+.rrl-card[data-rrn-placement-ready="true"] .rrl-main{display:none!important}
+.rrl-card[data-rrn-placement-ready="true"] .rrl-actions{top:8px;right:auto;bottom:auto;left:8px;max-width:calc(100% - 16px);padding:0;background:transparent;backdrop-filter:none;opacity:1!important;transform:none!important;pointer-events:auto!important}
+.rrl-card[data-rrn-placement-ready="true"] .rrl-actions button{min-height:27px;padding:5px 10px;border-color:color-mix(in srgb,var(--rrl-accent) 58%,white 10%);border-radius:999px;background:rgba(5,3,6,.76);color:#fff;font-size:10px;box-shadow:0 2px 10px rgba(0,0,0,.35)}
 </style>`
     .replace(/<style\b[^>]*>/gi, '')
     .replace(/<\/style>/gi, '')
@@ -470,10 +476,15 @@ function editableRelaySurface(rendered: string, editorMarkup: string, rootTag: s
   const actionContext = ` data-rrn-chat-id="${escapeAttr(context.chatId)}" data-rrn-message-id="${escapeAttr(context.messageId)}" data-rrn-swipe-id="${Number.isFinite(Number(context.swipeId)) ? Number(context.swipeId) : ''}" data-rrn-root-tag="${escapeAttr(rootTag)}" data-rrn-surface-id="${escapeAttr(baseSurfaceId)}"`
   rendered = rendered.replace(/<button\b(?![^>]*\bdata-rrn-chat-id=)([^>]*\bdata-rrn-action=)/gi, `<button${actionContext}$1`)
   const island = surfaceStreamIslandKey(context.messageId, context.swipeId, baseSurfaceId, context.streamIslandOrdinal || 0)
+  // Keep the source round-trippable through the DOM APIs while preventing the
+  // later whole-message compatibility pass from interpreting editor payload
+  // stored in attributes/textarea text as another visible Surface.
+  const inertAttributeSource = (value: string) => escapeAttr(value).replace(/\[/g, '&#91;').replace(/\]/g, '&#93;')
+  const inertTextareaSource = (value: string) => escapeHtml(value).replace(/\[/g, '&#91;').replace(/\]/g, '&#93;')
   // Lumiverse's live message sanitizer may remove form controls from rendered
   // assistant content. Keep source on the owning element as the authoritative
   // editor transport; textareas remain for already-rendered compatibility.
-  return `<section class="rrn-editable-surface" data-reverie-stream-island="${escapeAttr(island)}" data-rrn-editable-surface="${escapeAttr(baseSurfaceId)}" data-rrn-chat-id="${escapeAttr(context.chatId)}" data-rrn-message-id="${escapeAttr(context.messageId)}" data-rrn-root-tag="${escapeAttr(rootTag)}" data-rrn-surface-id="${escapeAttr(baseSurfaceId)}" data-rrn-surface-source="${escapeAttr(editorMarkup)}" data-rrn-surface-original="${escapeAttr(originalMarkup)}" tabindex="0">${STABLE_MEDIA_SLOT_CSS}${rendered}<textarea class="rrn-surface-source" hidden>${escapeHtml(editorMarkup)}</textarea><textarea class="rrn-surface-original" hidden>${escapeHtml(originalMarkup)}</textarea></section>`
+  return `<section class="rrn-editable-surface" data-reverie-stream-island="${escapeAttr(island)}" data-rrn-editable-surface="${escapeAttr(baseSurfaceId)}" data-rrn-chat-id="${escapeAttr(context.chatId)}" data-rrn-message-id="${escapeAttr(context.messageId)}" data-rrn-root-tag="${escapeAttr(rootTag)}" data-rrn-surface-id="${escapeAttr(baseSurfaceId)}" data-rrn-surface-source="${inertAttributeSource(editorMarkup)}" data-rrn-surface-original="${inertAttributeSource(originalMarkup)}" tabindex="0">${STABLE_MEDIA_SLOT_CSS}${rendered}<textarea class="rrn-surface-source" hidden>${inertTextareaSource(editorMarkup)}</textarea><textarea class="rrn-surface-original" hidden>${inertTextareaSource(originalMarkup)}</textarea></section>`
 }
 
 export function surfaceStreamIslandKey(messageId: string | undefined, swipeId: number | undefined, surfaceId: string, ordinal = 0): string {
@@ -637,7 +648,7 @@ function renderParityOwnedSurface(
   const hydrated = hydrateParityRequests(canonicalMarkup, baseSurfaceId, context)
   const shellMode = context.defaultShellMode || preset?.shellMode || defaultShellMode(baseSurfaceId)
   const mode = parityModeForSurface(baseSurfaceId, preset, context)
-  let rendered = renderRegexSurfaceParity(hydrated, mode, context.messageId || `${baseSurfaceId}-surface`, context.colorMode || 'realistic')
+  let rendered = renderRegexSurfaceParity(hydrated, mode, context.messageId || `${baseSurfaceId}-surface`, context.colorMode || 'realistic', context.rendererScriptOverrides)
   if (baseSurfaceId === 'kakao') {
     rendered = preserveKakaoColorAttributes(rendered)
     recordKakaoRenderTrace(rendered)
@@ -670,6 +681,7 @@ export function renderNativeSurfaceMarkup(
     defaultShellMode: studio.defaultShellMode || context.defaultShellMode,
     colorMode: studio.colorMode || context.colorMode || 'realistic',
     rendererMode: context.rendererMode || studio.rendererMode,
+    rendererScriptOverrides: studio.rendererScriptOverrides || {},
   }
   const bracketRenderedSurfaceIds: string[] = []
   let bracketRenderedCount = 0
@@ -684,21 +696,42 @@ export function renderNativeSurfaceMarkup(
   // bracket Regex authority. Legacy XML normalization below remains a parallel
   // compatibility path, not a whole-Surface bridge for canonical brackets.
   const bracketBlocks: Array<{ spec: { id: string; wrapper: string }; diagnostics: string[]; warnings: string[]; sourceFormat: string; bracketDialect: string; legacyXmlBridgeUsed: boolean; original: string; markup: string }> = []
+  const shippedSurfaceIds = new Set([...SHIPPED_SURFACE_SPECS.map(spec => spec.id), ...R45_SUPPLEMENTAL_ROOTS.map(([, id]) => id)])
+  const customByBase = new Map<string, CustomSurfaceDefinition>()
+  for (const definition of Object.values(studio.definitions || {})) {
+    if (definition.builtIn || shippedSurfaceIds.has(definition.baseSurfaceId) || !definition.canonicalOuterWrapper || !definition.sampleXml) continue
+    const selectedId = studio.activePresetIds?.[definition.baseSurfaceId]
+    if (definition.surfaceId === selectedId || !customByBase.has(definition.baseSurfaceId)) customByBase.set(definition.baseSurfaceId, definition)
+  }
+  const customRuntimeDefinitions = [...customByBase.values()]
+  const customRuntimeIds = new Set(customRuntimeDefinitions.map(definition => definition.baseSurfaceId))
+  const customSpecs: SurfaceNormalizationSpec[] = customRuntimeDefinitions.map(definition => ({
+    id: definition.baseSurfaceId,
+    wrapper: definition.canonicalOuterWrapper,
+    sampleXml: definition.sampleXml,
+  }))
+  const runtimeSpecs = [...SHIPPED_SURFACE_SPECS, ...customSpecs]
   const preclaimedDiscordDrift = new Map<string, string>()
   input = input.replace(/\[discord_server\][\s\S]*?\[\/discord_server\](?:\s*\[discord_message\][\s\S]*?\[\/discord_message\])+/gi, full => {
     const token = `<!--rrn-unsupported-discord:${preclaimedDiscordDrift.size}-->`
     preclaimedDiscordDrift.set(token, full)
     return token
   })
-  const bracketNormalized = normalizeBracketSurfaceDocument(input, SHIPPED_SURFACE_SPECS, block => {
+  const bracketNormalized = normalizeBracketSurfaceDocument(input, runtimeSpecs, block => {
     bracketBlocks.push(block)
     const instanceContext = { ...renderContext, streamIslandOrdinal: bracketBlocks.length }
     if (block.diagnostics.length) return editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join('; ')), block.original, block.spec.wrapper, block.spec.id, instanceContext, block.original)
     const hydrated = hydrateParityRequests(block.markup, block.spec.id, renderContext)
-    const preset = activePreset(studio, block.spec.id)
+    const preset = customRuntimeIds.has(block.spec.id)
+      ? studio.definitions[studio.activePresetIds?.[block.spec.id] || ''] || customByBase.get(block.spec.id)
+      : activePreset(studio, block.spec.id)
+    if (customRuntimeIds.has(block.spec.id) && preset) {
+      const rendered = renderCustomSurface(block.markup, preset, instanceContext)
+      return editableRelaySurface(rendered, block.markup, block.spec.wrapper, block.spec.id, instanceContext, block.original)
+    }
     const shellMode = renderContext.defaultShellMode || preset?.shellMode || defaultShellMode(block.spec.id)
     const mode = parityModeForSurface(block.spec.id, preset, renderContext)
-    const rendered = renderRegexSurfaceParity(hydrated, mode, renderContext.messageId || `${block.spec.id}-surface`, renderContext.colorMode || 'realistic')
+    const rendered = renderRegexSurfaceParity(hydrated, mode, renderContext.messageId || `${block.spec.id}-surface`, renderContext.colorMode || 'realistic', renderContext.rendererScriptOverrides)
     const residualRoot = new RegExp(`\\[${escapeRegExp(block.spec.wrapper)}(?:\\s+[^\\]]*)?\\]`, 'i').test(rendered)
     const rendererFailedClosed = /data-reverie-surface-contract=["']failed["']|Relay Surface needs repair/i.test(rendered)
     if (residualRoot || rendererFailedClosed) {
@@ -723,7 +756,7 @@ export function renderNativeSurfaceMarkup(
     // whole-message pass also consumes prose illustration anchors adjacent to
     // a bracket Surface, stealing them from the prose lifecycle and placement
     // owner before automatic insertion can complete.
-    input = decorateParityImages(renderRegexSurfaceParity(bracketNormalized.markup, parityModeForSurface('message', undefined, renderContext), renderContext.messageId || 'bracket-surface', renderContext.colorMode || 'realistic'), renderContext)
+    input = decorateParityImages(renderRegexSurfaceParity(bracketNormalized.markup, parityModeForSurface('message', undefined, renderContext), renderContext.messageId || 'bracket-surface', renderContext.colorMode || 'realistic', renderContext.rendererScriptOverrides), renderContext)
   }
   for (const [token, source] of preclaimedDiscordDrift) {
     input = input.replace(token, claimUnsupportedAppDialect('discord-server', 'discord_server with four server_channel children', 'discord_server / discord_message', source))
@@ -745,7 +778,7 @@ export function renderNativeSurfaceMarkup(
     recordSurfacePipelineDiagnostic(block.spec.id, 'normalization', block.diagnostics.length ? `failed: ${block.diagnostics.join('; ')}` : (block.original === block.markup ? 'bypassed: canonical' : 'repaired: recoverable drift'))
     if (block.driftDiagnostics?.length) recordSurfacePipelineDiagnostic(block.spec.id, 'attribute-child-drift', block.driftDiagnostics.join('; '))
     if (block.spec.id === 'kakao') recordKakaoNormalizationTrace(block.original, block.markup)
-    if ((renderContext.rendererMode === 'legacy-regex' || (renderContext.rendererMode === 'hybrid' && hybridSurfaceOwner(activePreset(studio, block.spec.id) || { baseSurfaceId: block.spec.id }) === 'regex'))) return block.original
+    if (renderContext.rendererMode === 'legacy-regex') return block.original
     if (!block.diagnostics.length) return block.markup
     normalizationFailures.push(block.spec.id)
     recordSurfacePipelineDiagnostic(block.spec.id, 'repair', 'invoked: unrecoverable normalization failure')
@@ -760,12 +793,11 @@ export function renderNativeSurfaceMarkup(
   let renderedCount = bracketRenderedCount + normalizationFailures.length + unsupportedAppDrift.length
   const renderedSurfaceIds: string[] = [...bracketRenderedSurfaceIds, ...normalizationFailures, ...unsupportedAppDrift]
 
-  // The reviewed Tinder contract deliberately has its own <tinder> wrapper
-  // rather than the older Relay-only dating_profile wrapper. In Hybrid it is
-  // owned in full by surface_review_tinder, including its nested requests.
-  if ((renderContext.rendererMode === 'legacy-regex' || (renderContext.rendererMode === 'hybrid' && hybridSurfaceOwner(activePreset(studio, 'dating-profile')) === 'regex'))) {
+  // The reviewed Tinder contract has its own <tinder> wrapper. In Regex
+  // presentation its nested media requests remain inside that owner.
+  if (renderContext.rendererMode === 'legacy-regex') {
     content = content.replace(/<tinder\b[^>]*>[\s\S]*?<\/tinder>/gi, fullMatch => {
-      const token = `<!--rrl-hybrid-regex:${protectedRegexSurfaces.size}-->`
+      const token = `<!--rrl-protected-regex:${protectedRegexSurfaces.size}-->`
       protectedRegexSurfaces.set(token, hydrateParityRequests(String(fullMatch || ''), 'dating-profile', renderContext))
       renderedCount += 1
       renderedSurfaceIds.push('dating-profile')
@@ -773,13 +805,16 @@ export function renderNativeSurfaceMarkup(
     })
   }
 
-  for (const [tagName, baseSurfaceId] of ROOT_SPECS) {
+  const dynamicRoots = customRuntimeDefinitions.map(definition => [definition.canonicalOuterWrapper, definition.baseSurfaceId] as const)
+  for (const [tagName, baseSurfaceId] of [...ROOT_SPECS, ...dynamicRoots]) {
     const re = new RegExp(`<${escapeRegExp(tagName)}\\b([^>]*)>([\\s\\S]*?)</${escapeRegExp(tagName)}>`, 'gi')
     content = content.replace(re, (fullMatch, rawAttrs, body) => {
-      const preset = activePreset(studio, baseSurfaceId)
-      if (preset?.enabled === false) return fullMatch
-      if (renderContext.rendererMode === 'legacy-regex' || (renderContext.rendererMode === 'hybrid' && hybridSurfaceOwner(preset || { baseSurfaceId }) === 'regex')) {
-        const token = `<!--rrl-hybrid-regex:${protectedRegexSurfaces.size}-->`
+      const preset = customRuntimeIds.has(baseSurfaceId)
+        ? studio.definitions[studio.activePresetIds?.[baseSurfaceId] || ''] || customByBase.get(baseSurfaceId)
+        : activePreset(studio, baseSurfaceId)
+      if (!customRuntimeIds.has(baseSurfaceId) && preset?.enabled === false) return fullMatch
+      if (renderContext.rendererMode === 'legacy-regex') {
+        const token = `<!--rrl-protected-regex:${protectedRegexSurfaces.size}-->`
         protectedRegexSurfaces.set(token, hydrateParityRequests(String(fullMatch || ''), baseSurfaceId, renderContext))
         renderedCount += 1
         renderedSurfaceIds.push(baseSurfaceId)
@@ -788,6 +823,9 @@ export function renderNativeSurfaceMarkup(
       renderedCount += 1
       renderedSurfaceIds.push(baseSurfaceId)
       const instanceContext = { ...renderContext, streamIslandOrdinal: renderedCount }
+      if (customRuntimeIds.has(baseSurfaceId) && preset) {
+        return editableRelaySurface(renderCustomSurface(String(fullMatch || ''), preset, instanceContext), String(fullMatch || ''), tagName, baseSurfaceId, instanceContext, String(fullMatch || ''))
+      }
       if (REGEX_PARITY_SURFACE_IDS.has(baseSurfaceId)) {
         return renderParityOwnedSurface(baseSurfaceId, tagName, String(fullMatch || ''), preset, instanceContext)
       }
@@ -919,6 +957,7 @@ export function renderNativeSurfaceMarkup(
       parityModeForSurface('message', undefined, renderContext),
       renderContext.messageId || 'message-surface',
       renderContext.colorMode || 'realistic',
+      renderContext.rendererScriptOverrides,
     )
     content = preserveKakaoColorAttributes(content)
   }
@@ -1275,6 +1314,29 @@ function renderKakao(attrs: Record<string, string>, body: string, preset: Custom
   return shell('kakao', attrs.title || 'KakaoTalk', `${attrs.date || ''} · ${attrs.time || ''}`, `<div class="rrn-kakao-head"><div class="rrn-copy"><div class="rrn-meta">${chips}</div></div>${attrs.unread && attrs.unread !== '0' ? `<span class="rrn-chip">${escapeHtml(attrs.unread)} unread</span>` : ''}</div><div class="rrn-card">${rows.join('')}</div>`, preset, context)
 }
 
+function renderCustomSurface(markup: string, preset: CustomSurfaceDefinition, context: NativeSurfaceRenderContext): string {
+  const baseSurfaceId = preset.baseSurfaceId
+  const source = String(markup || '')
+  const request = /<image_request\b[^>]*>[\s\S]*?<\/image_request>/gi
+  const sections: string[] = []
+  let cursor = 0
+  for (const match of source.matchAll(request)) {
+    const start = match.index || 0
+    const text = plainSurfaceText(source.slice(cursor, start).replace(/\[\/?[A-Za-z][\w-]*(?:\s+[^\]]*)?\]/g, ' '))
+    if (text) sections.push(`<p>${escapeHtml(text)}</p>`)
+    sections.push(hydrateParityRequests(match[0], baseSurfaceId, context))
+    cursor = start + match[0].length
+  }
+  const trailing = plainSurfaceText(source.slice(cursor).replace(/\[\/?[A-Za-z][\w-]*(?:\s+[^\]]*)?\]/g, ' '))
+  if (trailing) sections.push(`<p>${escapeHtml(trailing)}</p>`)
+  if (!sections.length) {
+    const text = plainSurfaceText(source)
+    if (text) sections.push(`<p>${escapeHtml(text)}</p>`)
+  }
+  const inner = `<div class="rrn-card rrn-custom-content">${sections.join('')}</div>`
+  return shell(baseSurfaceId, preset.displayName || titleCase(baseSurfaceId), 'Custom Surface', inner, preset, context, 'rrn-custom-surface')
+}
+
 function renderImageSurface(baseSurfaceId: string, rootTag: string, attrs: Record<string, string>, body: string, preset: CustomSurfaceDefinition | undefined, context: NativeSurfaceRenderContext): string {
   const labels: Record<string, [string, string, string]> = {
     'album-cover': ['Album Cover', 'Music release artwork', 'rrn-album'],
@@ -1537,11 +1599,9 @@ function defaultShellMode(baseSurfaceId: string): SurfaceShellMode {
 function safePresetCss(preset: CustomSurfaceDefinition | undefined): string {
   const css = preset?.advancedCss?.trim()
   if (!css) return ''
-  if (/<\/style|<script|javascript:|@import/i.test(css)) return ''
   const presetId = preset?.surfaceId || ''
   if (!presetId) return ''
-  const required = `.rrn-surface[data-rrn-preset="${presetId}"]`
-  if (!css.includes(required)) return ''
+  if (validateDeclarativeSurfaceCss(css, presetId).length) return ''
   return `<style data-rrn-preset-style="${escapeAttr(presetId)}">${css}</style>`
 }
 

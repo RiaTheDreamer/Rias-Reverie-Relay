@@ -69,6 +69,11 @@ export function buildCharacterPhoneRuntimeDirective(defaultAppsInput: unknown): 
     '- ground contextual apps in established story facts, traits, relationships, routine, and ordinary plausible off-screen activity;',
     '- do not invent major unseen events merely to justify an app;',
     '- recent RP is continuity context, not content that must be copied into every app.',
+    '',
+    'App-specific screen contracts:',
+    '- Photos: use [cp_tone]photos[/cp_tone] and repeated [cp_photo] cards. This screen is a two-column camera-roll grid; do not collapse it into a single feed or hero image.',
+    '- Browser: use [cp_tone]browser[/cp_tone] and render a real browser History screen: multiple [cp_row] visits ordered newest first, with page title, domain, visit time, and a short page-context snippet. Do not present bookmarks or search suggestions as history.',
+    '- Health: use [cp_tone]health[/cp_tone] and render a real Health dashboard: a compact top summary with measured [cp_stat] tiles, followed by dated activity/sleep/wellbeing [cp_row] entries. Keep metrics plausible and continuity-grounded; do not invent diagnoses, emergencies, or medical records.',
   ].join('\n')
   let layout: string
   if (defaults.length === 8) {

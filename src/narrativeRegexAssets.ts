@@ -11,6 +11,9 @@ import { normalizeRegisteredHybridClosingDelimiters } from './surfaceStructuralR
 import { applyNarrativeSurfacePresentation, surfaceShellModeForNarrativeVariant, type NarrativeSurfacePresentationVariant } from './surfacePresentation'
 import { decorateSurfaceLauncherMarkup } from './surfaceIcons'
 import { PLOT_SPARK_VECTOR_BY_KEY, type PlotSparkKey, type SurfaceColorMode } from './contracts'
+import { SHIPPED_SURFACE_BY_ID } from './shippedSurfaceDefinitions'
+import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
+import { PERSONA_WARDROBE_UTILITY_PROMPT, renderPersonaWardrobeMarkup } from './personaWardrobe'
 
 export type NarrativeRegexVariant = NarrativeSurfacePresentationVariant
 type NarrativeRegexSourceVariant = Exclude<NarrativeRegexVariant, 'plain-glass'> | 'glass-button'
@@ -106,9 +109,33 @@ export const NARRATIVE_MEDIA_COMPATIBILITY_STYLE = `<style data-reverie-narrativ
 .ra66-card[data-archive-category="ITEM"] .ra66-archive-media>.reverie-artifact-media,.ra66-card[data-archive-category="ITEM"] .ra66-archive-media .reverie-artifact-media,.ra66-card[data-archive-category="ITEM"] .ra66-archive-media img{object-fit:contain!important}
 .ra66-card:not([data-archive-category="ITEM"]) .ra66-archive-media>.reverie-artifact-media,.ra66-card:not([data-archive-category="ITEM"]) .ra66-archive-media .reverie-artifact-media,.ra66-card:not([data-archive-category="ITEM"]) .ra66-archive-media img{object-fit:cover!important}
 .rrcp-wallpaper>.reverie-artifact-media,.rrcp-wallpaper .reverie-artifact-media,.rrcp-wallpaper img{position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;margin:0!important;object-fit:cover!important;object-position:center!important}
+.dg-dramatic-media:empty,.r65-media:empty,.rv6-media:empty,.ru-media:empty,.ru-portrait:empty,.ru-secret-media:empty,.ru-thread-media:empty,.ra66-archive-media:empty,.rrcp-media:empty{display:none!important}
 .r65-thread>.r65-media:not(:has(image_request,image_request_error,img,.reverie-artifact-media,.rrl-island,.rrl-media-slot,[data-reverie-lifecycle-card])){display:none!important}
 .dg-dramatic-media>.rrl-island,.r65-media>.rrl-island,.rv6-media>.rrl-island,.ru-media>.rrl-island,.ru-portrait>.rrl-island,.ru-secret-media>.rrl-island,.ru-thread-media>.rrl-island,.ra66-archive-media>.rrl-island,.rrcp-media>.rrl-island,.rrcp-photo-media>.rrl-island,.rrcp-wallpaper>.rrl-island{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important}
 .r65-parallel-context:not(:has(.r65-opt:not(:empty))){display:none!important}
+.rrcp-tone-photos .rrcp-page-body{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));align-content:start;gap:12px;padding:14px!important}
+.rrcp-tone-photos .rrcp-page-body>.rrcp-photo{min-width:0;align-self:start}
+.rrcp-photo:has(>.rrcp-photo-media>.rrcp-media:empty){min-height:84px;padding:11px;border:1px solid var(--line);border-radius:13px;background:var(--card)}
+.rrcp-photo:has(>.rrcp-photo-media>.rrcp-media:empty)>.rrcp-photo-media{display:none!important}
+.rrcp-photo:has(>.rrcp-photo-media>.rrcp-media:empty)>b{margin-top:0}
+.rrcp-tone-browser .rrcp-app-glyph{background:linear-gradient(145deg,#58b5ff,#276bdf)}
+.rrcp-tone-browser .rrcp-page-body{padding:12px!important}
+.rrcp-tone-browser .rrcp-row{grid-template-columns:30px minmax(0,1fr);gap:9px;margin-bottom:7px;padding:10px 11px;border-left:3px solid #58a8ff;border-radius:12px;background:linear-gradient(180deg,#182338,#111a28)}
+.rrcp-tone-browser .rrcp-row-glyph{width:28px;height:28px;border-radius:9px;background:#253b59;font-size:14px}
+.rrcp-tone-browser .rrcp-row b{font-size:12px!important}
+.rrcp-tone-browser .rrcp-row small{font-size:9px}
+.rrcp-tone-browser .rrcp-row p{margin-top:3px;font-size:10px}
+.rrcp-tone-health .rrcp-app-glyph{background:linear-gradient(145deg,#ff7189,#d83458)}
+.rrcp-tone-health .rrcp-page-body{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));align-content:start;gap:8px;padding:12px!important}
+.rrcp-tone-health .rrcp-stat{width:100%;min-height:0;margin:0;padding:11px;border-radius:14px;background:linear-gradient(180deg,#1d2630,#151d25)}
+.rrcp-tone-health .rrcp-stat small{font-size:9px}
+.rrcp-tone-health .rrcp-stat b{margin-top:5px;font-size:23px!important}
+.rrcp-tone-health .rrcp-stat span{margin-top:3px;font-size:9px}
+.rrcp-tone-health .rrcp-row{grid-column:1/-1;grid-template-columns:32px minmax(0,1fr);gap:9px;margin:0;padding:10px 11px;border-radius:12px}
+.rrcp-tone-health .rrcp-row-glyph{width:30px;height:30px;border-radius:10px;background:#203a34;font-size:14px}
+.rrcp-tone-health .rrcp-row b{font-size:12px!important}
+.rrcp-tone-health .rrcp-row small{font-size:9px}
+.rrcp-tone-health .rrcp-row p{margin-top:3px;font-size:10px}
 </style>`
 
 /** The approved surfaces intentionally own their internal presentation. This
@@ -139,9 +166,20 @@ const NARRATIVE_ICON_BY_SCRIPT_ID: Readonly<Record<string, string>> = {
 }
 
 const safeMessageId = (value: string): string => String(value || 'narrative').replace(/[^A-Za-z0-9_-]+/g, '-') || 'narrative'
-const NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i
+const NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel|persona_wardrobe|relationship_map|character_profile|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i
 
-export const NARRATIVE_UTILITY_PACK = utilityPack as NarrativeUtilityPack
+const RELATIONSHIP_MAP_PROMPT = SHIPPED_SURFACE_BY_ID.get('relationship-map')?.promptModule || ''
+const CAST_SHEET_PROMPT = r45SupplementalSurfaceDefinitions().find(row => row.baseSurfaceId === 'character-profile')?.promptModule || ''
+if (!RELATIONSHIP_MAP_PROMPT || !CAST_SHEET_PROMPT) throw new Error('Moved Narrative Utility contract missing from the built-in Surface catalog')
+export const NARRATIVE_UTILITY_PACK: NarrativeUtilityPack = {
+  ...(utilityPack as NarrativeUtilityPack),
+  loomItems: [
+    ...(utilityPack as NarrativeUtilityPack).loomItems,
+    { loomName: 'Relationship Map', loomContent: RELATIONSHIP_MAP_PROMPT },
+    { loomName: 'Cast Sheet', loomContent: CAST_SHEET_PROMPT },
+    { loomName: 'Persona Wardrobe', loomContent: PERSONA_WARDROBE_UTILITY_PROMPT },
+  ],
+}
 export const NARRATIVE_REGEX_VARIANTS: NarrativeRegexVariant[] = ['sparkle-button', 'plain-button', 'inline', 'glass', 'plain-glass']
 
 /** Canonical model-authored bracket fields consumed by the paired Regexes.
@@ -160,12 +198,15 @@ export const NARRATIVE_UTILITY_FORMAT_CONTRACTS: Readonly<Record<string, readonl
   'Location File': ['[[place ', '[place_media]', '[[/place]]'],
   'In Another Life': ['[WHATIF|', '[whatif_media]', '[whatif_scenario]', '[whatif_branch]', '[/WHATIF]'],
   'Archive Entry': ['[dossier_ui]', '[category]', '[archive_head]', '[archive_media]', '[archive_stats]', '[archive_details]', '[archive_export]', '[/dossier_ui]'],
+  'Relationship Map': ['[relationship_map]', '[character_one]', '[character_two]', '[character_three]', '[connections]', '[/relationship_map]'],
+  'Cast Sheet': ['[character_profile]', '[portrait]', '[name]', '[role]', '[hook]', '[trait]', '[/character_profile]'],
+  'Persona Wardrobe': ['[persona_wardrobe]', '[wardrobe_context]', '[outfit_option]', '[pieces]', '[wear_text]', '[media]', '[/persona_wardrobe]'],
 }
 
 export const NARRATIVE_SURFACE_ROOT_TAGS = [
   'character_phone', 'private_phone', 'dramatic_parallel', 'plot_sparks',
   'scene', 'parallel', 'npc', 'secret', 'world', 'else', 'place',
-  'whatif', 'dossier_ui',
+  'whatif', 'dossier_ui', 'relationship_map', 'character_profile', 'persona_wardrobe',
 ] as const
 
 let narrativeSurfaceBracketTagCache: Set<string> | null = null
@@ -227,7 +268,7 @@ export function narrativeUtilityDisplayName(internalName: string): string {
 export function applyNarrativeDisplayNames(value: string, _rendered = false): string {
   let output = String(value || '')
   for (const [internalName, displayName] of Object.entries(LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS)) {
-    output = output.replace(new RegExp(internalName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), displayName)
+    output = output.replace(new RegExp(internalName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), displayName)
   }
   return output
 }
@@ -237,7 +278,15 @@ export function narrativeUtilityNames(): string[] {
 }
 
 export function narrativeUtilityItems(): NarrativeUtilityItem[] {
-  return (NARRATIVE_UTILITY_PACK.loomItems || []).map(item => ({ ...item }))
+  return (NARRATIVE_UTILITY_PACK.loomItems || []).map(item => item.loomName === 'Character Phone'
+    ? {
+      ...item,
+      loomContent: String(item.loomContent || '').replace(
+        'green|black|red|yellow|orange|blue|slate|photos|purple',
+        'green|black|red|yellow|orange|blue|slate|photos|purple|browser|health',
+      ),
+    }
+    : { ...item })
 }
 
 const PARALLEL_SCENE_FIND = '\\[PARALLEL\\|(?<scope>[^\\|\\]\\r\\n]{1,500})\\|(?<relevance>[^\\]\\r\\n]{1,200})\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread1>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media1>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread2>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media2>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread3>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media3>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_context\\]\\s*\\[trajectory\\](?<trajectory>[\\s\\S]{1,6000}?)\\[/trajectory\\]\\s*\\[intersection\\](?<intersection>[\\s\\S]{1,6000}?)\\[/intersection\\]\\s*\\[/parallel_context\\]\\s*\\[/PARALLEL\\]'
@@ -632,10 +681,19 @@ export function narrativeRegexScripts(variant: NarrativeRegexVariant, colorMode:
       const iconizedReplacement = iconId
         ? decorateSurfaceLauncherMarkup(labeledReplacement, 'narrative', iconId, surfaceShellModeForNarrativeVariant(variant))
         : labeledReplacement
+      const isPhoneApp = script.script_id === 'rrpp_proto_app_v3'
+      const phoneTonePattern = '(green|black|red|yellow|orange|blue|slate|photos|purple)'
       return {
         ...script,
         name: applyNarrativeDisplayNames(String(script.name || script.script_id)).replace(/ - (?:Inline|Button)$/, ` - ${variant === 'inline' ? 'Inline' : 'Button'}`),
-        find_regex: isParallel ? PARALLEL_SCENE_FIND : script.find_regex,
+        find_regex: isParallel
+          ? PARALLEL_SCENE_FIND
+          : isPhoneApp
+            // A Story Model can use a semantic app tone despite the palette
+            // contract. Keep the app navigable with its neutral fallback style;
+            // admit only CSS-class-safe slugs, never arbitrary markup.
+            ? script.find_regex.replace(phoneTonePattern, '([a-z][a-z0-9-]{0,31})')
+            : script.find_regex,
         replace_string: NARRATIVE_MEDIA_OWNER_CLASS.test(iconizedReplacement)
           ? `${NARRATIVE_MEDIA_COMPATIBILITY_STYLE}${iconizedReplacement}`
           : iconizedReplacement,
@@ -776,7 +834,7 @@ export function renderNarrativeRegex(markup: string, variant: NarrativeRegexVari
       return withLorebookExportAction(rendered, lorebookKind, context, messageId, occurrence++)
     })
   }
-  return applyNarrativeDisplayNames(output, true)
+  return applyNarrativeDisplayNames(renderPersonaWardrobeMarkup(output, variant, messageId), true)
 }
 
 export function narrativeRegexVariantMatrix(): Array<{ variant: NarrativeRegexVariant; scriptCount: number; duplicateIds: number; pinnedPresentation: string }> {

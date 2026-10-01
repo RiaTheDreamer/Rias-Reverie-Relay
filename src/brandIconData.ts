@@ -3,6 +3,7 @@
 // so frontend startup never depends on runtime import.meta asset resolution.
 export {
   REVERIE_RELAY_SIDEBAR_ICON_URL,
+  REVERIE_RELAY_OVERVIEW_ICON_URL,
   REVERIE_RELAY_TAB_ICON_URL,
   REVERIE_RELAY_ICON_DATA_URL,
 } from './brandIconData.generated'

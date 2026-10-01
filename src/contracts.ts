@@ -385,6 +385,8 @@ export type ProseIllustratorRecordStatus =
 export type ProseIllustratorSettings = {
   enabled: boolean
   automaticProtocolInjection: boolean
+  /** Dispatch a complete Model Planned illustration request as soon as it streams. */
+  instantIllustrationDispatch: boolean
   mode: ProseIllustratorMode
   plannerConnectionId: string | null
   plannerModel: string
@@ -639,6 +641,8 @@ export type VisualAssetReference = {
   originalSceneBrief: string
   resolvedPositivePrompt: string
   resolvedNegativePrompt: string
+  /** Bounded search terms retained in lightweight drawer state. */
+  searchIndex?: string
   metadata: Record<string, unknown>
 }
 
@@ -963,8 +967,7 @@ export type ContinuityVaultState = {
 export type SurfaceShellMode = 'inline' | 'plain' | 'sparkling' | 'glass' | 'plain-glass' | 'collapsible'
 export type SurfaceColorMode = 'realistic' | 'primary' | 'glass'
 /** Every rendered surface has exactly one visual owner. */
-export type SurfaceRendererMode = 'relay' | 'legacy-regex' | 'hybrid'
-export type HybridSurfaceOwner = 'relay' | 'regex'
+export type SurfaceRendererMode = 'relay' | 'legacy-regex'
 export type SurfaceUtilityInjectionPosition = 'system-prefix' | 'before-chat-history' | 'before-latest-user' | 'after-latest-user' | 'after-chat-history'
 export type SurfacePromptCategory = 'social-messaging' | 'photography-keepsakes' | 'covers-promotion' | 'evidence-editorial' | 'narrative-visuals' | 'custom'
 export type SurfaceDensity = 'compact' | 'comfortable' | 'spacious'
@@ -1005,6 +1008,8 @@ export type CustomSurfaceDefinition = {
   declarativeLayoutFields: Record<string, string>
   validationRules: string[]
   sampleXml: string
+  /** Whether this preset's validation fixture must contain an owned image request. */
+  mediaRequired?: boolean
   deterministicPreviewFixture: Record<string, unknown>
   builtIn: boolean
   enabled: boolean
@@ -1012,12 +1017,17 @@ export type CustomSurfaceDefinition = {
   promptCategory: SurfacePromptCategory
   promptModule: string
   triggerGuidance?: string
-  /** Optional compatibility override; approved R4.5 runtime Surfaces default to Relay ownership. */
-  hybridOwner?: HybridSurfaceOwner
-  /** True only after a person deliberately changed the Hybrid owner control.
-   * Older saved defaults are intentionally re-migrated as reviewed contracts expand. */
-  hybridOwnerConfigured?: boolean
   updatedAt: number
+}
+
+/** User-authored replacement values for one shipped Regex renderer script.
+ * The bundled packs stay immutable; this record is persisted as an overlay. */
+export type SurfaceRendererScriptOverride = {
+  name: string
+  findRegex: string
+  replaceString: string
+  flags: string
+  order: number
 }
 
 export type CustomSurfaceStudioState = {
@@ -1031,6 +1041,7 @@ export type CustomSurfaceStudioState = {
   utilityInjectionEnabled: boolean
   utilityInjectionPosition: SurfaceUtilityInjectionPosition
   utilityTemplate: string
+  rendererScriptOverrides?: Record<string, SurfaceRendererScriptOverride>
   validationErrors: Record<string, string[]>
   lastInjectedModuleIds: string[]
   lastInjectionAt: number
@@ -1411,6 +1422,8 @@ export type SlotRecord = {
   proseIllustrationId?: string
   prosePlanId?: string
   proseAnchor?: ProseIllustrationAnchor
+  /** Exact prose paragraph immediately before an authored illustration request. */
+  authoritativeSourceParagraph?: string
   proseSynthetic?: boolean
   proseImageAlignment?: ProseImageAlignment
   proseImageSize?: ProseImageSize
@@ -1461,6 +1474,8 @@ export type RouterJob = {
   proseIllustrationId?: string
   prosePlanId?: string
   proseAnchor?: ProseIllustrationAnchor
+  /** Exact prose paragraph immediately before an authored illustration request. */
+  authoritativeSourceParagraph?: string
   synthetic?: boolean
   proseImageAlignment?: ProseImageAlignment
   proseImageSize?: ProseImageSize
@@ -1814,7 +1829,7 @@ function removePlotSparkPayloads(value: string): string {
  */
 export function inspectStoryModelOutputContracts(
   value: string,
-  options: { expectedInlineIllustrations?: number | null; inlineCountMode?: 'fixed' | 'minimum' | 'unknown'; expectPlotSparks?: boolean } = {},
+  options: { expectedInlineIllustrations?: number | null; inlineCountMode?: 'fixed' | 'minimum' | 'unknown'; expectPlotSparks?: boolean; plotSparksImagesEnabled?: boolean } = {},
 ): StoryOutputContractInspection {
   const text = String(value || '')
   const inlineSource = removePlotSparkPayloads(text)
@@ -1846,7 +1861,8 @@ export function inspectStoryModelOutputContracts(
     const sparkText = body.match(/\[Text\]\s*([\s\S]*?)\s*\[\/Text\]/i)?.[1]?.trim() || ''
     const sparkMedia = body.match(/\[Media\]\s*([\s\S]*?)\s*\[\/Media\]/i)?.[1] || ''
     const canonicalMedia = /<reverie-illustration\b[^>]*\brequest\s*=\s*["']generate["'][^>]*>[\s\S]*?<visual_prompt\b[^>]*>\s*[^<\s][\s\S]*?<\/visual_prompt\s*>[\s\S]*?<\/reverie-illustration\s*>/i.test(sparkMedia)
-    if (!sparkText || !canonicalMedia) missingMedia.push(key || `spark-${index + 1}`)
+    const mediaValid = options.plotSparksImagesEnabled === false ? !sparkMedia.trim() : canonicalMedia
+    if (!sparkText || !mediaValid) missingMedia.push(key || `spark-${index + 1}`)
   }
   const requiredKeys = Object.keys(PLOT_SPARK_VECTOR_BY_KEY) as PlotSparkKey[]
   const missingKeys = requiredKeys.filter(key => !keysSeen.includes(key))

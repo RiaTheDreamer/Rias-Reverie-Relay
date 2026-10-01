@@ -1,3 +1,5 @@
+import type { ProseIllustrationPlan } from './contracts'
+
 export const RELAY_PLANNED_V2 = 'relay-planned-2' as const
 
 export const RELAY_PLANNED_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '4:5'] as const
@@ -32,6 +34,30 @@ export type RelayPlannedContext = {
   locationReferenceAssetIds: string[]
   priorIllustrations: Array<Record<string, unknown>>
   globalNegativeRequirements: string[]
+}
+
+export function previousSequenceShotContext(
+  plans: ProseIllustrationPlan[],
+  chatId: string,
+  messageId: string,
+  perspectiveMode: string,
+): Record<string, unknown> | null {
+  if (perspectiveMode !== 'sequence') return null
+  const previous = plans
+    .filter(plan => plan.chatId === chatId && plan.messageId !== messageId && plan.status === 'generated')
+    .sort((a, b) => b.planningTimestamp - a.planningTimestamp)[0]
+  if (!previous) return null
+  const composition = previous.promptComposition
+  return {
+    scope: 'previous-completed-shot',
+    planId: previous.planId,
+    title: previous.title,
+    namedSubjects: composition?.namedSubjects || previous.namedSubjects,
+    sceneBrief: (composition?.sceneBrief || previous.sceneBrief).slice(0, 900),
+    framing: (composition?.framing || '').slice(0, 900),
+    location: composition?.location || previous.location,
+    importantProps: (composition?.importantProps || previous.importantProps).slice(0, 12),
+  }
 }
 
 export type RelayPlannedSubjectDirective = {
@@ -271,6 +297,11 @@ export function validateRelayPlannedDirectorResult(rawText: string, context: Rel
       illustration.aspectRatio = (RELAY_PLANNED_ASPECT_RATIOS as readonly string[]).includes(context.defaultAspectRatio) ? context.defaultAspectRatio : '4:3'
       issues.push({ code: 'aspect-normalized', message: 'Relay normalized an unsupported aspect ratio.', repair: 'local' })
     }
+    if ((RELAY_PLANNED_ASPECT_RATIOS as readonly string[]).includes(context.defaultAspectRatio)
+      && illustration.aspectRatio !== context.defaultAspectRatio) {
+      illustration.aspectRatio = context.defaultAspectRatio
+      issues.push({ code: 'aspect-policy-applied', message: 'Relay applied the selected fixed aspect policy.', repair: 'local' })
+    }
     const badRefs = illustration.referenceAssetIds.filter(id => !allowedRefs.has(id))
     const badLocationRefs = illustration.locationReferenceAssetIds.filter(id => !allowedLocationRefs.has(id))
     illustration.referenceAssetIds = illustration.referenceAssetIds.filter(id => allowedRefs.has(id))
@@ -319,27 +350,34 @@ export function compileRelayPlannedPrompt(
   const subjectMap = new Map(context.subjects.map(subject => [key(subject.name), subject]))
   const identity = illustration.namedSubjects.flatMap(name => subjectMap.get(key(name))?.identity || [])
   const current = illustration.namedSubjects.flatMap(name => subjectMap.get(key(name))?.current || [])
-  const directives = illustration.subjectDirectives.flatMap(row => [
-    ...row.appearanceOverrides,
-    ...row.attireOverrides,
-    ...row.temporaryTraits,
-    row.expression,
-    row.pose,
-    row.action,
-    row.contact,
-    row.gaze,
-  ])
   const composition = illustration.composition
+  // Keep each person's identity, current outfit, pose, hands, props, gaze, and
+  // contact attached to their name in every framing mode. Flattening these
+  // fields into one anonymous tag list makes ownership easy for image models
+  // to swap, even when the shot is an ordinary Scene Snapshot.
+  const subjectClauses = illustration.subjectDirectives.map(row => {
+    const subject = subjectMap.get(key(row.name))
+    const details = dedupeOrdered([
+      ...(subject?.identity || []),
+      ...(subject?.current || []),
+      ...row.appearanceOverrides,
+      ...row.attireOverrides,
+      ...row.temporaryTraits,
+      row.expression,
+      row.pose,
+      row.action,
+      row.contact,
+      row.gaze,
+    ])
+    return `${row.name}: ${details.join(', ')}`
+  })
   const ordered = dedupeOrdered([
-    ...fragments(options.stylePrefix || context.promptStyle),
-    ...identity,
-    ...current,
-    ...directives,
     ...fragments(illustration.promptCore),
+    composition.blocking,
+    ...subjectClauses,
     composition.shotType,
     composition.cameraAngle,
     composition.framing,
-    composition.blocking,
     composition.foreground,
     composition.background,
     composition.location,
@@ -347,6 +385,7 @@ export function compileRelayPlannedPrompt(
     composition.lighting,
     composition.mood,
     ...composition.importantProps,
+    ...fragments(options.stylePrefix || context.promptStyle),
     ...illustration.referenceAssetIds.map(id => `character reference ${id}`),
     ...illustration.locationReferenceAssetIds.map(id => `location reference ${id}`),
     ...fragments(options.qualitySuffix),

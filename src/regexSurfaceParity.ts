@@ -4,7 +4,9 @@ import { normalizeSurfaceDocument } from './surfaceXml'
 import {
   containsR45RenderedSurface,
   renderR45BracketSurfaceAuthority,
-  r45SurfaceAuthorityScripts,
+  r45RendererScripts,
+  type R45ScriptOverrides,
+  type R45ScriptSource,
   renderR45SurfaceAuthority,
   type R45ColorMode,
   type R45PresentationMode,
@@ -17,9 +19,11 @@ export type RegexSurfaceParityScript = { name: string; find: string; replace: st
 export function regexSurfaceParityScripts(
   mode: RegexSurfaceParityMode = 'plain',
   color: RegexSurfaceColorMode = 'realistic',
+  source: R45ScriptSource = 'bracket',
+  overrides: R45ScriptOverrides = {},
 ): RegexSurfaceParityScript[] {
   const presentation = mode === 'collapsible' ? 'plain' : mode
-  return r45SurfaceAuthorityScripts(presentation, color).map(script => ({
+  return r45RendererScripts(source, presentation, color, overrides).map(script => ({
     scriptId: script.script_id,
     name: script.name,
     find: script.find_regex,
@@ -34,6 +38,7 @@ export function renderRegexSurfaceParity(
   mode: RegexSurfaceParityMode,
   messageId: string,
   color: RegexSurfaceColorMode = 'realistic',
+  overrides: R45ScriptOverrides = {},
 ): string {
   let output = String(markup || '')
   let sawBracketSurface = false
@@ -45,7 +50,7 @@ export function renderRegexSurfaceParity(
       // Compatibility normalization belongs to this exact R4.5 Surface. Do
       // not expose the rest of a mixed assistant message to generic legacy
       // fields such as [media], because Narrative Utilities own their ranges.
-      : renderR45BracketSurfaceAuthority(block.markup, presentation, messageId, color)
+      : renderR45BracketSurfaceAuthority(block.markup, presentation, messageId, color, overrides)
   })
   if (sawBracketSurface) return bracket.markup
   if (!/(?:rrl-card|rrl-resolved|data-rrn-native-request)/.test(output)) {
@@ -53,7 +58,7 @@ export function renderRegexSurfaceParity(
       ? '<aside class="rrn-contract-recovery" role="status">Relay Surface needs repair. Reparse or rescan in Relay.</aside>'
       : block.markup).markup
   }
-  return renderR45SurfaceAuthority(output, presentation, color, messageId)
+  return renderR45SurfaceAuthority(output, presentation, color, messageId, overrides)
 }
 
 export function containsRenderedRegexSurface(markup: string): boolean {

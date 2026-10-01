@@ -133,7 +133,7 @@ export function normalizeAppearanceSidecarOutput(raw: string): AppearanceSidecar
           name,
           aliases: [],
           role: role === 'user' ? 'persona' : role === 'character' ? 'character' : 'npc',
-          trustworthy: role === 'character' || role === 'user',
+          trustworthy: role === 'character' || role === 'user' || subject.trustworthy === true,
         },
         confidence: 1,
         facts,

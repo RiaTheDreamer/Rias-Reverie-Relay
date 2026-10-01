@@ -28,6 +28,42 @@ export type R45RegexScript = {
   disabled?: boolean
 }
 
+export type R45ScriptSource = 'bracket' | 'legacy-xml'
+export type R45ScriptOverrides = Record<string, {
+  name?: string
+  findRegex?: string
+  replaceString?: string
+  flags?: string
+  order?: number
+}>
+
+export function r45ScriptOverrideKey(source: R45ScriptSource, presentation: R45PresentationMode, color: R45ColorMode, scriptId: string): string {
+  return `${source}:${presentation}:${color}:${scriptId}`
+}
+
+export function r45RendererScripts(
+  source: R45ScriptSource,
+  presentation: R45PresentationMode,
+  color: R45ColorMode,
+  overrides: R45ScriptOverrides = {},
+): R45RegexScript[] {
+  const baseScripts = source === 'legacy-xml'
+    ? r45LegacyXmlSurfaceAuthorityScripts(presentation, color)
+    : r45BracketSurfaceAuthorityScripts(presentation, color)
+  return baseScripts.map(script => {
+    const override = overrides[r45ScriptOverrideKey(source, presentation, color, script.script_id)]
+    if (!override) return script
+    return {
+      ...script,
+      name: override.name ?? script.name,
+      find_regex: override.findRegex ?? script.find_regex,
+      replace_string: override.replaceString ?? script.replace_string,
+      flags: override.flags ?? script.flags,
+      sort_order: Number.isFinite(override.order) ? Number(override.order) : script.sort_order,
+    }
+  }).sort((left, right) => Number(left.sort_order) - Number(right.sort_order))
+}
+
 type R45Pack = {
   version: string
   type: string
@@ -234,10 +270,11 @@ export function renderR45BracketSurfaceAuthority(
   presentation: R45PresentationMode,
   messageId: string,
   color: R45ColorMode = 'realistic',
+  overrides: R45ScriptOverrides = {},
 ): string {
   let output = normalizeR45BracketRuntime(markup)
   const macro = safeMessageId(messageId)
-  for (const script of r45BracketSurfaceAuthorityScripts(presentation, color)) {
+  for (const script of r45RendererScripts('bracket', presentation, color, overrides)) {
     try {
       if (/\\\[notes_app\\\]/.test(script.find_regex)) {
         output = renderVariableNotes(output, script.replace_string, macro)
@@ -263,6 +300,7 @@ export function renderR45SurfaceAuthority(
   presentation: R45PresentationMode,
   color: R45ColorMode,
   messageId: string,
+  overrides: R45ScriptOverrides = {},
 ): string {
   // R4.5 made Discord counts optional for authored XML while its final visual
   // pack captures both fields. Add empty captures only for legacy records;
@@ -298,7 +336,7 @@ export function renderR45SurfaceAuthority(
     return `<k_img caption="">${image}</k_img>`
   })
   const macro = safeMessageId(messageId)
-  for (const script of r45LegacyXmlSurfaceAuthorityScripts(presentation, color)) {
+  for (const script of r45RendererScripts('legacy-xml', presentation, color, overrides)) {
     try {
       const flags = script.flags.includes('g') ? script.flags : `${script.flags}g`
       const replacement = script.replace_string.replace(/\{\{lastMessageId\}\}/g, macro)

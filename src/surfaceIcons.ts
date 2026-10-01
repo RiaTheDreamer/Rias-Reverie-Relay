@@ -1,4 +1,4 @@
-/** Vendored, sanitized icon vectors for the 46 Core and 13 Narrative Surfaces.
+/** Vendored, sanitized icon vectors for the 46 Core and 16 Narrative Surfaces.
  * Lucide: ISC; SVG Repo Spider Web: CC0. See surfaceIcons.sources.md.
  * The keys are stable Surface identifiers, never presentation labels. */
 
@@ -70,7 +70,7 @@ export const SURFACE_ICON_REGISTRY: Record<string, SurfaceIconDefinition> = {
   "core:dating-profile": { svg: VECTORS["heart"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/heart.svg" },
   "core:public-bulletin": { svg: VECTORS["megaphone"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/megaphone.svg" },
   "core:case-file": { svg: VECTORS["folder-search"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/folder-search.svg" },
-  "core:relationship-map": { svg: VECTORS["spider-web"], source: "svgrepo", sourceUrl: "https://www.svgrepo.com/svg/55672/spider-web" },
+  "core:relationship-map": { svg: VECTORS["spider-web"].replace('fill="currentColor"', 'fill="#fff"'), source: "svgrepo", sourceUrl: "https://www.svgrepo.com/svg/55672/spider-web" },
   "core:instagram-dm": { svg: VECTORS["send"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/send.svg" },
   "core:x-dm": { svg: VECTORS["message-square"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/message-square.svg" },
   "core:discord-dm": { svg: VECTORS["message-square-text"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/message-square-text.svg" },
@@ -121,6 +121,9 @@ export const SURFACE_ICON_REGISTRY: Record<string, SurfaceIconDefinition> = {
   "narrative:Location File": { svg: VECTORS["map-pinned"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/map-pinned.svg" },
   "narrative:In Another Life": { svg: VECTORS["git-branch"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/git-branch.svg" },
   "narrative:Archive Entry": { svg: VECTORS["archive"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/archive.svg" },
+  "narrative:Relationship Map": { svg: VECTORS["spider-web"], source: "svgrepo", sourceUrl: "https://www.svgrepo.com/svg/55672/spider-web" },
+  "narrative:Cast Sheet": { svg: VECTORS["contact"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/contact.svg" },
+  "narrative:Persona Wardrobe": { svg: VECTORS["shopping-bag"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/shopping-bag.svg" },
 }
 
 export function surfaceIconMarkup(family: SurfaceIconFamily, id: string): string {

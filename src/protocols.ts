@@ -157,11 +157,11 @@ Give every visible face a concrete attention target. Use direct eye contact only
 Show the event, not a promotional portrait. Preserve awkwardness, hesitation, distraction, restraint, fatigue, and imperfect posture when the scene supports them.`,
   sequence: `SEQUENCE FRAMING
 
-Frame the next moment in an established visual sequence.
+Frame the next moment as the immediately following shot in an established visual sequence. Treat the latest completed frame as a hard visual continuity reference, not just story context.
 
-Preserve known subject count, identity, proportions, hairstyle, wardrobe state, injuries, props, handedness, screen direction, camera side, and location layout. Continue the action rather than freezing the previous pose.
+Carry forward every established visible subject and preserve the exact subject count, identity, proportions, left/right order, screen position, facing, and distance. Never silently omit, merge, duplicate, hide, or crop out an established person; widen the camera when needed to keep every established subject clearly visible.
 
-Reuse the established camera axis and geography when known. Let the current moment change the hands, weight shift, gaze, expression, and physical relationship.
+Keep the previous camera axis, height, distance, angle, shot size, subject blocking, room geography, lighting, hairstyle, wardrobe state, injuries, props, and handedness unless the current paragraph explicitly changes them. Continue the action rather than freezing or restaging the previous pose. Change only the action, gesture, gaze, expression, or physical relationship that the paragraph advances.
 
 Direct attention toward the established interaction instead of assuming eye contact with the viewer. Preserve calm, numb, restrained, distracted, or uncertain expressions when the scene supports them.`,
   'emotional-beat': `EMOTIONAL BEAT FRAMING
@@ -186,14 +186,30 @@ This is a cast limit, not a portrait instruction. Choose a camera that makes {{c
 Give {{char}} a concrete gaze target. Do not default to looking at the viewer, smiling, posing, or standing like a model.`,
   'persona-pov': `PERSONA POV FRAMING
 
-Treat the active Persona as a physically located observer inside the scene.
+The active Persona is the camera/viewpoint only. The final image is what that Persona sees from their eyes; the active Persona is never visible and is never part of the depicted cast.
 
-Resolve where the Persona is before writing the prompt: standing or seated position, eye height, orientation, distance, foreground obstruction, nearby objects, and the direction of attention. The camera must feel attached to that location rather than floating outside the event.
+Resolve the Persona's eye position, height, orientation, distance, foreground obstruction, nearby objects, and direction of attention. Attach the camera to that exact location rather than floating outside the event.
 
-Show what the Persona can actually see from that position. Characters may meet the lens when they are speaking to, touching, recognizing, confronting, or intentionally looking at the Persona. Otherwise, direct their attention toward the person, object, movement, or environment that holds it.
+Show only what the Persona can see from that position. Never depict any part of the Persona's body—not hands, arms, legs, shoulders, or torso—and never show the Persona in a mirror, reflection, screen, photograph, video, portrait, avatar, poster, silhouette, or shadow. The Persona must not appear as imagery on a monitor, phone, display, photograph, video, or other object anywhere in frame. Unless the paragraph explicitly requires a scene-critical display, keep screens and framed material blank, dark, or abstract; do not invent a person, face, portrait, avatar, or photograph there. Never show the camera-holder's likeness. Do not include the Persona's appearance or identity in visible-character descriptions, subject counts, or cast lists.
 
-The Persona may remain entirely unseen. Do not add generic hands, knees, shoulders, reflections, mirror shots, or selfie framing. Only depict Persona body parts when the scene establishes them.`,
+Other visible characters may meet the lens only when the scene establishes that they are speaking to, recognizing, confronting, or intentionally addressing the Persona. Otherwise, their gaze must follow the person, object, movement, or environment that holds their attention. Never turn this first-person view into a selfie or an outside-observer shot.`,
 } as const
+
+const ILLUSTRATION_SCENE_FIDELITY_GUIDANCE = `SCENE FIDELITY AND SPATIAL CHOREOGRAPHY
+
+Write enough specific, unambiguous visual detail for an image model to reproduce the actual event, not a rough thematic equivalent. Establish the exact visible count and camera first; assign blocking, orientation, action, hands, and props to each individual subject; then describe their shared interaction and the environment. Keep the central action and relationships readable in the chosen crop.
+
+When bodies overlap or contact is central, spell out the physical arrangement: who is behind, in front, above, or below; which way each person faces; how torsos and legs align; whose arm or hand is where; and the exact point of contact. A spooning beat must say who is behind whom, their facing/orientation, and where the arm rests. "Two people cuddling in bed" is too vague when the prose specifies more. Preserve the established action and intimacy level; use source-supported details only, and never invent or escalate contact.`
+
+export const ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE = `IMAGE-PROMPT CHANNEL SEPARATION
+
+<visual_prompt> is the image description only. Translate the paragraph directly above into a concrete, image-ready description of that exact visible moment. Each request is a standalone image prompt: for every visible named subject, repeat the supported stable appearance, distinctive permanent traits (including visible android or prosthetic parts), and complete current outfit in this <visual_prompt>, even if another request in the same response already described them. Do not use "same as above", omit a trait because it appeared in earlier prose or an earlier request, or invent details that have not been established. Organize it in this order: (1) exact visible subject count, including who is outside the frame; (2) camera position, shot size, angle, and crop; (3) each visible subject separately, named when known, with that subject's own position, orientation, pose, appearance, clothing, expression, and owned hands or props; (4) the shared action or interaction, including who touches whom and where; (5) the environment, depth anchors, and scene-supported lighting. Use concise visual clauses, not headings or a copied paragraph. A detail belongs to one subject or to the shared scene—never leave limb, prop, or contact ownership ambiguous.
+
+Do not copy the narrative paragraph, narration, or dialogue into <visual_prompt>. Do not put Relay instructions, framing-mode rules, XML/slot/placement directions, caption intent, or notes about where the request belongs in the story into it. Write declarative visual content, not a note to the Story Model, Relay, or image model. Do not invent speech bubbles, subtitles, captions, or decorative text; include readable text only when the paragraph explicitly makes a physical text-bearing object part of the image, and describe that object rather than pasting narrative dialogue.`
+
+export const RELAY_PLANNED_STORY_CHANNEL_GUIDANCE = `STORY/PROVIDER CHANNEL SEPARATION
+
+In Relay-Planned mode, write ordinary narrative prose only. Do not emit image prompts, illustration tags, camera/framing instructions, or commentary about how Relay should render or place an image. Relay's separate planner and composer build an image-only prompt from the selected story beat. Never turn narrative dialogue or prose into rendered captions or speech bubbles.`
 
 export const REVERIE_ILLUSTRATION_PROTOCOL = `[REVERIE RELAY — MODEL-PLACED ILLUSTRATION PROTOCOL]
 
@@ -217,17 +233,27 @@ generation-ready visual prompt
 
 Place the request exactly where the illustration belongs in the narrative.
 
+PARAGRAPH-TO-FRAME LOCK
+
+Emit each <reverie-illustration> immediately after the prose paragraph it depicts. The paragraph directly above the opening tag is the only story beat this tag illustrates. Treat it as the source of truth: choose its clearest concrete instant and show its main visible action, participants, positions, interaction, important props, and scene anchors inside <visual_prompt>.
+
+Do not substitute a generic portrait, summarize the whole response, or illustrate a different beat from elsewhere in the scene. Do not borrow actions from a later paragraph, advance an action beyond the paragraph, or invent contact or staging that the paragraph has not established. Stable identity and continuity may supplement the frame, but must not replace what the paragraph visibly says.
+
+${ILLUSTRATION_SCENE_FIDELITY_GUIDANCE}
+
 VISUAL PROMPT OWNERSHIP
 
 For Model-Placed illustrations, write the complete scene-specific image prompt inside <visual_prompt>.
 
-Relay preserves that composition and supplements it with stable identity continuity, Appearance Memory data, configured references, LoRA trigger/base tags, negative-prompt assembly, generation settings, and provider formatting.
+Relay preserves that composition and supplements it with stable identity continuity, Appearance Memory data, configured references, LoRA trigger/base tags, negative-prompt assembly, generation settings, and provider formatting. This downstream safety net does not replace a self-contained appearance description in each authored request.
 
 Focus <visual_prompt> on what this particular image visibly contains.
 
+${ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE}
+
 PROMPT STYLE
 
-Prefer compact Danbooru-style visual tags and concise descriptive fragments.
+Prefer compact Danbooru-style visual tags and concise descriptive fragments only when they remain unambiguous. Prioritize scene fidelity over brevity: do not compress complex action, body position, ownership, orientation, or contact into a broad tag when a clear natural-language clause is needed.
 
 Use short natural-language clauses when they make any of these clearer:
 
@@ -329,14 +355,20 @@ The <visual_prompt> content is consumed by Reverie Relay and is not reader-facin
 
 export const REVERIE_RELAY_PLANNED_PROTOCOL = `REVERIE RELAY — RELAY-PLANNED ILLUSTRATIONS
 
-Write the narrative response as ordinary prose. Do not emit prose-illustration tags. Relay independently discovers eligible visual beats, plans one distinct image per selected beat, composes the visible prompt, generates it, and places it at the selected paragraph anchor. Enabled semantic surfaces remain available at their natural story beats.`
+Write the narrative response as ordinary prose. Do not emit prose-illustration tags. Relay independently discovers eligible visual beats, plans one distinct image per selected beat, composes the visible prompt, generates it, and places it at the selected paragraph anchor. Enabled semantic surfaces remain available at their natural story beats.
+
+The current paragraph owns the moment and any explicit change. Preserve each named character's stable identity and last confirmed current outfit; a default outfit, reference, location change, or emotional shift does not imply new clothing. Changes are incremental: change only what the story changes, retain the rest, and do not restore removed garments. Leave unknown details unspecified.
+
+Narrate relevant blocking and interaction unambiguously: who is standing, sitting, or lying where; facing and front/behind position; who owns each hand or prop; and the exact contact, if any. Name participants when pronouns could blur ownership. Preserve action stage—reaching is not holding, approaching is not touching, offering is not a completed transfer. Keep continuity natural in the prose; do not add image-making instructions or a visual inventory.
+
+${RELAY_PLANNED_STORY_CHANNEL_GUIDANCE}`
 
 /** One-pass authoring: the Story Model owns the exact request and placement.
  * Relay scans the same canonical grammar but does not invoke a planner or a
  * prompt-completion pass for these requests. */
-export const REVERIE_INLINE_PROTOCOL = `REVERIE RELAY — INLINE PROTOCOL
+export const REVERIE_INLINE_PROTOCOL = `REVERIE RELAY — MODEL PLANNED ILLUSTRATIONS
 
-INLINE IS ONE-PASS FULL MODEL AUTHORING.
+MODEL PLANNED IS ONE-PASS FULL MODEL AUTHORING.
 
 The Story Model owns the visual beat selection, request placement, visible cast, camera position, shot size, blocking, action, contact, environment, depth, relevant gaze and expression, and the final <visual_prompt>. Relay will not perform a second creative composition pass. The <visual_prompt> must already be an intentional, finished, image-ready composition.
 
@@ -348,86 +380,37 @@ CANONICAL FORMAT
 
 Place the completed request exactly where the illustration belongs in the narrative. Do not emit a planning note, parser task, acknowledgement, or second completion request. When Auto Generate is enabled Relay dispatches the exact inline request after deterministic parsing; when Auto Generate is disabled it remains a manual lazy slot.
 
+PARAGRAPH-TO-FRAME LOCK
+
+Emit every inline <reverie-illustration> immediately after the prose paragraph it depicts. The paragraph directly above the opening tag is the only story beat that tag illustrates. Freeze one concrete instant from that paragraph and make its main visible action, participants, blocking, interaction, important prop, and relevant setting directly recognizable in <visual_prompt>. The paragraph—not the general scene, the whole response, or a later paragraph—is the source of truth for the image.
+
+Do not replace the paragraph's event with a generic character portrait, add an action that has not happened yet, or import a different beat from nearby prose. Stable identity and continuity may supplement the frame, but must not displace the paragraph's actual visible moment. If the paragraph contains several actions, select the one instant that best represents it; do not turn the prompt into a montage.
+
+${ILLUSTRATION_SCENE_FIDELITY_GUIDANCE}
+
+${ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE}
+
 SCENE-FIRST COMPOSITION
 
-The subject of the illustration is the story moment, not automatically the characters' faces.
+The subject is the story moment, not automatically the characters' faces. Emotional importance does not automatically justify a close-up; close-ups remain valid when the visible beat genuinely calls for one. Choose a camera wide enough to show the action, contact, props, and setting that matter. If the environment, hands, body relationship, or important prop would be lost in a close-up, widen the camera.
 
-Before writing <visual_prompt>, identify what makes this beat visually interesting: physical action, body interaction, hands or contact, spatial distance, environment or architecture, a prop or machine, an object being manipulated, movement, environmental transformation, a projection or screen, foreground/background contrast, a reveal, silhouette, lighting change, or facial reaction.
-
-Facial reaction is one possible visual center, not the default. Emotional importance does not automatically justify a close-up. Romantic tension does not automatically justify a two-shot of faces. Dialogue does not automatically justify a portrait. Two visible people do not make the image a posed couple photo.
-
-SHOT-SELECTION GRAMMAR
-
-Choose the shot according to what must remain readable.
-
-WIDE / MEDIUM-WIDE
-Use when environment or spatial geography matters; subjects interact through space; machinery, architecture, or projection is important; body movement or multiple depth planes matter; the scene contains a visual reveal; or action needs context.
-
-MEDIUM
-Use when physical interaction matters; hands or contact must remain visible; seated/standing blocking matters; or body language matters more than facial microdetail.
-
-CLOSE
-Use only when a facial microreaction is itself the primary visual event, a small intimate detail cannot be read otherwise, the prose explicitly makes the face/eyes/mouth the visual center, or the scene deliberately calls for close framing.
-
-DETAIL / INSERT
-Use when hand contact, a device, wound, object, controls, soldering, phone, letter, weapon, jewelry, or another specific physical detail is the actual visual beat.
-
-Do not choose a close shot merely because the scene is emotionally intense. If the environment, hands, body relationship, or important prop would be lost in a close-up, widen the camera.
-
-For Scene Snapshot-style Inline illustrations, prefer medium-wide or medium framing, then wide framing, before close-up unless the visible beat supplies a scene-specific reason. A close-up is an exception selected because the visible beat requires it, not the automatic expression of importance. Close-ups remain valid when the scene genuinely calls for them.
-
-ENVIRONMENT RETENTION
-
-If the prose establishes a visually meaningful location, retain enough of it to identify the scene. Do not turn a location-rich event into an anonymous blurred backdrop merely because people are present. Keep at least one or two concrete environmental anchors visually legible when the setting matters: a workshop's bench, CRTs, cables, tools, projection equipment, or industrial light; a gym's floor, markings, hoops, bleachers, equipment, or room scale; a bedroom's bed, window, bedside objects, light source, or relevant clutter; a hallway's doors, lockers, windows, stairwell, depth lines, or established foot traffic.
-
-COMPOSITION ORDER
-
-Build <visual_prompt> in this conceptual order:
-1. camera, shot size, and angle;
-2. environment and major depth planes;
-3. visible subject count;
-4. physical positions and blocking;
-5. body orientation;
-6. action and movement;
-7. hands, contact, and object ownership;
-8. important props;
-9. lighting;
-10. gaze and expression only where visibly important.
-
-Do not lead with eyes, eyelashes, lips, a pretty or handsome face, delicate facial features, gaze, or expression unless that feature is genuinely the subject of the shot. Preserve foreground, midground, and background relationships when the beat depends on depth.
+In natural, concise image language, establish visible count and camera, then each subject's position/orientation/pose and owned clothing/hands/props, the shared action or exact contact, and the scene's depth and environmental anchors. Keep useful locations recognizable and keep gaze/expression with its owner; do not let face detail displace blocking or action.
 
 SCENE-SPECIFIC APPEARANCE
 
-Do not manually dump stable identity catalogues into <visual_prompt>. Relay supplies stable identity continuity downstream. Focus on scene-specific visible information: current clothing, scene-specific expression, current gaze target, temporary hair state, injury, sweat, tears, closed eyes, current transformation, or another unusual present state.
+Resolve each subject from the paragraph's moment and the latest established story state. In every <visual_prompt>, state each visible named subject's supported stable appearance and distinctive permanent traits, including visible android or prosthetic parts, plus their complete current outfit. Repeat these facts independently for every request, including the second and later images in one response; never rely on a previous illustration request or Relay's downstream identity supplement to supply an omitted trait. Use supplied identity and confirmed Appearance Memory only as compact, supported anchors. Carry forward the last confirmed current outfit until the story changes it. Outfit changes are incremental: change only what the story changed, retain the rest, and do not restore removed garments. A default outfit, reference image, mood, or location change does not change clothing. Unknown details stay unspecified.
 
-Permanent eye color, eyelashes, lip shape, face shape, jaw shape, beauty claims, body catalogues, and other stable traits should not be repeated merely because they exist. Include a stable feature only when it is specifically relevant to the current scene or truly owns the selected close/detail composition.
+EXACT POSITIONS AND INTERACTIONS
 
-FACE DETAIL BUDGET
-
-For wide and medium-wide shots, facial detail is low priority: expression may be brief and gaze may have a target, but stable eye, lash, lip, and face-shape detail should generally be omitted. For medium shots, include expression or gaze only as needed. For close shots, facial detail may become prominent because it is visible and compositionally relevant.
-
-Do not let several face descriptors outweigh blocking, action, environment, contact, or props.
+Name owners whenever pronouns could swap positions, limbs, hands, props, or contact. Preserve frame-left/right, each person's facing and front/behind depth, support surface, distance, and established handedness. State who touches which body part or garment; preserve gaps and action stage (reaching is not touching, offering is not holding). Never mirror, merge, swap, or invent contact. In Persona POV, the Persona is an unseen camera only. Put resolved visible facts—not these instructions—inside <visual_prompt>.
 
 MULTIPLE INLINE ILLUSTRATIONS
 
-When authoring multiple Inline requests in one response, treat them as coverage from the same film sequence. Avoid repeating the same shot size, two-shot, face-to-face composition, camera side, or centered framing. Review the other Inline requests already authored in the same response. Prefer a meaningfully different scale, angle, or visual center when another valid composition would tell the beat better. A wide establishing frame, medium action frame, insert/detail, and emotionally justified close frame are possible coverage—not a mandatory order.
+When a response has multiple requests, treat each <visual_prompt> as independent: repeat the visible subjects' established appearance, permanent features, and full current clothing in every one. Do not force a shot sequence. Prefer a meaningfully different scale, angle, or visual center when that better shows each beat.
 
 CAST SEMANTICS — BOUND IDENTITIES ONLY
 
-The cast attribute refers only to the active bound Character and active bound Persona. Determine cast from which bound identities are actually visible, not from person count.
-
-cast="char" includes the active bound Character.
-cast="user" includes the active bound Persona.
-cast="char+user" includes BOTH active bound identities.
-cast="none" includes neither active bound identity.
-
-Named NPCs and additional named characters are written explicitly in <visual_prompt>. Their presence does not automatically require cast="user". Do not use cast="char+user" merely because two people are visible.
-
-Example: active Character Gabrielle, active Persona Arin, visible scene Gabrielle plus Cerys. Use cast="char" and name Cerys explicitly in <visual_prompt>. Using cast="char+user" would silently add Arin and is wrong.
-
-Example: active Character Gabrielle, active Persona Cerys, visible scene Gabrielle plus Cerys. Use cast="char+user" because both bound identities are visible.
-
-For object or environment compositions with neither bound identity visible, use cast="none".
+The cast attribute names only visible bound identities: "char" = active Character, "user" = active Persona, "char+user" = both, and "none" = neither. Named NPCs belong in <visual_prompt> but not in cast. Do not use cast="char+user" merely because two people are visible.
 
 ASPECT AND MEDIA
 
@@ -490,7 +473,7 @@ ${REVERIE_SURFACE_APP_SCHEMA_FIREBREAK}
 `
 
 
-export const REVERIE_ALL_PROTOCOLS = `${REVERIE_SURFACE_PROTOCOL}\n\n${REVERIE_ILLUSTRATION_PROTOCOL}\n\n${REVERIE_ARTIFACT_MEDIA_PROTOCOL}`
+export const REVERIE_ALL_PROTOCOLS = `${REVERIE_SURFACE_PROTOCOL}\n\n${REVERIE_INLINE_PROTOCOL}\n\n${REVERIE_ARTIFACT_MEDIA_PROTOCOL}`
 
 /** Legacy XML normalization reference used to recover imported/persisted
  * Surface definitions. Runtime model instructions are generated from each
@@ -662,9 +645,9 @@ Output the bracket Surface adjacent to the relevant character entrance. Keep onl
 }
 
 export const PROMPT_REGISTRY_DEFINITIONS: PromptRegistryDefinition[] = [
-  { id: 'story.model-placed', displayName: 'Model-Placed Illustrator', description: 'Canonical Story Model illustration contract.', category: 'story-model', defaultTemplate: REVERIE_ILLUSTRATION_PROTOCOL, version: 2, requiredTokens: ['<reverie-illustration', '<visual_prompt>', 'cast="none"'] },
-  { id: 'story.inline-protocol', displayName: 'Inline Protocol Illustrator', description: 'One-pass Story Model request and placement contract.', category: 'story-model', defaultTemplate: REVERIE_INLINE_PROTOCOL, version: 2, requiredTokens: ['<reverie-illustration', 'request="generate"', '<visual_prompt>'] },
-  { id: 'story.relay-planned', displayName: 'Relay-Planned Illustrator', description: 'Story Model behavior while Relay plans visual beats.', category: 'story-model', defaultTemplate: REVERIE_RELAY_PLANNED_PROTOCOL, version: 2 },
+  { id: 'story.model-placed', displayName: 'Model-Placed Illustrator', description: 'Canonical Story Model illustration contract.', category: 'story-model', defaultTemplate: REVERIE_ILLUSTRATION_PROTOCOL, version: 4, requiredTokens: ['<reverie-illustration', '<visual_prompt>', 'cast="none"', 'PARAGRAPH-TO-FRAME LOCK', 'SCENE FIDELITY AND SPATIAL CHOREOGRAPHY', 'IMAGE-PROMPT CHANNEL SEPARATION'] },
+  { id: 'story.inline-protocol', displayName: 'Model Planned Illustrator', description: 'Compact one-pass Story Model request and placement contract.', category: 'story-model', defaultTemplate: REVERIE_INLINE_PROTOCOL, version: 8, requiredTokens: ['<reverie-illustration', 'request="generate"', '<visual_prompt>', 'PARAGRAPH-TO-FRAME LOCK', 'SCENE FIDELITY AND SPATIAL CHOREOGRAPHY', 'IMAGE-PROMPT CHANNEL SEPARATION'] },
+  { id: 'story.relay-planned', displayName: 'Relay-Planned Illustrator', description: 'Story Model continuity and prose behavior while Relay plans visual beats.', category: 'story-model', defaultTemplate: REVERIE_RELAY_PLANNED_PROTOCOL, version: 5, requiredTokens: ['ordinary prose', 'Do not emit prose-illustration tags', 'STORY/PROVIDER CHANNEL SEPARATION'] },
   { id: 'story.surface-protocol', displayName: 'Shared Surface Protocol', description: 'Shared semantic surface authorship rules.', category: 'story-model', defaultTemplate: REVERIE_SURFACE_PROTOCOL, version: 3, requiredTokens: ['AUTHORSHIP', '<image_request>'] },
   { id: 'story.artifact-media', displayName: 'Artifact Media', description: 'Inline artifact image request contract.', category: 'story-model', defaultTemplate: REVERIE_ARTIFACT_MEDIA_PROTOCOL, version: 2, requiredTokens: ['target="custom.artifact-media"'] },
   { id: 'story.runtime-directives', displayName: 'Illustrator Runtime Directives', description: 'Deterministic runtime values injected into the Story Model prompt.', category: 'story-model', defaultTemplate: DEFAULT_RUNTIME_DIRECTIVES_TEMPLATE, version: 4, requiredTokens: ['{{target_count}}', '{{minimum_count}}', '{{count_mode}}', '{{illustration_instruction}}'] },
@@ -675,7 +658,7 @@ export const PROMPT_REGISTRY_DEFINITIONS: PromptRegistryDefinition[] = [
     description: ILLUSTRATOR_FRAMING_METADATA[id as keyof typeof ILLUSTRATOR_FRAMING_METADATA].description,
     category: 'story-model' as const,
     defaultTemplate,
-    version: 4,
+    version: id === 'persona-pov' ? 6 : id === 'sequence' ? 5 : 4,
     status: 'stable' as const,
   })),
   {
@@ -694,7 +677,7 @@ export const PROMPT_REGISTRY_DEFINITIONS: PromptRegistryDefinition[] = [
     description: 'Editable runtime request template for completed-response appearance extraction.',
     category: 'sidecars',
     defaultTemplate: APPEARANCE_SIDECAR_REQUEST_TEMPLATE,
-    version: 1,
+    version: 2,
     status: 'stable',
     allowedPlaceholders: ['adultMode', 'providerVocabulary', 'manualAppearanceJson', 'canonicalAppearanceJson', 'currentVisualStateJson', 'subjectBindingsJson', 'tagVocabularyJson', 'sourceResponse'],
     requiredTokens: ['{{sourceResponse}}', '{{canonicalAppearanceJson}}', '{{currentVisualStateJson}}'],
@@ -705,7 +688,7 @@ export const PROMPT_REGISTRY_DEFINITIONS: PromptRegistryDefinition[] = [
     description: 'Canonical Relay-Planned illustration selection and direction law.',
     category: 'sidecars',
     defaultTemplate: RELAY_PLANNED_DIRECTOR_SYSTEM_PROMPT,
-    version: 1,
+    version: 2,
     status: 'stable',
     allowedPlaceholders: [],
   },

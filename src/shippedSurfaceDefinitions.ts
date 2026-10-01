@@ -429,12 +429,6 @@ export const SHIPPED_SURFACE_ROOT_TAGS = SHIPPED_SURFACE_SPECS.map(spec => spec.
 /** Runtime ownership is Relay-only for approved R4.5 Surfaces; Regex packs are compatibility/reference assets. */
 export const REVIEWED_REGEX_SURFACE_IDS = new Set<string>()
 
-/** The deterministic Hybrid default. A deliberate per-preset preference wins. */
-export function hybridSurfaceOwner(definition: Pick<CustomSurfaceDefinition, 'baseSurfaceId' | 'hybridOwner' | 'hybridOwnerConfigured'> | undefined): 'relay' | 'regex' {
-  if (definition?.hybridOwnerConfigured === true && definition.hybridOwner) return definition.hybridOwner
-  return 'relay'
-}
-
 export function shippedSurfaceDefinitions(now = Date.now()): CustomSurfaceDefinition[] {
   const imageFormat = '<img src="{{imageUrl}}" alt="{{alt}}" data-dgir-key="{{slotKey}}" data-dgir-request-id="{{requestId}}" data-dgir-slot="{{slot}}" data-dgir-custom-target="{{target}}" data-dgir-image-id="{{imageId}}">'
   return SHIPPED_SURFACE_SPECS.map(spec => ({
@@ -474,8 +468,6 @@ export function shippedSurfaceDefinitions(now = Date.now()): CustomSurfaceDefini
     promptCategory: spec.category,
     promptModule: spec.promptModule,
     triggerGuidance: spec.triggerGuidance,
-    hybridOwner: 'relay',
-    hybridOwnerConfigured: false,
     updatedAt: now,
   }))
 }

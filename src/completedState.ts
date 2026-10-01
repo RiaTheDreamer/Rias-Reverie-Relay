@@ -50,6 +50,16 @@ export function completedArchiveId(record: Pick<SlotRecord, 'key' | 'completedAt
   return `completed-${(hash >>> 0).toString(16).padStart(8, '0')}`
 }
 
+export function completedDiagnosticArchiveNeedsWrite(
+  record: Pick<SlotRecord, 'key' | 'completedAt' | 'updatedAt'>,
+  existing: { diagnosticArchiveId?: string; diagnosticArchivedAt?: number } | undefined,
+  hasHeavyData: boolean,
+): boolean {
+  if (!hasHeavyData) return false
+  const archiveId = completedArchiveId(record)
+  return !existing?.diagnosticArchivedAt || existing.diagnosticArchiveId !== archiveId
+}
+
 export function compactCompletedRecord(record: SlotRecord): CompactCompletedRecord {
   return {
     key: record.key,
@@ -108,6 +118,7 @@ export function stripCompletedRecord(record: SlotRecord): SlotRecord {
     proseIllustrationId: record.proseIllustrationId,
     prosePlanId: record.prosePlanId,
     proseAnchor: record.proseAnchor,
+    authoritativeSourceParagraph: record.authoritativeSourceParagraph,
     proseSynthetic: record.proseSynthetic,
     proseImageAlignment: record.proseImageAlignment,
     proseImageSize: record.proseImageSize,

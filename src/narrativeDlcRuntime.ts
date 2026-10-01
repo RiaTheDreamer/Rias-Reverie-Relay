@@ -12,9 +12,13 @@ import {
 } from './narrativeRegexAssets'
 import { PLOT_SPARK_VECTOR_BY_KEY } from './contracts'
 import type { SurfaceColorMode } from './contracts'
+import { r45SurfaceAuthorityScripts } from './r45SurfaceAuthority'
+import { surfaceShellModeForNarrativeVariant } from './surfacePresentation'
+import { textOnlyNarrativeUtilityContent } from './narrativeTextOnlyPrompts'
 
-export const NARRATIVE_DLC_FOLDER = 'Reverie Relay · Narrative DLC'
-export const NARRATIVE_DLC_NAMESPACE = 'reverie-relay:narrative-dlc'
+export const NARRATIVE_DLC_FOLDER = 'Reverie Relay · Regex Pack'
+export const NARRATIVE_DLC_NAMESPACE = 'reverie-relay:regex-pack'
+const RELAY_EXTENSION_ID = 'reverie_relay'
 export const NARRATIVE_DLC_VERSION = String(NARRATIVE_UTILITY_PACK.version || '6.1')
 
 export type NarrativeDlcSyncStatus = 'not-installed' | 'healthy' | 'drifted' | 'failed' | 'removed'
@@ -34,6 +38,16 @@ export type NarrativeDlcHealth = {
 export type NarrativeRegexApi = Pick<SpindleAPI['regex_scripts'], 'list' | 'create' | 'update' | 'delete'>
 type NarrativeRegexMutationInput = RegexScriptCreateDTO & { actions?: Array<Record<string, unknown>>; target?: unknown }
 
+/** The host pack is an optional, disabled reference import. Relay's bundled
+ * renderers do not depend on these host scripts being enabled. */
+export function relayRegexImportScripts(variant: NarrativeRegexVariant, colorMode: SurfaceColorMode = 'realistic'): NarrativeRegexScript[] {
+  const shell = surfaceShellModeForNarrativeVariant(variant)
+  const presentation = shell === 'plain-glass' ? 'glass' : shell === 'sparkling' ? 'sparkling' : shell === 'plain' ? 'plain' : shell === 'glass' ? 'glass' : 'inline'
+  const core = r45SurfaceAuthorityScripts(presentation, colorMode).map(script => ({ ...script, disabled: true })) as NarrativeRegexScript[]
+  const narrative = narrativeRegexScripts(variant, colorMode).map(script => ({ ...script, disabled: true }))
+  return [...core, ...narrative]
+}
+
 function selectedTarget(script: NarrativeRegexScript): 'prompt' | 'response' | 'display' {
   const target = Array.isArray(script.target) ? script.target[0] : script.target
   return target === 'prompt' || target === 'response' ? target : 'display'
@@ -42,7 +56,7 @@ function selectedTarget(script: NarrativeRegexScript): 'prompt' | 'response' | '
 export function narrativeRegexCreateInput(script: NarrativeRegexScript, variant: NarrativeRegexVariant, colorMode: SurfaceColorMode = 'realistic'): NarrativeRegexMutationInput {
   return {
     name: applyNarrativeDisplayNames(String(script.name || script.script_id)),
-    script_id: script.script_id,
+    script_id: `reverie_relay_${script.script_id}`,
     find_regex: script.find_regex,
     replace_string: applyNarrativeDisplayNames(script.replace_string, true),
     flags: script.flags || '',
@@ -55,7 +69,7 @@ export function narrativeRegexCreateInput(script: NarrativeRegexScript, variant:
     trim_strings: [...(script.trim_strings || [])],
     run_on_edit: script.run_on_edit === true,
     substitute_macros: script.substitute_macros || 'none',
-    disabled: script.disabled === true,
+    disabled: true,
     sort_order: Number(script.sort_order) || 0,
     description: String(script.description || ''),
     folder: NARRATIVE_DLC_FOLDER,
@@ -63,7 +77,7 @@ export function narrativeRegexCreateInput(script: NarrativeRegexScript, variant:
     metadata: {
       ...(script.metadata || {}),
       reverie_namespace: NARRATIVE_DLC_NAMESPACE,
-      reverie_narrative_dlc: true,
+      reverie_relay_regex_pack: true,
       reverie_narrative_variant: variant,
       reverie_narrative_color_mode: colorMode,
       reverie_narrative_source_version: NARRATIVE_DLC_VERSION,
@@ -136,7 +150,8 @@ function isOwnedNarrativeScript(script: RegexScriptDTO): boolean {
   return script.can_mutate === true && (
     script.folder === NARRATIVE_DLC_FOLDER
     || script.metadata?.reverie_namespace === NARRATIVE_DLC_NAMESPACE
-    || script.metadata?.reverie_narrative_dlc === true
+    || (script.metadata?.reverie_narrative_dlc === true
+      && (script.metadata?._lumiverse_spindle_extension as { identifier?: string } | undefined)?.identifier === RELAY_EXTENSION_ID)
   )
 }
 
@@ -152,17 +167,17 @@ async function listAllScripts(api: NarrativeRegexApi, userId?: string): Promise<
 }
 
 function healthMessage(health: Omit<NarrativeDlcHealth, 'message'>): string {
-  if (health.blocked) return `${health.blocked} Narrative script ID${health.blocked === 1 ? '' : 's'} collide with scripts Relay does not own.`
-  if (health.status === 'healthy') return `${health.healthy}/${health.expected} ${health.variant} Narrative scripts are installed and current.`
-  if (health.status === 'not-installed') return 'Narrative Regex scripts are not installed.'
-  if (health.status === 'removed') return 'Relay-owned Narrative Regex scripts were removed.'
-  if (health.status === 'failed') return 'Narrative Regex reconciliation failed and prior owned state was restored.'
-  return `${health.installed}/${health.expected} Narrative scripts are installed; ${health.drifted} require repair.`
+  if (health.blocked) return `${health.blocked} Regex script ID${health.blocked === 1 ? '' : 's'} collide with scripts Reverie Relay does not own.`
+  if (health.status === 'healthy') return `${health.healthy}/${health.expected} Core and Narrative Regex scripts are imported, disabled, and current.`
+  if (health.status === 'not-installed') return 'The optional Core and Narrative Regex pack is not imported.'
+  if (health.status === 'removed') return 'Reverie Relay-owned Regex scripts were removed.'
+  if (health.status === 'failed') return 'Regex import failed and prior owned state was restored.'
+  return `${health.installed}/${health.expected} Regex scripts are imported; ${health.drifted} require repair.`
 }
 
 export async function inspectNarrativeRegex(api: NarrativeRegexApi, variant: NarrativeRegexVariant, userId?: string, colorMode: SurfaceColorMode = 'realistic'): Promise<NarrativeDlcHealth> {
   const all = await listAllScripts(api, userId)
-  const desired = narrativeRegexScripts(variant, colorMode).map(script => narrativeRegexCreateInput(script, variant, colorMode))
+  const desired = relayRegexImportScripts(variant, colorMode).map(script => narrativeRegexCreateInput(script, variant, colorMode))
   const owned = all.filter(isOwnedNarrativeScript)
   let healthy = 0
   let drifted = 0
@@ -192,7 +207,7 @@ export async function inspectNarrativeRegex(api: NarrativeRegexApi, variant: Nar
 export async function reconcileNarrativeRegex(api: NarrativeRegexApi, variant: NarrativeRegexVariant, userId?: string, colorMode: SurfaceColorMode = 'realistic'): Promise<NarrativeDlcHealth> {
   if (!NARRATIVE_REGEX_VARIANTS.includes(variant)) throw new Error(`Unsupported Narrative Regex variant: ${variant}`)
   const all = await listAllScripts(api, userId)
-  const desired = narrativeRegexScripts(variant, colorMode).map(script => narrativeRegexCreateInput(script, variant, colorMode))
+  const desired = relayRegexImportScripts(variant, colorMode).map(script => narrativeRegexCreateInput(script, variant, colorMode))
   const desiredIds = new Set(desired.map(script => String(script.script_id)))
   const blocked = desired.filter(input => {
     return all.some(script => script.script_id === input.script_id && !isOwnedNarrativeScript(script))
@@ -200,9 +215,9 @@ export async function reconcileNarrativeRegex(api: NarrativeRegexApi, variant: N
   if (blocked.length) {
     const compatible = blocked.filter(input => all.some(script => script.script_id === input.script_id && !isOwnedNarrativeScript(script) && scriptPayloadMatches(script, input)))
     const migration = compatible.length
-      ? ` ${compatible.length} match the selected Narrative presentation, but Lumiverse marks them as manually imported or foreign and does not permit Relay to adopt, update, or remove them. They may remain active if you manage that pack manually; enable the Narrative Utilities separately. For Relay-managed switching/repair/removal, delete the external pack once and retry.`
+      ? ` ${compatible.length} match the selected presentation, but Lumiverse marks them as manually imported or foreign and does not permit Reverie Relay to adopt, update, or remove them. Manage those scripts separately or remove the conflicting external pack before retrying.`
       : ' Lumiverse does not permit Relay to adopt, update, or remove manually imported or foreign scripts. Remove the conflicting external pack before retrying.'
-    throw new Error(`Cannot install Narrative DLC because ${blocked.length} script ID${blocked.length === 1 ? '' : 's'} already exist outside Relay ownership: ${blocked.slice(0, 5).map(row => row.script_id).join(', ')}.${migration}`)
+    throw new Error(`Cannot import Regex Pack because ${blocked.length} script ID${blocked.length === 1 ? '' : 's'} already exist outside Reverie Relay ownership: ${blocked.slice(0, 5).map(row => row.script_id).join(', ')}.${migration}`)
   }
 
   const snapshots = new Map<string, NarrativeRegexMutationInput>()
@@ -245,7 +260,7 @@ export async function removeNarrativeRegex(api: NarrativeRegexApi, variant: Narr
     for (const row of removed.reverse()) await api.create(row.snapshot, userId).catch(() => undefined)
     throw error
   }
-  const base = { status: 'removed' as const, variant, expected: narrativeRegexScripts(variant).length, installed: 0, healthy: 0, drifted: 0, blocked: 0, updatedAt: Date.now() }
+  const base = { status: 'removed' as const, variant, expected: relayRegexImportScripts(variant).length, installed: 0, healthy: 0, drifted: 0, blocked: 0, updatedAt: Date.now() }
   return { ...base, message: healthMessage(base) }
 }
 
@@ -317,12 +332,17 @@ export function isCurrentPlotSparksUtilityContent(content: string): boolean {
 export function buildNarrativeUtilityPrompt(
   selectedNames: string[] = narrativeUtilityNames(),
   overrides: Record<string, string | undefined> = {},
+  imageEnabled: Record<string, boolean> = {},
 ): { content: string; utilityNames: string[] } {
   const allow = new Set(selectedNames.map(narrativeUtilityDisplayName))
   const canonicalOverrides = Object.fromEntries(Object.entries(overrides).map(([name, content]) => [narrativeUtilityDisplayName(name), content]))
+  const canonicalImageEnabled = Object.fromEntries(Object.entries(imageEnabled).map(([name, enabled]) => [narrativeUtilityDisplayName(name), enabled]))
   const items = narrativeUtilityItems()
     .filter(item => allow.has(item.loomName) && String(item.loomContent || '').trim())
     .map(item => {
+      if (canonicalImageEnabled[item.loomName] === false) {
+        return { ...item, loomContent: textOnlyNarrativeUtilityContent(item.loomName) }
+      }
       const authoredContent = effectiveNarrativeUtilityContent(item.loomName, item.loomContent, canonicalOverrides[item.loomName])
       const loomContent = item.loomName === 'Plot Sparks'
         ? `${authoredContent}\n\n${PLOT_SPARK_COMPLETION_LOCK}`

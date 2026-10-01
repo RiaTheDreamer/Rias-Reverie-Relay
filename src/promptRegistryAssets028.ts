@@ -72,6 +72,12 @@ Unchanged domains should not be rephrased into new synonyms.
 
 If a returning subject's field did not change, inherit the supplied existing value rather than inventing a fresh wording.
 
+NAMED CHARACTER AND NPC DISCOVERY
+
+Scan every completed response, including the first assistant response in a new chat, as a continuity baseline. Do not skip a newly named character or NPC merely because no Appearance Memory entry exists yet. Include a named participant when the supplied response, recent history, active Character/Persona card, or activated structured lorebook gives concrete visual evidence; capture only supported durable and current visual facts. A person merely mentioned as absent/off-screen is not visually present in the current state unless the source establishes appearance facts worth retaining. Never invent a face, body, clothing, or identity from a name alone.
+
+For each subject, set the schema's trustworthy flag conservatively. It may be true for the active host Character/Persona, or for a clearly identified named NPC whose concrete appearance is explicitly described in the supplied source or established by trustworthy structured context. A one-off name, ambiguous reference, generic role, or unsupported guess is not trustworthy. A named NPC with concrete source-backed appearance can be recorded on first mention; do not require it to recur first.
+
 PROVENANCE
 
 Use only:
@@ -145,6 +151,9 @@ Return JSON only.
 export const APPEARANCE_SIDECAR_REQUEST_TEMPLATE = `
 Scan visual continuity for this completed story response.
 
+FIRST-RESPONSE BASELINE AND NEW NAMES
+This Sidecar is scheduled on every completed assistant response, beginning with the first completed response in a new chat. Scan that response and supplied recent history for every newly introduced named Character or NPC with concrete appearance evidence. Return supported visual facts for new people even when they are not in the existing memory. For an NPC, set subject.trustworthy=true only when the source clearly identifies the person and supplies concrete appearance evidence or trustworthy structured context; do not wait for a second appearance. Names mentioned only as absent/off-screen do not make that person visible in this scene, though explicit stable appearance facts may still be retained. Never invent traits from a name.
+
 SETTINGS
 adultMode: {{adultMode}}
 providerVocabulary: {{providerVocabulary}}
@@ -155,6 +164,7 @@ OUTPUT SCHEMA
     {
       "name": "Exact Subject Name",
       "role": "character|user|npc|animal|other",
+      "trustworthy": false,
 
       "canonical": {
         "species": { "booruTags": [], "visualPhrases": [] },
@@ -258,6 +268,16 @@ Never replace a supplied appearance fact with a stereotype or guess.
 
 If the story does not visually specify a minor detail, omit it rather than inventing a distinctive new trait.
 
+PER-SUBJECT CONTINUITY AT THE SELECTED INSTANT
+
+Resolve each visible named subject separately. Keep identity, current outfit, temporary appearance, pose, hands, and props attached to that exact name; never blend two people's features or let a shared adjective change both.
+
+Preserve supplied stable species, hair color/length, skin or fur, build, distinctive permanent features, and anatomical side. User-pinned identity facts remain authoritative. Do not redesign a person to suit the lighting, mood, shot, or reference image. A temporary hairstyle/state or scene-established transformation must not overwrite their permanent identity. Keep invisible or covered features out of the shot.
+
+The anchor paragraph determines the depicted instant. Resolve action, blocking, contact, and clothing at that instant; carry earlier established state forward only while it remains unchanged. Do not import a later paragraph's movement, outfit change, injury, or completed action into an earlier image. A prior image establishes continuity only where the current source has not changed it.
+
+Carry the last confirmed current outfit forward until a source-supported clothing change. Preserve known garment types, colors, layers, worn accessories, and relevant state such as open fastenings or rolled sleeves. When one item changes or is removed, keep the unchanged pieces and do not put removed items back on the body. Default/card clothing, older reference clothing, a new location, or an emotional shift are not evidence of a wardrobe change. Unknown outfit details remain unspecified.
+
 SHOT SELECTION
 
 Choose between 0 and MAXIMUM_ILLUSTRATIONS images.
@@ -330,6 +350,8 @@ In subject directives, specify only:
 
 If a subject's supplied current appearance already matches the scene, appearanceOverrides may be empty.
 
+Keep canonical identity out of appearanceOverrides. Use attireOverrides for source-supported clothing differences and temporaryTraits for temporary physical state; do not confuse clothing, pose, or expression with stable identity. Name the owner inside scene-specific clothing, pose/action, contact, and gaze phrases so ownership survives their assembly into the image prompt. State concrete known clothing rather than "usual clothes" or "same outfit as before".
+
 Never convert prose appearance into dozens of redundant synonym tags.
 
 COMPOSITION
@@ -356,11 +378,25 @@ If one person is looking at another, state that explicitly.
 
 Do not use vague phrases such as "romantic pose" when the actual blocking can be described.
 
+Distinguish frame-left/frame-right from each person's own anatomical left/right. Preserve established handedness, support surfaces, seated/standing/lying state, relative depth, facing, and separation. Do not invent an unspecified hand or mirror the physical relationship just to fit a different camera angle.
+
+For shared contact or overlapping bodies, state both named participants, whose body part acts, the exact contacted body part or garment, and how their torsos and relevant limbs align. If the beat is spooning, specify who lies behind whom, their common facing direction, and whose arm rests where; "two people cuddling" does not describe that geometry. Preserve a gap or near-contact when present. Reaching is not touching, offering is not a completed transfer, and hovering over an object is not gripping it. Use only supported details and keep the interaction visible within the crop.
+
+Choose one coherent still instant from the anchor paragraph. Do not combine successive poses or actions into one body. Apply the selected cast/framing limits without inventing replacement contact; in Persona POV the Persona remains an unseen viewpoint with no visible body parts, reflection, shadow, or appearance description.
+
+EMOTIONAL-BEAT FRAMING
+
+When perspectiveMode is "emotional-beat", make the supported cause of the reaction visible whenever the source provides it. If another named character is present and their action, words, or contact triggers the beat, include that character in namedSubjects and expectedPeopleCount, give them a separate subject directive, and describe the shared blocking/contact. Do not replace a present cause with an implied off-camera person or "the viewer".
+
+Keep the reaction physically legible but restrained when the source is restrained. "Intimate" means emotionally private unless the source explicitly establishes romance or sexual contact; do not invent a kiss, embrace, face/jaw/neck touch, or romantic staging. Preserve the exact contact and action stage: reaching toward a sleeve is not a face touch, and a near-contact must not become completed contact. Do not isolate the reacting character into a close-up or promotional portrait if doing so removes the supported interaction, cause, or essential prop. Use a camera/viewer gaze only when the source explicitly supports direct address or a defined Persona POV.
+
 PROMPT CORE
 
 promptCore is the scene-specific visual content that the local compiler will combine with canonical appearance and provider tags.
 
 Write promptCore as concise visual phrases.
+
+Use subject-specific clauses where needed to preserve ownership of the central action and current clothing. Keep stable identity in the canonical subject state instead of repeating a full appearance catalogue. Resolve the source into visible facts; never copy narrative prose, dialogue, these planning rules, schema labels, or placement instructions into promptCore. Do not add captions, subtitles, or speech bubbles.
 
 Do not include:
 - LoRA activation tags;
@@ -446,6 +482,8 @@ For every proposed illustration, verify:
 8. No invented story event was added.
 9. The promptCore is visual rather than narrative.
 10. The shot can be rendered as one coherent still image.
+11. Each subject keeps their own current outfit and stable identity, with only source-supported changes at this exact instant.
+12. Positions, anatomical sides, hands, prop ownership, contact points, and action stage agree across subjectDirectives, composition, and promptCore.
 
 If a candidate fails these checks, repair it or omit it.
 
@@ -537,8 +575,12 @@ LOCATION STATE
 AVAILABLE REFERENCE ASSETS
 {{referenceAssetsJson}}
 
-ALREADY PLANNED OR COMMITTED ILLUSTRATIONS IN THIS RESPONSE
+PRIOR ILLUSTRATION CONTEXT
 {{priorIllustrationsJson}}
+
+For sequence mode, a previous-completed-shot entry is the established visual baseline. Preserve its fixed room geography, camera axis, screen direction, stable appearance, and props unless the current story explicitly changes them. Continue the new action and positions described by the current paragraphs; do not copy the old pose. Do not mirror left and right or relocate fixed architecture just to vary the shot.
+
+Entries marked current-response are already planned or committed illustrations in this response; avoid duplicating them.
 
 GLOBAL NEGATIVE REQUIREMENTS
 {{globalNegativeRequirementsJson}}
