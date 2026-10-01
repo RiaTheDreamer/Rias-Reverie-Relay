@@ -168,6 +168,7 @@ import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { hasR45UtilityContract, r45UtilityContract } from './r45UtilityContracts'
 import { assertProviderRequestSafe } from './providerPromptSafety'
 import { imageProviderSupportsStreaming, isSwarmUiProvider, providerRequiresAbortableStream, relayStreamingAllowedForProvider } from './imageStreaming'
+import { imageProviderParameters } from './imageProviderParameters'
 import { normalizeSurfaceDocument } from './surfaceXml'
 import { bracketSurfacePromptModule } from './bracketSurfaceAuthoring'
 import { r45RendererScripts, r45ScriptOverrideKey, r45SurfaceAuthorityPack, r45SurfaceAuthorityScripts, type R45PresentationMode, type R45ScriptSource } from './r45SurfaceAuthority'
@@ -323,6 +324,7 @@ export type RouterConfig = {
   followNativeParser: boolean
   followNativeImageGen: boolean
   generationSettingsSource: 'native' | 'relay'
+  imageAspectPolicy: 'native' | 'request' | '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9'
   loraSource: 'native' | 'relay' | 'none'
   vaultStrength: ContinuityStrength
   parserConnectionId: string | null
@@ -2365,6 +2367,7 @@ const DEFAULT_CONFIG: RouterConfig = {
   followNativeParser: true,
   followNativeImageGen: true,
   generationSettingsSource: 'native',
+  imageAspectPolicy: 'native',
   loraSource: 'native',
   vaultStrength: 'medium',
   parserConnectionId: null,
@@ -14516,7 +14519,7 @@ async function prepareImagePlan(
   if (!nativeSnapshot && hasStoredImageSettings(record)) {
     const connection = record.imageConnectionId ? await getImageConnection(record.imageConnectionId, userId) : null
     const storedBaseTagPlan = filterBaseTagsForTarget(record.loraBaseTags || '', job, classifyImageRequest(job), highResMode)
-    const regenerationOverrides = buildSlotOverrides(job, record.imageProvider || connection?.provider || '')
+    const regenerationOverrides = buildSlotOverrides(job, record.imageProvider || connection?.provider || '', config.generationSettingsSource === 'native' ? config.imageAspectPolicy : 'request')
     const storedSlotOverrides = { ...cloneRecord(record.slotOverrides), ...regenerationOverrides }
     const storedFinalParameters = { ...cloneRecord(record.finalImageParameters || record.imageParameters), ...regenerationOverrides }
     const plan: ImagePlan = {
@@ -14558,7 +14561,7 @@ async function prepareImagePlan(
 
   const connectionDefaultParameters = withConnectionWorkflowDefaults(cleanParameters(connection.default_parameters), connection)
   const nativeActiveParameters = nativeSnapshot ? extractNativeParameters(nativeSettings) : cloneRecord(config.imageParameters)
-  const slotOverrides = buildSlotOverrides(job, connection.provider || '')
+  const slotOverrides = buildSlotOverrides(job, connection.provider || '', config.generationSettingsSource === 'native' ? config.imageAspectPolicy : 'request')
   const finalParameters: Record<string, unknown> = {
     ...connectionDefaultParameters,
     ...nativeActiveParameters,
@@ -14625,25 +14628,38 @@ export function withSwarmRegenerationSeed(parameters: Record<string, unknown>, p
   return isRegeneration && isSwarmUiProvider(provider) ? { ...parameters, seed: -1 } : parameters
 }
 
-function buildImageParameters(plan: ImagePlan, prepared: PreparedPrompt, randomizeSwarmSeed = false): Record<string, unknown> {
+export function buildImageParameters(plan: ImagePlan, prepared: PreparedPrompt, randomizeSwarmSeed = false): Record<string, unknown> {
   const randomize = randomizeSwarmSeed && isSwarmUiProvider(plan.provider)
   const parameters = withSwarmRegenerationSeed(cloneRecord(plan.finalParameters), plan.provider, randomize)
-  if (!parameters.workflow || typeof parameters.workflow !== 'object') return parameters
-
-  const comfy = readComfyConfig(plan.connection?.metadata)
-  if (!comfy?.fieldMappings?.length) return parameters
-  parameters.workflow = patchWorkflow(parameters.workflow as Record<string, unknown>, comfy.fieldMappings, {
-    positive_prompt: prepared.prompt,
-    prompt: prepared.prompt,
-    negative_prompt: prepared.negativePrompt,
-    negativePrompt: prepared.negativePrompt,
-    model: plan.model,
-    checkpoint: plan.model,
-    seed: randomize ? -1 : Math.floor(Math.random() * 2147483647),
-  })
-  parameters.workflowFormat = parameters.workflowFormat || 'api_prompt'
-  parameters.preserveImportedWorkflow = parameters.preserveImportedWorkflow ?? true
-  return parameters
+  if (parameters.workflow && typeof parameters.workflow === 'object') {
+    const comfy = readComfyConfig(plan.connection?.metadata)
+    if (comfy?.fieldMappings?.length) {
+      parameters.workflow = patchWorkflow(parameters.workflow as Record<string, unknown>, comfy.fieldMappings, {
+        positive_prompt: prepared.prompt,
+        prompt: prepared.prompt,
+        negative_prompt: prepared.negativePrompt,
+        negativePrompt: prepared.negativePrompt,
+        model: plan.model,
+        checkpoint: plan.model,
+        seed: randomize ? -1 : Math.floor(Math.random() * 2147483647),
+      })
+      parameters.workflowFormat = parameters.workflowFormat || 'api_prompt'
+      parameters.preserveImportedWorkflow = parameters.preserveImportedWorkflow ?? true
+    }
+  }
+  // A recipe's explicit resolution or dimensions outrank the request aspect.
+  // NovelAI ignores generic aspectRatio and reads parameters.resolution.
+  const explicitResolution = cleanString(plan.slotOverrides.resolution)
+  const explicitWidth = Number(plan.slotOverrides.width)
+  const explicitHeight = Number(plan.slotOverrides.height)
+  const aspect = explicitResolution
+    ? undefined
+    : explicitWidth > 0 && explicitHeight > 0
+      ? `${explicitWidth}:${explicitHeight}`
+      : cleanString(plan.slotOverrides.aspectRatio) || undefined
+  const relayGuidance = plan.slotOverrides.guidance ?? plan.slotOverrides.cfgScale ?? plan.slotOverrides.cfg
+    ?? (plan.settingsSource === 'router-config' ? plan.nativeActiveParameters.cfgScale ?? plan.nativeActiveParameters.cfg : undefined)
+  return imageProviderParameters(plan.provider, parameters, aspect, prepared.negativePrompt, relayGuidance)
 }
 
 function hasStoredImageSettings(record: SlotRecord): boolean {
@@ -14676,11 +14692,21 @@ export function resolveIllustrationRequestAspect(requestAspect: unknown, aspectP
   return cleanString(requestAspect).replace(/\s+/g, '') || undefined
 }
 
-function buildSlotOverrides(job: RouterJob, provider = ''): Record<string, unknown> {
+export function buildSlotOverrides(
+  job: Pick<RouterJob, 'aspect'>,
+  provider = '',
+  policy: RouterConfig['imageAspectPolicy'] = 'request',
+): Record<string, unknown> {
+  // NovelAI's native resolution is authoritative until the user explicitly
+  // requests an aspect policy. Existing providers keep their staged behavior.
+  const novelAi = provider.trim().toLocaleLowerCase() === 'novelai'
+  const aspect = novelAi
+    ? policy === 'native' ? '' : policy === 'request' ? cleanString(job.aspect) : policy
+    : cleanString(job.aspect)
   const overrides: Record<string, unknown> = {}
-  if (!job.aspect) return overrides
-  overrides.aspectRatio = job.aspect
-  const dims = dimensionsForAspect(job.aspect)
+  if (!aspect) return overrides
+  overrides.aspectRatio = aspect
+  const dims = dimensionsForAspect(aspect)
   if (dims && /swarm|stability|sdapi|stable-diffusion/i.test(provider)) {
     overrides.width = dims.width
     overrides.height = dims.height
@@ -15208,9 +15234,9 @@ function firstString(...values: unknown[]): string {
   return ''
 }
 
-export function requiresWorkflow(plan: ImagePlan): boolean {
-  const provider = `${plan.provider} ${plan.connectionName}`.toLowerCase()
-  if (provider.includes('swarm')) return false
+export function requiresWorkflow(plan: Pick<ImagePlan, 'provider' | 'connection'>): boolean {
+  const provider = plan.provider.trim().toLocaleLowerCase()
+  if (provider === 'novelai' || provider.includes('swarm')) return false
   if (provider.includes('comfy')) return true
   const metadata = plan.connection?.metadata
   if (!metadata || typeof metadata !== 'object') return false
@@ -16027,6 +16053,8 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     followNativeParser: raw.followNativeParser !== false,
     followNativeImageGen: raw.followNativeImageGen !== false,
     generationSettingsSource: raw.generationSettingsSource === 'relay' ? 'relay' : raw.followNativeImageGen === false ? 'relay' : 'native',
+    imageAspectPolicy: ['native', 'request', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9'].includes(String(raw.imageAspectPolicy))
+      ? raw.imageAspectPolicy as RouterConfig['imageAspectPolicy'] : 'native',
     loraSource: ['native', 'relay', 'none'].includes(String(raw.loraSource)) ? raw.loraSource as RouterConfig['loraSource'] : raw.followNativeImageGen === false ? 'relay' : 'native',
     vaultStrength,
     parserConnectionId: cleanNullableString(raw.parserConnectionId),
