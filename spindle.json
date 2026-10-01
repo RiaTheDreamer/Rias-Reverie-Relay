@@ -1,0 +1,27 @@
+{
+  "version": "0.3.0",
+  "name": "Reverie Relay",
+  "identifier": "reverie_relay",
+  "author": "Ria",
+  "github": "https://github.com/RiaTheDreamer/Rias-Reverie-Relay",
+  "homepage": "https://github.com/RiaTheDreamer/Rias-Reverie-Relay",
+  "description": "Reverie Relay: persistent Surface controls, live-preview image generation, recoverable inline Status Cards, chat-wide media cleanup, Prose Illustrator, Appearance Memory, and Relay-owned ImageGen controls.",
+  "permissions": [
+    "generation",
+    "image_gen",
+    "cors_proxy",
+    "images",
+    "interceptor",
+    "chat_mutation",
+    "chats",
+    "characters",
+    "personas",
+    "world_books",
+    "regex_scripts",
+    "ui_panels"
+  ],
+  "entry_backend": "dist/backend.js",
+  "entry_frontend": "dist/frontend.js",
+  "interceptorTimeoutMs": 30000,
+  "minimum_lumiverse_version": "1.1.6"
+}
