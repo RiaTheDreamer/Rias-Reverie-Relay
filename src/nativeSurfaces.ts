@@ -47,6 +47,7 @@ export type NativeSurfaceRenderContext = {
     caption?: string
     time?: string
     requestAspect?: string
+    aspectRatio?: string
     proseImageAlignment?: 'left' | 'center' | 'right'
     proseImageSize?: 'small' | 'medium' | 'large' | 'full'
     updatedAt?: number
@@ -144,7 +145,7 @@ export function renderCompletedProseLifecycleProjection(
   const completedContext = { ...context, records: [record] }
   const card = renderRequestCard({
     title: 'Illustration requested', brief: '', requestId: record.requestId,
-    aspect: record.requestAspect || '4:3', rootTag: 'image_request',
+    aspect: record.aspectRatio || record.requestAspect || '4:3', rootTag: 'image_request',
     baseSurfaceId: 'prose-illustration', context: completedContext,
   }, true)
   return proseLifecycleProjection(record, card)

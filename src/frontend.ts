@@ -172,6 +172,7 @@ type RouterConfig = {
   followNativeParser: boolean
   followNativeImageGen: boolean
   generationSettingsSource: 'native' | 'relay'
+  imageAspectPolicy: 'native' | 'request' | '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9'
   loraSource: 'native' | 'relay' | 'none'
   vaultStrength: ContinuityStrength
   parserConnectionId: string | null
@@ -10139,8 +10140,26 @@ ${bracketFixture}`))
     if (current.generationSettingsSource === 'native') {
         const nativeImageGenNote = document.createElement('div')
         nativeImageGenNote.className = 'dg-recovery-note'
-        nativeImageGenNote.textContent = 'Native ImageGen is active. Relay mirrors the native model, provider parameters, negative prompt, and LoRA preset, so duplicate override controls are hidden.'
-        box.appendChild(panelSection('ImageGen · Native Settings', nativeImageGenNote))
+        nativeImageGenNote.textContent = 'Native ImageGen is active. Relay mirrors the native model, provider parameters, negative prompt, and LoRA preset. NovelAI keeps its saved resolution unless you choose a request or fixed aspect below.'
+        const nativeImageGenSettings = document.createElement('div')
+        nativeImageGenSettings.className = 'dg-settings-grid'
+        nativeImageGenSettings.append(
+          nativeImageGenNote,
+          selectField('NovelAI Resolution', current.imageAspectPolicy || 'native', [
+            ['native', 'Use saved NovelAI resolution'],
+            ['request', 'Follow image request / Illustrator'],
+            ['1:1', 'Square · 1:1'],
+            ['2:3', 'Portrait · 2:3'],
+            ['3:2', 'Landscape · 3:2'],
+            ['3:4', 'Portrait · 3:4'],
+            ['4:3', 'Landscape · 4:3'],
+            ['4:5', 'Portrait · 4:5'],
+            ['5:4', 'Landscape · 5:4'],
+            ['9:16', 'Tall portrait · 9:16'],
+            ['16:9', 'Wide landscape · 16:9'],
+          ], value => patchConfig({ imageAspectPolicy: value as RouterConfig['imageAspectPolicy'] })),
+        )
+        box.appendChild(panelSection('ImageGen · Native Settings', nativeImageGenSettings))
     } else {
         box.appendChild(panelSection('ImageGen · Relay Settings', renderRelayImageSettings(current)))
         box.appendChild(panelSection('Generation · Additional Negative', textareaInput('Negative prompt additions', current.additionalNegativePrompt, value => patchConfig({ additionalNegativePrompt: value }))))

@@ -73,6 +73,7 @@ export const SETTING_HELP: Readonly<Record<string, string>> = {
   'High-Res / Polished Capture': 'Adds a quality pass to image prompts while preserving the chosen camera framing and subject identity.',
   'Save completed images to Character Gallery': 'Adds completed Relay images to the active character Gallery after Lumiverse confirms the destination. Existing images are not regenerated.',
   'Generation Settings Source': 'Use the active Native ImageGen settings or Relay-specific provider overrides for new generations.',
+  'NovelAI Resolution': 'Only affects NovelAI while Native ImageGen settings are active. Keep the saved connection resolution, follow each image request, or choose a fixed aspect. Other providers are unchanged.',
   'LoRA Source': 'Use Native ImageGen LoRAs, a Relay LoRA stack, or no LoRAs for new Relay images.',
   'Candidate Count': 'Default number of image candidates for a request. More candidates use more provider work.',
   'Follow Native Parser': 'Use the parser connection and instructions selected by Lumiverse instead of Relay-specific parser overrides.',
