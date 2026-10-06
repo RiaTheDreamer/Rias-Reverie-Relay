@@ -586,6 +586,6 @@ assert(worldIsolated.includes('rr-scene-compass'), 'malformed World poisoned val
 assert(worldIsolated.includes('class="ch-og') && !worldIsolated.includes('[Plot_Sparks]'), 'malformed World poisoned valid Plot Sparks')
 
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
-assert(packageJson.version === '0.4.0.20', `version changed: ${packageJson.version}`)
+assert(packageJson.version === '0.5.0', `version changed: ${packageJson.version}`)
 
 console.log(`Narrative Batch D bracket gate passed: ${Object.keys(fixtures).length} legacy regex Surfaces × ${NARRATIVE_REGEX_VARIANTS.length} shells × 2 body modes = ${renderCases} image-on renders; ${textOnlyRenderCases} image-free Narrative renders; ${movedCoreTextOnlyRenderCases} image-free Relationship Map/Cast Sheet Core renders; ${narrativeClosingDelimiterMutationCases} closer mutations; Plot Sparks seven-owner regression passed; Character Phone variants passed.`)

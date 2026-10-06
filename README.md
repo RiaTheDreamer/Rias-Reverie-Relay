@@ -8,7 +8,7 @@
 
 Reverie brings your roleplay's messages, memories, documents, and visual moments into the chat. A phone conversation can become a phone interface; a diary entry can become a readable keepsake; a story beat can have its own illustration.
 
-**Version:** `0.4.0.20`
+**Version:** `0.5.0`
 
 This is a preview build. Use the `main` branch for the public release; staging builds may change before release.
 
