@@ -47,9 +47,9 @@ for (const variant of NARRATIVE_REGEX_VARIANTS) {
 const imagesOff = buildNarrativeUtilityPrompt(['Persona Wardrobe', 'Relationship Map', 'Cast Sheet'], {}, { 'Persona Wardrobe': false, 'Relationship Map': false, 'Cast Sheet': false })
 assert.equal(imagesOff.utilityNames.length, 3)
 assert(!imagesOff.content.includes('<image_request'), 'Text-only migrated/new Utility prompt leaked image requests')
-assert(imagesOff.content.includes('[relationship_map]') && imagesOff.content.includes('[character_profile]') && imagesOff.content.includes('[persona_wardrobe]'), 'Moved/new Utility grammar missing from text-only injection')
+assert(imagesOff.content.includes('<relationship_map>') && imagesOff.content.includes('<character_profile>') && imagesOff.content.includes('<persona_wardrobe>'), 'Moved/new XML Utility grammar missing from text-only injection')
   assert(surfaceIconMarkup('narrative', 'Relationship Map').includes('currentColor'), 'Relationship Map SVG must inherit the Narrative Utility accent color')
-assert(PERSONA_WARDROBE_UTILITY_PROMPT.includes('person in every [wear_text] must be exactly the person named'), 'Image-mode prompt must keep Wear text aligned with the selected subject')
+assert(PERSONA_WARDROBE_UTILITY_PROMPT.includes('person in every <wear_text> must be exactly the person named'), 'Image-mode prompt must keep Wear text aligned with the selected subject')
 const wrongSubject = payload(Array(5).fill(''))
   .replace('[character]{{user}}[/character]', '[character]Ria[/character]')
   .replace('{{user}} is wearing silk top 1', 'Cerys is wearing silk top 1')
@@ -57,5 +57,5 @@ const repairedSubject = renderNarrativeRegex(wrongSubject, 'plain-button', 'ward
 assert(repairedSubject.includes('Ria is wearing silk top 1') && !repairedSubject.includes('Cerys is wearing silk top 1'), 'Wear draft disagrees with the explicit styled subject')
 
 const partial = payload().replace(option(4), '')
-assert(renderNarrativeRegex(partial, 'glass', 'wardrobe-partial').includes('[persona_wardrobe]'), 'Partial owner was silently rendered as a successful five-look wardrobe')
+assert(renderNarrativeRegex(partial, 'glass', 'wardrobe-partial').includes('<persona_wardrobe>'), 'Partial owner was silently rendered as a successful five-look wardrobe')
   console.log('Persona Wardrobe smoke passed: five presentations, five look actions, raw/preparing/completed/failed/text-only media, migrated prompts, accent-colored icon')

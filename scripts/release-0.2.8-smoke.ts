@@ -10,11 +10,13 @@ const json = (relative: string) => JSON.parse(read(relative))
 
 const pkg = json('package.json')
 const manifest = json('spindle.json')
-assert.equal(pkg.version, '0.4.0.2')
-assert.equal(manifest.version, '0.4.0.2')
-assert.match(read('README.md'), /\*\*Version:\*\* `0\.4\.0\.2`/)
-assert.match(read('src/build.ts'), /EXTENSION_VERSION = '0\.4\.0\.2'/)
-assert.match(read('src/build.ts'), /BUILD_ID = '20260928-0\.4\.0\.2'/)
+assert.equal(pkg.version, '0.4.0.20')
+assert.equal(manifest.version, '0.4.0.20')
+assert.equal(manifest.name, "Ria's Reverie Relay")
+assert.equal(manifest.identifier, 'private_relay', 'display branding must preserve the private extension install identity')
+assert(read('README.md').includes(`**Version:** \`${pkg.version}\``), 'README must match the package version')
+assert(read('src/build.ts').includes(`EXTENSION_VERSION = '${pkg.version}'`))
+assert(read('src/build.ts').includes(`BUILD_ID = '20261006-${pkg.version}'`))
 
 const authorityRoot = new URL('regex-packs/Core/', root)
 const authorityManifest = json('regex-packs/Core/Authorized-Regex-Manifest.json')
@@ -76,7 +78,7 @@ const legacy = {
   },
 }
 const migrated = backend.migrateRelayStateSnapshot(legacy) as any
-assert.equal(migrated.schemaVersion, 36)
+assert.equal(migrated.schemaVersion, 37)
 assert.equal(migrated.revision, 7)
 assert.equal(migrated.slots[legacyKey].status, 'completed')
 assert.equal(migrated.slots[legacyKey].imageId, 'legacy-image')
@@ -85,4 +87,4 @@ assert.ok(migrated.stats.completedTotal >= 1, 'lifetime Completed count survives
 assert.equal(migrated.proseIllustrator.opportunities['legacy-opportunity'].plannerVersion, 'prose-opportunity-v1')
 assert.ok(migrated.logs.some((row: any) => row.eventType === 'state_migrated'), 'schema 34 migration is recorded')
 
-console.log('0.4.0.2 staging smoke passed: version metadata aligned, authority hashes verified, and a 0.2.7.5-era schema-34 completed image/state snapshot migrated without losing historical media.')
+console.log('0.4.0.20 staging smoke passed: version metadata and Reverie branding aligned, authority hashes verified, and a 0.2.7.5-era schema-34 completed image/state snapshot migrated without losing historical media.')

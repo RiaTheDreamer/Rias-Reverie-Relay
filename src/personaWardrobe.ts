@@ -1,37 +1,39 @@
 import type { NarrativeSurfacePresentationVariant } from './surfacePresentation'
 import { surfaceIconMarkup } from './surfaceIcons'
+import { xmlNarrativeAsLegacy } from './xmlSurfaceFormat'
+import { SURFACE_MEDIA_GEOMETRY_STYLE } from './surfaceMediaGeometry'
 
 /** Model-facing ownership only. Tabs, buttons, active state, and CSS belong to
  * the renderer, never to the Story Model or the image provider. */
 export const PERSONA_WARDROBE_UTILITY_PROMPT = `# Persona Wardrobe — private atelier
 Use only when outfit selection, dressing, styling, or an appearance change is relevant to the current scene or the user asks for looks. This is a choice utility, not RP narration or story progression. Style the active user persona unless another named subject is explicitly requested. Respect established taste, current setting, occasion, season, and climate. Never invent a new identity.
-Emit exactly one [persona_wardrobe] with exactly five distinct [outfit_option] blocks. Make the looks meaningfully different in silhouette, mood, and palette. Output only the bracket payload; no Markdown, HTML, renderer-owned tags, or explanatory prose.
+Emit exactly one <persona_wardrobe> with exactly five distinct <outfit_option> blocks. Make the looks meaningfully different in silhouette, mood, and palette. Output only the bracket payload; no Markdown, HTML, renderer-owned tags, or explanatory prose.
 
-[persona_wardrobe]
-[title]Persona Wardrobe[/title]
-[subtitle]Short elegant subtitle[/subtitle]
-[wardrobe_context][character]Subject being styled[/character][occasion]Current event or use case[/occasion][season]Season or climate[/season][location]Current place[/location][style_note]One concise styling goal[/style_note][/wardrobe_context]
-[outfit_option]
-[id]unique-look-id[/id]
-[name]Distinct look name[/name]
-[style_tags]three concise, comma-separated style tags[/style_tags]
-[occasion_fit]Best use case[/occasion_fit]
-[color_story]Short palette[/color_story]
-[summary]One or two sentences selling the overall silhouette and mood.[/summary]
-[pieces][top]Top if applicable[/top][outerwear]Outerwear if applicable[/outerwear][bottom]Bottom if applicable[/bottom][dress]Dress if applicable[/dress][legwear]Legwear if applicable[/legwear][shoes]Shoes[/shoes][accessories]Accessories[/accessories][/pieces]
-[wear_text]Subject named in [character] is wearing a concise, natural, RP-ready description of this exact look.[/wear_text]
-[media]<image_request id="unique-image-id" target="custom.artifact-media" slot="unique-image-id" aspect="3:4" alt="Accessible outfit description"><scene_brief>Fashion-only full coordinated outfit presentation: mannequin, dress form, hanger styling, or polished flat lay. Describe garments, colors, materials, and accessories precisely. No person portrait, readable text, UI, social media framing, or story instruction.</scene_brief></image_request>[/media]
-[/outfit_option]
-Repeat [outfit_option] until there are exactly five options, then close [/persona_wardrobe]. Each [media] contains exactly one native image request with target="custom.artifact-media" and aspect="3:4". Do not emit [buttons], [wardrobe_tabs], active-state tags, HTML, or CSS. The person in every [wear_text] must be exactly the person named in [wardrobe_context][character]; begin with that name followed by " is wearing...". Do not substitute the active persona when a different named subject was explicitly requested. Never mention this Surface, its tabs, or its cards in wear_text.`
+<persona_wardrobe>
+<title>Persona Wardrobe</title>
+<subtitle>Short elegant subtitle</subtitle>
+<wardrobe_context><character>Subject being styled</character><occasion>Current event or use case</occasion><season>Season or climate</season><location>Current place</location><style_note>One concise styling goal</style_note></wardrobe_context>
+<outfit_option>
+<id>unique-look-id</id>
+<name>Distinct look name</name>
+<style_tags>three concise, comma-separated style tags</style_tags>
+<occasion_fit>Best use case</occasion_fit>
+<color_story>Short palette</color_story>
+<summary>One or two sentences selling the overall silhouette and mood.</summary>
+<pieces><top>Top if applicable</top><outerwear>Outerwear if applicable</outerwear><bottom>Bottom if applicable</bottom><dress>Dress if applicable</dress><legwear>Legwear if applicable</legwear><shoes>Shoes</shoes><accessories>Accessories</accessories></pieces>
+<wear_text>Subject named in <character> is wearing a concise, natural, RP-ready description of this exact look.</wear_text>
+<media><image_request id="unique-image-id" target="custom.artifact-media" slot="unique-image-id" aspect="3:4" alt="Accessible outfit description"><scene_brief>Fashion-only full coordinated outfit presentation: mannequin, dress form, hanger styling, or polished flat lay. Describe garments, colors, materials, and accessories precisely. No person portrait, readable text, UI, social media framing, or story instruction.</scene_brief></image_request></media>
+</outfit_option>
+Repeat <outfit_option> until there are exactly five options, then close </persona_wardrobe>. Each <media> contains exactly one native image request with target="custom.artifact-media" and aspect="3:4". Do not emit <buttons>, <wardrobe_tabs>, active-state tags, HTML, or CSS. The person in every <wear_text> must be exactly the person named in <wardrobe_context><character>; begin with that name followed by " is wearing...". Do not substitute the active persona when a different named subject was explicitly requested. Never mention this Surface, its tabs, or its cards in wear_text.`
 
 export const PERSONA_WARDROBE_TEXT_ONLY_PROMPT = `# Persona Wardrobe — text-only private atelier
 Use only when outfit selection, dressing, styling, or an appearance change is relevant, or the user asks for looks. Style the active user persona unless another named subject is explicitly requested. Respect established taste, occasion, season, climate, and location. This is a choice utility, not RP narration. Do not output image requests, HTML, CSS, Markdown, or renderer-owned tags.
-Emit exactly one [persona_wardrobe] with [title], [subtitle], [wardrobe_context] containing [character], [occasion], [season], [location], [style_note], and exactly five [outfit_option] blocks. Each option contains, in order, [id], [name], [style_tags], [occasion_fit], [color_story], [summary], [pieces], [wear_text], and an empty [media][/media]. Within [pieces], describe applicable [top], [outerwear], [bottom], [dress], [legwear], [shoes], and [accessories]. Do not invent incompatible garment combinations. Make all five looks meaningfully distinct.
-[persona_wardrobe]
-[title]Persona Wardrobe[/title][subtitle]Short elegant subtitle[/subtitle]
-[wardrobe_context][character]Subject[/character][occasion]Event[/occasion][season]Season[/season][location]Place[/location][style_note]Styling goal[/style_note][/wardrobe_context]
-[outfit_option][id]unique-look-id[/id][name]Look name[/name][style_tags]Three concise tags[/style_tags][occasion_fit]Best use[/occasion_fit][color_story]Palette[/color_story][summary]Mood and silhouette.[/summary][pieces][top]Top if applicable[/top][outerwear]Outerwear if applicable[/outerwear][bottom]Bottom if applicable[/bottom][dress]Dress if applicable[/dress][legwear]Legwear if applicable[/legwear][shoes]Shoes[/shoes][accessories]Accessories[/accessories][/pieces][wear_text]Subject named in [character] is wearing a concise, natural, RP-ready description of this exact look.[/wear_text][media][/media][/outfit_option]
-Repeat [outfit_option] to exactly five options, then close [/persona_wardrobe]. Every media wrapper remains empty. The person in every [wear_text] must exactly match [wardrobe_context][character]; begin with that name followed by " is wearing...". Do not substitute the active persona when a different named subject was explicitly requested. Never mention the Surface or UI.`
+Emit exactly one <persona_wardrobe> with <title>, <subtitle>, <wardrobe_context> containing <character>, <occasion>, <season>, <location>, <style_note>, and exactly five <outfit_option> blocks. Each option contains, in order, <id>, <name>, <style_tags>, <occasion_fit>, <color_story>, <summary>, <pieces>, <wear_text>, and an empty <media></media>. Within <pieces>, describe applicable <top>, <outerwear>, <bottom>, <dress>, <legwear>, <shoes>, and <accessories>. Do not invent incompatible garment combinations. Make all five looks meaningfully distinct.
+<persona_wardrobe>
+<title>Persona Wardrobe</title><subtitle>Short elegant subtitle</subtitle>
+<wardrobe_context><character>Subject</character><occasion>Event</occasion><season>Season</season><location>Place</location><style_note>Styling goal</style_note></wardrobe_context>
+<outfit_option><id>unique-look-id</id><name>Look name</name><style_tags>Three concise tags</style_tags><occasion_fit>Best use</occasion_fit><color_story>Palette</color_story><summary>Mood and silhouette.</summary><pieces><top>Top if applicable</top><outerwear>Outerwear if applicable</outerwear><bottom>Bottom if applicable</bottom><dress>Dress if applicable</dress><legwear>Legwear if applicable</legwear><shoes>Shoes</shoes><accessories>Accessories</accessories></pieces><wear_text>Subject named in <character> is wearing a concise, natural, RP-ready description of this exact look.</wear_text><media></media></outfit_option>
+Repeat <outfit_option> to exactly five options, then close </persona_wardrobe>. Every media wrapper remains empty. The person in every <wear_text> must exactly match <wardrobe_context><character>; begin with that name followed by " is wearing...". Do not substitute the active persona when a different named subject was explicitly requested. Never mention the Surface or UI.`
 
 const field = (source: string, name: string): string | null => {
   const match = new RegExp(`\\[${name}\\]([\\s\\S]*?)\\[\\/${name}\\]`, 'i').exec(source)
@@ -46,7 +48,7 @@ const wearTextForSubject = (wear: string, subject: string): string => {
   return subject ? wear.replace(/^.{1,100}?\s+(?=is wearing\b)/i, `${subject} `) : wear
 }
 
-export const PERSONA_WARDROBE_STYLE = `<style data-reverie-persona-wardrobe="1">
+export const PERSONA_WARDROBE_STYLE = `${SURFACE_MEDIA_GEOMETRY_STYLE}<style data-reverie-persona-wardrobe="1">
 .pw-wardrobe{--pw-accent:var(--lumiverse-primary,#c66591);--pw-text:var(--lumiverse-text,#f8f0f5);--pw-muted:var(--lumiverse-text-muted,#c8b9c3);--pw-bg:var(--lumiverse-bg-deep,#10090e);--pw-gold:#d7bd91;width:min(96%,820px);margin:12px auto;color:var(--pw-text);font-family:var(--lumiverse-font-family,system-ui,sans-serif);line-height:1.4}
 .pw-wardrobe,.pw-wardrobe *{box-sizing:border-box}.pw-wardrobe>summary{display:flex;align-items:center;justify-content:center;gap:9px;width:fit-content;max-width:100%;min-height:40px;margin:auto;padding:9px 17px;border:1px solid color-mix(in srgb,var(--pw-accent) 55%,transparent);border-radius:999px;background:linear-gradient(160deg,color-mix(in srgb,var(--pw-bg) 75%,var(--pw-accent) 25%),var(--pw-bg));color:var(--pw-text);font:800 10px/1.2 var(--lumiverse-font-mono,monospace);letter-spacing:.12em;text-transform:uppercase;cursor:pointer;list-style:none;box-shadow:0 8px 24px #0005}.pw-wardrobe>summary::-webkit-details-marker{display:none}.pw-wardrobe>summary::marker{content:""}.pw-wardrobe>summary .rr-surface-svg-icon{display:inline-grid;width:17px;height:17px;color:var(--pw-gold)}.pw-wardrobe>summary svg{display:block;width:100%;height:100%}
 .pw-wardrobe.rr-surface-presentation-inline>summary{display:none}.pw-wardrobe.rr-surface-presentation-button>summary{border-radius:12px;box-shadow:none;background:var(--pw-bg)}.pw-wardrobe.rr-surface-presentation-sparkling>summary{box-shadow:0 0 0 1px color-mix(in srgb,var(--pw-accent) 24%,transparent),0 0 26px color-mix(in srgb,var(--pw-accent) 30%,transparent)}.pw-wardrobe[data-pw-variant="glass"]>summary,.pw-wardrobe[data-pw-variant="plain-glass"]>summary{border-radius:13px;background:color-mix(in srgb,var(--pw-bg) 36%,transparent);box-shadow:0 0 12px color-mix(in srgb,var(--pw-accent) 12%,transparent);backdrop-filter:blur(12px)}.pw-wardrobe[data-pw-variant="plain-glass"]>summary{box-shadow:none}
@@ -107,7 +109,8 @@ function renderOwner(body: string, variant: NarrativeSurfacePresentationVariant,
  * raw requests, placeholders, completed images, and errors keep their owner. */
 export function renderPersonaWardrobeMarkup(markup: string, variant: NarrativeSurfacePresentationVariant, messageId = 'narrative'): string {
   let occurrence = 0
-  return String(markup || '').replace(/\[persona_wardrobe\]([\s\S]*?)\[\/persona_wardrobe\]/gi, (full, body: string) => {
+  return String(markup || '').replace(/\[persona_wardrobe\]([\s\S]*?)\[\/persona_wardrobe\]|<persona_wardrobe>([\s\S]*?)<\/persona_wardrobe>/gi, (full, bracketBody: string, xmlBody: string) => {
+    const body = bracketBody ?? xmlNarrativeAsLegacy(xmlBody)
     const rendered = renderOwner(body, variant, messageId, occurrence++)
     return rendered || full
   })

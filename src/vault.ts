@@ -471,7 +471,7 @@ function isSceneActionOnlyAppearanceValue(value: string, category?: AppearanceFa
   const text = clean(value).replace(/_/g, ' ').toLocaleLowerCase()
   if (!text) return false
   const visualState = /\b(?:wet|drying|dry|damp|loose|curled?|wavy|makeup|eyeliner|liner|mascara|washed away|smudged|bandage|bruise|blood|injur|swollen|scratch|torn|damaged|muddy|barefoot|hair|eyes?|scar|mole|tattoo|birthmark|freckles|skin)\b/.test(text)
-  const staging = /\b(?:standing|sitting|running|walking|fled|holding|watching|leaning|lying|kneeling|by the door|floor cushion|center room|tea in hand|folder|stage|van bench|shoulder|room)\b/.test(text)
+  const staging = /\b(?:standing|sitting|running|walking|fled|holding|watching|leaning|lying|kneeling|emitting|projecting|shining|casting|by the door|floor cushion|center room|tea in hand|folder|stage|van bench|shoulder|room)\b/.test(text)
   if (staging && !visualState) return true
   if (staging && category === 'temporary-expression' && !/\b(?:tear|flushed|smile|frown|angry|sad|afraid|expression|makeup|hair|injur|bandage|blood|bruise)\b/.test(text)) return true
   return false
@@ -692,6 +692,11 @@ export function isValidCanonicalCharacterName(value: string): boolean {
 }
 
 export function resolveCanonicalCharacter(vault: ContinuityVaultState, candidate: string): CanonicalVisualCharacter | null {
+  // Verified host bindings may select by stable ID instead of an ambiguous
+  // story alias. Names remain useful for genuinely unbound scene subjects.
+  if (vault.characters[candidate]) return vault.characters[candidate]
+  const hostBound = Object.values(vault.characters).find(character => character.lumiverseCharacterId === candidate || character.lumiversePersonaId === candidate)
+  if (hostBound) return hostBound
   const key = normalizeAlias(candidate)
   if (!key || INVALID_SUBJECTS.has(key)) return null
   const candidateForms = new Set(aliasForms(candidate))
@@ -718,6 +723,8 @@ export function registerCanonicalCharacter(
     userConfirmed?: boolean
     /** Only the model-backed Appearance Sidecar may automatically promote a recurring NPC. */
     sidecarVerified?: boolean
+    /** Host identity refreshes must not merge independent name-only records. */
+    preserveSeparateNamedRecords?: boolean
   },
   now = Date.now(),
 ): CanonicalVisualCharacter {
@@ -732,7 +739,7 @@ export function registerCanonicalCharacter(
     !(input.lumiversePersonaId && character.lumiversePersonaId && input.lumiversePersonaId !== character.lumiversePersonaId)
     && !(input.lumiverseCharacterId && character.lumiverseCharacterId && input.lumiverseCharacterId !== character.lumiverseCharacterId))
   const existing = byId || namedMatches[0]
-  if (existing) {
+  if (existing && !input.preserveSeparateNamedRecords) {
     for (const duplicate of namedMatches) {
       if (duplicate === existing) continue
       // Conflicting explicit host bindings are separate identities.
@@ -1100,6 +1107,22 @@ function continuityFactVisibleInScene(fact: AppearanceVaultFact, sceneBrief: str
   return true
 }
 
+/** Current sleeve/hand coverage is choreography, not a second outfit command.
+ * Only a clearly owned clause can replace that same subject's older coverage.
+ * Never let one person's exposed hand override another person's hidden hand.
+ */
+function sceneOwnsSleeveCoverage(fact: AppearanceVaultFact, sceneBrief: string, characters: CanonicalVisualCharacter[]): boolean {
+  if (fact.layer !== 'current-appearance' || !/\b(?:sleeves?|cuffs?)\b/i.test(fact.value.replace(/_/g, ' '))) return false
+  let owner = ''
+  for (const clause of sceneBrief.split(/(?<=[.!?])\s+|\n+|;\s+/).map(clean).filter(Boolean)) {
+    const named = characters.filter(character => scopedCharacterNameAppears(clause, [character.canonicalCharacterName, ...character.aliases]))
+    if (named.length === 1) owner = named[0].canonicalCharacterId
+    else if (named.length > 1 || !/^(?:her|his|their|she|he|they)\b/i.test(clause)) owner = ''
+    if (owner === fact.canonicalCharacterId && /\b(?:sleeves?|cuffs?)\b/i.test(clause) && /\b(?:hands?|wrists?|forearms?|rolled|pulled|pushed|tucked)\b/i.test(clause)) return true
+  }
+  return false
+}
+
 export function selectContinuityForSubjects(
   vault: ContinuityVaultState,
   input: {
@@ -1173,6 +1196,10 @@ export function selectContinuityForSubjects(
     }
     if (fact.layer === 'wardrobe' && !fact.currentWardrobe && currentWardrobeCharacters.has(fact.canonicalCharacterId)) {
       excluded.push({ factId: fact.factId, included: false, reason: 'Current outfit supersedes older base or saved wardrobe for this generation.' })
+      continue
+    }
+    if (sceneOwnsSleeveCoverage(fact, input.sceneBrief, Object.values(vault.characters))) {
+      excluded.push({ factId: fact.factId, included: false, reason: 'Authoritative subject-owned sleeve/hand coverage replaces older Scene Appearance coverage for this generation.' })
       continue
     }
     const stableDomains = appearanceOverrideDomains(fact.value, fact.category)

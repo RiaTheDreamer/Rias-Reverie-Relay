@@ -1,5 +1,6 @@
 // @ts-nocheck -- executable release regression harness; Bun provides node:fs.
 import packageJson from '../package.json'
+import { xmlSurfaceExamples } from '../src/xmlSurfaceFormat'
 import { readFileSync } from 'node:fs'
 import { buildNarrativeUtilityPrompt } from '../src/narrativeDlcRuntime'
 import { inspectStoryModelOutputContracts } from '../src/contracts'
@@ -26,10 +27,10 @@ function assert(value: unknown, reason: string): asserts value {
 }
 
 const utilityNames = narrativeUtilityItems().map(item => item.loomName)
-assert(utilityNames.length === 16, `Narrative Utility inventory changed: ${utilityNames.length}`)
+assert(utilityNames.length === 15, `Narrative Utility inventory changed: ${utilityNames.length}`)
 assert(new Set(utilityNames).size === utilityNames.length, 'Narrative Utility inventory contains duplicates')
 assert(!utilityNames.some(name => /stella/i.test(name)), 'Stella entered the Narrative Utility inventory')
-assert(utilityNames.join('|') === 'Character Phone|Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry|Relationship Map|Cast Sheet|Persona Wardrobe', 'Narrative Utility inventory contains a retired name or incorrect order')
+assert(utilityNames.join('|') === 'Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry|Relationship Map|Cast Sheet|Persona Wardrobe', 'Narrative Utility inventory contains a retired name or incorrect order')
 
 const protectedTags = new Set([
   'image_request', 'scene_brief', 'reverie-illustration', 'visual_prompt',
@@ -46,20 +47,20 @@ for (const item of narrativeUtilityItems()) {
   }
   imageRequests += (item.loomContent.match(/<image_request\b/g) || []).length
   illustrations += (item.loomContent.match(/<reverie-illustration\b/g) || []).length
-  assert(!/\[\/?(?:image_request|scene_brief|reverie-illustration|visual_prompt)\b/i.test(item.loomContent), `${item.loomName}: protected Relay image control was converted to brackets`)
-  if (item.loomName === 'Dramatic Cutaway') assert(!/\[\/?(?:p|div)\]/i.test(item.loomContent), 'Dramatic Cutaway retained generic structural bracket fields')
+  assert(!/\[(?:image_request|reverie_illustration)\]/i.test(item.loomContent), `${item.loomName}: current instructions retained bracket authoring`)
+  if (item.loomName === 'Dramatic Cutaway') assert(!/\[\/?(?:p|div)\]/i.test(item.loomContent), "Dramatic Cutaway retained generic structural XML child elements")
   if (item.loomName === 'Character Phone') assert(item.loomContent.includes('compact semantic icon glyph') && !/Inline SVG|\[cp_glyph\]SVG/i.test(item.loomContent), 'Character Phone still requires model-authored SVG')
 }
-assert(structuralXml === 0, `Narrative model-facing structural XML remains: ${structuralXml}`)
+assert(structuralXml > 0, 'Narrative model-facing structural XML is missing')
 assert(imageRequests > 0 && illustrations > 0, 'canonical XML image-control families are not both represented')
 const assembledPrompt = buildNarrativeUtilityPrompt().content
 const assembledStructuralXml = [...assembledPrompt.matchAll(/<\/?([A-Za-z][A-Za-z0-9_-]*)\b[^>]*>/g)]
   .filter(match => !protectedTags.has(match[1].toLowerCase()))
-assert(assembledStructuralXml.length === 0, `assembled Narrative prompt contains structural XML: ${assembledStructuralXml.length}`)
+assert(assembledStructuralXml.length > 0, 'assembled Narrative prompt lacks structural XML')
 for (const name of utilityNames) {
   const textOnlyPrompt = buildNarrativeUtilityPrompt([name], {}, { [name]: false })
   assert(textOnlyPrompt.utilityNames.join('|') === name, `${name}: text-only selection changed the Utility roster`)
-  assert(missingNarrativeUtilityFormatMarkers(name, textOnlyPrompt.content).length === 0, `${name}: text-only prompt lost a bracket renderer contract`)
+  assert(missingNarrativeUtilityFormatMarkers(name, textOnlyPrompt.content).length === 0, `${name}: text-only prompt lost a XML Surface`)
   assert(!/<(?:image_request|reverie-illustration|scene_brief|visual_prompt)\b/i.test(textOnlyPrompt.content), `${name}: text-only prompt still contains a model-facing image control`)
   assert(!/mandatory (?:media|portrait)|non-empty \[(?:\w+_)?media\]|exactly (?:one|seven) (?:images?|portraits?)/i.test(textOnlyPrompt.content), `${name}: text-only prompt contradicts its image-off setting`)
   const imagePrompt = buildNarrativeUtilityPrompt([name], {}, { [name]: true })
@@ -67,6 +68,7 @@ for (const name of utilityNames) {
 }
 const allTextOnlyPrompt = buildNarrativeUtilityPrompt(utilityNames, {}, Object.fromEntries(utilityNames.map(name => [name, false]))).content
 assert(!/<(?:image_request|reverie-illustration)\b/i.test(allTextOnlyPrompt), 'all-text Narrative bundle still contains image controls')
+assert(buildNarrativeUtilityPrompt(['Cast Sheet'], {}, { 'Cast Sheet': false }).content.includes('Visible appearance; current outfit; established traits'), 'text-only Cast Sheet does not carry appearance when its portrait is empty')
 const mixedPrompt = buildNarrativeUtilityPrompt(['Character Phone', 'Plot Sparks'], {}, { 'Character Phone': false }).content
 assert(!mixedPrompt.includes('phone-photo-1') && mixedPrompt.includes('<reverie-illustration request="generate"'), 'per-Utility image flag affected a sibling Utility')
 
@@ -141,6 +143,7 @@ fixtures['Plot Sparks'] = { source: plotSparks, rendered: 'ch-og' }
 // cannot dispatch fork/draft. Both branch-owning Narrative Surfaces are covered.
 const actionIds = {
   ria_plot_sparks_og_sparkle_tabs_bulletproof_v7: 'plot-host-row',
+  ria_plot_sparks_og_sparkle_tabs_bulletproof_v7_legacy_seven: 'plot-host-row',
   reverie_whatif_loom_images_fork_v1: 'whatif-host-row',
 }
 for (const [name, source, rowId, count] of [
@@ -170,7 +173,7 @@ fixtures['Character Phone'] = { source: phone, rendered: 'rrcp-wrap' }
 
 // Relationship Map and Cast Sheet retain their established Core renderers;
 // Persona Wardrobe has its own five-look renderer and focused fixture matrix.
-assert(Object.keys(fixtures).length === utilityNames.length - 3, `legacy regex fixture inventory drifted: ${Object.keys(fixtures).length}/${utilityNames.length}`)
+assert(Object.keys(fixtures).length === utilityNames.length - 3 + 1, `legacy regex fixture inventory drifted: ${Object.keys(fixtures).length}/${utilityNames.length}`) // Plus retired Phone read-compatibility coverage.
 const narrativeContractTags = narrativeSurfaceBracketTags()
 let narrativeClosingDelimiterMutationCases = 0
 for (const tag of narrativeContractTags) {
@@ -287,26 +290,78 @@ for (const fixture of movedCoreTextOnlyFixtures) for (const variant of NARRATIVE
     assert(rendered.renderedSurfaceIds.includes(fixture.expectedSurfaceId) && rendered.renderedCount === 1, `${fixture.name}/${variant}/${colorMode}/${rendererMode}: moved Narrative utility did not reach its Core renderer without images`)
     assert(!rendered.content.includes('Relay Surface needs repair') && !rendered.content.includes(fixture.source.slice(0, fixture.source.indexOf(']') + 1)), `${fixture.name}/${variant}/${colorMode}/${rendererMode}: failed or raw Core markup was visible`)
     assert(!/<(?:image_request|reverie-illustration|scene_brief|visual_prompt)\b/i.test(rendered.content), `${fixture.name}/${variant}/${colorMode}/${rendererMode}: image-free Core render retained a Relay request`)
+    if (fixture.name === 'Relationship Map') {
+      assert((rendered.content.match(/rrm-node-text-only/g) || []).length >= 3, `${variant}/${colorMode}/${rendererMode}: text-only Relationship Map kept empty portrait cards`)
+      assert(rendered.content.includes('data-rrn-relationship-text-only') && rendered.content.includes('white-space:normal!important'), `${variant}/${colorMode}/${rendererMode}: text-only Relationship Map names remain clipped`)
+      assert(rendered.content.includes('data-rrn-relationship-container') && rendered.content.includes('@container (max-width:760px)'), `${variant}/${colorMode}/${rendererMode}: Relationship Map lacks host-width responsiveness`)
+    }
     movedCoreTextOnlyRenderCases += 1
   }
 }
+const illustratedRelationshipMap = movedCoreTextOnlyFixtures[0].source.replaceAll('[portrait][/portrait]', '[portrait]<img src="/mock/portrait.png" alt="Portrait">[/portrait]')
+const illustratedRelationshipResult = renderNativeSurfaceMarkup(illustratedRelationshipMap, { ...nativeStudio, rendererMode: 'relay' }, {
+  chatId: 'batch-d-illustrated', messageId: 'relationship-map-illustrated', swipeId: 0, records: [],
+})
+assert(illustratedRelationshipResult.renderedCount === 1 && !/rrm-node-(?:a|b|c) rrm-node-text-only/.test(illustratedRelationshipResult.content), 'illustrated Relationship Map character portraits were incorrectly compacted as text-only')
+assert(illustratedRelationshipResult.content.includes('data-rrn-relationship-container'), 'illustrated Relationship Map lacks host-width responsiveness')
 const textOnlyPlotInspection = inspectStoryModelOutputContracts(textOnlyNarratives.find(fixture => fixture.name === 'Plot Sparks')!.source, {
   expectPlotSparks: true, plotSparksImagesEnabled: false,
 })
-assert(textOnlyPlotInspection.plotSparks.valid, 'seven text-only Plot Sparks were rejected by Story Model output validation')
+assert(!textOnlyPlotInspection.plotSparks.valid, 'historical seven-option boards must render, but fresh generation must request ten options')
 assert(!inspectStoryModelOutputContracts(plotSparks, { expectPlotSparks: true, plotSparksImagesEnabled: false }).plotSparks.valid, 'Images Off accepted seven unwanted Plot Sparks requests')
-assert(inspectStoryModelOutputContracts(plotSparks, { expectPlotSparks: true, plotSparksImagesEnabled: true }).plotSparks.valid, 'Images On rejected canonical seven-image Plot Sparks')
+assert(!inspectStoryModelOutputContracts(plotSparks, { expectPlotSparks: true, plotSparksImagesEnabled: true }).plotSparks.valid, 'fresh image-enabled generation silently accepted a truncated seven-option board')
 
 const plotSparksWithoutMediaOwners = plotSparks.replace(/\[Media\][\s\S]*?\[\/Media\]/gi, '')
 const repairedTextOnlyPlotSparks = normalizeMissingPlotSparksMediaFields(plotSparksWithoutMediaOwners)
 assert((repairedTextOnlyPlotSparks.match(/\[Media\]\[\/Media\]/g) || []).length === 7, 'canonical seven-Spark text-only response did not receive seven empty media owners')
-const partiallyMissingPlotSparksMedia = repairedTextOnlyPlotSparks.replace(/\[Media\]\[\/Media\]/, '')
-assert(normalizeMissingPlotSparksMediaFields(partiallyMissingPlotSparksMedia) === partiallyMissingPlotSparksMedia, 'partially missing Plot Sparks Media fields were guessed at')
+const malformedPlotSparksMedia = repairedTextOnlyPlotSparks.replace('[Media][/Media]', '[Media]')
+assert(normalizeMissingPlotSparksMediaFields(malformedPlotSparksMedia) === malformedPlotSparksMedia, 'incomplete Plot Sparks Media wrapper was guessed at')
+for (const [index] of vectors.entries()) {
+  const key = String.fromCharCode(97 + index)
+  const missingOneSparkMedia = plotSparks.replace(
+    new RegExp(`(\\[Spark\\]\\[Key\\]${key}\\[/Key\\][\\s\\S]*?\\[Text\\][\\s\\S]*?\\[/Text\\])\\[Media\\][\\s\\S]*?\\[/Media\\]`),
+    '$1',
+  )
+  const normalizedSingleMissingMedia = normalizeMissingPlotSparksMediaFields(missingOneSparkMedia)
+  assert(normalizedSingleMissingMedia !== missingOneSparkMedia, `Plot Sparks ${key} with one omitted Media owner was not normalized`)
+  assert((normalizedSingleMissingMedia.match(/\[Media\]\[\/Media\]/g) || []).length === 1, `Plot Sparks ${key} did not receive exactly one empty Media owner`)
+  for (const variant of NARRATIVE_REGEX_VARIANTS) {
+    const rendered = renderNarrativeRegex(missingOneSparkMedia, variant, `plot-sparks-one-missing-${variant}-${key}`)
+    assert(rendered.includes('class="ch-og') && !rendered.includes('[Plot_Sparks]'), `Plot Sparks ${key} with one omitted Media owner failed in ${variant}`)
+    assert((rendered.match(/class="ch-panel ch-panel-/g) || []).length === 7, `Plot Sparks ${key} with one omitted Media owner lost panels in ${variant}`)
+    assert((rendered.match(/class="ch-media"/g) || []).length === 7, `Plot Sparks ${key} with one omitted Media owner lost media slots in ${variant}`)
+  }
+}
 const textOnlyPlotSparksRendered = renderNarrativeRegex(plotSparksWithoutMediaOwners, 'inline', 'plot-sparks-no-image-tags')
 assert(textOnlyPlotSparksRendered.includes('class="ch-og') && !textOnlyPlotSparksRendered.includes('[Plot_Sparks]'), 'Plot Sparks failed to render when the model omitted all Media/image tags')
 assert((textOnlyPlotSparksRendered.match(/class="ch-media"/g) || []).length === 7, 'text-only Plot Sparks lost one or more Spark panels')
 assert(textOnlyPlotSparksRendered.includes('Branch 1.') && textOnlyPlotSparksRendered.includes('Branch 7.'), 'text-only Plot Sparks did not preserve all authored branch text')
 assert(!/<(?:image_request|reverie-illustration)\b/i.test(textOnlyPlotSparksRendered), 'text-only Plot Sparks repair invented an image request')
+const duplicatedPlotFieldMarkers = repairedTextOnlyPlotSparks
+  .replace(/\[Media\]\[\/Media\]/g, '[Media][/Media][Media][/Media]')
+  .replace('[Vector]crash-in', '[Vector][Vector]crash-in')
+const normalizedDuplicatePlotFieldMarkers = normalizeNarrativeMarkupForRendering(duplicatedPlotFieldMarkers)
+assert(normalizedDuplicatePlotFieldMarkers !== duplicatedPlotFieldMarkers, 'observed duplicated Plot Sparks field markers were not narrowly normalized')
+assert((normalizedDuplicatePlotFieldMarkers.match(/<Media><\/Media>/g) || []).length === 7, 'duplicated empty Plot Sparks Media owners were not reduced to one per Spark')
+assert(!normalizedDuplicatePlotFieldMarkers.includes('<Vector><Vector>'), 'duplicated Plot Sparks Vector opener leaked through normalization')
+for (const variant of NARRATIVE_REGEX_VARIANTS) {
+  const rendered = renderNarrativeRegex(duplicatedPlotFieldMarkers, variant, `plot-sparks-duplicate-fields-${variant}`)
+  assert(rendered.includes('class="ch-og') && !/\[\/?(?:Plot_Sparks|Spark|Key|Vector|Text|Media)\]/i.test(rendered), `observed duplicate Plot Sparks field markers failed to render in ${variant}`)
+  assert((rendered.match(/class="ch-panel ch-panel-/g) || []).length === 7, `observed duplicate Plot Sparks field markers lost cards in ${variant}`)
+}
+const livePostParserPlotSparks = plotSparksWithoutMediaOwners
+  .replace('[Vector]crash-in', '[Vector][Vector]crash-in')
+  .replaceAll('[/Text][/Spark]', '[/Text]\n\n[/Spark]')
+const normalizedLivePostParserPlotSparks = normalizeNarrativeMarkupForRendering(livePostParserPlotSparks)
+assert(!normalizedLivePostParserPlotSparks.includes('[Vector][Vector]'), 'post-parser Plot Sparks vector drift with omitted Media owners was not normalized')
+assert((normalizedLivePostParserPlotSparks.match(/<Media><\/Media>/g) || []).length === 7, 'post-parser Plot Sparks output did not restore all seven empty Media owners')
+for (const variant of NARRATIVE_REGEX_VARIANTS) {
+  const rendered = renderNarrativeRegex(livePostParserPlotSparks, variant, `plot-sparks-post-parser-drift-${variant}`)
+  assert(rendered.includes('class="ch-og') && !/\[\/?(?:Plot_Sparks|Spark|Key|Vector|Text|Media)\]/i.test(rendered), `post-parser Plot Sparks drift failed to render in ${variant}`)
+  assert((rendered.match(/class="ch-panel ch-panel-/g) || []).length === 7, `post-parser Plot Sparks drift lost cards in ${variant}`)
+}
+const contentBearingDuplicateMedia = duplicatedPlotFieldMarkers.replace('[Media][/Media][Media][/Media]', '[Media]first[/Media][Media]second[/Media]')
+assert(normalizeNarrativeMarkupForRendering(contentBearingDuplicateMedia) === xmlSurfaceExamples(contentBearingDuplicateMedia), 'content-bearing duplicate Plot Sparks media fields were guessed at')
 const ambiguousTextOnlyPlotSparks = plotSparksWithoutMediaOwners.replace('[Text]Branch 4.', '[Text]Branch 4.[/Text][Text]duplicate')
 assert(normalizeMissingPlotSparksMediaFields(ambiguousTextOnlyPlotSparks) === ambiguousTextOnlyPlotSparks, 'ambiguous Plot Sparks received guessed Media wrappers')
 
@@ -317,7 +372,7 @@ const angleDelimiterPlotSparks = plotSparks
   .replace('[Text]Branch 4.', '[Text>Branch 4.')
   .replace('[Vector]reputation-fire[/Vector]', '[Vector]reputation-fire[/Vector>')
 const repairedAngleDelimiters = normalizeNarrativeMarkupForRendering(angleDelimiterPlotSparks)
-assert(repairedAngleDelimiters.includes('[Text]Branch 4.') && repairedAngleDelimiters.includes('[Vector]reputation-fire[/Vector]'), 'bounded Plot Sparks angle-delimiter repair did not restore the two live malformed fields')
+assert(repairedAngleDelimiters.includes('<Text>Branch 4.') && repairedAngleDelimiters.includes('<Vector>reputation-fire</Vector>'), 'bounded Plot Sparks angle-delimiter repair did not restore the two live malformed fields')
 const angleDelimiterRendered = renderNarrativeRegex(angleDelimiterPlotSparks, 'glass', 'live-plot-sparks-angle-delimiters', {}, 'glass')
 assert(angleDelimiterRendered.includes('class="ch-og') && !angleDelimiterRendered.includes('[Plot_Sparks]'), 'repaired angle-delimiter Plot Sparks did not render')
 assert((angleDelimiterRendered.match(/class="ch-media"/g) || []).length === 7, 'angle-delimiter repair lost one or more Plot Sparks cards')
@@ -336,7 +391,7 @@ const missingCloserRendered = renderNarrativeRegex(missingIllustrationCloser, 'i
 assert(missingCloserRendered.includes('class="ch-og') && !missingCloserRendered.includes('[Plot_Sparks]'), 'repaired Plot Sparks owner leaked its bracket shell')
 assert((missingCloserRendered.match(/class="ch-media"/g) || []).length === 7, 'repaired Plot Sparks lost a Media owner')
 const ambiguousMissingCloser = missingIllustrationCloser.replace('<reverie-illustration request="generate" slot="plot-4"', '<reverie-illustration request="generate" slot="extra"></reverie-illustration><reverie-illustration request="generate" slot="plot-4"')
-assert(normalizeNarrativeMarkupForRendering(ambiguousMissingCloser) === ambiguousMissingCloser, 'ambiguous Plot Sparks Media was guessed instead of failing closed')
+assert(normalizeNarrativeMarkupForRendering(ambiguousMissingCloser) === xmlSurfaceExamples(ambiguousMissingCloser), 'ambiguous Plot Sparks Media was guessed instead of failing closed')
 
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
 const narrativeOwnerIndex = backendSource.indexOf('renderNarrativeRegex(renderedContent')
@@ -356,7 +411,7 @@ const legacyElsewhere = `[[else security office]]
 </else-context>
 [[/else]]`
 const legacyElsewhereBadCloser = legacyElsewhere.replace('[[/else]]', '[/else]')
-assert(normalizeNarrativeMarkupForRendering(currentElsewhere) === currentElsewhere, 'canonical Off-Stage normalization must remain byte-for-byte unchanged')
+assert(normalizeNarrativeMarkupForRendering(currentElsewhere) === xmlSurfaceExamples(currentElsewhere), 'saved Off-Stage must project into the exact canonical XML structure')
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   for (const [label, source, requestId] of [
     ['current canonical', currentElsewhere, 'elsewhere-current'],
@@ -404,10 +459,10 @@ assert(!/&lt;div\s+class=["']rrl-card/i.test(combinedRendered), 'runtime rrl-car
 assert((combinedRendered.match(/class="rrl-card/g) || []).length >= 14, 'combined live response did not render its image controls as runtime cards')
 
 const offStagePrompt = buildNarrativeUtilityPrompt(['Off-Stage']).content
-for (const forbidden of ['<else-media>', '<else-scene>', '<else-context>', '<visibility>', '<clock>', '<knowledge>', '<collision>']) {
+for (const forbidden of ['<else-media>', '<else-scene>', '<else-context>']) {
   assert(!offStagePrompt.includes(forbidden), `model-facing Off-Stage prompt leaked historical authoring: ${forbidden}`)
 }
-assert(offStagePrompt.includes('[else_media]') && offStagePrompt.includes('[[/else]]'), 'model-facing Off-Stage prompt lost its canonical bracket contract')
+assert(offStagePrompt.includes('<else_media>') && offStagePrompt.includes('</else>'), 'model-facing Off-Stage prompt lost its canonical XML contract')
 
 const canonicalWorld = `[WORLD|🌿 ENVIRONMENT|Basalt Sea Cave South of Jeju]
 [world_media]<image_request id="world-canonical" target="custom.artifact-media" slot="world-canonical" aspect="16:9"><scene_brief>Basalt sea cave.</scene_brief></image_request>[/world_media]
@@ -417,11 +472,11 @@ const canonicalWorld = `[WORLD|🌿 ENVIRONMENT|Basalt Sea Cave South of Jeju]
 [future_use]The cave can conceal a traveler from patrols.[/future_use]
 [/world_context]
 [/WORLD]`
-assert(normalizeNarrativeMarkupForRendering(canonicalWorld) === canonicalWorld, 'canonical World normalization must remain byte-for-byte unchanged')
+assert(normalizeNarrativeMarkupForRendering(canonicalWorld) === xmlSurfaceExamples(canonicalWorld), 'saved World must project into the exact canonical XML structure')
 
 const liveHybridWorldDetailCloser = canonicalWorld.replace('[/world_detail]', '</world_detail]')
 const repairedLiveHybridWorld = normalizeNarrativeMarkupForRendering(liveHybridWorldDetailCloser)
-assert(repairedLiveHybridWorld === canonicalWorld, 'live World hybrid world_detail closer was not restored through shared Surface repair')
+assert(repairedLiveHybridWorld === xmlSurfaceExamples(canonicalWorld), 'live World hybrid world_detail closer was not restored through shared Surface repair')
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   const rendered = renderNarrativeRegex(liveHybridWorldDetailCloser, variant, `world-hybrid-closer-${variant}`)
   assert(rendered.includes('Setting the Scene') && !rendered.includes('[WORLD|'), `${variant}: shared closer repair did not reach the World renderer`)
@@ -433,7 +488,7 @@ const missingRootWorld = canonicalWorld.replace('\n[/WORLD]', '')
 const worldBoundarySibling = plotSparks
 const missingRootBeforeSibling = `${missingRootWorld}\n${worldBoundarySibling}`
 const recoveredMissingRoot = normalizeNarrativeMarkupForRendering(missingRootBeforeSibling)
-assert(recoveredMissingRoot === `${missingRootWorld}\n[/WORLD]\n${worldBoundarySibling}`, 'complete World before a proven sibling boundary did not recover only its missing root closer')
+assert(recoveredMissingRoot === xmlSurfaceExamples(`${missingRootWorld}\n[/WORLD]\n${worldBoundarySibling}`), 'complete World before a proven sibling boundary did not recover only its missing root closer')
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   const rendered = renderNarrativeRegex(missingRootBeforeSibling, variant, `world-missing-root-${variant}`)
   assert(rendered.includes('Setting the Scene') && rendered.includes('class="ch-og'), `${variant}: missing-root World and its Plot Sparks sibling did not both render`)
@@ -444,7 +499,7 @@ const resolvedWorldMedia = `<!-- reverie-relay:image chatId="world-chat" message
 <img src="/api/v1/image-gen/results/world-image" alt="Resolved World image" class="reverie-artifact-media" data-reverie-artifact-media="true" data-dgir-request-id="world-resolved" data-dgir-slot="world-resolved" loading="lazy" decoding="async">`
 const resolvedMissingRootWorld = `${missingRootWorld.replace(/\[world_media\][\s\S]*?\[\/world_media\]/i, `[world_media]${resolvedWorldMedia}[/world_media]`)}\n${worldBoundarySibling}`
 const recoveredResolvedWorld = normalizeNarrativeMarkupForRendering(resolvedMissingRootWorld)
-assert(recoveredResolvedWorld.includes(`${resolvedWorldMedia}[/world_media]`) && recoveredResolvedWorld.includes('[/world_context]\n[/WORLD]'), 'missing-root recovery changed or rejected resolved Relay World media')
+assert(recoveredResolvedWorld.includes(`${resolvedWorldMedia}</world_media>`) && recoveredResolvedWorld.includes('</world_context>\n</WORLD>'), 'missing-root recovery changed or rejected resolved Relay World media')
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   const rendered = renderNarrativeRegex(resolvedMissingRootWorld, variant, `world-resolved-root-${variant}`)
   assert(rendered.includes('Setting the Scene') && rendered.includes('/api/v1/image-gen/results/world-image'), `${variant}: resolved-media World did not render after missing-root recovery`)
@@ -453,9 +508,9 @@ for (const variant of NARRATIVE_REGEX_VARIANTS) {
 
 assert(normalizeNarrativeMarkupForRendering(missingRootWorld) === missingRootWorld, 'complete inner World shell at end-of-input was closed before streaming completion became authoritative')
 const ambiguousMissingRoot = missingRootBeforeSibling.replace('[future_use]The cave can conceal', '[future_use]First possibility.[/future_use]\n[future_use]The cave can conceal')
-assert(normalizeNarrativeMarkupForRendering(ambiguousMissingRoot) === ambiguousMissingRoot, 'ambiguous missing-root World with repeated context fields was guessed at')
+assert(normalizeNarrativeMarkupForRendering(ambiguousMissingRoot) === ambiguousMissingRoot.replace(worldBoundarySibling, xmlSurfaceExamples(worldBoundarySibling)), 'ambiguous missing-root World with repeated context fields was guessed at')
 const multiplyOwnedMissingRoot = `${missingRootWorld}\n${missingRootBeforeSibling}`
-assert(normalizeNarrativeMarkupForRendering(multiplyOwnedMissingRoot) === multiplyOwnedMissingRoot, 'multiply-owned missing-root World payload was partially consumed')
+assert(normalizeNarrativeMarkupForRendering(multiplyOwnedMissingRoot) === multiplyOwnedMissingRoot.replace(worldBoundarySibling, xmlSurfaceExamples(worldBoundarySibling)), 'multiply-owned missing-root World payload was partially consumed')
 
 const malformedBasaltWorld = `[WORLD|🌿 ENVIRONMENT|Basalt Sea Cave South of Jeju]
 [world_media]<image_request id="world-detail-basalt-sea-cave-01" target="custom.artifact-media" slot="world-detail-basalt-sea-cave-01" aspect="16:9" alt="Interior of half-submerged basalt sea cave with glowing lichen and salvaged human artifacts"><scene_brief>Secluded volcanic sea cave interior, dark basalt columns and damp stone shelves, glowing emerald bioluminescent moss on walls, black tide pool reflecting faint green light, shelves littered with salvaged rusted watch casings and maritime tags, no people visible.</scene_brief></image_request>[/world_media]
@@ -467,7 +522,7 @@ const malformedBasaltWorld = `[WORLD|🌿 ENVIRONMENT|Basalt Sea Cave South of J
 [/WORLD]`
 const recoveredBasaltWorld = normalizeNarrativeMarkupForRendering(malformedBasaltWorld)
 const expectedBasaltWorld = malformedBasaltWorld.replace('suffocating.[/future_use]', 'suffocating.[/why_it_matters]')
-assert(recoveredBasaltWorld === expectedBasaltWorld, 'the live Basalt Sea Cave fixture did not repair only its swapped closer')
+assert(recoveredBasaltWorld === xmlSurfaceExamples(expectedBasaltWorld), 'the live Basalt Sea Cave fixture did not repair only its swapped closer')
 const basaltImageControl = `<image_request id="world-detail-basalt-sea-cave-01" target="custom.artifact-media" slot="world-detail-basalt-sea-cave-01" aspect="16:9" alt="Interior of half-submerged basalt sea cave with glowing lichen and salvaged human artifacts"><scene_brief>Secluded volcanic sea cave interior, dark basalt columns and damp stone shelves, glowing emerald bioluminescent moss on walls, black tide pool reflecting faint green light, shelves littered with salvaged rusted watch casings and maritime tags, no people visible.</scene_brief></image_request>`
 assert(recoveredBasaltWorld.includes(basaltImageControl), 'World recovery changed the canonical Relay image-control owner')
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
@@ -484,7 +539,7 @@ const incompleteWorld = `[WORLD|🌿 ENVIRONMENT|Incomplete]
 [why_it_matters]Still streaming...`
 assert(normalizeNarrativeMarkupForRendering(incompleteWorld) === incompleteWorld, 'incomplete streaming World was repaired eagerly')
 const ambiguousWorld = malformedBasaltWorld.replace('[future_use]Arin can use', '[future_use]First possibility.[/future_use]\n[future_use]Arin can use')
-assert(normalizeNarrativeMarkupForRendering(ambiguousWorld) === ambiguousWorld, 'ambiguous World with multiple future-use fields was guessed at')
+assert(normalizeNarrativeMarkupForRendering(ambiguousWorld) === xmlSurfaceExamples(ambiguousWorld), 'ambiguous World with multiple future-use fields was guessed at')
 
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   const worldScript = narrativeRegexScripts(variant).find(script => script.script_id === 'reverie_world_detail_images_v1')
@@ -496,8 +551,8 @@ for (const variant of NARRATIVE_REGEX_VARIANTS) {
 
 const worldPrompt = buildNarrativeUtilityPrompt(['Setting the Scene']).content
 assert(worldPrompt.includes('SETTING THE SCENE STRUCTURAL LOCK'), 'Setting the Scene structural lock is missing')
-assert(worldPrompt.includes('[why_it_matters]...[/why_it_matters]') && worldPrompt.includes('[future_use]...[/future_use]'), 'Setting the Scene lock lost the canonical paired fields')
-assert(worldPrompt.includes('Never use [/future_use] to close [why_it_matters]'), 'Setting the Scene lock does not prohibit the observed swapped closer')
+assert(worldPrompt.includes('<why_it_matters>...</why_it_matters>') && worldPrompt.includes('<future_use>...</future_use>'), 'Setting the Scene lock lost the canonical XML paired fields')
+assert(worldPrompt.includes('Never use </future_use> to close <why_it_matters>'), 'Setting the Scene lock does not prohibit the observed swapped closer')
 const overriddenWorldPrompt = buildNarrativeUtilityPrompt(['Setting the Scene'], { 'Setting the Scene': 'CUSTOM WORLD OVERRIDE' }).content
 assert(overriddenWorldPrompt.includes('CUSTOM WORLD OVERRIDE') && overriddenWorldPrompt.includes('SETTING THE SCENE STRUCTURAL LOCK'), 'World structural lock was not appended after effective override content')
 
@@ -513,24 +568,24 @@ const ambiguousParallel = resolvedParallelWithoutMediaClosers.replace('<image_re
 assert(normalizeParallelSceneMarkup(ambiguousParallel) === ambiguousParallel, 'ambiguous Parallel Scene media was guessed instead of failing closed')
 const malformedParallel = validParallel.replace('[/parallel_entry]', '')
 const isolated = renderNarrativeRegex(`${malformedParallel}\n${validParallel}\n${fixtures['Scene Shift'].source}`, 'inline', 'batch-d-isolation')
-assert(isolated.includes('[PARALLEL|Campus|shifting]'), 'malformed owner was unexpectedly consumed')
+assert(isolated.includes('<PARALLEL scope="Campus" relevance="shifting">'), 'malformed owner was unexpectedly consumed')
 assert((isolated.match(/class="r65-thread"/g) || []).length === 3, 'malformed Parallel poisoned its valid Parallel sibling')
 assert(isolated.includes('rr-scene-compass'), 'malformed Parallel poisoned a valid different-owner sibling')
 
 const malformedElsewhere = currentElsewhere.replace('[/collision]', '')
 const elsewhereIsolated = renderNarrativeRegex(`${malformedElsewhere}\n${validParallel}\n${fixtures['Scene Shift'].source}\n${plotSparks}`, 'inline', 'elsewhere-sibling-isolation')
-assert(elsewhereIsolated.includes('[[else security office]]'), 'unrecoverable Off-Stage was unexpectedly consumed')
+assert(elsewhereIsolated.includes('<else thread="security office">'), 'unrecoverable Off-Stage was unexpectedly consumed')
 assert((elsewhereIsolated.match(/class="r65-thread"/g) || []).length === 3, 'malformed Off-Stage poisoned valid Parallel')
 assert(elsewhereIsolated.includes('rr-scene-compass'), 'malformed Off-Stage poisoned valid Scene Shift')
 assert(elsewhereIsolated.includes('class="ch-og') && !elsewhereIsolated.includes('[Plot_Sparks]'), 'malformed Off-Stage poisoned valid Plot Sparks')
 
 const worldIsolated = renderNarrativeRegex(`${ambiguousWorld}\n${validParallel}\n${fixtures['Scene Shift'].source}\n${plotSparks}`, 'inline', 'world-sibling-isolation')
-assert(worldIsolated.includes('[WORLD|🌿 ENVIRONMENT|Basalt Sea Cave South of Jeju]'), 'unrecoverable World was unexpectedly consumed')
+assert(worldIsolated.includes('<WORLD category="🌿 ENVIRONMENT" context="Basalt Sea Cave South of Jeju">'), 'unrecoverable World was unexpectedly consumed')
 assert((worldIsolated.match(/class="r65-thread"/g) || []).length === 3, 'malformed World poisoned valid Parallel')
 assert(worldIsolated.includes('rr-scene-compass'), 'malformed World poisoned valid Scene Shift')
 assert(worldIsolated.includes('class="ch-og') && !worldIsolated.includes('[Plot_Sparks]'), 'malformed World poisoned valid Plot Sparks')
 
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
-assert(packageJson.version === '0.4.0.2', `version changed: ${packageJson.version}`)
+assert(packageJson.version === '0.4.0.20', `version changed: ${packageJson.version}`)
 
 console.log(`Narrative Batch D bracket gate passed: ${Object.keys(fixtures).length} legacy regex Surfaces × ${NARRATIVE_REGEX_VARIANTS.length} shells × 2 body modes = ${renderCases} image-on renders; ${textOnlyRenderCases} image-free Narrative renders; ${movedCoreTextOnlyRenderCases} image-free Relationship Map/Cast Sheet Core renders; ${narrativeClosingDelimiterMutationCases} closer mutations; Plot Sparks seven-owner regression passed; Character Phone variants passed.`)

@@ -35,9 +35,9 @@ assert(interceptor, 'Story Model interceptor did not register')
 assert(frontendHandler, 'Prompt Preview handler did not register')
 
 const userId = 'narrative-authority-user'
-const names = ['Character Phone', 'Dramatic Cutaway', 'Parallel Scene']
+const names = ['Scene Shift', 'Dramatic Cutaway', 'Parallel Scene']
 const [A, B, C] = names
-const ownedWrapper = /\[reverie_narrative_utility\]\s*\[contract\]narrative\[\/contract\]\s*\[version\][^\[]*\[\/version\]\s*\[utilities\][\s\S]*?\[\/utilities\][\s\S]*?\[\/reverie_narrative_utility\]/gi
+const ownedWrapper = /<reverie_narrative_utility>\s*<contract>narrative<\/contract>\s*<version>[^<]*<\/version>\s*<utilities>[\s\S]*?<\/utilities>[\s\S]*?<\/reverie_narrative_utility>/gi
 const wrapperCount = (text: string) => (text.match(ownedWrapper) || []).length
 const wrapper = (text: string) => text.match(ownedWrapper)?.[0] || ''
 const textOf = (result: any) => (Array.isArray(result) ? result : result.messages).map((message: any) => String(message.content || '')).join('\n')
@@ -48,6 +48,7 @@ async function configure(selected: string[], overrides: Record<string, string> =
   await backend.setConfig({
     narrativeDlcEnabled: selected.length > 0,
     narrativeDlcUtilityNames: selected,
+    characterPhonePresentation: 'surface', // legacy config must migrate to the widget
     narrativeUtilityOverrides: Object.fromEntries(Object.entries(overrides).map(([name, content]) => [name, { content, revision: 1, updatedAt: 1 }])),
   }, userId)
 }
@@ -155,4 +156,12 @@ assertExactlyCurrent(textOf(await intercept([{ role: 'system', content: duplicat
 await configure([])
 assertExactlyCurrent(textOf(await intercept([{ role: 'system', content: duplicated }], 'duplicates-off')), '', 'J-off')
 
-console.log('Narrative stale-wrapper authority regression passed.')
+// K. A retired Phone selection cannot return through a saved Surface config.
+await configure(['Character Phone', B])
+await backend.setConfig({ characterPhonePresentation: 'widget' }, userId)
+const retiredWrapper = '<reverie_narrative_utility><contract>narrative</contract><version>old</version><utilities>Character Phone</utilities>RETIRED PHONE AUTHORITY</reverie_narrative_utility>'
+const retiredResult = textOf(await intercept([{ role: 'system', content: retiredWrapper }], 'widget-retirement'))
+assertExactlyCurrent(retiredResult, desired([B]), 'K-widget')
+assert(!retiredResult.includes('RETIRED PHONE AUTHORITY'))
+
+console.log('Narrative stale-wrapper authority regression passed, including inline Phone retirement in widget mode.')

@@ -1,12 +1,15 @@
 // @ts-nocheck -- Offline Bun harness; Node types are not a runtime dependency.
 import assert from 'node:assert/strict'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { NARRATIVE_BLOCK_SPACING_STYLE, NARRATIVE_MEDIA_COMPATIBILITY_STYLE, renderNarrativeRegex, narrativeRegexPack, narrativeRegexScripts } from '../src/narrativeRegexAssets'
-import { DEFAULT_PROMPT_REGISTRY, ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE, RELAY_PLANNED_STORY_CHANNEL_GUIDANCE } from '../src/protocols'
+import { DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE, RELAY_PLANNED_STORY_CHANNEL_GUIDANCE, STORYBOARD_BOORU_PARSER_GUIDANCE, STORYBOARD_DIRECTOR_GUIDANCE, STORYBOARD_PARSER_GUIDANCE } from '../src/protocols'
+import { BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE, STORYBOARD_VIEW_GUIDANCE } from '../src/protocols'
+import { normalizeBooruTagPrompt } from '../src/booruTags'
 import { assertProviderRequestSafe, inspectProviderPromptSafety } from '../src/providerPromptSafety'
 import { NARRATIVE_GLASS_BUTTON_PRESENTATION_CSS, SHIPPED_SURFACE_PRESENTATION_CSS } from '../src/surfacePresentation'
 import { SURFACE_ICON_STYLE } from '../src/surfaceIcons'
+import { PLOT_SPARKS_SCRIPT_ID, PLOT_SPARKS_LEGACY_SCRIPT_ID, plotSparksPresentationScripts } from '../src/plotSparksPresentation'
 
 const storage = new Map<string, unknown>()
 const requests: any[] = []
@@ -48,6 +51,82 @@ for (const required of ['hard visual continuity reference', 'exact subject count
   assert(sequenceDefault.includes(required), `Sequence framing default is missing continuity safeguard: ${required}`)
 }
 const config = await backend.getConfig('offline')
+const legacySceneSnapshotOverride = `${DEFAULT_PROMPT_REGISTRY['story.framing.scene-snapshot']}\n\nSTALE-LEGACY-SCENE-SNAPSHOT-CANARY`
+const legacySceneSnapshotConfig = {
+  ...config,
+  proseIllustratorSettings: {
+    ...config.proseIllustratorSettings,
+    sceneLedFramingPrompt: legacySceneSnapshotOverride,
+  },
+}
+const resetLegacySceneSnapshot = backend.applyRelaySettingsPatchToConfig(legacySceneSnapshotConfig, {
+  kind: 'prompt-registry-override',
+  promptId: 'story.framing.scene-snapshot',
+  content: null,
+  version: DEFAULT_PROMPT_REGISTRY_VERSIONS['story.framing.scene-snapshot'],
+})
+assert(!Object.prototype.hasOwnProperty.call(resetLegacySceneSnapshot.proseIllustratorSettings.promptRegistry, 'story.framing.scene-snapshot'), 'Reset to Default must not remigrate a stale legacy Scene Snapshot override')
+assert.equal(resetLegacySceneSnapshot.proseIllustratorSettings.sceneLedFramingPrompt, DEFAULT_PROMPT_REGISTRY['story.framing.scene-snapshot'], 'Reset to Default must restore the canonical Scene Snapshot prompt')
+const storyboardDefault = DEFAULT_PROMPT_REGISTRY['story.framing.storyboard']
+assert.equal(backend.normalizeProseIllustratorSettings({ perspectiveMode: 'storyboard' }).perspectiveMode, 'storyboard', 'Storyboard framing setting did not persist through normalization')
+assert.equal(backend.normalizeProseIllustratorSettings({}).promptRegistryVersions['story.framing.storyboard'], 14, 'Storyboard prompt registry version is missing')
+const customizedStoryboard = storyboardDefault.replace(STORYBOARD_VIEW_GUIDANCE, 'Custom view instruction')
+assert.equal(backend.normalizeProseIllustratorSettings({ promptRegistry: { 'story.framing.storyboard': customizedStoryboard } }).promptRegistry['story.framing.storyboard'], customizedStoryboard, 'real customized framing must not be reset during stock migration')
+assert.equal(backend.normalizeProseIllustratorSettings({ promptRegistry: { 'story.framing.storyboard': storyboardDefault } }).promptRegistry['story.framing.storyboard'], undefined, 'current stock framing stays default-owned')
+assert.equal(backend.normalizeProseIllustratorSettings({}).promptRegistryVersions['story.inline-protocol.booru-tags'], 8, 'Storyboard Booru XML prompt registry version is missing')
+for (const guidance of [storyboardDefault, STORYBOARD_DIRECTOR_GUIDANCE, STORYBOARD_PARSER_GUIDANCE, STORYBOARD_BOORU_PARSER_GUIDANCE]) {
+  for (const [required, purpose] of [
+    ['Select the concrete paragraph showing the active visible action or change', 'anchor the active scene, not explanation or reaction'],
+    ['Depict that exact instant', 'require the anchored story action'],
+    ['An unknown mechanism stays unknown', 'do not invent tools or causes'],
+    ['readable open gap', 'preserve visible near-contact separation'],
+    ['preserve a stated hairline gap without jumping to closure', 'retain the unfinished state'],
+    ['the separate reference object and its existing marks remain unchanged', 'do not transfer tool contact to the reference object'],
+    ['An actor manipulating the central prop belongs in the action shot', 'retain an established actor/prop interaction'],
+    ['Keep named subjects distinct and the visible count exact', 'do not duplicate the named observer'],
+    ['Color/material is not emitted light', 'do not invent emissive effects'],
+    ['Keep separate actions and clothing with their owners', 'retain actor-bound choreography'],
+    ['central actor/action/target', 'keep the central event prominent'],
+  ]) assert(guidance.includes(required), purpose)
+}
+for (const guidance of [storyboardDefault, STORYBOARD_BOORU_PARSER_GUIDANCE]) {
+  for (const required of [
+    'Use established Danbooru-style concepts', 'at most four underscore-separated words',
+    'Ordinary character names are not trained character tags', 'no headings, name: labels',
+    "each subject's distinctive appearance, complete outfit, expression, pose/action and owned prop tags consecutive",
+    'the central action plus its plain target/object tags early',
+    'standing or looking_at_object tag alone does not depict a specific event',
+    'separate short action, body-position and object tags', 'invented relationship compounds',
+  ]) assert(guidance.includes(required), `Booru contract missing: ${required}`)
+}
+assert(BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE.includes('do not turn "ivory Chanel cardigan" into ivory_chanel_cardigan'), 'Booru guidance must decompose unsupported color/brand/garment compounds')
+assert(BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE.includes('Never borrow a blazer, tie, gloves, layer, or accessory from another subject'), 'Booru guidance must keep subject wardrobes distinct')
+assert(BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE.includes('jaw-length black bob" becomes short_hair, bob_cut, black_hair'), 'Booru guidance must decompose hair into canonical length, style, and color tags')
+assert(BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE.includes('knee-length blonde hair" becomes very_long_hair, blonde_hair'), 'Booru guidance must not pass fused hair compounds downstream')
+assert(BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE.includes('For every visible person supported by the anchored paragraph—including an unnamed role'), 'Booru guidance must retain full visible unnamed subjects')
+const storyboardWheelTags = normalizeBooruTagPrompt('wide_shot, 3people, cart, wheel, raised_floor_seam, stuck, wheel_caught_on_raised_floor_seam')
+assert(storyboardWheelTags.includes('cart, wheel, raised_floor_seam, stuck'), 'Separate concise event tags must survive provider normalization')
+assert(!storyboardWheelTags.includes('wheel_caught_on_raised_floor_seam'), 'Overlong pseudo-relations must not masquerade as valid provider tags')
+for (const mode of ['inline-protocol', 'relay-planned'] as const) {
+  for (const promptFormat of ['natural-language', 'danbooru-tags'] as const) {
+    const selected = { ...settings, enabled: true, mode, perspectiveMode: 'storyboard', promptFormat, characterOnlySubjects: 'Tavi' }
+    const story = backend.resolveIllustratorStoryPrompt(selected, [])
+    assert(story.includes(storyboardDefault), `${mode}/${promptFormat}: Storyboard guidance was not injected into the Story Model prompt`)
+    assert(story.includes('<selected_character_subjects></selected_character_subjects>'), `${mode}/${promptFormat}: Char Only selection leaked into Storyboard runtime context`)
+    assert(!story.includes('<selected_character_subjects>Tavi</selected_character_subjects>'), `${mode}/${promptFormat}: stale Char Only subject was sent to the Story Model`)
+    assert.match(story, /Depict that exact instant/, `${mode}/${promptFormat}: action fidelity is not explicit`)
+    if (promptFormat === 'danbooru-tags') {
+      assert(story.includes('Use established Danbooru-style concepts'), `${mode}/${promptFormat}: Storyboard tag contract is missing`)
+      assert(story.includes(BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE), `${mode}/${promptFormat}: subject-owned garment tagging guidance is missing`)
+    }
+  }
+}
+const storyboardBackendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
+assert.equal((storyboardBackendSource.match(/context\.perspectiveMode === 'storyboard' \? STORYBOARD_DIRECTOR_GUIDANCE : ''/g) || []).length, 2, 'Relay Planned Director and repair must receive Storyboard action-faithfulness guidance')
+assert.equal((storyboardBackendSource.match(/context\.perspectiveMode === 'storyboard' && settings\.promptFormat === 'danbooru-tags' \? STORYBOARD_BOORU_PARSER_GUIDANCE : ''/g) || []).length, 2, 'Relay Planned Director and repair must both receive Storyboard Booru role-binding guidance')
+assert(storyboardBackendSource.includes("perspectiveMode === 'storyboard'"), 'Relay parser must receive Storyboard mode guidance')
+assert.match(STORYBOARD_DIRECTOR_GUIDANCE, /Preserve expectedPeopleCount, namedSubjects/)
+assert.match(STORYBOARD_PARSER_GUIDANCE, /The supplied anchor is authoritative/)
 for (const [mode, marker, requiredBody] of [
   ['model-placed', 'IMAGE-PROMPT CHANNEL SEPARATION', 'Do not copy the narrative paragraph'],
   ['inline-protocol', 'IMAGE-PROMPT CHANNEL SEPARATION', 'Do not copy the narrative paragraph'],
@@ -89,7 +168,7 @@ const descentJob: any = {
   originalSceneBrief: descentScene, originalNegativePrompt: '', originalRequestXml: '', composedPositivePrompt: descentScene,
 }
 const descentPrepared = await backend.parseSlotPrompt(descentJob, 'image', [], 0, { ...config, proseIllustratorSettings: settings }, 'offline', {
-  boundCharacterPreset: { presetId: 'taejun-native', prompt: contaminatedCharacterPreset },
+  boundCharacterPreset: { subjectId: 'alpha', presetId: 'taejun-native', prompt: contaminatedCharacterPreset },
   includeCharacters: true,
 })
 const descentPrompt = descentPrepared.prompt
@@ -111,7 +190,7 @@ assert((descentPrepared.promptPipeline.finalPromptCharsBeforeIdentityFix || 0) >
 assert((descentPrepared.promptPipeline.duplicateIdentityFragmentsRemoved || 0) > 0, 'duplicate identity removal metric was not populated')
 const vowScene = 'extreme close-up underwater, Taejun in current mer-form with a long merman tail and a blonde mermaid touching foreheads during a parting vow, eyes fixed on each other'
 const vowPrepared = await backend.parseSlotPrompt({ ...descentJob, requestId: 'parting-vow-06', originalSceneBrief: vowScene, composedPositivePrompt: vowScene }, 'image', [], 0, { ...config, proseIllustratorSettings: settings }, 'offline', {
-  boundCharacterPreset: { presetId: 'taejun-native', prompt: contaminatedCharacterPreset }, includeCharacters: true,
+  boundCharacterPreset: { subjectId: 'alpha', presetId: 'taejun-native', prompt: contaminatedCharacterPreset }, includeCharacters: true,
 })
 assert(vowPrepared.prompt.includes('extreme close-up underwater'), 'authored extreme close-up was lost')
 assert(vowPrepared.prompt.includes('long merman tail'), 'authored current mer-form was lost')
@@ -131,7 +210,7 @@ const fallbackJob: any = {
 }
 const fallbackConfig = { ...config, parserConnectionId: 'mock', parserRetries: 0, nativePromptMode: 'parsed_custom', proseIllustratorSettings: settings }
 const fallbackNative = {
-  boundCharacterPreset: { presetId: 'taejun-native', prompt: contaminatedCharacterPreset },
+  boundCharacterPreset: { subjectId: 'alpha', presetId: 'taejun-native', prompt: contaminatedCharacterPreset },
   boundPersonaPreset: { presetId: 'ria-native', prompt: '1girl, adult woman, long blonde hair, blue eyes, slim build, looking at viewer, smiling, palace background, portrait, masterpiece' },
   includeCharacters: true,
   includePersona: true,
@@ -139,7 +218,7 @@ const fallbackNative = {
 const fallbackCases = [
   { name: 'empty', response: '', reason: /empty response/i },
   { name: 'unusable-json', response: '{}', reason: /usable image prompt/i },
-  { name: 'protected-semantics', response: JSON.stringify({ prompt: 'empty volcanic corridor, wide shot', negativeAdditions: '' }), reason: /protected Model Planned semantics/i },
+  { name: 'protected-semantics', response: JSON.stringify({ prompt: 'empty volcanic corridor, wide shot', negativeAdditions: '' }), reason: /protected illustration semantics/i },
 ]
 const fallbackPrepared: any[] = []
 for (const fixture of fallbackCases) {
@@ -147,15 +226,16 @@ for (const fixture of fallbackCases) {
   const prepared = await backend.parseSlotPrompt({ ...fallbackJob, requestId: `concealment-${fixture.name}` }, 'image', [], 0, fallbackConfig, 'offline', fallbackNative, false, true)
   fallbackPrepared.push(prepared)
   assert.match(prepared.promptMode, /^router_parser_fallback:parsed_custom$/, `${fixture.name}: wrong fallback mode`)
-  assert(fixture.reason.test(prepared.promptPipeline.parserFallbackReason || ''), `${fixture.name}: fallback reason was not preserved`)
+  assert(fixture.reason.test(prepared.promptPipeline.parserFallbackReason || ''), `${fixture.name}: fallback reason was not preserved: ${prepared.promptPipeline.parserFallbackReason}`)
   assert(prepared.prompt.startsWith(concealmentScene), `${fixture.name}: fallback stopped being scene-led`)
   const characterIndex = Math.max(prepared.prompt.indexOf('male subject Alpha'), prepared.prompt.indexOf('Active Character (Alpha)'))
   const personaIndex = Math.max(prepared.prompt.indexOf('subject active persona'), prepared.prompt.indexOf('Active Persona'))
   assert(!prepared.prompt.includes('cinematic narrative still'), `${fixture.name}: automatic profile framing must not leak into prose-illustration fallback`)
   assert(characterIndex > concealmentScene.length, `${fixture.name}: Character identity must follow the clean visual scene`)
-  assert(personaIndex > characterIndex, `${fixture.name}: Persona binding did not follow Character identity`)
+  assert.equal(personaIndex, -1, `${fixture.name}: unresolved Persona diagnostics leaked into the provider prompt`)
   assert.equal((prepared.prompt.match(/(?:male subject Alpha|Active Character \(Alpha\))/g) || []).length, 1, `${fixture.name}: Character identity was injected twice`)
-  assert.equal((prepared.prompt.match(/(?:subject active persona|Active Persona)/g) || []).length, 1, `${fixture.name}: Persona identity was injected twice`)
+  assert.equal((prepared.prompt.match(/(?:subject active persona|Active Persona)/g) || []).length, 0, `${fixture.name}: a native preset without any active Persona became a fictitious visible subject`)
+  assert(!prepared.prompt.includes('Identity unresolved'), `${fixture.name}: unresolved identity warnings are diagnostics, not image content`)
   for (const contamination of ['looking toward viewer', 'charismatic expression', 'swimming underwater', 'underwater palace background', 'warm rim light', 'dramatic light rays', 'manhwa style']) {
     assert(!prepared.prompt.toLocaleLowerCase().includes(contamination), `${fixture.name}: raw Character contamination survived fallback shaping: ${contamination}`)
   }
@@ -179,9 +259,10 @@ assert(authoritativePrepared.prompt.startsWith(concealmentScene), 'authoritative
 const authoritativeCharacterIndex = Math.max(authoritativePrepared.prompt.indexOf('male subject Alpha'), authoritativePrepared.prompt.indexOf('Active Character (Alpha)'))
 const authoritativePersonaIndex = Math.max(authoritativePrepared.prompt.indexOf('subject active persona'), authoritativePrepared.prompt.indexOf('Active Persona'))
 assert(!authoritativePrepared.prompt.includes('cinematic narrative still'), 'authoritative fallback must not synthesize framing-profile additions outside the Story Model visual prompt')
-assert(authoritativeCharacterIndex > concealmentScene.length && authoritativePersonaIndex > authoritativeCharacterIndex, 'authoritative recovery lost scene -> Character -> Persona ordering')
+assert(authoritativeCharacterIndex > concealmentScene.length, 'authoritative recovery lost scene -> verified Character ordering')
+assert.equal(authoritativePersonaIndex, -1, 'authoritative recovery injected an unresolved Persona diagnostic')
 assert.equal((authoritativePrepared.prompt.match(/(?:male subject Alpha|Active Character \(Alpha\))/g) || []).length, 1, 'authoritative recovery duplicated Character identity')
-assert.equal((authoritativePrepared.prompt.match(/(?:subject active persona|Active Persona)/g) || []).length, 1, 'authoritative recovery duplicated Persona identity')
+assert.equal((authoritativePrepared.prompt.match(/(?:subject active persona|Active Persona)/g) || []).length, 0, 'authoritative recovery invented a Persona despite the host reporting none')
 for (const contamination of ['looking toward viewer', 'charismatic expression', 'swimming underwater', 'underwater palace background', 'warm rim light', 'dramatic light rays', 'manhwa style']) {
   assert(!authoritativePrepared.prompt.toLocaleLowerCase().includes(contamination), `authoritative recovery retained raw preset contamination: ${contamination}`)
 }
@@ -199,7 +280,7 @@ const lockedPrompt = await backend.parseSlotPrompt({
   authoritativeSourceParagraph: paragraphOne,
   caption: '',
 }, 'image', [], 0, { ...config, parserConnectionId: '', proseIllustratorSettings: settings }, 'offline', {
-  boundCharacterPreset: { presetId: 'taejun-native', prompt: contaminatedCharacterPreset }, includeCharacters: true,
+  boundCharacterPreset: { subjectId: 'alpha', presetId: 'taejun-native', prompt: contaminatedCharacterPreset }, includeCharacters: true,
 })
 assert(lockedPrompt.prompt.startsWith('Close view of Gabrielle and Cerys holding opposite edges'), 'provider prompt must use the image-only visual_prompt, not substitute the source paragraph')
 assert(!lockedPrompt.prompt.includes(paragraphOne) && !lockedPrompt.prompt.includes('OOC restaging'), 'narrative prose or Story Model controls leaked into the image provider prompt')
@@ -274,7 +355,7 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button', 'glass'] as c
   const colorMode = variant === 'glass' ? 'glass' : 'realistic'
   const originals = narrativeRegexPack(variant).scripts
   for (const script of narrativeRegexScripts(variant, colorMode)) {
-    const original = originals.find(row => row.script_id === script.script_id)
+    const original = originals.find(row => row.script_id === (script.script_id === PLOT_SPARKS_LEGACY_SCRIPT_ID ? PLOT_SPARKS_SCRIPT_ID : script.script_id))
     if (original && script.script_id !== 'reverie_scene_tracker_images_v1') {
       const suppliedReplacement = script.replace_string.startsWith(NARRATIVE_MEDIA_COMPATIBILITY_STYLE)
         ? script.replace_string.slice(NARRATIVE_MEDIA_COMPATIBILITY_STYLE.length)
@@ -307,9 +388,20 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button', 'glass'] as c
       const suppliedBase = script.script_id === 'reverie_parallel_tracker_images_v1'
         ? presentationBase.replace(structuralAddition, '')
         : presentationBase
-      const expectedBeforeLauncherIcon = script.script_id === 'ria_plot_sparks_og_sparkle_tabs_bulletproof_v7'
-        ? original.replace_string.replaceAll('Branch from this hook', 'Branch from this Spark')
+      // Ten options intentionally extend only the approved Sparks shell. The
+      // saved-seven renderer must still match the original body byte for byte.
+      // Keep every other Surface's styling comparison unchanged.
+      const expectedPresentation = script.script_id === PLOT_SPARKS_SCRIPT_ID
+        ? plotSparksPresentationScripts(original)[0].replace_string
         : original.replace_string
+      const expectedBeforePhoneFooter = [PLOT_SPARKS_SCRIPT_ID, PLOT_SPARKS_LEGACY_SCRIPT_ID].includes(script.script_id)
+        ? expectedPresentation.replaceAll('Branch from this hook', 'Branch from this Spark')
+        : expectedPresentation
+      // This exact static shell widget was explicitly removed. Every other
+      // byte of the protected phone body must still match the source pack.
+      const expectedBeforeLauncherIcon = ['rrpp_proto_shell_inline_v42', 'rrpp_proto_shell_v31'].includes(script.script_id)
+        ? expectedBeforePhoneFooter.replace('<div class="rrcp-widget"><small>STORY SNAPSHOT</small><div><span><b>8</b>apps</span><span><b>Story</b>linked</span><span><b>Dark</b>mode</span></div></div>', '')
+        : expectedBeforePhoneFooter
       const expectedAuthorBody = variant !== 'inline' && script.replace_string.includes('data-rr-surface-icon="narrative:')
         ? expectedBeforeLauncherIcon
           .replace(/<span class="dg-unified-emoji" aria-hidden="true">[\s\S]*?<\/span>/i, '')

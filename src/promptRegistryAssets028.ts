@@ -264,6 +264,8 @@ The supplied story response is authoritative for:
 
 The supplied character appearance state is authoritative for stable visual identity unless the current story explicitly changes a temporary visual trait.
 
+The latest user visual context can establish the current outfit or stable trait when the appearance state is missing it. Use only concrete facts about a named subject that agree with the completed response; never treat that context as an event to illustrate or as permission to invent a detail. The completed response wins for any newer change.
+
 Never replace a supplied appearance fact with a stereotype or guess.
 
 If the story does not visually specify a minor detail, omit it rather than inventing a distinctive new trait.
@@ -348,7 +350,7 @@ In subject directives, specify only:
 - gaze;
 - explicit current-response appearance changes.
 
-If a subject's supplied current appearance already matches the scene, appearanceOverrides may be empty.
+If a subject's supplied current appearance already matches the scene, appearanceOverrides may be empty. If the canonical subject state lacks a trait or current outfit explicitly supplied by the latest user visual context or response, include that missing fact in appearanceOverrides or attireOverrides for this subject. A blank current-state array is not evidence that the outfit disappeared.
 
 Keep canonical identity out of appearanceOverrides. Use attireOverrides for source-supported clothing differences and temporaryTraits for temporary physical state; do not confuse clothing, pose, or expression with stable identity. Name the owner inside scene-specific clothing, pose/action, contact, and gaze phrases so ownership survives their assembly into the image prompt. State concrete known clothing rather than "usual clothes" or "same outfit as before".
 
@@ -568,6 +570,9 @@ If no image is worthwhile, return:
 
 CHARACTER / APPEARANCE STATE
 {{characterContextJson}}
+
+LATEST USER VISUAL CONTEXT (appearance and current-outfit evidence only; the completed response still owns the depicted event)
+{{latestUserVisualContext}}
 
 LOCATION STATE
 {{locationContextJson}}

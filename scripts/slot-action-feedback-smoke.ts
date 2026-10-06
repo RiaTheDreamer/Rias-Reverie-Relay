@@ -30,6 +30,8 @@ function fixture(action: 'reparse' | 'regenerate' | 'regenerate-with-direction' 
 for (const action of ['reparse', 'regenerate', 'regenerate-with-direction', 'repair-placement'] as const) {
   const test = fixture(action, false, true)
   assert(test.coordinator.submit(test.submission), `${action} should dispatch once`)
+  assert(test.coordinator.isSubmitting('slot-1', action), `${action} should stay observable while backend work is pending`)
+  assert(!test.coordinator.isSubmitting('slot-1', action === 'repair-placement' ? 'reparse' : 'repair-placement'), 'pending action must not be confused with another slot action')
   assert(!test.coordinator.submit({ ...test.submission, submissionId: `${test.submissionId}-duplicate` }), `${action} should prevent duplicate submission clicks`)
   assert(test.read().disabled && test.read().popupOpen, `${action} should disable while awaiting acceptance without closing early`)
   test.coordinator.handle({ submissionId: test.submissionId, key: 'slot-1', action, status: 'accepted', statusText: test.submission.statusText, intent: test.intent })
@@ -37,6 +39,7 @@ for (const action of ['reparse', 'regenerate', 'regenerate-with-direction', 'rep
   assert(Boolean(test.read().busyText), `${action} should immediately expose a slot busy state`)
   if (action === 'regenerate-with-direction') assert(JSON.stringify(test.read().preservedIntent) === JSON.stringify(test.intent), 'direction submission should preserve the selected intent')
   test.coordinator.handle({ submissionId: test.submissionId, key: 'slot-1', action, status: 'completed' })
+  assert(!test.coordinator.isSubmitting('slot-1', action), `${action} should clear pending state after completion`)
   assert(test.read().busyText === 'Completed.', `${action} final success should replace the temporary busy state`)
 }
 
@@ -62,6 +65,9 @@ repairFailed.coordinator.handle({ submissionId: repairFailed.submissionId, key: 
 assert(repairFailed.read().busyText === 'Repairing placement…', 'repair placement should expose an immediate repairing busy state')
 repairFailed.coordinator.handle({ submissionId: repairFailed.submissionId, key: 'slot-1', action: 'repair-placement', status: 'failed', message: 'No deterministic slot anchor found' })
 assert(repairFailed.read().busyText === 'No deterministic slot anchor found', 'repair placement failure should replace the temporary busy state with a clear reason')
+
+const frontend = await (globalThis as any).Bun.file(new URL('../src/frontend.ts', import.meta.url)).text()
+assert(/submitRepairPlacement\(record, \{ trigger: repairButton, showPopupError, closePopup: acceptedPopup \}\)/.test(frontend), 'accepted lightbox repair must dismiss its stale parent view')
 
 for (let iteration = 0; iteration < 200; iteration += 1) {
   const soak = fixture('reparse')

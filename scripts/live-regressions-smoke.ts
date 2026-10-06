@@ -27,7 +27,7 @@ assert(rows[0]?.content === healthyContent, 'rescan/reparse must inspect canonic
 
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
 const initialCommitSource = backendSource.slice(backendSource.indexOf('async function commitInitialPlacementBatch'), backendSource.indexOf('export function placementBatchKey'))
-assert(initialCommitSource.includes('const verifiedEntries = batch.entries.filter') && initialCommitSource.includes('const failedEntrySet = new Set(composed.failedEntries || [])'), 'message-scoped projection must accept every deterministically owned entry')
+assert(initialCommitSource.includes('const verifiedEntries = batch.entries.filter') && initialCommitSource.includes('(composed.failedEntries || []).filter(entry => !hasExactStateProjectionOwner(currentContent, entry.job))'), 'message-scoped projection must accept every uniquely owned entry even when simulated host replacement fails')
 assert(!initialCommitSource.includes('patchSwipeContent(') && !initialCommitSource.includes('getAuthoritativeSwipeContent(verifiedMessage'), 'terminal image projection must not rewrite or reread a remounted host message')
 assert(backendSource.includes('const failedEntries = batch.entries.filter') && backendSource.includes('markInitialPlacementBatchForRepair(batch'), 'truly missing rendered media must still enter Repair Needed without poisoning valid siblings')
 assert(backendSource.includes('record.attemptNumber !== expectedAttemptNumbers[slot]') && backendSource.includes('isJobCancelled(job) || !failureApplied'), 'stale generic failure state/toast protection is missing')

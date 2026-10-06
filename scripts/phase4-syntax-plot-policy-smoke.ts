@@ -5,7 +5,10 @@ import { parseBracketDocument } from '../src/bracketParser'
 import { normalizeKnownHybridClosingDelimiters, normalizeBracketSurfaceDocument } from '../src/bracketSurfaceBridge'
 import { HISTORICAL_RELAY_MEDIA_PLACEHOLDER, PLOT_SPARK_VECTOR_BY_KEY, inspectStoryModelOutputContracts, sanitizeRelayPromptHistoryText } from '../src/contracts'
 import { buildNarrativeUtilityPrompt } from '../src/narrativeDlcRuntime'
-import { containsNarrativeRegexMarkup, narrativeRegexScripts, narrativeUtilityItems, normalizeNarrativeMarkupForRendering, renderNarrativeRegex } from '../src/narrativeRegexAssets'
+import { NARRATIVE_UTILITY_PACK, containsNarrativeRegexMarkup, narrativeRegexScripts, narrativeUtilityItems, normalizeNarrativeMarkupForRendering, renderNarrativeRegex } from '../src/narrativeRegexAssets'
+import { xmlAuthoringInstructions as bracketImageControlInstructions } from '../src/xmlSurfaceFormat'
+import { plotSparksUtilityPrompt } from '../src/plotSparksUtility'
+import { PLOT_SPARKS_LEGACY_SCRIPT_ID } from '../src/plotSparksPresentation'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { SHIPPED_SURFACE_SPECS, shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
@@ -37,10 +40,11 @@ assert(failed.content.includes('Format error') && failed.content.includes('Inspe
 const scrubbed = sanitizeRelayPromptHistoryText(`Before ${HISTORICAL_RELAY_MEDIA_PLACEHOLDER} <reverie-illustration request="generate" slot="old"><visual_prompt>Old.</visual_prompt></reverie-illustration> After`)
 assert(scrubbed.includes('Before') && scrubbed.includes('After') && !scrubbed.includes(HISTORICAL_RELAY_MEDIA_PLACEHOLDER) && !scrubbed.includes('reverie-illustration'), 'historical Relay media must be removed silently while surrounding prose survives')
 
-const reviewedPlotSparksUtility = narrativeUtilityItems().find(item => item.loomName === 'Plot Sparks')?.loomContent || ''
-assert(hash(reviewedPlotSparksUtility) === 'b2b709f5643d25bb05a87636093d560f4c78c101c71384e27008f65542fa34e0', 'shipped Plot Sparks Utility must match the reviewed UTF-8 authority exactly')
-const plotScript = narrativeRegexScripts('sparkle-button').find(script => String(script.name || '').includes('Plot Sparks'))!
-assert(hash(`${plotScript.find_regex}\n`) === 'c15442dcada72b427291e04274156b5121f2986e5cd2ffe09b1a43568460fa1c', 'Plot Sparks Find must match supplied asset')
+const reviewedPlotSparksUtility = NARRATIVE_UTILITY_PACK.loomItems.find(item => item.loomName === 'Plot Sparks')?.loomContent || ''
+assert(reviewedPlotSparksUtility === plotSparksUtilityPrompt(true), 'shipped ten-option Plot Sparks Utility must match the shared authoring contract exactly')
+assert(narrativeUtilityItems().find(item => item.loomName === 'Plot Sparks')?.loomContent === bracketImageControlInstructions(reviewedPlotSparksUtility), 'model-facing Plot Sparks grammar must be derived from the unchanged reviewed authority')
+const plotScript = narrativeRegexScripts('sparkle-button').find(script => script.script_id === PLOT_SPARKS_LEGACY_SCRIPT_ID)!
+assert(hash(`${plotScript.find_regex}\n`) === '75a7ca775e3543ae3c442dd697c5d9973f6844b4c41a9e869764c9b0f263824e', 'Plot Sparks XML Find must match the capture-preserving migration')
 const packedReplacement = JSON.parse(await readFile(new URL('../regex-packs/Narrative/Reverie-Plot-Sparks.json', import.meta.url), 'utf8')).scripts[0].replace_string
 assert(hash(packedReplacement) === '3a3705a7055006994059897717514f5800786903ed17036fb588117ffec4a039', 'Plot Sparks Replace must match supplied asset unchanged')
 
@@ -49,25 +53,30 @@ const spark = (key: keyof typeof PLOT_SPARK_VECTOR_BY_KEY, media = illustration(
 const canonical = `[Plot_Sparks][ID]phase4-seven[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${(Object.keys(PLOT_SPARK_VECTOR_BY_KEY) as Array<keyof typeof PLOT_SPARK_VECTOR_BY_KEY>).map(key => spark(key)).join('')}[/Plot_Sparks]`
 assert(containsNarrativeRegexMarkup(canonical), 'Narrative detection must recognize canonical Plot_Sparks')
 const inspection = inspectStoryModelOutputContracts(canonical, { expectPlotSparks: true })
-assert(inspection.valid && inspection.plotSparks.sparkCount === 7, 'canonical Plot Sparks A-G must validate')
+assert(inspection.valid && inspection.plotSparks.sparkCount === 10, 'canonical Plot Sparks A-J must validate')
 const rendered = renderNarrativeRegex(canonical, 'sparkle-button', 'phase4-plot')
 assert(rendered.includes('ch-og') && !rendered.includes('[Plot_Sparks]') && rendered.includes('plot-spark-g-test'), 'new bracket Plot Sparks must render all seven media captures')
 const missing = canonical.replace(/\[Media\][\s\S]*?\[\/Media\]/, '')
-assert(renderNarrativeRegex(missing, 'sparkle-button', 'phase4-missing').includes('[Plot_Sparks]'), 'missing Media must fail strict whole-block rendering rather than partially render')
+const missingRendered = renderNarrativeRegex(missing, 'sparkle-button', 'phase4-missing')
+assert(missingRendered.includes('ch-og') && !missingRendered.includes('[Plot_Sparks]') && (missingRendered.match(/class="ch-media"/g) || []).length === 10, 'a wholly omitted Spark Media owner must not block rendering of the complete ten-Spark surface')
+const malformedMissing = canonical.replace(/\[Media\][\s\S]*?\[\/Media\]/, '[Media]')
+const malformedMediaRendered = renderNarrativeRegex(malformedMissing, 'sparkle-button', 'phase4-malformed-media', { chatId: 'phase4', swipeId: 0 })
+assert(malformedMediaRendered.includes('Plot Sparks · Format error') && malformedMediaRendered.includes('data-rrn-editable-surface="plot-sparks"')
+  && !malformedMediaRendered.includes('[Plot_Sparks]') && !malformedMediaRendered.includes('<reverie-illustration'), 'an incomplete Media owner must fail closed into a preserved-source inspector, not raw markup or image dispatch')
 
 const blended = canonical.replace(illustration('a'), '<reverie-illustration request="generate" slot="plot-spark-a-test" aspect="16:9" cast="none"><scene_brief>Keep this exact prompt.</scene_brief></image_request>')
 const repairedBlend = normalizeNarrativeMarkupForRendering(blended)
 assert(repairedBlend.includes('<visual_prompt>Keep this exact prompt.</visual_prompt></reverie-illustration>'), 'unambiguous Plot Sparks media-owner blend must repair mechanically')
 
 const utility = buildNarrativeUtilityPrompt(['Plot Sparks']).content
-assert(utility.includes('[Plot_Sparks]') && utility.includes('plot-spark-g-'), 'effective Plot Sparks injection must use bracket grammar and new slot prefixes')
-for (const lockToken of ['PLOT SPARKS STRUCTURAL LOCK', 'exactly seven [Spark] blocks', 'keys a through g', 'one non-empty [Text]', 'one non-empty [Media]', '[/Spark]', '[/Plot_Sparks]']) assert(utility.includes(lockToken), `current Plot Sparks completion lock missing ${lockToken}`)
+assert(utility.includes('<Plot_Sparks>') && utility.includes('plot-spark-g-'), 'effective Plot Sparks injection must use XML grammar and new slot prefixes')
+for (const lockToken of ['PLOT SPARKS STRUCTURAL LOCK', 'exactly ten <Spark> blocks', 'keys a through j', 'one non-empty <Text>', 'one non-empty <Media>', '</Spark>', '</Plot_Sparks>']) assert(utility.includes(lockToken), `current Plot Sparks completion lock missing ${lockToken}`)
 assert(buildNarrativeUtilityPrompt(['Plot Sparks'], { 'Plot Sparks': canonical }).content.includes('phase4-seven'), 'complete current bracket-native Plot Sparks overrides must remain authoritative')
 const incompleteCurrentOverride = '[Plot_Sparks][Spark][Key]a[/Key][Vector]detonation[/Vector][Text]Incomplete.[/Text][Media]CURRENT OVERRIDE[/Media][/Spark][/Plot_Sparks]'
 const guardedOverrideUtility = buildNarrativeUtilityPrompt(['Plot Sparks'], { 'Plot Sparks': incompleteCurrentOverride }).content
 assert(!guardedOverrideUtility.includes('CURRENT OVERRIDE') && guardedOverrideUtility.includes('plot-spark-g-'), 'incomplete current-shape Plot Sparks overrides must fail closed to the canonical Utility')
 const definitions = [...shippedSurfaceDefinitions(), ...r45SupplementalSurfaceDefinitions()]
-assert(definitions.every(row => row.promptModule.includes('FORMAT: compact-v1') && row.promptModule.includes(`ROOT: [${row.canonicalOuterWrapper}]`) && row.promptModule.includes('SCHEMA\n')), 'every active R4.5 Surface must retain compact bracket structural grammar')
+assert(definitions.every(row => row.promptModule.includes('FORMAT: compact-v1') && row.promptModule.includes(`ROOT: <${row.canonicalOuterWrapper}>`) && row.promptModule.includes('SCHEMA\n')), 'every active R4.5 Surface must retain compact XML structural grammar')
 assert(definitions.find(row => row.baseSurfaceId === 'smartphone')?.promptModule.includes('same co-present characters'), 'Smartphone co-presence anti-trigger missing')
 assert(definitions.find(row => row.baseSurfaceId === 'relationship-map')?.promptModule.includes('focal + meaningful connection A + meaningful connection B'), 'Relationship Map lower threshold missing')
 assert(buildNarrativeUtilityPrompt(['Cast Introduction']).content.includes('at least two of:'), 'Cast Introduction deterministic first-appearance threshold missing')

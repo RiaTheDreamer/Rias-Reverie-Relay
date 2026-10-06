@@ -1,0 +1,40 @@
+// @ts-nocheck -- offline Node assertions; production modules are typechecked separately.
+import assert from 'node:assert/strict'
+import { emptyPhoneDevice,normalizePhoneDevice,phoneConversation,phoneStoryContext,addPhoneText } from '../src/phoneDevice'
+import { parsePhoneActivities,renderPhoneActivities,phoneStoryProtocol,phoneStorySourceCommitted,phoneStoryTimestamp,reconcileStoryPhoneTexts } from '../src/phoneStoryBridge'
+const identities=[{id:'character:1',name:'Character A',kind:'character' as const},{id:'persona:2',name:'Persona B',kind:'persona' as const}]
+const tag='<reverie-phone from="character" to="persona" scope="character:1|persona:2">Meet me outside &amp; bring the notes.</reverie-phone>'
+assert.equal(parsePhoneActivities(`A quiet beat.\n${tag}\nMore prose.`)[0].body,'Meet me outside & bring the notes.')
+assert.equal(parsePhoneActivities(tag.repeat(11)).length,10,'structural parser supports the full notification slider range with a hard ten-control bound')
+for(const source of ['```xml\n'+tag+'\n```','`'+tag+'`','<think>'+tag+'</think>','<!--'+tag+'-->','<Plot_Sparks>'+tag+'</Plot_Sparks>',tag.replace('from="character"','from="persona"'),tag.replace('to="persona"','to="stranger"'),tag.replace('from="character"','from="character" from="character"'),tag.replace('to="persona"','to="persona" onclick="bad()"'),tag.replace('Meet me outside &amp; bring the notes.','<script>bad()</script>')])assert.equal(parsePhoneActivities(source).length,0,source)
+const rendered=renderPhoneActivities(`Before. ${tag} After.`)
+assert(rendered.content.startsWith('Before. ')&&rendered.content.endsWith(' After.'))
+assert(rendered.content.includes('data-reverie-phone-open="true"')&&rendered.content.includes('Meet me outside &amp; bring the notes.'))
+assert.equal(renderPhoneActivities(rendered.content).count,0,'display projection never feeds itself back into ingestion')
+assert(phoneStoryProtocol(identities).includes('<reverie-phone from="character" to="persona" scope="character:1|persona:2">'))
+assert(phoneStoryProtocol(identities).includes('Output incoming in-world texts'))
+assert(!/author|permission|reaction|user feelings|ordinary prose|another reply|do not force/i.test(phoneStoryProtocol(identities)),'Story injection only describes incoming messages and their output format, not preset authorship or reactions')
+assert.equal(phoneStoryProtocol(identities.slice(0,1)),'')
+assert(phoneStorySourceCommitted(undefined,0),'legacy/manual messages remain readable')
+assert(!phoneStorySourceCommitted({promptActivation:{complete:false}},0),'stopped partial text cannot deliver')
+assert(!phoneStorySourceCommitted({generationOutcome:{error:'provider failed'}},0),'failed partial text cannot deliver')
+assert(phoneStorySourceCommitted({promptActivationBySwipe:[{complete:false},{complete:true}],generationOutcomeBySwipe:[{error:'old failure'},null]},1),'only the selected swipe owns delivery')
+assert(!phoneStorySourceCommitted({promptActivationBySwipe:[{complete:false},{complete:true}]},0))
+const state=emptyPhoneDevice();const current=[{id:'story-source-0001',from:'character:1',to:'persona:2',body:'Meet me outside.',createdAt:1,sourceKey:'msg:0:0:hash'}]
+assert.equal(phoneStoryTimestamp(1791229752),1791229752000,'host Unix seconds become phone milliseconds')
+assert.equal(phoneStoryTimestamp(1791229752000),1791229752000,'millisecond hosts are unchanged')
+assert.equal(phoneStoryTimestamp('2026-10-05T19:49:12.000Z'),1791229752000)
+assert.equal(phoneStoryTimestamp(undefined,123),123)
+assert.equal(phoneStoryTimestamp(NaN,123),123)
+reconcileStoryPhoneTexts(state,current,identities);reconcileStoryPhoneTexts(state,current,identities)
+assert.equal(state.messages.length,1,'one source compiled once across reload and render')
+reconcileStoryPhoneTexts(state,[{...current[0],createdAt:1000}],identities)
+assert.equal(state.messages[0].createdAt,1000,'existing source-owned timestamps update without duplicate delivery')
+addPhoneText(state,{id:'manual-00000001',from:'persona:2',to:'character:1',body:'On my way.'},identities,2)
+reconcileStoryPhoneTexts(state,[],identities)
+assert.equal(state.messages.length,2,'source deletion deactivates, never erases the phone archive or manually authored messages')
+assert.equal(phoneConversation(state,'character:1','persona:2').length,1)
+assert(!phoneStoryContext(state,identities).includes('Meet me outside.'))
+reconcileStoryPhoneTexts(state,current,identities)
+assert.equal(phoneConversation(normalizePhoneDevice(state),'character:1','persona:2').length,2,'same source reactivation preserves delivery without duplication')
+console.log('Phone Story bridge passed: standalone XML, no reasoning/examples/nested Surface actions, exact escaping, bounded character-only messages, render idempotency, source-owned reload/edit/delete/swipe projection and manual-text preservation.')

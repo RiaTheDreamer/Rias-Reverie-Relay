@@ -84,8 +84,10 @@ export function buildCharacterPhoneRuntimeDirective(defaultAppsInput: unknown): 
     const firstContextSlot = defaults.length + 1
     layout = `The user has configured these mandatory Character Phone default apps, in slot order:\n${defaultLines}\n\nKeep those apps exactly in slots 1–${defaults.length}. Fill slots ${firstContextSlot}–8 with exactly ${8 - defaults.length} distinct context-relevant apps.\n\nAllowed contextual app pool:\n${contextual.map(characterPhoneAppLabel).join(' · ')}`
   }
-  return `<reverie_character_phone_layout defaults="${defaults.length}" context_slots="${8 - defaults.length}">\nCHARACTER PHONE — ACTIVE APP LAYOUT\n\n${layout}\n\n${common}\n</reverie_character_phone_layout>`
+  return xmlAuthoringInstructions(`<reverie_character_phone_layout defaults="${defaults.length}" context_slots="${8 - defaults.length}">\nCHARACTER PHONE — ACTIVE APP LAYOUT\n\n${layout}\n\n${common}\n</reverie_character_phone_layout>`)
 }
+
+import { xmlAuthoringInstructions, xmlNarrativeAsLegacy } from './xmlSurfaceFormat'
 
 export type CharacterPhoneAppAudit = {
   appCount: number
@@ -106,7 +108,7 @@ function bracketValue(source: string, tag: string): string {
 
 export function auditCharacterPhoneApps(markup: string, defaultsInput: unknown): CharacterPhoneAppAudit {
   const defaults = normalizeCharacterPhoneDefaultApps(defaultsInput)
-  const apps = [...String(markup || '').matchAll(/\[cp_app\]([\s\S]*?)\[\/cp_app\]/gi)].map(match => match[1])
+  const apps = [...xmlNarrativeAsLegacy(String(markup || '')).matchAll(/\[cp_app\]([\s\S]*?)\[\/cp_app\]/gi)].map(match => match[1])
   const slots = apps.map(app => Number(bracketValue(app, 'cp_slot'))).filter(Number.isFinite)
   const appNames = apps.map(app => bracketValue(app, 'cp_name')).filter(Boolean)
   const normalizedNames = appNames.map(name => name.trim().toLocaleLowerCase())

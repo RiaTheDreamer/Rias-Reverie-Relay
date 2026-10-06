@@ -310,8 +310,8 @@ function makeGlassButtonPack(kind: 'realistic' | 'primary' | 'bracket'): RegexPa
   const authority = kind === 'bracket' ? 'r45-bracket-glass' : `r45-${kind}-glass`
   return {
     ...pack,
-    name: `Reverie - Core - Glass Button - ${kind === 'primary' ? 'Primary' : 'Realistic'}`,
-    notes: 'Authorized Core Regex for Glass Button presentation. Complete replacements with body color preserved.',
+    name: `Reverie Surfaces R4.5 — ${kind === 'primary' ? 'Primary' : 'Realistic'} — Glass Button${kind === 'bracket' ? ' — Bracket Native' : ''}`,
+    notes: 'Reverie Surfaces R4.5 standalone Glass Button authority. Complete replacements with body color preserved.',
     surface_pack_mode: 'glass',
     scripts: pack.scripts.map(script => glassButtonScript(script, authority)),
   }
@@ -323,8 +323,8 @@ function makeGlassColorPack(presentation: keyof typeof colorSource): RegexPack {
   const authority = `r45-${presentation}-glass-mode`
   return {
     ...pack,
-    name: `Reverie - Core - ${presentation === 'glass' ? 'Glass Button' : presentation} - Glass Mode`,
-    notes: 'Authorized Core Regex for Glass color mode. Complete replacements with presentation preserved.',
+    name: `Reverie Surfaces R4.5 — ${presentation === 'glass' ? 'Glass Button' : presentation} — Glass Mode`,
+    notes: 'Reverie Surfaces R4.5 standalone Glass color authority. Complete replacements with presentation preserved.',
     surface_pack_mode: `${presentation}-glass`,
     scripts: pack.scripts.map(script => {
       const glass = glassifyScript(script, authority)

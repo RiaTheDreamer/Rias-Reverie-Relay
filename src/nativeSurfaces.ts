@@ -1,6 +1,7 @@
 import { normalizeSurfaceDocument, plainSurfaceText, completeSurfaceSpecs, residualSurfaceTags } from './surfaceXml'
 import { albumPresentation, dossierPresentation, GALLERY_FULL_IMAGE_CSS } from './surfacePresentation'
 import { KNOWN_APP_SURFACE_DRIFT_ROOTS, normalizeBracketSurfaceDocument } from './bracketSurfaceBridge'
+import { bracketImageControls, projectBracketImageControlsToXml, restoreBracketImageControlSource, type BracketImageControl } from './imageControlMarkup'
 
 import { parseImageRequests, type CustomSurfaceDefinition, type CustomSurfaceStudioState, type GenerationPlaceholderEffect, type SurfaceColorMode, type SurfaceRendererMode, type SurfaceRendererScriptOverride, type SurfaceShellMode } from './contracts'
 import { SHIPPED_SURFACE_BY_ID, SHIPPED_SURFACE_SPECS, type ShippedSurfaceSpec } from './shippedSurfaceDefinitions'
@@ -9,11 +10,14 @@ import { containsRenderedRegexSurface, renderRegexSurfaceParity, type RegexSurfa
 import { R45_SUPPLEMENTAL_ROOTS } from './r45SurfaceCatalog'
 import { isFailureRecoveryStatus, isSlotLifecycleActive } from './slotLifecycle'
 import { sanitizedKakaoColor } from './kakaoColor'
+import { SURFACE_MEDIA_GEOMETRY_STYLE } from './surfaceMediaGeometry'
 import { validateDeclarativeSurfaceCss } from './surfaceCssSafety'
 import type { SurfaceNormalizationSpec } from './c5bReliability'
 
 export type NativeSurfaceRenderContext = {
   chatId: string
+  /** Internal presentation adapter source map, never persisted. */
+  authoredImageControls?: readonly BracketImageControl[]
   messageId?: string
   swipeId?: number
   isUser?: boolean
@@ -77,7 +81,7 @@ const LIFECYCLE_CARD_CSS = `<style data-reverie-lifecycle-style="release">
 .rrl-card[data-rrn-live-status="provider-waiting"] .rrl-spinner{display:block}.rrl-card[data-rrn-live-status="provider-waiting"] .rrl-state-icon{display:none}.rrl-card[data-rrn-live-status="provider-waiting"] .rrl-status:before{animation:rrlPulse 1.05s ease-in-out infinite}
 </style>`
 
-const STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="2">
+const STABLE_MEDIA_SLOT_CSS = `${SURFACE_MEDIA_GEOMETRY_STYLE}<style data-reverie-stable-media-slot="2">
 .rrn-editable-surface,.rrl-island,.rrn-media,.rrl-media-slot,[data-reverie-r45-lifecycle-media],.dgir-prose-lifecycle-projection{overflow-anchor:none}.dgir-prose-lifecycle-projection{display:flex;width:100%;max-width:100%;justify-content:var(--dgir-prose-image-justify,center);margin:10px 0;box-sizing:border-box}.dgir-prose-lifecycle-projection>.rrl-island{flex:0 1 var(--dgir-prose-image-width,66%);width:var(--dgir-prose-image-width,66%);max-width:var(--dgir-prose-image-max-width,720px);margin:8px 0}.rrn-media{aspect-ratio:var(--reverie-media-aspect,16/9);min-height:0;contain:layout paint}.rrn-media img{width:100%;height:100%;object-fit:var(--rrn-fit,contain)}.rrl-card>.rrl-media-slot{grid-column:1/-1}.rrl-media-slot{--reverie-media-aspect:1/1;--rr-primary:var(--lumiverse-primary,var(--rrl-accent));--rr-secondary:var(--lumiverse-secondary,var(--rrl-accent));--rr-text:var(--lumiverse-text,var(--rrl-text));--rr-accent:var(--lumiverse-secondary,var(--rrl-accent));--rr-accent-text:var(--lumiverse-primary,var(--rrl-text));--rr-border:var(--lumiverse-border,var(--rrl-border));--rr-bg:var(--lumiverse-bg-deep-080,var(--rrl-bg));position:relative;display:block;width:100%;aspect-ratio:var(--reverie-media-aspect);min-height:0;overflow:hidden;border:1px solid var(--rr-border);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.045),rgba(255,255,255,.015)),var(--rr-bg);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 16px 50px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.055);contain:layout paint;overflow-anchor:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-resolved{position:absolute;inset:0;width:100%;height:100%;margin:0;border:0;border-radius:0;background:transparent}.rrl-media-slot .rrl-preview{max-height:none}.rrl-media-slot .rrl-preview[hidden]{display:none}.rrl-media-slot .rrl-preview-image,.rrl-media-slot .rrl-slot-image,.rrl-media-slot .rrl-resolved img{display:block;width:100%;height:100%;max-height:none;object-fit:contain;background:#070507;border-radius:0}.rrl-actions button[data-rrn-action]{touch-action:manipulation;pointer-events:auto}.rrl-actions button[data-rrl-submitting="true"]{opacity:.68;cursor:progress}.rrl-media-skeleton{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden;padding:0;color:transparent;pointer-events:none}.rrl-media-slot[data-rrn-media-empty="false"] .rrl-media-skeleton,.rrl-media-slot[data-rrn-media-state="previewing"] .rrl-media-skeleton{opacity:0;pointer-events:none}.rrl-card{display:block;min-height:0;padding:0;border:0;border-radius:18px;background:transparent;box-shadow:none;overflow:visible}.rrl-main{position:absolute;z-index:3;left:8px;top:8px;max-width:calc(100% - 16px);padding:4px 7px;border-radius:999px;background:rgba(5,3,6,.62);backdrop-filter:blur(7px);pointer-events:none}.rrl-main .rrl-icon{width:18px;height:18px;flex-basis:18px;border:0;background:transparent}.rrl-main .rrl-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.rrl-main .rrl-copy{display:block}.rrl-main .rrl-status{padding:0;border:0;color:#fff;font-size:9px}.rrl-stream-status,.rrl-progress{display:none!important}.rrl-actions{position:absolute;z-index:4;right:8px;bottom:8px;max-width:calc(100% - 16px);padding:4px;border-radius:10px;background:rgba(5,3,6,.68);backdrop-filter:blur(7px);opacity:0;transform:translateY(3px);pointer-events:none;transition:opacity .16s ease,transform .16s ease}.rrl-card:hover .rrl-actions,.rrl-card:focus-within .rrl-actions,.rrl-card[data-rrn-live-status="completed"] .rrl-actions,.rrl-card[data-rrn-live-status="failed"] .rrl-actions,.rrl-card[data-rrn-live-status="image-unavailable"] .rrl-actions,.rrl-card[data-rrn-live-status="cancelled"] .rrl-actions,.rrl-card[data-rrn-live-status="placement-repair-needed"] .rrl-actions{opacity:1;transform:none;pointer-events:auto}.rrl-detail{display:none}.rrl-card[data-rrn-live-status="completed"] .rrl-main{opacity:0;transition:opacity .16s ease}.rrl-card[data-rrn-live-status="completed"]:hover .rrl-main,.rrl-card[data-rrn-live-status="completed"]:focus-within .rrl-main{opacity:.9}.rrn-message[data-rr-kakao-color] .rrn-avatar{background:color-mix(in srgb,var(--kk-color) 38%,var(--rrn-panel));border-color:color-mix(in srgb,var(--kk-color) 54%,transparent)}.rrn-message[data-rr-kakao-color] .rrn-meta b{color:color-mix(in srgb,var(--kk-color) 65%,var(--rrn-text))}.rrn-message[data-rr-kakao-color] .rrn-bubble{border:1px solid color-mix(in srgb,var(--kk-color) 35%,var(--rrn-border));background:color-mix(in srgb,var(--rrn-panel) 82%,var(--kk-color) 18%)}.rrn-message[data-rr-kakao-color] .rrn-bubble.is-sent{background:color-mix(in srgb,var(--rrn-panel) 68%,var(--kk-color) 32%)}@media(max-width:560px){.dgir-prose-lifecycle-projection>.rrl-island{width:min(100%,var(--dgir-prose-image-width,66%));max-width:min(100%,var(--dgir-prose-image-max-width,720px))}.rrl-media-slot{width:100%;max-height:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-preview-image{max-height:none}}
 .rrn-editable-surface>.rrn-contract-recovery{--rrr-accent:var(--lumiverse-primary,#c24b78);--rrr-panel:var(--lumiverse-bg-elevated,#24131d);--rrr-deep:var(--lumiverse-bg-deep,#150a11);--rrr-border:var(--lumiverse-border,rgba(194,75,120,.34));--rrr-text:var(--lumiverse-text-primary,var(--lumiverse-text,#f7eaf0));--rrr-muted:var(--lumiverse-text-secondary,var(--lumiverse-text-muted,#c8aeb9));box-sizing:border-box;display:grid;gap:7px;width:min(100%,680px);margin:10px auto;padding:14px 15px;border:1px solid color-mix(in srgb,var(--rrr-accent) 42%,var(--rrr-border));border-left:3px solid var(--rrr-accent);border-radius:16px;background:radial-gradient(circle at 0 0,color-mix(in srgb,var(--rrr-accent) 14%,transparent),transparent 48%),linear-gradient(145deg,color-mix(in srgb,var(--rrr-panel) 94%,transparent),color-mix(in srgb,var(--rrr-deep) 98%,transparent));color:var(--rrr-text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,"Segoe UI",sans-serif);box-shadow:0 10px 28px rgba(0,0,0,.24),inset 0 1px rgba(255,255,255,.045)}.rrn-contract-recovery>b{font:800 13px/1.25 var(--lumiverse-font-family,system-ui,sans-serif);letter-spacing:.01em}.rrn-contract-recovery>span{color:var(--rrr-text);font-size:12px;line-height:1.45}.rrn-contract-recovery>small{color:var(--rrr-muted);font-size:10px;line-height:1.4}.rrn-contract-recovery>div{display:flex;flex-wrap:wrap;gap:6px;margin-top:3px}.rrn-contract-recovery button[data-rrn-action]{appearance:none;min-height:31px;padding:6px 10px;border:1px solid color-mix(in srgb,var(--rrr-accent) 34%,var(--rrr-border));border-radius:9px;background:color-mix(in srgb,var(--rrr-panel) 88%,transparent);color:var(--rrr-text);font:750 10px/1 var(--lumiverse-font-family,system-ui,sans-serif);cursor:pointer;touch-action:manipulation;pointer-events:auto}.rrn-contract-recovery button[data-rrn-action]:hover,.rrn-contract-recovery button[data-rrn-action]:focus-visible{border-color:color-mix(in srgb,var(--rrr-accent) 72%,var(--rrr-border));background:color-mix(in srgb,var(--rrr-accent) 20%,var(--rrr-panel));outline:none}.rrn-contract-recovery button[data-rrn-action="edit-surface"]{background:color-mix(in srgb,var(--rrr-accent) 27%,var(--rrr-panel));border-color:color-mix(in srgb,var(--rrr-accent) 62%,var(--rrr-border))}@media(max-width:560px){.rrn-editable-surface>.rrn-contract-recovery{margin:8px 0;padding:12px}.rrn-contract-recovery>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.rrn-contract-recovery button[data-rrn-action]{width:100%}}
 .rrl-media-slot .rrl-slot-image.rrl-final-reveal{animation:rrlFinalReveal 1.35s cubic-bezier(.22,.61,.36,1) both;will-change:filter,opacity,transform}@keyframes rrlFinalReveal{from{opacity:.42;transform:scale(1.006);filter:blur(14px) brightness(.96)}to{opacity:1;transform:none;filter:none}}
@@ -90,6 +94,22 @@ const STABLE_MEDIA_SLOT_CSS = `<style data-reverie-stable-media-slot="2">
 
 const PROSE_LIFECYCLE_MEDIA_FIT_CSS = `<style data-reverie-prose-lifecycle-fit="cover">
 .dgir-prose-lifecycle-projection .rrl-media-slot .rrl-preview-image,.dgir-prose-lifecycle-projection .rrl-media-slot .rrl-slot-image,.dgir-prose-lifecycle-projection .rrl-media-slot .rrl-resolved img{object-fit:cover}
+</style>`
+
+const DIFFUSION_PREVIEW_CSS = `<style data-reverie-diffusion-preview="1">
+.rrl-generation-placeholder[data-rr-placeholder-effect="diffusion-preview"]{background:radial-gradient(circle at 50% 48%,color-mix(in srgb,var(--rr-primary) 12%,transparent),transparent 62%),var(--rr-bg);color:var(--rr-text)}
+.rrl-media-slot[data-rrn-media-state="previewing"] .rrl-generation-placeholder[data-rr-placeholder-effect="diffusion-preview"]{opacity:1}
+.rrl-generation-placeholder .rr-diffusion-stage{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden;isolation:isolate}
+.rrl-generation-placeholder .rr-diffusion-stage img{display:block;position:absolute;width:100%;height:100%;border:0;border-radius:0;background:transparent;pointer-events:none}
+.rrl-generation-placeholder .rr-diffusion-ambient{inset:-8%;width:116%!important;height:116%!important;object-fit:cover;filter:blur(24px) saturate(.82);opacity:.42}
+.rrl-generation-placeholder .rr-diffusion-frame{inset:0;object-fit:contain;filter:saturate(.92)}
+.rrl-generation-placeholder .rr-diffusion-stage img[hidden]{display:none}
+.rrl-generation-placeholder .rr-diffusion-wait{display:flex;align-items:center;gap:9px;padding:8px 12px;border:1px solid color-mix(in srgb,var(--rr-primary) 30%,transparent);border-radius:999px;background:color-mix(in srgb,var(--rr-bg) 76%,transparent);font:700 11px/1.2 var(--lumiverse-font-family,system-ui,sans-serif);text-align:center}
+.rrl-generation-placeholder .rr-diffusion-stage[data-rr-preview-ready="true"] .rr-diffusion-wait{display:none}
+.rrl-generation-placeholder .rr-diffusion-stage[data-rr-preview-ready="true"]:after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 25%,color-mix(in srgb,var(--rr-secondary) 12%,transparent) 49%,transparent 73%);pointer-events:none;animation:rrDiffusionSweep 3.2s ease-in-out infinite alternate}
+.rrl-generation-placeholder .rr-diffusion-status{position:absolute;right:10px;bottom:10px;max-width:calc(100% - 20px);padding:5px 9px;border:1px solid color-mix(in srgb,var(--rr-primary) 35%,transparent);border-radius:999px;background:color-mix(in srgb,var(--rr-bg) 74%,transparent);backdrop-filter:blur(8px);color:var(--rr-text);font:700 10px/1.2 var(--lumiverse-font-family,system-ui,sans-serif);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@keyframes rrDiffusionSweep{from{transform:translateX(-28%);opacity:.28}to{transform:translateX(28%);opacity:.58}}
+@media(prefers-reduced-motion:reduce){.rrl-generation-placeholder .rr-diffusion-stage[data-rr-preview-ready="true"]:after{animation:none;opacity:.35}}
 </style>`
 
 const LIFECYCLE_REVEAL_CSS = `<style data-reverie-lifecycle-reveal="atomic">
@@ -130,8 +150,29 @@ export function renderCompletedProseLifecycleProjection(
   return proseLifecycleProjection(record, card)
 }
 
+export function renderRegenerationLifecycleProjection(
+  record: NonNullable<NativeSurfaceRenderContext['records']>[number],
+  studio: CustomSurfaceStudioState,
+  context: NativeSurfaceRenderContext,
+): string {
+  const prose = record.target === 'prose.illustration'
+  const baseSurfaceId = prose ? 'prose-illustration' : record.target === 'custom.artifact-media' ? 'artifact-media' : 'lifecycle-media'
+  const projectionContext = { ...context, records: [record] }
+  const card = renderRequestCard({
+    title: prose ? 'Illustration requested' : record.alt || 'Media requested',
+    brief: '',
+    requestId: record.requestId,
+    aspect: record.requestAspect || (prose ? '4:3' : '1:1'),
+    rootTag: 'image_request',
+    baseSurfaceId,
+    preset: prose ? activePreset(studio, baseSurfaceId) : undefined,
+    context: projectionContext,
+  }, true)
+  return prose ? proseLifecycleProjection(record, card) : lifecycleCardIsland(card)
+}
+
 export function lifecycleRuntimeCss(): string {
-  return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${PROSE_LIFECYCLE_MEDIA_FIT_CSS}${LIFECYCLE_REVEAL_CSS}<style>
+  return `${LIFECYCLE_CARD_CSS}${STABLE_MEDIA_SLOT_CSS}${PROSE_LIFECYCLE_MEDIA_FIT_CSS}${DIFFUSION_PREVIEW_CSS}${LIFECYCLE_REVEAL_CSS}<style>
 .rrl-card[data-rrn-placement-ready="true"] .rrl-spinner{display:none!important}.rrl-card[data-rrn-placement-ready="true"] .rrl-state-icon{display:block!important}
 .rrl-card[data-rrn-placement-ready="true"] .rrl-main{display:none!important}
 .rrl-card[data-rrn-placement-ready="true"] .rrl-actions{top:8px;right:auto;bottom:auto;left:8px;max-width:calc(100% - 16px);padding:0;background:transparent;backdrop-filter:none;opacity:1!important;transform:none!important;pointer-events:auto!important}
@@ -468,6 +509,8 @@ export function characterProfilePortraitHasExactRelayImage(markup: string, owner
 }
 
 function editableRelaySurface(rendered: string, editorMarkup: string, rootTag: string, baseSurfaceId: string, context: NativeSurfaceRenderContext, originalMarkup = editorMarkup): string {
+  editorMarkup = restoreBracketImageControlSource(editorMarkup, context.authoredImageControls || [])
+  originalMarkup = restoreBracketImageControlSource(originalMarkup, context.authoredImageControls || [])
   // R4.5 is presentation authority. Inline stays inline, while the Plain and
   // Sparkling packs provide their own single closed launcher. Adding a Relay
   // launcher here would create the double-wrapper regression seen in live QA.
@@ -484,7 +527,7 @@ function editableRelaySurface(rendered: string, editorMarkup: string, rootTag: s
   // Lumiverse's live message sanitizer may remove form controls from rendered
   // assistant content. Keep source on the owning element as the authoritative
   // editor transport; textareas remain for already-rendered compatibility.
-  return `<section class="rrn-editable-surface" data-reverie-stream-island="${escapeAttr(island)}" data-rrn-editable-surface="${escapeAttr(baseSurfaceId)}" data-rrn-chat-id="${escapeAttr(context.chatId)}" data-rrn-message-id="${escapeAttr(context.messageId)}" data-rrn-root-tag="${escapeAttr(rootTag)}" data-rrn-surface-id="${escapeAttr(baseSurfaceId)}" data-rrn-surface-source="${inertAttributeSource(editorMarkup)}" data-rrn-surface-original="${inertAttributeSource(originalMarkup)}" tabindex="0">${STABLE_MEDIA_SLOT_CSS}${rendered}<textarea class="rrn-surface-source" hidden>${inertTextareaSource(editorMarkup)}</textarea><textarea class="rrn-surface-original" hidden>${inertTextareaSource(originalMarkup)}</textarea></section>`
+  return `<section class="rrn-editable-surface" data-reverie-stream-island="${escapeAttr(island)}" data-rrn-editable-surface="${escapeAttr(baseSurfaceId)}" data-rrn-chat-id="${escapeAttr(context.chatId)}" data-rrn-message-id="${escapeAttr(context.messageId)}" data-rrn-swipe-id="${Number.isFinite(Number(context.swipeId)) ? Number(context.swipeId) : ''}" data-rrn-root-tag="${escapeAttr(rootTag)}" data-rrn-surface-id="${escapeAttr(baseSurfaceId)}" data-rrn-surface-source="${inertAttributeSource(editorMarkup)}" data-rrn-surface-original="${inertAttributeSource(originalMarkup)}" tabindex="0">${STABLE_MEDIA_SLOT_CSS}${rendered}<textarea class="rrn-surface-source" hidden>${inertTextareaSource(editorMarkup)}</textarea><textarea class="rrn-surface-original" hidden>${inertTextareaSource(originalMarkup)}</textarea></section>`
 }
 
 export function surfaceStreamIslandKey(messageId: string | undefined, swipeId: number | undefined, surfaceId: string, ordinal = 0): string {
@@ -618,14 +661,21 @@ function preserveKakaoColorAttributes(rendered: string): string {
   })
 }
 
-function reviewedContractError(surfaceId: string, reason: string): string {
+function reviewedContractError(surfaceId: string, reason: string, displayName = surfaceId, guidance = ''): string {
   reviewedSurfaceDiagnostics.set(surfaceId, reason)
   recordSurfacePipelineDiagnostic(surfaceId, 'final', `repair fallback: ${reason}`)
   while (reviewedSurfaceDiagnostics.size > 128) reviewedSurfaceDiagnostics.delete(reviewedSurfaceDiagnostics.keys().next().value!)
   // The recovery affordance remains usable in-place, but raw grammar and
   // implementation detail are intentionally withheld from reader-facing story
   // content. Relay Health/diagnostics owns the exact reason above.
-  return `<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed" data-reverie-surface-id="${escapeAttr(surfaceId)}"><b>${escapeHtml(surfaceId)} · Format error</b><span>${escapeHtml(reason)}</span><small>Original markup and existing media were preserved.</small><div><button type="button" data-rrn-action="edit-surface">Inspect / Fix</button><button type="button" data-rrn-action="repair-surface">Repair</button><button type="button" data-rrn-action="reparse">Reparse</button><button type="button" data-rrn-action="rescan">Rescan</button></div></aside>`
+  return `<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed" data-reverie-surface-id="${escapeAttr(surfaceId)}"><b>${escapeHtml(displayName)} · Format error</b><span>${escapeHtml(reason)}</span><small>${guidance ? `${escapeHtml(guidance)} ` : ''}Original markup and existing media were preserved.</small><div><button type="button" data-rrn-action="edit-surface">Inspect / Fix</button><button type="button" data-rrn-action="repair-surface">Assisted Repair</button><button type="button" data-rrn-action="reparse">Reparse</button><button type="button" data-rrn-action="rescan">Rescan</button></div></aside>`
+}
+
+/** Narrative owners use the same diagnostic card and exact-source editor as Core. */
+export function renderSurfaceContractRecovery(surfaceId: string, rootTag: string, original: string, reason: string, context: NativeSurfaceRenderContext, displayName = surfaceId, guidance = ''): string {
+  const card = reviewedContractError(surfaceId, reason, displayName, guidance)
+  if (!context.chatId || !context.messageId) return `<section class="rrn-editable-surface">${STABLE_MEDIA_SLOT_CSS}${card}</section>`
+  return editableRelaySurface(card, original, rootTag, surfaceId, context, original)
 }
 function renderParityOwnedSurface(
   baseSurfaceId: string,
@@ -676,6 +726,14 @@ export function renderNativeSurfaceMarkup(
   studio: CustomSurfaceStudioState,
   context: NativeSurfaceRenderContext,
 ): NativeSurfaceRenderResult {
+  context = { ...context, authoredImageControls: bracketImageControls(input) }
+  let bracketControlRecoveryCount = 0
+  input = projectBracketImageControlsToXml(input, control => {
+    bracketControlRecoveryCount += 1
+    if (!control.complete) return '<!--reverie-pending-bracket-control-->'
+    const surfaceId = control.root === 'reverie_illustration' ? 'prose-illustration' : 'artifact-media'
+    return editableRelaySurface(reviewedContractError(surfaceId, control.diagnostics.join('; ')), control.fullMatch, control.root, surfaceId, context)
+  })
   const renderContext: NativeSurfaceRenderContext = {
     ...context,
     defaultShellMode: studio.defaultShellMode || context.defaultShellMode,
@@ -790,7 +848,7 @@ export function renderNativeSurfaceMarkup(
   // explicitly selected legacy ownership, hide the semantic payload from
   // Relay's generic request pass so one instance never gets two render owners.
   const protectedRegexSurfaces = new Map<string, string>()
-  let renderedCount = bracketRenderedCount + normalizationFailures.length + unsupportedAppDrift.length
+  let renderedCount = bracketControlRecoveryCount + bracketRenderedCount + normalizationFailures.length + unsupportedAppDrift.length
   const renderedSurfaceIds: string[] = [...bracketRenderedSurfaceIds, ...normalizationFailures, ...unsupportedAppDrift]
 
   // The reviewed Tinder contract has its own <tinder> wrapper. In Regex
@@ -970,7 +1028,7 @@ export function renderLifecycleWidgetMarkup(
   input: string,
   context: NativeSurfaceRenderContext,
 ): NativeSurfaceRenderResult {
-  const source = String(input || '').trim()
+  const source = projectBracketImageControlsToXml(String(input || '')).trim()
   const open = new RegExp(`^<${escapeRegExp(tagName)}\\b([^>]*)>([\\s\\S]*?)</${escapeRegExp(tagName)}>$`, 'i').exec(source)
   if (!open) return { content: '', renderedCount: 0, renderedSurfaceIds: [] }
   const attrs = parseAttrs(open[1])
@@ -1012,6 +1070,7 @@ export function renderLegacyLifecycleMarkup(
   input: string,
   context: NativeSurfaceRenderContext,
 ): NativeSurfaceRenderResult {
+  input = projectBracketImageControlsToXml(input)
   let renderedCount = 0
   const renderedSurfaceIds: string[] = []
   let content = normalizeSurfaceDocument(input, SHIPPED_SURFACE_SPECS, block => {
@@ -1477,6 +1536,7 @@ export function renderGenerationPlaceholderEffect(effect: GenerationPlaceholderE
   if (effect === 'spinner') return '<span class="rr-spinner" aria-hidden="true"></span>'
   if (effect === 'dream-orb') return '<span class="rr-orb" aria-hidden="true"></span>'
   if (effect === 'glitter') return `<span class="rr-regex-particles" aria-hidden="true">${'<i></i>'.repeat(24)}</span>`
+  if (effect === 'diffusion-preview') return '<span class="rr-diffusion-stage" data-rr-preview-ready="false"><span class="rr-diffusion-wait"><span class="rr-spinner" aria-hidden="true"></span>Waiting for diffusion preview…</span><img class="rr-diffusion-ambient" alt="" hidden><img class="rr-diffusion-frame" alt="" hidden><span class="rr-diffusion-status" hidden></span></span>'
   return ''
 }
 

@@ -25,17 +25,17 @@ const bracketCompatible = `[photo]
 
 const example = bracketExampleFromXml(canonicalXml)
 const schema = compactBracketSchemaFromXml(canonicalXml)
-const orderedTokens = ['[photo]', '<image_request id="bracket-protocol-1"', '<scene_brief>Rainy station platform.</scene_brief>', '</image_request>', '[/photo]']
+const orderedTokens = ['[photo]', '[image_request]', '[id]bracket-protocol-1[/id]', '[scene_brief]', 'Rainy station platform.', '[/scene_brief]', '[/image_request]', '[/photo]']
 let tokenAt = -1
 for (const token of orderedTokens) {
   const next = example.indexOf(token, tokenAt + 1)
   assert(next > tokenAt, `hybrid Surface serializer lost or reordered ${token}`)
   tokenAt = next
 }
-assert(!bracketImageControl.test(example), 'Surface example must not author bracket image-control tags')
-assert(!bracketImageControl.test(schema), 'Surface schema must not author bracket image-control tags')
-assert(example.includes('<image_request') && example.includes('<scene_brief>'), 'Surface example must retain canonical XML image control')
-assert(schema.includes('<image_request') && /<scene_brief>…<\/scene_brief>/.test(schema), 'compact schema must expose canonical XML image control')
+assert(bracketImageControl.test(example), 'Surface example must author bracket image controls')
+assert(bracketImageControl.test(schema), 'Surface schema must author bracket image controls')
+assert(example.includes('[image_request]') && example.includes('[scene_brief]'), 'legacy compatibility serializer must expose bracket image control')
+assert(schema.includes('[image_request]') && /\[scene_brief\]\s*…\s*\[\/scene_brief\]/.test(schema), 'legacy compatibility schema must expose bracket image control')
 assert(!(example.replace(protectedRelayControl, '').match(semanticAngleTag) || []).length, 'Surface example must contain no structural XML outside protected Relay control')
 assert(!(schema.replace(protectedRelayControl, '').match(semanticAngleTag) || []).length, 'Surface schema must contain no structural XML outside protected Relay control')
 
@@ -94,31 +94,12 @@ assert(containsImageRequestMarkup(bracketCompatible), 'production request detect
 
 const surfaces = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
 assert(surfaces.length === 46, `expected protected 46-Surface inventory, got ${surfaces.length}`)
-const surfaceFailures = surfaces.flatMap(definition => {
-  const prompt = String(definition.promptModule || '')
-  const tags = prompt.replace(protectedRelayControl, '').match(semanticAngleTag) || []
-  const bracketControl = prompt.match(bracketImageControl) || []
-  return tags.length || bracketControl.length ? [{ surfaceId: definition.surfaceId, tags: [...new Set([...tags, ...bracketControl])].slice(0, 20) }] : []
-})
 const canonicalSurfaceRequests = surfaces.filter(definition => String(definition.promptModule || '').includes('<image_request'))
 assert(canonicalSurfaceRequests.length > 0, 'current Surface prompts must teach canonical XML image requests')
-console.log(`Surface prompt boundary audit: ${surfaces.length} Surfaces inspected; ${canonicalSurfaceRequests.length} teach canonical XML image requests; ${surfaceFailures.length} structural/control failures.`)
-
-if (process.env.REVERIE_CHECK_SURFACE_BRACKET_ONLY === '1' && surfaceFailures.length) {
-  throw new Error(`Bracket-only Surface prompt gate failed:\n${JSON.stringify(surfaceFailures, null, 2)}`)
+for (const definition of surfaces) {
+  assert(String(definition.promptModule).includes(`ROOT: <${definition.canonicalOuterWrapper}>`), `${definition.surfaceId}: new authoring must use its XML root`)
 }
-
-if (process.env.REVERIE_CHECK_NARRATIVE_BRACKET_ONLY === '1') {
-  const narrativeFailures = narrativeUtilityItems().flatMap(item => {
-    const prompt = String(item.loomContent || '')
-    const tags = prompt.replace(protectedRelayControl, '').match(semanticAngleTag) || []
-    const bracketControl = prompt.match(bracketImageControl) || []
-    return tags.length || bracketControl.length ? [{ utility: item.loomName, tags: [...new Set([...tags, ...bracketControl])].slice(0, 20) }] : []
-  })
-  if (narrativeFailures.length) {
-    throw new Error(`Bracket-only Narrative prompt gate failed:\n${JSON.stringify(narrativeFailures, null, 2)}`)
-  }
-  console.log('Narrative Utility prompt grammar PASS: bracket-native structure with protected Relay XML control tags only.')
+for (const utility of narrativeUtilityItems()) {
+  assert(!/bracket-native|\[(?:Plot_Sparks|character_phone|image_request|scene_brief|visual_prompt)\]/.test(utility.loomContent), `${utility.loomName}: legacy bracket authoring leaked into the current Utility`)
 }
-
-console.log('Bracket-native Surface grammar and Relay XML control boundary PASS.')
+console.log(`XML authoring with saved bracket compatibility PASS: ${surfaces.length} Surface roots, ${canonicalSurfaceRequests.length} image-request modules, all Narrative Utilities and exact mixed-source ownership.`)

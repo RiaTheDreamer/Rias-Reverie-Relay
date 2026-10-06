@@ -85,7 +85,7 @@ export function r45SupplementalSurfaceDefinitions(now = Date.now()): CustomSurfa
     return ({
     surfaceId: row.id,
     baseSurfaceId: row.id,
-    presetName: 'Authorized Regex',
+    presetName: 'R4.5 FINAL',
     shellMode: 'plain',
     defaultOpen: false,
     launcherLabel: row.label,
@@ -109,7 +109,7 @@ export function r45SupplementalSurfaceDefinitions(now = Date.now()): CustomSurfa
     altTextSupport: true,
     defaultCandidateCount: 1,
     compatibleRegenerationIntents: ['new-angle', 'better-expression', 'preserve-composition-improve-quality', 'full-reimagining'],
-    declarativeLayoutFields: { presentation: 'inline|plain|sparkling|glass', color: 'realistic|primary', authority: 'Authorized Regex' },
+    declarativeLayoutFields: { presentation: 'inline|plain|sparkling|glass', color: 'realistic|primary', authority: 'R4.5 FINAL' },
     validationRules: [
       'balanced-wrapper', 'safe-static-markup', 'stable-request-ownership',
       `required-media:${mediaLimits[0]}`, `maximum-media:${mediaLimits[1]}`,

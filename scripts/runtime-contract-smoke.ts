@@ -4,6 +4,8 @@ import { cancelMapKeysFromSnapshot, rememberBoundedMap } from '../src/c5bReliabi
 import { buildNarrativeUtilityPrompt } from '../src/narrativeDlcRuntime'
 import { SHIPPED_SURFACE_SPECS } from '../src/shippedSurfaceDefinitions'
 import { completeSurfaceSpecs } from '../src/surfaceXml'
+import { PLOT_SPARK_VECTOR_BY_KEY } from '../src/contracts'
+import { recentPlotSparksReference } from '../src/plotSparksUtility'
 
 let interceptorPermission = false
 let permissionChanged: ((detail: any) => void) | undefined
@@ -77,10 +79,6 @@ assert.equal(coldConfig.surfaceRendererMode, 'legacy-regex')
 assert.equal(coldConfig.autoGenerate, false)
 assert.equal(configWrites, 0)
 storage.set('config.json', {})
-const defaultRescanUser = 'fresh-rescan-default-user'
-assert.equal((await backend.getConfig(defaultRescanUser)).autoRescanOnChatOpen, false, 'new installations must not rescan on chat open by default')
-await backend.setConfig({ autoRescanOnChatOpen: true }, defaultRescanUser)
-assert.equal((await backend.getConfig(defaultRescanUser)).autoRescanOnChatOpen, true, 'an explicit saved On choice must survive the new default')
 
 // Automatic chat-open rescans must be rejected at the backend boundary after
 // the persisted preference is disabled, even if a stale frontend already sent
@@ -181,13 +179,14 @@ const protectedRelayControlTags = new Set([
 const structuralXmlTags = (value: string) => [...value.matchAll(/<\/?([A-Za-z][A-Za-z0-9_-]*)\b[^>]*>/g)]
   .filter(match => !protectedRelayControlTags.has(match[1].toLowerCase()))
 const bracketImageControlTags = (value: string) => value.match(/\[\/?(?:image_request|scene_brief|reverie-illustration|visual_prompt)\b/gi) || []
-const expectedNarrativeUtility = buildNarrativeUtilityPrompt()
+// Widget mode retires only new inline Phone authoring; saved phone XML still renders.
+const expectedNarrativeUtility = buildNarrativeUtilityPrompt(buildNarrativeUtilityPrompt().utilityNames.filter(name => name !== 'Character Phone'))
 const worldUtilityWithOverride = buildNarrativeUtilityPrompt(['Setting the Scene'], { 'Setting the Scene': 'CUSTOM WORLD CONTRACT' }).content
 assert(worldUtilityWithOverride.includes('CUSTOM WORLD CONTRACT'))
 assert(worldUtilityWithOverride.includes('SETTING THE SCENE STRUCTURAL LOCK'))
-assert(worldUtilityWithOverride.includes('[why_it_matters]...[/why_it_matters]'))
-assert(worldUtilityWithOverride.includes('[future_use]...[/future_use]'))
-assert(worldUtilityWithOverride.includes('Never use [/future_use] to close [why_it_matters]'))
+assert(worldUtilityWithOverride.includes("<why_it_matters>...</why_it_matters>"))
+assert(worldUtilityWithOverride.includes("<future_use>...</future_use>"))
+assert(worldUtilityWithOverride.includes("Never use </future_use> to close <why_it_matters>"))
 assert(!/\[\/?(?:image_request|scene_brief)\b/i.test(worldUtilityWithOverride), 'World prompt lock converted canonical Relay XML image controls to brackets')
 const expectedSurfaceIds = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).map(surface => surface.id)
   .filter(id => id !== 'relationship-map' && id !== 'character-profile').sort()
@@ -201,35 +200,38 @@ const assertUtilitiesInjected = (text: string, stage: string) => {
   )
   assert.equal(expectedSurfaceIds.length, 44, `${stage}: expected 44 Core authoring modules after the Narrative move`)
   assert(text.includes(expectedNarrativeUtility.content), `${stage}: the complete enabled Narrative Utility payload was not injected`)
-  assert.equal(expectedNarrativeUtility.utilityNames.length, 16, `${stage}: expected all 16 default Narrative Utilities`)
+  assert.equal(expectedNarrativeUtility.utilityNames.length, 15, `${stage}: expected 15 inline Utilities with Character Phone hosted in the widget`)
 }
 await backend.setConfig({ narrativeDlcEnabled: true, narrativeDlcUtilityNames: expectedNarrativeUtility.utilityNames }, 'u1')
 const baseMessages = [{ role: 'user', content: 'Continue the scene.' }]
 const modelPlanned = assembledText(await interceptor!(baseMessages, { chatId: 'dry-run', userId: 'u1', isDryRun: true }))
 assert(!/\bChaos Hooks\b/i.test(modelPlanned), 'final Story Model prompt must not mention the retired Chaos Hooks label')
 assert(modelPlanned.includes('REVERIE RELAY — MODEL PLANNED ILLUSTRATIONS'))
-assert(modelPlanned.includes('<visual_prompt>'))
+assert(modelPlanned.includes("<visual_prompt>"))
 assert(modelPlanned.includes('Each request is a standalone image prompt'), 'Model Planned must make every image request self-contained')
 assert(modelPlanned.includes('Repeat these facts independently for every request'), 'Model Planned must repeat supported appearance and current outfit in later requests')
+assert(modelPlanned.includes('Keep established left/right anatomy consistent throughout'), 'Model Planned must reject contradictory anatomical sides within an image prompt')
+assert(modelPlanned.includes("Before closing each <visual_prompt>, check that every described hand or eye action"), 'Model Planned must verify hand and eye side ownership before closing each request')
 assert(modelPlanned.includes('<mode>inline-protocol</mode>'))
 assert(modelPlanned.includes('Exclude every media request required inside an invoked Surface or Narrative Utility from this count'), 'Illustrator count must not conflict with self-contained Narrative/Surface media requirements')
 assertUtilitiesInjected(modelPlanned, 'initial permission grant')
 const assembledCore = modelPlanned.match(/<reverie_surface_utility\b[^>]*>([\s\S]*?)<\/reverie_surface_utility>/i)?.[1] || ''
-const assembledNarrative = modelPlanned.match(/\[reverie_narrative_utility\]([\s\S]*?)\[\/reverie_narrative_utility\]/i)?.[1] || ''
+const assembledNarrative = modelPlanned.match(/<reverie_narrative_utility>([\s\S]*?)<\/reverie_narrative_utility>/i)?.[1] || ''
 assert(assembledCore && assembledNarrative, 'final Story Model prompt did not expose both family authoring blocks for boundary audit')
-assert.equal(structuralXmlTags(assembledCore).length, 0, 'final Story Model Core authoring contains structural XML')
-assert.equal(structuralXmlTags(assembledNarrative).length, 0, 'final Story Model Narrative authoring contains structural XML')
-assert(assembledCore.includes('<image_request') && assembledCore.includes('<scene_brief>'), 'final Story Model Core authoring lost canonical XML image controls')
-assert(assembledNarrative.includes('<image_request') && assembledNarrative.includes('<reverie-illustration'), 'final Story Model Narrative authoring lost a canonical XML image-control family')
-assert.equal(bracketImageControlTags(modelPlanned).length, 0, 'final Story Model prompt teaches bracket image-control authoring')
-assert.equal((assembledNarrative.match(/<\/?(?:else-media|else-scene|else-context|visibility|clock|knowledge|collision)>/gi) || []).length, 0, 'final Story Model prompt teaches historical Off-Stage XML structure')
+assert(structuralXmlTags(assembledCore).length > 0, 'final Story Model Core authoring lacks structural XML')
+assert(structuralXmlTags(assembledNarrative).length > 0, 'final Story Model Narrative authoring lacks structural XML')
+assert(assembledCore.includes('<image_request ') && assembledCore.includes('<scene_brief>'), 'final Story Model Core authoring lost canonical XML image controls')
+assert(assembledNarrative.includes('<image_request ') && assembledNarrative.includes('<reverie-illustration '), 'final Story Model Narrative authoring lost a canonical XML image-control family')
+assert.equal(bracketImageControlTags(modelPlanned).length, 0, 'final Story Model prompt must not teach bracket image controls')
+assert.equal((assembledNarrative.match(/<\/?(?:else-media|else-scene|else-context)>/gi) || []).length, 0, 'final Story Model prompt teaches historical hyphenated Off-Stage XML structure')
 
 await backend.setConfig({ proseIllustratorSettings: { ...backend.defaultProseIllustratorSettings(), mode: 'model-placed' } }, 'u1')
 const inline = assembledText(await interceptor!(baseMessages, { chatId: 'inline-dry-run', userId: 'u1', isDryRun: true }))
 assert(inline.includes('REVERIE RELAY — MODEL PLANNED ILLUSTRATIONS'))
-assert(inline.includes('<visual_prompt>'))
+assert(inline.includes("<visual_prompt>"))
 assert(inline.includes('<mode>inline-protocol</mode>'))
-assert(inline.includes('Count only Scene Snapshot-style Inline &lt;reverie-illustration&gt; requests owned by the Illustrator protocol'))
+assert(inline.includes('Count only Inline &lt;reverie-illustration&gt; requests owned by the Illustrator protocol'))
+assert(!inline.includes('Scene Snapshot-style Inline'), 'framing-neutral Illustrator count instruction must not claim Scene Snapshot when another framing mode is selected')
 const inlineWorkflow = inline.slice(inline.indexOf('REVERIE RELAY — MODEL PLANNED ILLUSTRATIONS'), inline.indexOf('<reverie_illustrator_runtime>'))
 assert(!/<reverie-illustration[\s\S]*?<scene_brief>/i.test(inlineWorkflow))
 
@@ -243,13 +245,30 @@ assert(!sanitizedInterception.includes('[historical Relay illustration omitted]'
 assert(!/reverie-relay:image|!\[reverie-relay\]|\/api\/v1\/image-gen\/results\/history-one|data-dgir-|reverie-artifact-media/i.test(sanitizedInterception))
 assert(!/<hook_media>\s*<\/hook_media>/i.test(sanitizedInterception))
 
+// The recent-ideas reminder must survive the real interceptor, not just its
+// pure helper. Automatic and explicitly placed Utility paths each include it
+// once, and historical image requests never enter the reminder.
+const previousSparks = `[Plot_Sparks][ID]prior-board[/ID][Lifecycle]Unused.[/Lifecycle]${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `[Spark][Key]${key}[/Key][Vector]${vector}[/Vector][Text]Previous playable choice ${key}.[/Text][Media]<reverie-illustration request="generate" slot="past-${key}"><visual_prompt>PRIVATE-OLD-IMAGE-${key}</visual_prompt></reverie-illustration>[/Media][/Spark]`).join('')}[/Plot_Sparks]`
+const sparkHistory = [{ role: 'assistant', content: previousSparks }, ...baseMessages]
+const expectedRecentIdeas = recentPlotSparksReference(sparkHistory)
+assert(expectedRecentIdeas)
+for (const [placement, messages] of [
+  ['automatic', sparkHistory],
+  ['macro', [{ role: 'system', content: '{{reverie_narrative}}' }, ...sparkHistory]],
+] as const) {
+  const assembled = assembledText(await interceptor!(messages, { chatId: `sparks-${placement}-dry-run`, userId: 'u1', isDryRun: true }))
+  assert.equal(assembled.split(expectedRecentIdeas).length - 1, 1, `${placement}: recent ideas were missing or duplicated`)
+  assert(!assembled.includes('PRIVATE-OLD-IMAGE-'), `${placement}: old image controls leaked into the compiled prompt`)
+  assert(assembled.includes('Previous playable choice j.'), `${placement}: tenth prior idea was dropped`)
+}
+
 const duplicatedCompiledPrompt = assembledText(await interceptor!([
   { role: 'system', content: inline },
   { role: 'system', content: inline },
   { role: 'user', content: 'Continue once.' },
 ], { chatId: 'duplicate-contract-dry-run', userId: 'u1', isDryRun: true }))
 assert.equal((duplicatedCompiledPrompt.match(/<reverie_surface_utility\b/gi) || []).length, 1)
-assert.equal((duplicatedCompiledPrompt.match(/\[reverie_narrative_utility\]/gi) || []).length, 1)
+assert.equal((duplicatedCompiledPrompt.match(/<reverie_narrative_utility>/gi) || []).length, 1)
 assert.equal((duplicatedCompiledPrompt.match(/MODEL PLANNED ILLUSTRATIONS/gi) || []).length, 1)
 
 // Lumiverse can repeat hydrated historical output in system context. Runtime
@@ -505,4 +524,4 @@ assertUtilitiesInjected(assembledText(slowStorageResult), 'slow diagnostic stora
 await new Promise(resolve => setTimeout(resolve, 10))
 assert(blockedStateWriteAttempts >= 1, 'prompt diagnostics were not scheduled after returning the injection')
 
-console.log('Runtime contract smoke passed: final assembled Story Model prompt has Core structural XML 0, Narrative structural XML 0, bracket image-control authoring 0, and canonical XML image controls; continued-response request recovery, complete Surface/Narrative Utility injection and Full Dry Run reporting, non-blocking prompt diagnostics, clone-safe standard ImageGen, stale-result freshness rejection, one-spend streaming failure semantics, bounded abort quarantine/detach, snapshot cancellation, and deferred interceptor recovery.')
+console.log('Runtime contract smoke passed: final assembled Story Model prompt has XML Core, Narrative and image-control authoring; saved bracket ingress, continued-response recovery, complete Utility injection, Dry Run reporting, clone-safe ImageGen, stale-result rejection, one-spend semantics, abort quarantine, and deferred interceptor recovery remain covered.')

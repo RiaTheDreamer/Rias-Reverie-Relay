@@ -18,7 +18,7 @@ const storage = new Map<string, any>()
 }
 
 const backend = await import('../src/backend')
-const { sanitizeC5AIdentityPrompt } = await import('../src/c5aIdentity')
+const { sanitizeC5AIdentityPrompt, resolveC5ANativeIdentityBinding, enforceC5AKnownIdentity } = await import('../src/c5aIdentity')
 const { mergeAppearancePromptFacts } = await import('../src/vault')
 const { compactCompletedRecord, stripCompletedRecord } = await import('../src/completedState')
 
@@ -52,6 +52,31 @@ assert.deepEqual(backend.followedNativeParserConfig({
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
 assert(!backendSource.includes('Mirrored native ImageGen prompt mode:'), 'native generation mode must not enter Relay parser behavior payload')
 assert(!backendSource.includes('Mirrored native ImageGen prompt preset id:'), 'native generation preset id must remain diagnostic-only')
+
+// The live Min-jun failure: a user-global snapshot retained Cerys's Character
+// binding under another subject ID. A kind-level or unscoped direct field must
+// never become the active chat's identity anchor.
+const cerys = { subjectId: 'cerys-id', preset_id: 'cerys-preset', prompt: 'pink eyes, branching antlers' }
+const staleNative = {
+  promptPresets: [{ id: 'cerys-preset', kind: 'character', name: 'Cerys', prompt: cerys.prompt }],
+  nativePresetBindings: { character: cerys, 'cerys-id': cerys },
+  boundCharacterPresetId: 'cerys-preset', boundCharacterPrompt: cerys.prompt,
+}
+const minjun = resolveC5ANativeIdentityBinding(staleNative, 'character', { id: 'minjun-id', name: 'Kang Min-jun' })
+assert.equal(minjun.source, 'unresolved')
+assert.equal(minjun.prompt, '')
+assert.doesNotMatch(enforceC5AKnownIdentity('Kang Min-jun racks a slide.', [minjun]).prompt, /Cerys|pink eyes|antlers/i)
+const correctCerys = resolveC5ANativeIdentityBinding(staleNative, 'character', { id: 'cerys-id', name: 'Cerys' })
+assert.equal(correctCerys.presetName, 'Cerys')
+assert.match(correctCerys.prompt, /pink eyes/)
+const correctMinjun = resolveC5ANativeIdentityBinding({
+  ...staleNative,
+  nativePresetBindings: { character: cerys, 'minjun-id': { subjectId: 'minjun-id', preset_id: 'minjun-preset' } },
+  promptPresets: [...staleNative.promptPresets, { id: 'minjun-preset', kind: 'character', name: 'Min-jun', prompt: 'dark eyes, muscular build' }],
+}, 'character', { id: 'minjun-id', name: 'Kang Min-jun' })
+assert.match(correctMinjun.prompt, /dark eyes/)
+assert.doesNotMatch(correctMinjun.prompt, /antlers/)
+assert.equal(resolveC5ANativeIdentityBinding({ nativePresetBindings: { character: cerys } }, 'character', { name: 'unknown' }).prompt, '')
 
 // A named custom portrait owns its own subject. With no explicit cast, the
 // active chat character must not donate identity or Appearance context merely
@@ -148,6 +173,27 @@ const transformingSubjects = [
   { id: 'taejun', name: 'Taejun', kind: 'character', prompt: 'handsome Korean man, dark wavy hair, warm brown eyes, merman, long merman tail, no human legs, ivory sea-silk robe, gold arm cuffs' },
   { id: 'arin', name: 'Arin', kind: 'persona', prompt: 'young woman, long blonde hair, pale skin, slate-blue robe, human legs' },
 ]
+const soloSubjects = backend.restrictSoloSceneVisualSubjects(transformingSubjects, 'solo-scene', 1)
+assert.deepEqual(soloSubjects.map(subject => subject.name), ['Taejun'], 'Solo Scene must not append an off-screen named subject as a second provider person')
+assert(!/2people|female subject Arin/.test(backend.enforceVisualSubjectIdentity('Exactly one visible person: Taejun; Arin is only a voice.', soloSubjects, true)))
+assert.equal(backend.restrictSoloSceneVisualSubjects(transformingSubjects, 'scene-snapshot', 1).length, 2, 'ordinary scenes must retain separately named visible subjects')
+const plannedOnlyTaejun = backend.restrictRelayPlannedVisualSubjects(transformingSubjects, {
+  target: 'prose.illustration', originalSceneBrief: 'Taejun watches from the doorway; Arin is only an offscreen voice.',
+  prosePromptComposition: { namedSubjects: ['Taejun'], rawOutput: { plannerVersion: 'relay-planned-2' } },
+})
+assert.deepEqual(plannedOnlyTaejun.map(subject => subject.name), ['Taejun'], 'Relay Planned must honor its visible cast instead of appending an offscreen subject preset')
+assert.deepEqual(backend.restrictRelayPlannedVisualSubjects(transformingSubjects, {
+  target: 'prose.illustration', originalSceneBrief: 'One visible person, Taejun; Arin is outside the frame and audible only through talkback.',
+}).map(subject => subject.name), ['Taejun'], 'Story Planned must not append an off-frame talkback voice as a second visible subject')
+assert.deepEqual(backend.restrictRelayPlannedVisualSubjects(transformingSubjects, {
+  target: 'custom.artifact-media', originalSceneBrief: 'Taejun stands at the doorway. Arin is an unseen voice and must not appear.',
+}).map(subject => subject.name), ['Taejun'], 'explicitly unseen subjects must not contaminate custom media prompts')
+assert.deepEqual(backend.restrictRelayPlannedVisualSubjects(transformingSubjects, {
+  target: 'custom.artifact-media', originalSceneBrief: 'Taejun stands at the doorway. Arin is only an unseen voice over talkback. No other people visible.',
+}).map(subject => subject.name), ['Taejun'], 'an unseen talkback voice must not inject a visible subject preset')
+assert.deepEqual(backend.restrictRelayPlannedVisualSubjects(transformingSubjects, {
+  target: 'custom.artifact-media', originalSceneBrief: 'Taejun stands at the doorway. No Arin, no other people or reflections.',
+}).map(subject => subject.name), ['Taejun'], 'a negated subject name must not inject its visual preset')
 const dryScene = '2people, wide shot greenhouse terrace, male subject standing with human legs in dark trousers beside a brass pipe, female subject seated on a bench holding her robe'
 const dryRewrite = 'Wide cinematic shot on a greenhouse terrace: a dark-haired man stands on human legs in dark trousers beside a brass pipe; a blonde woman sits on a bench clutching her robe.'
 for (const route of [dryScene, dryRewrite]) {
@@ -170,6 +216,12 @@ for (const target of ['prose.illustration', 'custom.artifact-media']) {
   assert.equal(backend.autoPromptProfileId(job, classification), 'cinematic-scene')
   assert(!/portrait|beauty|glamour/i.test(backend.targetFramingInstruction(target, classification)))
 }
+const charOnlyScene = {
+  target: 'prose.illustration', cast: 'none', originalSceneBrief: 'Wide workshop view, Gabrielle alone beside the battered workbench.', caption: '', alt: '',
+  prosePromptComposition: { perspectiveMode: 'solo-scene', expectedPeopleCount: 1, namedSubjects: ['Gabrielle'], peoplePolicy: 'required' },
+}
+assert.equal(backend.classifyImageRequest(charOnlyScene), 'narrative-scene', 'Char only with one resolved subject is a character scene, not an empty environment')
+assert.equal(backend.autoPromptProfileId(charOnlyScene, backend.classifyImageRequest(charOnlyScene)), 'cinematic-scene')
 
 const fact = (id: string, name: string, layer: string, category: string, value: string) => ({
   factId: `${id}-${value}`, layer, canonicalCharacterId: id, canonicalCharacterName: name, aliases: [], category, value,

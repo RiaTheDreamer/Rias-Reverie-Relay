@@ -169,11 +169,10 @@ let drawerActivations = 0
 let drawerDestroyed = false
 let stylesRegistered = 0
 let stylesRemoved = 0
-const shownModals: Array<{ root: FakeElement; dismissed: boolean; dismiss: () => void }> = []
 
 const drawer = {
   root: new FakeElement(),
-  tabId: 'reverie-relay',
+  tabId: 'private-relay',
   setTitle: () => {},
   setShortName: () => {},
   setBadge: () => {},
@@ -210,12 +209,6 @@ const ctx: any = {
     emit: () => {},
   },
   ui: {
-    showModal: () => {
-      if (shownModals.filter(modal => !modal.dismissed).length >= 2) throw new Error('Maximum of 2 stacked modals')
-      const modal = { root: new FakeElement(), dismissed: false, dismiss() { this.dismissed = true } }
-      shownModals.push(modal)
-      return modal
-    },
     registerDrawerTab: (options: any) => { drawerRegistrations.push(options); return drawer },
     registerInputBarAction: (options: any) => {
       const action = inputAction(options.id)
@@ -246,25 +239,31 @@ const frontendModule = await import(moduleUrl)
 const cleanup = frontendModule.setup(ctx)
 assert(typeof cleanup === 'function', 'built frontend setup must return its lifecycle cleanup')
 assert(stylesRegistered === 2, 'frontend setup must register panel and lifecycle reservation styles')
-assert(drawerRegistrations.length === 1 && drawerRegistrations[0].id === 'reverie-relay', 'frontend setup must register the Reverie Relay drawer tab')
+assert(drawerRegistrations.length === 1 && drawerRegistrations[0].id === 'private-relay', 'frontend setup must register the Private Relay drawer tab')
+assert(drawerRegistrations[0].shortName === 'Reverie', 'sidebar label must use Reverie without changing the private drawer identity')
+assert(drawerRegistrations[0].title === "Ria's Reverie Relay" && drawerRegistrations[0].headerTitle === "Ria's Reverie Relay", 'dashboard and drawer header must use the requested Reverie name')
 assert(inputRegistrations.length === 2, 'frontend setup must register both input-bar actions')
-assert(inputRegistrations.some(entry => entry.options.id === 'open-reverie-relay'), 'Reverie Relay input-bar action must be registered')
-assert(inputRegistrations.some(entry => entry.options.id === 'open-reverie-surfaces'), 'Surface Registry input-bar action must be registered')
+assert(inputRegistrations.some(entry => entry.options.id === 'open-private-relay'), 'Private Relay input-bar action must be registered')
+assert(inputRegistrations.find(entry => entry.options.id === 'open-private-relay')!.options.label === "Open Ria's Reverie Relay", 'input action must match the dashboard branding')
+assert(inputRegistrations.some(entry => entry.options.id === 'open-private-relay-surfaces'), 'Surface Registry input-bar action must be registered')
 for (const registration of [...drawerRegistrations, ...inputRegistrations.map(entry => entry.options)]) {
   assert(typeof registration.iconUrl === 'string' && registration.iconUrl.startsWith('data:image/png;base64,'), `${registration.id} must receive an embedded PNG data URL`)
 }
 assert(dataUrlHash(drawerRegistrations[0].iconUrl) === '1D6B4B4A615DFF14BB87B215716DD265C6908C802CB6A7C1A5224E22CF269A46', 'drawer registration must receive the white transparent Relay emblem')
 const frontendSource = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')
+assert(frontendSource.includes("button('Close', closePreviewWave"), 'pending image preview must provide an explicit Close button')
+assert(frontendSource.includes(':not(.dg-router-panel img){visibility:hidden!important}'), 'prose reveal guard must not hide Relay preview/lightbox images')
+assert(frontendSource.includes('nativeImageSettingsCacheChatId === requestedChatId'), 'Native identity cache must be scoped to the active chat')
 assert(frontendSource.includes('message.chatId === activeChatId && config.autoRescanOnChatOpen'), 'auto-rescan must be scheduled only from the active chat state and enabled preference')
 assert(frontendModule && frontendSource.includes('prismImage.src = REVERIE_RELAY_OVERVIEW_ICON_URL') && frontendSource.includes('.dg-router-panel .dg-prism.dg-prism-overview { border: 0 !important; border-radius: 0 !important; background: transparent !important; background-color: transparent !important; box-shadow: none !important; }'), 'overview panel must use its own supplied emblem without a frame')
-assert(dataUrlHash(inputRegistrations.find(entry => entry.options.id === 'open-reverie-relay')!.options.iconUrl) === '6BE79BF8B0CCED1AB2109D6E8FB525417D9F394297BB89835F205DB2B6C7E6CB', 'Open Reverie Relay must use the approved full-color emblem')
-assert(dataUrlHash(inputRegistrations.find(entry => entry.options.id === 'open-reverie-surfaces')!.options.iconUrl) === '1D6B4B4A615DFF14BB87B215716DD265C6908C802CB6A7C1A5224E22CF269A46', 'Open Surface Registry must use the distinct white Relay emblem')
+assert(dataUrlHash(inputRegistrations.find(entry => entry.options.id === 'open-private-relay')!.options.iconUrl) === '6BE79BF8B0CCED1AB2109D6E8FB525417D9F394297BB89835F205DB2B6C7E6CB', 'Open Private Relay must use the approved full-color emblem')
+assert(dataUrlHash(inputRegistrations.find(entry => entry.options.id === 'open-private-relay-surfaces')!.options.iconUrl) === '1D6B4B4A615DFF14BB87B215716DD265C6908C802CB6A7C1A5224E22CF269A46', 'Open Surface Registry must use the distinct white Relay emblem')
 assert(backendHandler, 'frontend setup must subscribe to backend messages')
 assert(['CHAT_SWITCHED', 'CHAT_CHANGED', 'MESSAGE_EDITED', 'MESSAGE_SWIPED', 'SWIPE_EDITED'].every(event => eventSubscriptions.includes(event)), 'frontend setup must register the expected chat lifecycle subscriptions')
 assert(tagInterceptors.includes('character_profile') && tagInterceptors.includes('image_request'), 'frontend setup must register native Surface lifecycle interception')
 
-inputRegistrations.find(entry => entry.options.id === 'open-reverie-relay').action.trigger()
-inputRegistrations.find(entry => entry.options.id === 'open-reverie-surfaces').action.trigger()
+inputRegistrations.find(entry => entry.options.id === 'open-private-relay').action.trigger()
+inputRegistrations.find(entry => entry.options.id === 'open-private-relay-surfaces').action.trigger()
 assert(drawerActivations === 2, 'both input-bar actions must activate the owning Relay drawer tab')
 
 const bootState = {
@@ -485,22 +484,6 @@ for (const [index, targetApp] of ['core', 'narrative', 'custom'].entries()) {
 
 for (let tick = 0; tick < 8; tick += 1) await Promise.resolve()
 assert(backendPayloads.some((payload: any) => payload?.type === 'list_state' && payload.chatId === 'boot-chat'), 'frontend setup must begin backend state synchronization')
-const previewRecords = [0, 1, 2].map(index => ({
-  ...mountedRecord,
-  key: `boot-chat:preview-${index}:0:preview-${index}:illustration`,
-  messageId: `preview-${index}`, requestId: `preview-${index}`, slot: `preview-${index}`,
-  status: 'placement-pending', previewPending: true,
-  pendingPlacement: { imageId: `preview-image-${index}`, imageUrl: `/preview-${index}.png` },
-  updatedAt: Date.now() + 10 + index,
-}))
-backendHandler!({ ...bootState, revision: 100, records: previewRecords })
-assert(shownModals.filter(modal => !modal.dismissed).length === 1, 'multiple ready images must open only one preview modal')
-const previewClose = shownModals.at(-1)!.root.querySelectorAll('button').find(button => button.textContent === 'Close')
-assert(previewClose, 'image preview must expose an explicit Close control')
-previewClose.click()
-assert(shownModals.filter(modal => !modal.dismissed).length === 0, 'Close must dismiss the active image preview')
-backendHandler!({ ...bootState, revision: 101, records: previewRecords })
-assert(shownModals.filter(modal => !modal.dismissed).length === 0, 'closing a preview must not immediately open another pending image')
 cleanup()
 assert(drawerDestroyed && stylesRemoved === 2, 'frontend cleanup must retire registered host resources')
 
@@ -560,5 +543,54 @@ assert(memoryControl && !memoryControl.disabled, 'Memory enable toggle must be a
 memoryControl.click()
 assert(findButton('Memory Active'), 'Memory enable must paint without waiting for a backend round trip')
 cleanupGlobal()
+
+// Slot Workflow must expose completed images that have been compacted out of
+// the hot state. Keep routine state small, but page older thumbnails on demand.
+ctx.getActiveChat = () => ({ chatId: 'boot-chat', characterId: 'boot-character' })
+const cleanupArchivedSlots = frontendModule.setup(ctx)
+backendHandler!(bootState)
+assert(backendPayloads.some((payload: any) => payload?.type === 'completed_history_page' && payload.chatId === 'boot-chat' && payload.cursor === 0), 'Slots must request the first completed archive page')
+const archivedRows = Array.from({ length: 26 }, (_unused, index) => ({
+  key: `boot-chat:archive-message-${index}:0:request-${index}:slot-${index}`,
+  chatId: 'boot-chat', messageId: `archive-message-${index}`, swipeId: 0,
+  requestId: `request-${index}`, slot: `slot-${index}`, target: 'prose.illustration',
+  imageId: `archive-image-${index}`, imageUrl: `/archive-image-${index}.png`, completedAt: 1_000 + index,
+  diagnosticArchiveId: `completed-${index}`,
+})).reverse()
+const hotRecords = archivedRows.slice(0, 24).map(row => ({
+  ...row, status: 'completed', imageIntent: 'auto', targetApp: 'illustrator',
+  originalSceneBrief: '', originalNegativePrompt: '', originalRequestXml: '', alt: row.slot,
+  caption: '', count: 1, requestAspect: '', createdAt: row.completedAt,
+  discoveredAt: row.completedAt, registeredAt: row.completedAt, updatedAt: row.completedAt,
+  history: [],
+}))
+backendHandler!({ ...bootState, revision: 2, records: hotRecords, stats: { discoveredTotal: 26, generatedTotal: 26, completedTotal: 26, failedTotal: 0, cancelledTotal: 0, completedByTarget: { 'prose.illustration': 26 }, updatedAt: 2_000 } })
+backendHandler!({ type: 'completed_history_page', chatId: 'boot-chat', cursor: 0, limit: 24, rows: archivedRows.slice(0, 24), nextCursor: 24, total: 26, completedLifetime: 26 })
+assert(backendPayloads.some((payload: any) => payload?.type === 'completed_history_page' && payload.cursor === 24), 'Slots must automatically skip the first archive page when it only duplicates hot records')
+backendHandler!({ type: 'completed_history_page', chatId: 'boot-chat', cursor: 24, limit: 24, rows: archivedRows.slice(24), nextCursor: null, total: 26, completedLifetime: 26 })
+backendHandler!({ type: 'completed_history_page', chatId: 'boot-chat', cursor: 24, limit: 24, rows: archivedRows.slice(24), nextCursor: null, total: 26, completedLifetime: 26 })
+assert(drawer.root.querySelectorAll('.dg-slot-card').length === 24, 'Slots must retain all 24 hot cards')
+assert(drawer.root.querySelectorAll('.dg-history-item').length === 2, 'Slots must display the two older completed images without duplicate page responses or hot cards')
+const ghost = { ...hotRecords[23], status: 'recovered-pending', recoverySource: 'unresolved-request', imageUrl: undefined }
+backendHandler!({ ...bootState, revision: 3, records: [...hotRecords.slice(0, 23), ghost], stats: { discoveredTotal: 26, generatedTotal: 26, completedTotal: 26, failedTotal: 0, cancelledTotal: 0, completedByTarget: { 'prose.illustration': 26 }, updatedAt: 2_000 } })
+assert(drawer.root.querySelectorAll('.dg-slot-card').length === 23, 'An imageless rescan ghost must not appear as an extra hot slot')
+assert(drawer.root.querySelectorAll('.dg-history-item').length === 3, 'The archived image must remain visible when a rescan ghost shares its key')
+backendHandler!({ type: 'completed_history_page', chatId: 'some-other-chat', cursor: 0, limit: 24, rows: [], nextCursor: null, total: 0, completedLifetime: 0 })
+assert(drawer.root.querySelectorAll('.dg-history-item').length === 3, 'A late page from another chat must not erase the visible archived images')
+cleanupArchivedSlots()
+
+// Prompt formats remain selectable without an inline tutorial/example panel.
+const cleanupPromptFormats = frontendModule.setup(ctx)
+backendHandler!({ ...bootState, config: { ...bootState.config, proseIllustratorSettings: { enabled: true, mode: 'inline-protocol', promptFormat: 'natural-language' } } })
+findButton('Illustrations')!.click()
+for (const label of ['Booru Tag Mode', 'Natural Language']) {
+  const choice = findButton(label)
+  assert(choice && !choice.disabled, `${label} must remain selectable`)
+  choice.click()
+  const formatPanel = walk(drawer.root).find(node => node.className === 'dg-section' && node.children.some(child => child.textContent === 'Image Prompt Format'))
+  assert(formatPanel && formatPanel.children.length === 2, `${label}: format section must contain only its heading and choice controls`)
+  assert(!walk(formatPanel).some(node => node.textContent.startsWith('Image request:')), `${label}: inline example explanation must not return`)
+}
+cleanupPromptFormats()
 
 console.log('Frontend boot smoke passed.')

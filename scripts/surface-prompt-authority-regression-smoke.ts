@@ -44,6 +44,7 @@ assert.equal(shouldDeferPanelRenderForControl({ tagName: 'INPUT', type: 'checkbo
 assert.equal(shouldDeferPanelRenderForControl({ tagName: 'INPUT', type: 'radio' }), false, 'focused radio still defers repaint until blur')
 assert.equal(shouldDeferPanelRenderForControl({ tagName: 'INPUT', type: 'text' }), true, 'typed input no longer preserves its mounted edit session')
 assert.equal(shouldDeferPanelRenderForControl({ tagName: 'TEXTAREA' }), true, 'textarea no longer preserves its mounted edit session')
+assert.equal(shouldDeferPanelRenderForControl({ tagName: 'SELECT' }), true, 'state ticks must not replace an open native connection picker')
 assert.equal(shouldDeferPanelRenderForControl({ tagName: 'DIV', isContentEditable: true }), true, 'contenteditable control no longer preserves its mounted edit session')
 
 const userId = 'surface-authority-user'

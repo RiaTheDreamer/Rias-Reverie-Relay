@@ -13,6 +13,7 @@ const storage = new Map<string, unknown>()
 }
 const backend = await import('../src/backend')
 const { parseImageRequests } = await import('../src/contracts')
+const { xmlAuthoringInstructions: bracketImageControlInstructions } = await import('../src/xmlSurfaceFormat')
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -85,7 +86,7 @@ const exactOverride = 'CUSTOM WORLD CONTRACT\n[WORLD|Category|Location][world_me
 draft = backend.applyRelaySettingsPatchToConfig(draft, { kind: 'narrative-override', utilityName: 'Setting the Scene', content: exactOverride })
 assert(draft.narrativeUtilityOverrides['Setting the Scene'].content === exactOverride, 'Narrative Utility override must be stored verbatim')
 const resolved = backend.buildResolvedNarrativeUtilityPrompt(draft)
-assert(resolved.content.includes(exactOverride), 'automatic Narrative resolver must use the saved override')
+assert(resolved.content.includes(bracketImageControlInstructions(exactOverride)), 'automatic Narrative resolver must project the saved override into current grammar without overwriting storage')
 assert((resolved.content.match(/CUSTOM WORLD CONTRACT/g) || []).length === 1, 'resolved Narrative bundle must contain one override copy')
 assert(resolved.content.includes('SETTING THE SCENE STRUCTURAL LOCK'), 'World structural lock must survive a saved override')
 
@@ -121,7 +122,7 @@ assert(JSON.stringify(draft.characterPhoneDefaultApps) === JSON.stringify(['mess
 const frontend = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')
 const backendSource = readFileSync(new URL('../src/backend.ts', import.meta.url), 'utf8')
 assert(frontend.includes('settingsPatchQueue') && frontend.includes('relay_settings_patch_result'), 'frontend must own an ordered optimistic settings draft and explicit acknowledgement')
-assert(frontend.includes("kind: 'surface-preferences'") && frontend.includes("kind: 'character-phone-apps'"), 'Surface preferences and Character Phone apps must use the revisioned settings queue')
+assert(frontend.includes("kind: 'surface-preferences'") && !frontend.includes('renderCharacterPhoneAppSettings'), 'active Surface preferences stay revisioned; retired phone controls stay removed')
 assert(frontend.includes('.indeterminate = categorySomeEnabled && !categoryEnabled'), 'Surface category must expose derived indeterminate state')
 assert(frontend.includes('Narrative Utilities') && frontend.includes('Reset to Default') && frontend.includes('effectiveContent'), 'Injection tab must expose editable Narrative Utility records')
 assert(frontend.includes('Save timed out — verify/retry') && frontend.includes('appearanceSaveWatchdogs'), 'Appearance save must have a finite acknowledgement watchdog')
@@ -129,4 +130,4 @@ assert(backendSource.includes("continuityVault: { ...state.continuityVault, hist
 assert(backendSource.includes('persisted Appearance Memory could not be verified') && backendSource.includes('canonicalValues'), 'Appearance save must verify persisted canonical state before success')
 assert((backendSource.match(/buildResolvedNarrativeUtilityPrompt\(/g) || []).length >= 4, 'automatic, macro, preview, and dry-run paths must share the canonical Narrative resolver')
 
-console.log(`Phase 2 settings/vault/injection smoke passed: ${surfaces.length} rapid Surface mutations retained, category ${category} applied atomically, Narrative override resolved verbatim and reset cleanly.`)
+console.log(`Phase 2 settings/vault/injection smoke passed: ${surfaces.length} rapid Surface mutations retained, category ${category} applied atomically, Narrative override stored verbatim, image grammar projected for injection and reset cleanly.`)

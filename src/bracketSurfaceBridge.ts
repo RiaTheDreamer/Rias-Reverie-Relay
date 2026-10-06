@@ -150,6 +150,33 @@ function withoutChildFields(children: Array<BracketNode | string>, names: string
 }
 
 function normalizeKnownBracketNode(node: BracketNode, parentName: string): BracketNode {
+  if (node.name === 'smart_phone') {
+    // The phone renderer supplies the percent sign. Match the XML normalizer's
+    // numeric battery contract for bracket-native output as well.
+    return {
+      ...node,
+      children: node.children.map(child => {
+        if (typeof child === 'string' || child.name !== 'battery') return child
+        const value = bracketNodeText(child).trim()
+        const percent = /^(\d{1,3})\s*%$/.exec(value)
+        return percent && Number(percent[1]) <= 100 ? { ...child, children: [percent[1]] } : child
+      }),
+    }
+  }
+  if (node.name === 'fm_comment' && parentName === 'fm_comments') {
+    // The Forum renderer owns [user] and plain reply text. Some models copy
+    // post-level metadata fields into replies; flatten only that unambiguous
+    // shape so those tags do not become visible text inside the rendered card.
+    const fields = node.children.filter((child): child is BracketNode => typeof child !== 'string')
+    const hasLooseText = node.children.some(child => typeof child === 'string' && child.trim())
+    const knownFields = new Set(['user', 'time', 'score', 'content'])
+    const user = childText(node.children, ['user'])
+    const content = childText(node.children, ['content'])
+    if (user && content && !hasLooseText && fields.every(field => knownFields.has(field.name))) {
+      const meta = [childText(node.children, ['time']), childText(node.children, ['score'])].filter(Boolean).join(' · ')
+      return { ...node, children: [childField('user', user), `${meta ? `${meta} — ` : ''}${content}`] }
+    }
+  }
   if (node.name === 'k_part' && parentName === 'messages') {
     const sender = childText(node.children, ['sender', 'k_part', 'k_name', 'name', 'user', 'author']) || 'Unknown'
     const time = childText(node.children, ['time', 'k_time']) || ''

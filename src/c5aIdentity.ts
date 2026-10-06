@@ -107,16 +107,26 @@ export function c5aIdentityBindingId(binding: Pick<C5ANativeIdentityBinding, 'ki
   return `${binding.kind}:${normalized(binding.presetId) || normalized(binding.subjectId) || normalized(binding.subjectName)}`
 }
 
-function bindingFromValue(value: unknown, subjectId: string): UnknownRecord {
-  const direct = record(value)
-  if (Object.keys(direct).length) return direct
-  if (!value || typeof value !== 'object') return {}
-  const map = value as Record<string, unknown>
-  return record(map[subjectId])
-}
-
 function findBinding(settings: UnknownRecord, kind: C5AIdentityKind, subjectId: string): UnknownRecord {
+  if (!subjectId) return {}
   const capitalized = kind === 'character' ? 'Character' : 'Persona'
+  const ownerIdOf = (value: unknown): string => {
+    const candidate = record(value)
+    return first(candidate.subjectId, candidate.subject_id, candidate.characterId, candidate.personaId)
+  }
+  const matchingSubject = (value: unknown): boolean => {
+    const ownerId = ownerIdOf(value)
+    return Boolean(ownerId && normalized(ownerId) === normalized(subjectId))
+  }
+  // A subject-keyed entry is authoritative only for that exact subject. Even
+  // there, reject an explicit contradictory owner in a malformed snapshot.
+  for (const map of [settings.presetBindings, settings.activePresetBindings, settings.nativePresetBindings]) {
+    const candidate = record(record(map)[subjectId])
+    const ownerId = ownerIdOf(candidate)
+    if (Object.keys(candidate).length && (!ownerId || normalized(ownerId) === normalized(subjectId))) return candidate
+  }
+  // Kind-level fields travel in user-global Native snapshots. They are never
+  // evidence of this chat's Character/Persona unless they name its subject ID.
   const candidates: unknown[] = [
     settings[`bound${capitalized}Preset`],
     settings[`active${capitalized}Preset`],
@@ -124,13 +134,12 @@ function findBinding(settings: UnknownRecord, kind: C5AIdentityKind, subjectId: 
     record(settings.presetBindings)[kind],
     record(settings.activePresetBindings)[kind],
     record(settings.nativePresetBindings)[kind],
-    record(settings.presetBindings)[subjectId],
-    record(settings.activePresetBindings)[subjectId],
-    record(settings.nativePresetBindings)[subjectId],
   ]
   for (const candidate of candidates) {
-    const found = bindingFromValue(candidate, subjectId)
-    if (Object.keys(found).length) return found
+    const nested = record(record(candidate)[subjectId])
+    const nestedOwnerId = ownerIdOf(nested)
+    if (Object.keys(nested).length && (!nestedOwnerId || normalized(nestedOwnerId) === normalized(subjectId))) return nested
+    if (matchingSubject(candidate)) return record(candidate)
   }
   return {}
 }
@@ -156,24 +165,18 @@ export function resolveC5ANativeIdentityBinding(
   const settings = record(nativeSettings)
   const subjectId = clean(subject?.id)
   const subjectName = clean(subject?.name) || `active ${kind}`
-  const capitalized = kind === 'character' ? 'Character' : 'Persona'
   const diagnostics: string[] = []
   const binding = findBinding(settings, kind, subjectId)
   const presetId = first(
     binding.preset_id,
     binding.presetId,
     binding.id,
-    settings[`bound${capitalized}PresetId`],
-    settings[`active${capitalized}PresetId`],
-    settings[`resolved${capitalized}PresetId`],
   )
   const preset = presetId ? findPreset(settings, kind, presetId) : {}
   const directPrompt = first(
     binding.prompt,
     binding.resolvedPrompt,
     binding.visualPrompt,
-    settings[`bound${capitalized}Prompt`],
-    settings[`resolved${capitalized}Prompt`],
   )
   const rawPrompt = first(preset.prompt, directPrompt)
   const identityProjection = sanitizeC5AIdentityPrompt(rawPrompt)
@@ -182,8 +185,6 @@ export function resolveC5ANativeIdentityBinding(
     binding.negativePrompt,
     binding.negative_prompt,
     binding.resolvedNegativePrompt,
-    settings[`bound${capitalized}NegativePrompt`],
-    settings[`resolved${capitalized}NegativePrompt`],
   )
   const negativePrompt = first(preset.negativePrompt, preset.negative_prompt, preset.negative, directNegativePrompt)
   const presetName = first(preset.name, binding.preset_name, binding.presetName, presetId)
@@ -203,7 +204,7 @@ export function resolveC5ANativeIdentityBinding(
     }
   }
   if (presetId) diagnostics.push(`Bound ${kind} preset "${presetId}" was not present in the native snapshot.`)
-  else diagnostics.push(`No active ${kind} preset binding was available in the native snapshot.`)
+  else diagnostics.push(`No subject-verified active ${kind} preset binding was available in the native snapshot.`)
   return { kind, subjectId, subjectName, presetId, presetName, prompt: '', rawPrompt, removedSceneFragments: identityProjection.removed, negativePrompt, source: 'unresolved', diagnostics }
 }
 

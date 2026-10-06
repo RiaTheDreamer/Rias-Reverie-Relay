@@ -12,7 +12,7 @@ const resolvedMedia = (id: string) => `<!-- reverie-relay:image chatId="chat-rep
 ![reverie-relay](/api/v1/image-gen/results/${id})
 <img class="reverie-artifact-media" data-reverie-artifact-media="true" data-dgir-key="chat-repro:${id}" data-dgir-request-id="${id}" data-dgir-slot="${id}" data-dgir-image-id="${id}" data-dgir-message-id="turn-1" data-dgir-swipe-id="0" data-dgir-custom-target="custom.artifact-media" src="/api/v1/image-gen/results/${id}">`
 
-const historicalSparks = Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `[Spark]
+const historicalSparks = Object.entries(PLOT_SPARK_VECTOR_BY_KEY).slice(0, 7).map(([key, vector]) => `[Spark]
 [Key]${key}[/Key]
 [Vector]${vector}[/Vector]
 [Text]Playable historical branch ${key} remains understandable.[/Text]
@@ -47,11 +47,11 @@ const canonicalHook = (key: keyof typeof PLOT_SPARK_VECTOR_BY_KEY) => `[Spark][K
 const validPlot = `[Plot_Sparks][ID]valid-seven[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${(Object.keys(PLOT_SPARK_VECTOR_BY_KEY) as Array<keyof typeof PLOT_SPARK_VECTOR_BY_KEY>).map(canonicalHook).join('')}[/Plot_Sparks]`
 const fourInline = ['one', 'two', 'three', 'four'].map(canonicalIllustration).join('\n')
 const valid = inspectStoryModelOutputContracts(`${fourInline}\n${validPlot}`, { expectedInlineIllustrations: 4, inlineCountMode: 'fixed', expectPlotSparks: true })
-assert(valid.valid && valid.inline.actualCanonicalIllustrations === 4 && valid.plotSparks.sparkCount === 7, 'fixed Inline four plus canonical Plot Sparks A-G must validate')
+assert(valid.valid && valid.inline.actualCanonicalIllustrations === 4 && valid.plotSparks.sparkCount === 10, 'fixed Inline four plus canonical Plot Sparks A-J must validate')
 
 const partialPlot = `[Plot_Sparks][ID]broken-three[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${canonicalHook('a')}${canonicalHook('b')}[Spark][Key]c[/Key][Vector]crash-in[/Vector][Text]Wrong C vector.[/Text][Media]${canonicalIllustration('plot-spark-c')}[/Media][/Spark][/Plot_Sparks]`
 const partial = inspectStoryModelOutputContracts(`${fourInline}\n${partialPlot}`, { expectedInlineIllustrations: 4, inlineCountMode: 'fixed', expectPlotSparks: true })
-assert(partial.plotSparks.missingKeys.join('') === 'defg', 'broken A-C fixture must report missing D-G')
+assert(partial.plotSparks.missingKeys.join('') === 'defghij', 'broken A-C fixture must report missing D-J')
 assert(partial.plotSparks.vectorMismatches.some(row => row.key === 'c' && row.expected === 'wrongness' && row.actual === 'crash-in'), 'broken C fixture must report wrongness/crash-in mismatch')
 
 const duplicate = inspectStoryModelOutputContracts(`[Plot_Sparks][ID]duplicate[/ID][Lifecycle]Unused[/Lifecycle]${canonicalHook('a')}${canonicalHook('b')}${canonicalHook('b')}${canonicalHook('c')}${canonicalHook('d')}${canonicalHook('e')}${canonicalHook('f')}${canonicalHook('g')}[/Plot_Sparks]`, { expectPlotSparks: true })

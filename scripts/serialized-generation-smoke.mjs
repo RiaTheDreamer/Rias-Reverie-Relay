@@ -25,7 +25,7 @@ assert(!backend.includes('relayDispatchQueues') && !backend.includes('enqueuedRe
 assert(backend.includes("markSlotStatus(stored, 'provider-waiting')"), 'provider-waiting slot lifecycle is missing')
 assert(backend.includes("const initialConcurrency = jobs.some(job => job.target === 'prose.illustration') ? 1 : config.queueConcurrencyLimit"), 'automatic illustrations must start in authored order')
 assert(backend.includes("const pendingConcurrency = pendingJobs.some(job => job.target === 'prose.illustration') ? 1 : config.queueConcurrencyLimit"), 'explicit pending illustrations must start in authored order')
-assert(frontend.includes('const lastActivityAt = Math.max') && frontend.includes('stream?.updatedAt || 0'), 'queued stream activity does not prevent false stalled cards')
+assert(!frontend.includes('Generation stalled') && frontend.includes('const recoverable = canonicalFailure') && frontend.includes('const lifecycleRefreshTimer'), 'quiet provider work must retain canonical status and recover missed state broadcasts without a time-only failure judgment')
 
 assert(backend.includes('export function proseAnalysisText'), 'mixed prose/surface sanitizer is missing')
 assert(backend.includes('PROSE_NON_NARRATIVE_ROOTS') && backend.includes('...NATIVE_SURFACE_ROOT_TAGS'), 'surface roots are not removed before Relay-Planned analysis')

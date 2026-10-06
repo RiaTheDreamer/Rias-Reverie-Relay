@@ -14,7 +14,7 @@ export class ProviderPromptSafetyError extends Error {
   }
 }
 
-const RAW_MARKUP = /<\/?(?:character_profile|portrait|image_request|reverie-illustration|lorebook|entry|world_info|script|style|html|body|metadata)\b/i
+const RAW_MARKUP = /<\/?(?:character_profile|portrait|image_request|reverie-illustration|lorebook|entry|world_info|script|style|html|body|metadata)\b|\[\/?(?:reverie[_-]illustration|image_request|visual_prompt|scene_brief)\b/i
 const RAW_PROVENANCE = /\[[^\]\n]{0,80}(?:activated\s+)?(?:lorebook|world\s*book|world\s*lore|world\s*info|source|provenance|sidecar|card|history)[^\]\n]{0,80}:/i
 const RAW_METADATA_LINE = /(?:^|[\n;,])\s*(?:song|lyrics?|chapter|lorebook\s+entry|world\s*(?:info|lore)|sidecar(?:\s+card)?|card|history|context\s+history|source(?:Reference|\s+reference)?|provenance|metadata|title|body|content|entry)\s*[-:=]/i
 const RAW_NESTED_METADATA = /(?:^|\n)\s*(?:[-*]\s*)?(?:metadata|source|provenance|card|history|sidecar|lorebook|world\s*(?:info|lore))\s*:\s*(?:\{|\[|$)/im

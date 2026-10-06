@@ -1,6 +1,7 @@
 // @ts-nocheck -- Offline Bun harness; host APIs are mocked and no provider call is allowed.
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { assertProviderRequestSafe } from '../src/providerPromptSafety'
 
 const storage = new Map<string, unknown>()
 let chatPersonaId = 'chat-persona'
@@ -49,7 +50,7 @@ for (const contract of [
   'The subject is the story moment',
   'Emotional importance does not automatically justify a close-up',
   'If the environment, hands, body relationship, or important prop would be lost in a close-up, widen the camera',
-  'Do not use cast=\"char+user\" merely because two people are visible',
+  'Do not use cast="char+user" merely because two people are visible',
   'Prefer a meaningfully different scale, angle, or visual center',
   'Relay will not perform a second creative composition pass',
 ]) {
@@ -67,7 +68,7 @@ assert.equal(connectionReads, 0, 'Inline prompt injection must not invoke planne
 
 const inlineDefinition = protocols.PROMPT_REGISTRY_DEFINITIONS.find((row: any) => row.id === 'story.inline-protocol')
 assert(inlineDefinition, 'story.inline-protocol registry definition is missing')
-assert.equal(inlineDefinition.version, 8, 'story.inline-protocol registry version must be 8')
+assert.equal(inlineDefinition.version, 10, 'story.inline-protocol registry version must be 10')
 const stockInlineV1 = `REVERIE RELAY — INLINE PROTOCOL
 
 Write the completed image-ready request directly at its narrative location. Use the canonical grammar exactly:
@@ -80,7 +81,7 @@ const migratedStockInline = backend.normalizeProseIllustratorSettings({
   promptRegistryVersions: { 'story.inline-protocol': 1 },
 })
 assert(!Object.prototype.hasOwnProperty.call(migratedStockInline.promptRegistry, 'story.inline-protocol'), 'exact stock Inline v1 must migrate by deleting the obsolete override')
-assert.equal(migratedStockInline.promptRegistryVersions['story.inline-protocol'], 8, 'migrated stock Inline prompt must record registry version 8')
+assert.equal(migratedStockInline.promptRegistryVersions['story.inline-protocol'], 10, 'migrated stock Inline prompt must record registry version 10')
 assert.equal(backend.normalizeProseIllustratorSettings({ mode: 'model-placed' }).mode, 'inline-protocol', 'saved Model-Placed mode must migrate to Model Planned')
 const customInline = `${stockInlineV1}\n\nCUSTOM USER CAMERA LAW: hold the authored diagonal.`
 const preservedCustomInline = backend.normalizeProseIllustratorSettings({
@@ -91,7 +92,7 @@ assert.equal(preservedCustomInline.promptRegistry['story.inline-protocol'], cust
 
 const definitions = protocols.PROMPT_REGISTRY_DEFINITIONS.filter((row: any) => row.id.startsWith('story.framing.'))
 assert.deepEqual(definitions.map((row: any) => row.id), [
-  'story.framing.scene-snapshot', 'story.framing.sequence', 'story.framing.emotional-beat', 'story.framing.solo-scene', 'story.framing.persona-pov',
+  'story.framing.scene-snapshot', 'story.framing.sequence', 'story.framing.emotional-beat', 'story.framing.solo-scene', 'story.framing.persona-pov', 'story.framing.storyboard',
 ])
 assert(definitions.every((row: any) => row.status === 'stable' && row.version >= 1), 'all framing defaults must be finalized and versioned')
 const personaDefinition = definitions.find((row: any) => row.id === 'story.framing.persona-pov')
@@ -151,6 +152,11 @@ const explicitlyNamedPovSubjects = backend.filterPersonaPovVisualSubjects([
 ], 'persona-pov', { id: 'unbound-default-persona', name: 'Arin' },
 'The image is Cerys\'s POV; Gabrielle stands across the mixing console.')
 assert.deepEqual(explicitlyNamedPovSubjects.map((subject: any) => subject.name), ['Gabrielle'], 'Persona POV must filter explicit name-plus-POV declarations')
+const unseenCameraPovSubjects = backend.filterPersonaPovVisualSubjects([
+  personaSubjects[0], personaSubjects[2],
+], 'persona-pov', { id: 'unbound-default-persona', name: 'Arin' },
+'One visible person: Gabrielle; Cerys is the unseen camera viewpoint just inside the booth.')
+assert.deepEqual(unseenCameraPovSubjects.map((subject: any) => subject.name), ['Gabrielle'], 'Persona POV must not append an explicitly unseen camera-holder as a second visual subject')
 assert.equal(backend.filterPersonaPovVisualSubjects(personaSubjects, 'scene-snapshot', { name: 'Cerys the Dreamer', aliases: ['Cerys'] }).length, 3, 'other framing modes must retain their existing visible-cast identity behavior')
 assert.equal(backend.chatBoundPersonaId({ metadata: {} }, [
   { id: 'user-old', role: 'user', is_user: true, content: '', extra: { persona_id: 'persona-old' } },
@@ -163,7 +169,11 @@ assert.equal(backend.chatBoundPersonaId({ metadata: { active_persona_id: 'person
 assert(backend.buildPersonaPovNegativePrompt(['Cerys']).includes('Cerys on a monitor') && backend.buildPersonaPovNegativePrompt(['Cerys']).includes('portrait of Cerys'), 'Persona POV negative prompt must explicitly exclude the camera-holder from screens and portraits')
 const personaPovFinalPrompt = backend.finalizeParsedPositivePrompt('First-person view from Cerys the Dreamer\'s standing eye-level; Cerys watches Gabrielle', 'person-focused candid', { cast: 'char', originalSceneBrief: 'Cerys watches Gabrielle' } as any, 'persona-pov', ['Cerys the Dreamer', 'Cerys'])
 assert(!/\bCerys\b/iu.test(personaPovFinalPrompt) && personaPovFinalPrompt.includes('the camera-holder\'s standing eye-level'), 'provider-facing Persona POV prompt must remove the camera-holder name from positive visual text')
-assert(personaPovFinalPrompt.includes('active Persona is the camera only') && personaPovFinalPrompt.includes('no camera-holder reflection') && personaPovFinalPrompt.includes('keep those surfaces blank, dark, or abstract'), 'provider-facing Persona POV prompt must carry the strict invisibility and background-display contract')
+assert(!personaPovFinalPrompt.includes('Persona POV visibility lock:') && !personaPovFinalPrompt.includes('active Persona is the camera only'), 'provider-facing positive prompt must not contain the Story/Sidecar Persona POV control contract')
+const echoedPersonaPovContract = 'Persona POV visibility lock: the active Persona is the camera only and is never a visible subject. Show no part of the camera-holder (hands, arms, legs, shoulders, or torso), and no camera-holder reflection, mirror image, screen image, photograph, video, portrait, poster, avatar, silhouette, or shadow anywhere in frame. Do not invent people, faces, photographs, portraits, posters, or avatars on background monitors, phones, displays, or framed material; unless the scene explicitly requires such content, keep those surfaces blank, dark, or abstract. Never show an image or likeness of the camera-holder. Count only other people who are actually visible in the scene.'
+const repairedPersonaPovPrompt = backend.finalizeParsedPositivePrompt(`Eye-level first-person view across a kitchen table; ${echoedPersonaPovContract} Gabrielle holds a ceramic bowl in the warm kitchen.`, 'person-focused candid', { cast: 'char', originalSceneBrief: 'Gabrielle holds a ceramic bowl in a warm kitchen.' } as any, 'persona-pov', ['Cerys'])
+assert(!repairedPersonaPovPrompt.includes('Persona POV visibility lock:') && repairedPersonaPovPrompt.includes('Eye-level first-person view') && repairedPersonaPovPrompt.includes('Gabrielle holds a ceramic bowl'), 'echoed Story Model Persona POV control contract should be removed without losing the visual scene')
+assert.doesNotThrow(() => assertProviderRequestSafe(repairedPersonaPovPrompt), 'sanitized Persona POV visual prompt must pass the provider contamination gate')
 
 for (const [legacy, canonical] of Object.entries({ creative: 'scene-snapshot', 'scene-led': 'scene-snapshot', static: 'sequence', 'continuity-frame': 'sequence', dynamic: 'emotional-beat', 'expressive-frame': 'emotional-beat', 'character-only': 'solo-scene', 'persona-pov': 'persona-pov' })) {
   assert.equal(backend.normalizeProseIllustratorSettings({ perspectiveMode: legacy }).perspectiveMode, canonical, `${legacy} did not migrate to ${canonical}`)
@@ -195,7 +205,7 @@ const globalBound = await backend.resolvePersonaPovContext('chat-1', 'user-1')
 assert.equal(globalBound.binding, 'active-persona')
 
 const personaSettings = { ...backend.defaultProseIllustratorSettings(), perspectiveMode: 'persona-pov' as const }
-const framingModes = ['scene-snapshot', 'sequence', 'emotional-beat', 'solo-scene', 'persona-pov'] as const
+const framingModes = ['scene-snapshot', 'sequence', 'emotional-beat', 'solo-scene', 'persona-pov', 'storyboard'] as const
 for (const selectedMode of framingModes) {
   const settings = { ...backend.defaultProseIllustratorSettings(), enabled: true, mode: 'inline-protocol' as const, perspectiveMode: selectedMode }
   const resolved = backend.resolveIllustratorStoryPrompt(settings, [], globalBound)
@@ -227,8 +237,8 @@ assert.equal(connectionReads, 0, 'unavailable Persona POV must reject before Sid
 
 const frontendSource = await readFile(new URL('../src/frontend.ts', import.meta.url), 'utf8')
 const backendSource = await readFile(new URL('../src/backend.ts', import.meta.url), 'utf8')
-assert(frontendSource.includes("label: 'Scene Snapshot'") && frontendSource.includes("label: 'Sequence'") && frontendSource.includes("label: 'Emotional Beat'") && frontendSource.includes("label: 'Solo Scene'") && frontendSource.includes("label: 'Persona POV'"), 'all five framing cards must be present')
+assert(frontendSource.includes("label: 'Scene Snapshot'") && frontendSource.includes("label: 'Sequence'") && frontendSource.includes("label: 'Emotional Beat'") && frontendSource.includes("label: 'Char only'") && frontendSource.includes("label: 'Persona POV'"), 'all five framing cards must be present')
 assert(frontendSource.includes('dg-choice-five') && frontendSource.includes('repeat(2, minmax(0,1fr))'), 'five framing cards need a responsive narrow layout')
 assert(backendSource.includes("settings.mode === 'inline-protocol' ? 'story.inline-protocol'"), 'Inline preview must identify story.inline-protocol')
 
-console.log('Persona POV plumbing smoke passed: migration, resolver priority, finalized registry, no-Persona refusal, five-card UI, and real Inline Protocol injection.')
+console.log('Persona POV plumbing smoke passed: migration, resolver priority, finalized registry, no-Persona refusal, framing UI, and real Inline Protocol injection.')

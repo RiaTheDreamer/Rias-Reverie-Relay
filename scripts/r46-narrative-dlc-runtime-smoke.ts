@@ -15,6 +15,9 @@ import {
 import { LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS, NARRATIVE_UTILITY_FORMAT_CONTRACTS, applyNarrativeDisplayNames, containsNarrativeRegexMarkup, missingNarrativeUtilityFormatMarkers, narrativeRegexPack, narrativeRegexScripts, narrativeUtilityItems, narrativeUtilityNames, normalizeNarrativeMarkupForRendering, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup } from '../src/narrativeRegexAssets'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { parseImageRequests, renderResolvedMarkup } from '../src/contracts'
+import { SURFACE_MEDIA_GEOMETRY_CSS } from '../src/surfaceMediaGeometry'
+import { xmlSurfaceExamples } from '../src/xmlSurfaceFormat'
+import { isRetiredPhoneRegexScript } from '../src/retiredPhoneSurface'
 
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
 
@@ -57,7 +60,7 @@ class MockRegexApi {
   }
   dto(input: any, id: string) {
     const metadata = structuredClone(input.metadata || {})
-    if (input.folder && input.folder_version && !metadata._lumiverse_spindle_extension) metadata._lumiverse_spindle_extension = { identifier: 'reverie_relay', version: input.folder_version }
+    if (input.folder && input.folder_version) metadata._lumiverse_spindle_extension = { identifier: 'private_relay', version: input.folder_version }
     return {
       id, can_mutate: input.can_mutate !== false, name: input.name, script_id: input.script_id || '',
       find_regex: input.find_regex, replace_string: input.replace_string || '', flags: input.flags || '',
@@ -73,23 +76,18 @@ class MockRegexApi {
 
 const api = new MockRegexApi()
 const activeScriptCount = relayRegexImportScripts('sparkle-button').length
-assert(activeScriptCount === 138 + narrativeRegexScripts('sparkle-button').length, `optional import must include every Core and Narrative renderer, saw ${activeScriptCount}`)
+assert(activeScriptCount === 138 + narrativeRegexScripts('sparkle-button').filter(script => !isRetiredPhoneRegexScript(script.script_id)).length, `optional import must include every active Core and Narrative renderer, saw ${activeScriptCount}`)
 const first = await reconcileNarrativeRegex(api as any, 'sparkle-button')
 assert(first.status === 'healthy' && first.healthy === activeScriptCount && api.creates === activeScriptCount, 'first import must create and validate Core and Narrative scripts')
 assert(api.rows.every(row => row.disabled === true && !/DISABLED|tombstone/i.test(row.name)), 'every imported script must start disabled; obsolete duplicates must not be imported')
 assert(api.rows.every(row => row.can_mutate && row.folder === NARRATIVE_DLC_FOLDER && row.metadata.reverie_namespace === NARRATIVE_DLC_NAMESPACE), 'installed scripts must be Relay-owned and namespaced')
 assert(api.rows.every(row => row.metadata.reverie_narrative_variant === 'sparkle-button'), 'installed scripts must record selected variant')
 assert(api.rows.some(row => row.actions.length > 0), 'installer must preserve approved Narrative interaction actions')
-assert(api.rows.some(row => row.script_id === 'reverie_relay_ria_dramatic_cutaway_lumiverse_native_bulletproof_v8'), 'approved Dramatic Cutaway renderer must be imported')
-assert(api.rows.some(row => row.script_id === 'reverie_relay_ria_plot_sparks_og_sparkle_tabs_bulletproof_v7' && row.name.includes('Plot Sparks') && row.replace_string.includes('Plot Sparks') && !row.replace_string.includes('Chaos Hooks')), 'approved Plot Sparks renderer must be imported with its accepted Regex name and launcher label')
-const phoneRepair = api.rows.find(row => row.script_id === 'reverie_relay_rrcp_repair_missing_optional_wallpaper_v462')
-const phoneShell = api.rows.find(row => row.script_id === 'reverie_relay_rrpp_proto_shell_v31')
+assert(api.rows.some(row => row.script_id === 'private_relay_ria_dramatic_cutaway_lumiverse_native_bulletproof_v8'), 'approved Dramatic Cutaway renderer must be imported')
+assert(api.rows.some(row => row.script_id === 'private_relay_ria_plot_sparks_og_sparkle_tabs_bulletproof_v7' && row.name.includes('Plot Sparks') && row.replace_string.includes('Plot Sparks') && !row.replace_string.includes('Chaos Hooks')), 'approved Plot Sparks renderer must be imported with its accepted Regex name and launcher label')
 assert(applyNarrativeDisplayNames('chaos hooks / CHAOS HOOKS / Chaos Hooks') === 'Plot Sparks / Plot Sparks / Plot Sparks', 'legacy Chaos Hooks wording must not reach any model-facing Narrative Utility prompt regardless of case')
 assert(!/chaos hooks/i.test(buildNarrativeUtilityPrompt(narrativeUtilityNames()).content), 'no shipped Narrative Utility may inject the retired Chaos Hooks name into the Story Model prompt')
-assert(phoneRepair && phoneShell && phoneRepair.sort_order < phoneShell.sort_order, 'missing-wallpaper repair must install before the Character Phone shell renderer')
-for (const migrationId of ['rrcp_migrate_photo_v461', 'rrcp_migrate_app_v461', 'rrcp_migrate_shell_present_v461', 'rrcp_migrate_shell_default_v461']) {
-  assert(api.rows.some(row => row.script_id === `reverie_relay_${migrationId}`), `Character Phone legacy migration script missing: ${migrationId}`)
-}
+assert(!api.rows.some(row => isRetiredPhoneRegexScript(row.script_id.replace(/^private_relay_/, ''))), 'retired Character Phone scripts must not be installed')
 
 const retiredRegexLabels = ['Character File', 'Cast Arrival', 'Unified Archive', 'Place File', 'Knowledge Veil', 'Beyond the Frame', 'Parallel Current', 'Scene Compass', 'World Texture', 'Unwalked Path']
 const acceptedRegexLabels = ['Character Dossier', 'Cast Introduction', 'Archive Entry', 'Location File', 'Backstage Secrets', 'Off-Stage', 'Parallel Scene', 'Scene Shift', 'Setting the Scene', 'In Another Life']
@@ -112,7 +110,7 @@ const disabledSourceScript = narrativeRegexPack('sparkle-button').scripts.find(s
 assert(Boolean(disabledSourceScript), 'source compatibility pack must retain disabled history for provenance testing')
 api.rows.push(api.dto({ ...narrativeRegexCreateInput(disabledSourceScript!, 'sparkle-button'), can_mutate: true }, 'stale-disabled-owned'))
 const pruned = await reconcileNarrativeRegex(api as any, 'sparkle-button')
-assert(pruned.status === 'healthy' && !api.rows.some(row => row.script_id === `reverie_relay_${disabledSourceScript!.script_id}`), 'reconcile must remove previously installed obsolete scripts')
+assert(pruned.status === 'healthy' && !api.rows.some(row => row.script_id === `private_relay_${disabledSourceScript!.script_id}`), 'reconcile must remove previously installed obsolete scripts')
 
 const mutationsAfterInstall = api.mutations
 const second = await reconcileNarrativeRegex(api as any, 'sparkle-button')
@@ -124,7 +122,7 @@ assert(api.rows.every(row => row.metadata.reverie_narrative_variant === 'plain-b
 assert(api.rows.length === activeScriptCount, 'variant switch must remain mutually exclusive and active-only')
 
 const glassColor = await reconcileNarrativeRegex(api as any, 'plain-button', undefined, 'glass')
-const installedGlassPlotSparks = api.rows.find(row => row.script_id === 'reverie_relay_ria_plot_sparks_og_sparkle_tabs_bulletproof_v7')
+const installedGlassPlotSparks = api.rows.find(row => row.script_id === 'private_relay_ria_plot_sparks_og_sparkle_tabs_bulletproof_v7')
 assert(glassColor.status === 'healthy' && installedGlassPlotSparks?.replace_string.includes('data-reverie-glass-authority="narrative-glass"'), 'installed Plot Sparks Regex must receive the Glass Color Mode makeover, not only Relay direct rendering')
 assert(api.rows.every(row => row.metadata.reverie_narrative_color_mode === 'glass'), 'installed Narrative scripts must record and reconcile the selected Color Mode')
 await reconcileNarrativeRegex(api as any, 'plain-button')
@@ -136,9 +134,9 @@ const repaired = await reconcileNarrativeRegex(api as any, 'plain-button')
 assert(repaired.status === 'healthy', 'repair must restore source-of-truth content')
 
 const collisionApi = new MockRegexApi()
-collisionApi.rows.push(collisionApi.dto({ ...narrativeRegexCreateInput(narrativeRegexScripts('inline')[0], 'inline'), can_mutate: false, folder: 'Somebody Else' }, 'foreign-1'))
+collisionApi.rows.push(collisionApi.dto({ ...narrativeRegexCreateInput(narrativeRegexScripts('inline').find(script => !isRetiredPhoneRegexScript(script.script_id))!, 'inline'), can_mutate: false, folder: 'Somebody Else' }, 'foreign-1'))
 let collisionRefused = false
-try { await reconcileNarrativeRegex(collisionApi as any, 'inline') } catch (error) { collisionRefused = /outside Reverie Relay ownership/i.test(String(error)) && /manually imported or foreign/i.test(String(error)) }
+try { await reconcileNarrativeRegex(collisionApi as any, 'inline') } catch (error) { collisionRefused = /outside Private Relay ownership/i.test(String(error)) && /manually imported or foreign/i.test(String(error)) }
 assert(collisionRefused && collisionApi.mutations === 0, 'installer must refuse foreign script-ID collisions without mutating them')
 
 const rollbackApi = new MockRegexApi()
@@ -147,17 +145,13 @@ let rollbackFailed = false
 try { await reconcileNarrativeRegex(rollbackApi as any, 'inline') } catch { rollbackFailed = true }
 assert(rollbackFailed && rollbackApi.rows.length === 0, 'partial first install must roll back every script it created')
 
-const privateScript = api.dto({ script_id: 'private_relay_ria_plot_sparks_og_sparkle_tabs_bulletproof_v7', name: 'Private Relay Plot Sparks', folder: 'Private Relay · Regex Pack', folder_version: '6.3-final', metadata: { reverie_namespace: 'private-relay:regex-pack', reverie_narrative_dlc: true, _lumiverse_spindle_extension: { identifier: 'private_relay', version: '6.3-final' } } }, 'private-install')
-api.rows.push(privateScript)
-const publicWithPrivate = await reconcileNarrativeRegex(api as any, 'plain-button')
-assert(publicWithPrivate.status === 'healthy' && api.rows.some(row => row.id === 'private-install'), 'public reconcile must leave a separately installed Private Relay Regex script intact')
 const removed = await removeNarrativeRegex(api as any, 'plain-button')
-assert(removed.status === 'removed' && api.rows.length === 1 && api.rows[0].id === 'private-install', 'public removal must leave Private Relay-owned scripts intact')
+assert(removed.status === 'removed' && api.rows.length === 0, 'remove must delete exactly the Relay-owned Narrative install')
 
 const utility = buildNarrativeUtilityPrompt()
 assert(NARRATIVE_DLC_VERSION === '6.3-final', 'Character Phone gallery contract must ship as Narrative Utility pack 6.3-final')
-assert(utility.utilityNames.length === 16, 'all 16 Narrative Utilities must be selected by default')
-assert(utility.utilityNames.join('|') === 'Character Phone|Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry|Relationship Map|Cast Sheet|Persona Wardrobe', 'active Narrative Utility roster must contain only current names')
+assert(utility.utilityNames.length === 15, 'all 15 active Narrative Utilities must be selected by default')
+assert(utility.utilityNames.join('|') === 'Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry|Relationship Map|Cast Sheet|Persona Wardrobe', 'active Narrative Utility roster must contain only current names')
 assert(utility.utilityNames.join('|') === narrativeUtilityNames().join('|'), 'Utility injection order must match the source bundle')
 for (const item of narrativeUtilityItems()) {
   assert(utility.content.includes(applyNarrativeDisplayNames(item.loomContent)), `${item.loomName}: final prompt injection must preserve the complete source Utility instructions under its public label`)
@@ -169,25 +163,24 @@ for (const oldName of Object.keys(LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS)) {
   assert(!narrativeUtilityItems().some(item => item.loomContent.includes(oldName)), `runtime Utility content retained retired model-facing name: ${oldName}`)
   assert(!utility.content.includes(oldName), `combined Narrative prompt retained retired model-facing name: ${oldName}`)
 }
-assert(utility.content.includes('[reverie_narrative_utility]') && utility.content.includes('[contract]narrative[/contract]'), 'Narrative Utility wrapper must use bracket-native Narrative contract fields')
+assert(utility.content.includes("<reverie_narrative_utility>") && utility.content.includes("<contract>narrative</contract>"), "Narrative Utility wrapper must use XML Narrative contract fields")
 const archiveUtility = buildNarrativeUtilityPrompt(['Archive Entry'])
-for (const contract of ['[archive_media]', 'aspect="1:1"', 'aspect="4:3"', 'aspect="16:9"', 'VISUAL SUBJECT ONLY', 'Legacy Archive payloads may omit [archive_media]']) {
+for (const contract of ["<archive_media>", 'aspect="1:1"', 'aspect="4:3"', 'aspect="16:9"', 'VISUAL SUBJECT ONLY', "Legacy Archive payloads may omit <archive_media>"]) {
   assert(archiveUtility.content.includes(contract), `Archive media Utility contract missing: ${contract}`)
 }
-assert(archiveUtility.content.includes('[/archive_head]\n[archive_media]') && archiveUtility.content.includes('[/archive_media]\n[archive_stats]'), 'new Archive Utility output must place media between head and stats')
+assert(archiveUtility.content.includes("</archive_head>\n<archive_media>") && archiveUtility.content.includes("</archive_media>\n<archive_stats>"), 'new Archive Utility output must place media between head and stats')
 assert(!archiveUtility.content.includes('Archive cards are intentionally image-free'), 'retired image-free Archive rule leaked into the runtime Utility prompt')
 const plotSparksUtility = buildNarrativeUtilityPrompt(['Plot Sparks'])
 assert(plotSparksUtility.utilityNames.join('|') === 'Plot Sparks', 'Plot Sparks must be the active selection and roster key')
 for (const contract of [
-  'seven possible NEXT BRANCHES growing directly from the current scene',
-  'Every Plot Spark MUST preserve the current scene as its launch point',
+  'ten concise, exciting, playable NEXT BRANCHES',
+  'two concrete anchors from the active scene',
   'This can happen next because',
-  'current location unless the next action naturally exits it',
-  'current time',
-  'current knowledge boundaries',
-  'current emotional state',
-  'current object state',
-  'Place [Plot_Sparks] after the main narrative content for the response.',
+  'Preserve location, time, current clothing',
+  'character knowledge',
+  'emotional state',
+  'object positions',
+  'after the main narrative',
 ]) {
   assert(plotSparksUtility.content.includes(contract), `model-facing Plot Sparks continuation contract missing: ${contract}`)
 }
@@ -200,18 +193,18 @@ for (const removed of [
 ]) {
   assert(!plotSparksUtility.content.includes(removed), `retired anti-continuation Plot Sparks rule leaked into runtime prompt: ${removed}`)
 }
-for (const token of ['[Plot_Sparks]', '[Spark]', '[Text]', '[Media]', '<reverie-illustration', 'detonation', 'heartknife', 'wrongness', 'crash-in', 'matchstrike', 'reputation-fire', 'wildcard-collision']) {
+for (const token of ["<Plot_Sparks>", "<Spark>", "<Text>", "<Media>", "<reverie-illustration ", 'detonation', 'heartknife', 'wrongness', 'crash-in', 'matchstrike', 'reputation-fire', 'wildcard-collision']) {
   assert(plotSparksUtility.content.includes(token), `Plot Sparks bracket renderer/image contract changed: ${token}`)
 }
-for (const exactCount of ['Exactly seven [Spark] blocks exist', 'Each Spark contains exactly one non-empty [Media]', 'Exactly seven <reverie-illustration> blocks exist']) {
-  assert(plotSparksUtility.content.includes(exactCount), `Plot Sparks must retain its seven-image structural requirement: ${exactCount}`)
+for (const exactCount of ['Exactly ten Sparks', "Each <Media> contains exactly one complete Reverie illustration", 'exactly ten complete illustrations']) {
+  assert(plotSparksUtility.content.includes(exactCount), `Plot Sparks must retain its ten-image structural requirement: ${exactCount}`)
 }
 for (const forbidden of ['hook ledger', 'chaos payload', 'chaos_payload', 'chaos hook', 'chaos_hook', 'hook_text', 'hook_media', '<payload>', 'two-ledger']) {
   assert(!plotSparksUtility.content.toLocaleLowerCase().includes(forbidden), `active Plot Sparks Utility leaked legacy/cross-system terminology: ${forbidden}`)
 }
 const subset = buildNarrativeUtilityPrompt(['Scene Shift', 'Character Phone'])
-assert(subset.utilityNames.join('|') === 'Character Phone|Scene Shift', 'selected Utility prompt must preserve source order and contain only enabled contracts')
-assert(subset.content.includes(applyNarrativeDisplayNames(narrativeUtilityItems()[0].loomContent)) && subset.content.includes(applyNarrativeDisplayNames(narrativeUtilityItems()[3].loomContent)), 'selected Utility prompt omitted enabled complete contracts')
+assert(subset.utilityNames.join('|') === 'Scene Shift', 'retired Phone selections must be ignored without changing active contracts')
+assert(subset.content.includes(applyNarrativeDisplayNames(narrativeUtilityItems().find(item => item.loomName === 'Scene Shift')!.loomContent)), 'selected Utility prompt omitted enabled complete contracts')
 assert(!subset.content.includes(narrativeUtilityItems()[1].loomContent), 'selected Utility prompt leaked a disabled contract')
 
 const dramaticFixture = '[dramatic_parallel][dramatic_head]LOCATION:Roof • TIME:Night • PRESSURE:Secret[/dramatic_head][dramatic_media]<reverie-illustration request="generate" slot="dramatic-cutaway-test" aspect="16:9" cast="none"><visual_prompt>Rain crossing an empty rooftop.</visual_prompt></reverie-illustration>[/dramatic_media][dramatic_body][paragraph]A door opened.[/paragraph][paragraph]The evidence changed hands.[/paragraph][/dramatic_body][dramatic_foot]STATUS: OFFSCREEN • PRESSURE: LIVE • FIREWALL: ACTIVE[/dramatic_foot][/dramatic_parallel]'
@@ -247,8 +240,8 @@ const phoneMessageFixture = `[cp_msg][cp_side]other[/cp_side][cp_name]Mom[/cp_na
 const phoneApps = Array.from({ length: 8 }, (_, index) => `[cp_app][cp_slot]${index + 1}[/cp_slot][cp_name]App ${index + 1}[/cp_name][cp_icon]◇[/cp_icon][cp_tone]blue[/cp_tone][cp_badge]0[/cp_badge][cp_content]${index === 0 ? phoneMessageFixture : '[cp_row][cp_glyph]◇[/cp_glyph][cp_title]Row ' + (index + 1) + '[/cp_title][cp_meta]Meta[/cp_meta][cp_text]Text[/cp_text][/cp_row]'}[/cp_content][/cp_app]`).join('')
 const missingWallpaperPhone = `[character_phone][cp_presentation]sparkling[/cp_presentation][cp_owner]Han Minjae[/cp_owner][cp_subtitle]Private phone[/cp_subtitle][cp_time]09:47[/cp_time][cp_day]Monday[/cp_day][cp_battery]63[/cp_battery][cp_apps]${phoneApps}[/cp_apps][/character_phone]`
 const normalizedPhone = normalizeNarrativeMarkupForRendering(missingWallpaperPhone)
-assert(normalizedPhone.includes('[cp_battery]63[/cp_battery][cp_wallpaper][/cp_wallpaper][cp_apps]'), 'missing optional Phone wallpaper wrapper must be inserted at its canonical position')
-assert((normalizeNarrativeMarkupForRendering(normalizedPhone).match(/\[cp_wallpaper\]/g) || []).length === 1, 'Phone wallpaper repair must be idempotent')
+assert(normalizedPhone.includes('<cp_battery>63</cp_battery><cp_wallpaper></cp_wallpaper><cp_apps>'), 'missing optional Phone wallpaper wrapper must be inserted at its canonical position')
+assert((normalizeNarrativeMarkupForRendering(normalizedPhone).match(/<cp_wallpaper>/g) || []).length === 1, 'Phone wallpaper repair must be idempotent')
 for (const variant of ['sparkle-button', 'plain-button'] as const) {
   const renderedPhone = renderNarrativeRegex(missingWallpaperPhone, variant, `phone-${variant}`)
   assert(!renderedPhone.includes('[character_phone]') && !renderedPhone.includes('[/character_phone]'), `${variant}: repaired Character Phone shell did not render`)
@@ -264,7 +257,10 @@ assert(glassPhone.includes('--rrcp-glass-readable-text') && glassPhone.includes(
 const inlinePhone = renderNarrativeRegex(missingWallpaperPhone, 'inline', 'phone-inline')
 assert(inlinePhone.includes('<div class="rrcp-wrap rrcp-presentation-inline rr-surface-presentation-inline"><div class="rrcp-shell">') && !inlinePhone.includes('class="rrcp-launch-toggle"'), 'Inline Character Phone must remain directly open without a launcher')
 assert(inlinePhone.includes('.rrcp-wallpaper>.reverie-artifact-media') && inlinePhone.includes('height:100%!important') && inlinePhone.includes('object-fit:cover!important'), 'Character Phone wallpaper media must cover the complete fixed phone screen')
-assert(!/\.rrcp-photo-media[^}]+object-fit:cover/i.test(inlinePhone), 'Phone wallpaper sizing must not force ordinary app photos to crop')
+// Completed figures now fill their existing photo panes, matching the shell's
+// own rrcp-media crop. Keep the wallpaper-only leakage guard on the legacy
+// compatibility rules; the shared completed-only geometry has its own gate.
+assert(!/\.rrcp-photo-media[^}]+object-fit:cover/i.test(inlinePhone.replaceAll(SURFACE_MEDIA_GEOMETRY_CSS, '')), 'Phone wallpaper sizing must not force ordinary app photos to crop')
 const galleryPhotos = ['Workbench candid', 'Saved relationship moment', 'Practical reference'].map((title, index) => `[cp_photo][cp_title]${title}[/cp_title][cp_meta]Today · Workshop[/cp_meta][cp_media]<image_request id="phone-gallery-${index + 1}" target="custom.artifact-media" slot="phone-gallery-${index + 1}" aspect="4:3"><scene_brief>${title}, grounded in current continuity.</scene_brief></image_request>[/cp_media][/cp_photo]`).join('')
 const galleryApps = `[cp_app][cp_slot]1[/cp_slot][cp_name]Photos[/cp_name][cp_icon]◇[/cp_icon][cp_tone]photos[/cp_tone][cp_badge]0[/cp_badge][cp_content]${galleryPhotos}[/cp_content][/cp_app]${Array.from({ length: 7 }, (_, index) => `[cp_app][cp_slot]${index + 2}[/cp_slot][cp_name]App ${index + 2}[/cp_name][cp_icon]◇[/cp_icon][cp_tone]blue[/cp_tone][cp_badge]0[/cp_badge][cp_content][cp_row][cp_glyph]◇[/cp_glyph][cp_title]Row ${index + 2}[/cp_title][cp_meta]Meta[/cp_meta][cp_text]Text[/cp_text][/cp_row][/cp_content][/cp_app]`).join('')}`
 const galleryPhone = `[character_phone][cp_presentation]sparkling[/cp_presentation][cp_owner]Han Minjae[/cp_owner][cp_subtitle]Recent camera roll[/cp_subtitle][cp_time]09:47[/cp_time][cp_day]Monday[/cp_day][cp_battery]63[/cp_battery][cp_wallpaper][/cp_wallpaper][cp_apps]${galleryApps}[/cp_apps][/character_phone]`
@@ -283,7 +279,7 @@ const hybridPhone = missingWallpaperPhone
   .replace(/\[cp_icon\]◇\[\/cp_icon\]/g, '[cp_icon]<svg viewBox="0 0 24 24"><path d="M2 2h20v20H2z"/></svg></cp_icon>')
   .replace(/\[cp_glyph\]◇\[\/cp_glyph\]/g, '[cp_glyph]<svg viewBox="0 0 24 24"><path d="M12 2v20"/></svg></cp_glyph>')
 const normalizedHybridPhone = normalizeNarrativeMarkupForRendering(hybridPhone)
-assert(!/<\/cp_(?:icon|glyph)>/i.test(normalizedHybridPhone) && normalizedHybridPhone.includes('[/cp_icon]') && normalizedHybridPhone.includes('[/cp_glyph]'), 'Character Phone must normalize mixed XML closers back to canonical bracket grammar')
+assert(!/\[\/cp_(?:icon|glyph)\]/i.test(normalizedHybridPhone) && normalizedHybridPhone.includes('</cp_icon>') && normalizedHybridPhone.includes('</cp_glyph>'), 'Character Phone must normalize mixed closers to canonical XML grammar')
 const renderedHybridPhone = renderNarrativeRegex(hybridPhone, 'inline', 'phone-hybrid-svg-closers')
 assert((renderedHybridPhone.match(/class="rrcp-entry /g) || []).length === 8, 'mixed SVG field closers must not prevent any Character Phone app from rendering')
 assert(!/\[\/?cp_(?:app|slot|name|icon|tone|badge|content|row|glyph)\b/i.test(renderedHybridPhone), 'mixed SVG field closers must not leak raw Character Phone scaffolding')
@@ -291,8 +287,8 @@ const xmlRootHybridPhone = hybridPhone
   .replace(/^\[character_phone\]/, '<character_phone>')
   .replace(/\[\/character_phone\]$/, '</character_phone>')
 const normalizedXmlRootPhone = normalizeNarrativeMarkupForRendering(xmlRootHybridPhone)
-assert(normalizedXmlRootPhone.startsWith('[character_phone]') && normalizedXmlRootPhone.endsWith('[/character_phone]'), 'complete XML Character Phone roots must normalize to the canonical bracket root')
-assert(!/<\/?character_phone\b|<\/cp_(?:icon|glyph)>/i.test(normalizedXmlRootPhone), 'XML-root Character Phone normalization must consume the observed hybrid root and field closers')
+assert(normalizedXmlRootPhone.startsWith('<character_phone>') && normalizedXmlRootPhone.endsWith('</character_phone>'), 'complete Character Phone roots must normalize to the canonical XML root')
+assert(!/\[\/?(?:character_phone|cp_icon|cp_glyph)\]/i.test(normalizedXmlRootPhone), 'XML-root Character Phone normalization must consume the observed hybrid field delimiters')
 const renderedXmlRootPhone = renderNarrativeRegex(xmlRootHybridPhone, 'inline', 'phone-xml-root-hybrid')
 assert((renderedXmlRootPhone.match(/class="rrcp-entry /g) || []).length === 8 && !/<\/?character_phone\b|\[\/?cp_/i.test(renderedXmlRootPhone), 'captured XML-root Character Phone drift must render all eight apps without raw scaffold')
 assert(normalizeNarrativeMarkupForRendering('<character_phone>[cp_owner]streaming') === '<character_phone>[cp_owner]streaming', 'incomplete streaming phone roots must remain untouched')
@@ -310,7 +306,7 @@ assert(capturedCombinedRendered.includes('rrcp-wrap') && capturedCombinedRendere
 assert(capturedCombinedRendered.includes('/api/v1/image-gen/results/spark-a') && capturedCombinedRendered.includes('<reverie-illustration request="generate" slot="plot-spark-g"'), 'Plot Sparks must retain both already-resolved and still-pending media inside its rendered lanes')
 
 const canonicalArchive = '[dossier_ui][category]SECRET[/category][archive_head][icon]🤫[/icon][name]Canonical Secret[/name][state]PARTIAL[/state][relation]A ↔ B[/relation][role]Hidden act[/role][/archive_head][archive_stats][archive_stat][label]Exposure[/label][value]75[/value][/archive_stat][archive_stat][label]Certainty[/label][value]40[/value][/archive_stat][archive_stat][label]Consequence[/label][value]90[/value][/archive_stat][/archive_stats][archive_details][archive_row][label]The Hidden Truth[/label][value]Truth.[/value][/archive_row][archive_row][label]Known By[/label][value]A.[/value][/archive_row][archive_row][label]Hidden From[/label][value]B.[/value][/archive_row][archive_row][label]Near-Slips[/label][value]One clue.[/value][/archive_row][archive_row][label]Impact If Revealed[/label][value]Trust changes.[/value][/archive_row][archive_row][label]Current Status[/label][value]SLIPPING[/value][/archive_row][/archive_details][archive_export][SECRET: Canonical Secret]\nCURRENT STATUS: SLIPPING[/archive_export][/dossier_ui]'
-assert(normalizeNarrativeMarkupForRendering(canonicalArchive) === canonicalArchive, 'canonical Archive Entry payloads must remain byte-for-byte unchanged')
+assert(normalizeNarrativeMarkupForRendering(canonicalArchive) === xmlSurfaceExamples(canonicalArchive), 'saved Archive must project into the exact canonical XML structure')
 
 for (const variant of ['sparkle-button', 'plain-button', 'inline', 'glass', 'plain-glass'] as const) {
   const renderedLegacyArchive = renderNarrativeRegex(canonicalArchive, variant, `archive-legacy-${variant}`)
@@ -366,8 +362,8 @@ THE HIDDEN TRUTH: Minjae gave Arin the final copy and lied about it.
 CURRENT STATUS: SLIPPING
 </dossier_ui>`
 const normalizedFlatArchive = normalizeNarrativeMarkupForRendering(flatArchive)
-assert(normalizedFlatArchive.includes('[archive_head]') && normalizedFlatArchive.includes('[state]PARTIAL[/state]') && normalizedFlatArchive.includes('[archive_row][label]The Hidden Truth[/label]'), 'flat SECRET Archive drift must normalize into the canonical bracket contract')
-assert(!normalizedFlatArchive.includes('[archive_media]'), 'flat legacy Archive normalization must not fabricate archive media')
+assert(normalizedFlatArchive.includes('<archive_head>') && normalizedFlatArchive.includes('<state>PARTIAL</state>') && normalizedFlatArchive.includes('<archive_row><label>The Hidden Truth</label>'), 'flat SECRET Archive drift must normalize into the canonical XML contract')
+assert(!normalizedFlatArchive.includes('<archive_media>'), 'flat legacy Archive normalization must not fabricate archive media')
 const renderedFlatArchive = renderNarrativeRegex(flatArchive, 'sparkle-button', 'flat-archive')
 assert(renderedFlatArchive.includes('class="ra66 ') && renderedFlatArchive.includes('The Textbook Lie') && renderedFlatArchive.includes('The Hidden Truth') && !renderedFlatArchive.includes('[dossier_ui]'), 'normalized flat Archive Entry must render through the approved Dossier presentation')
 
@@ -436,4 +432,4 @@ assert(librarySource.indexOf('View Exact Injected Prompt') < librarySource.index
 assert(!frontend.includes('Inject FINAL Narrative Utilities') && !frontend.includes('complete FINAL Utility contract'), 'user-facing Surface controls must call them Narrative Utilities')
 assert(!frontend.slice(settingsStart).includes("panelSection('Narrative Utilities'"), 'Narrative Utility controls must not remain in Settings')
 
-console.log(`R4.6 Narrative runtime smoke passed: ${activeScriptCount} disabled imported Core and Narrative scripts, preserved Phone presentation, bundled Relay/Regex rendering, combined prompt preview wiring, and 16 complete Narrative Utility injections.`)
+console.log(`Narrative runtime smoke passed: ${activeScriptCount} disabled imported active scripts, legacy Phone read compatibility, bundled Relay rendering, preview wiring, and 15 active Utility injections.`)

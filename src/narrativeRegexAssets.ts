@@ -7,6 +7,9 @@ import utilityPack from '../regex-packs/Narrative/Reverie-Narrative-Utilities.js
 import dramaticCutawayPack from '../regex-packs/Narrative/Reverie-Dramatic-Cutaway.json'
 import plotSparksPack from '../regex-packs/Narrative/Reverie-Plot-Sparks.json'
 import { sceneCompassPresentation } from './sceneCompassPresentation'
+import { bracketImageControls, projectBracketImageControlsToXml } from './imageControlMarkup'
+import { xmlAuthoringInstructions, xmlSurfaceExamples, xmlSurfaceRegex } from './xmlSurfaceFormat'
+import { SURFACE_MEDIA_GEOMETRY_CSS } from './surfaceMediaGeometry'
 import { normalizeRegisteredHybridClosingDelimiters } from './surfaceStructuralRepair'
 import { applyNarrativeSurfacePresentation, surfaceShellModeForNarrativeVariant, type NarrativeSurfacePresentationVariant } from './surfacePresentation'
 import { decorateSurfaceLauncherMarkup } from './surfaceIcons'
@@ -14,6 +17,9 @@ import { PLOT_SPARK_VECTOR_BY_KEY, type PlotSparkKey, type SurfaceColorMode } fr
 import { SHIPPED_SURFACE_BY_ID } from './shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { PERSONA_WARDROBE_UTILITY_PROMPT, renderPersonaWardrobeMarkup } from './personaWardrobe'
+import { renderSurfaceContractRecovery } from './nativeSurfaces'
+import { PLOT_SPARKS_ROOT, PLOT_SPARKS_SURFACE_ID, plotSparksContractDiagnostic, isRenderablePlotSparkCount, normalizePlotSparksLifecycleCloser } from './plotSparksContract'
+import { plotSparksPresentationScripts, PLOT_SPARKS_SCRIPT_ID, PLOT_SPARKS_LEGACY_SCRIPT_ID } from './plotSparksPresentation'
 
 export type NarrativeRegexVariant = NarrativeSurfacePresentationVariant
 type NarrativeRegexSourceVariant = Exclude<NarrativeRegexVariant, 'plain-glass'> | 'glass-button'
@@ -65,16 +71,17 @@ const PACKS: Record<NarrativeRegexSourceVariant, NarrativeRegexPack> = {
 }
 
 const EXPECTED_PIN: Record<Exclude<NarrativeRegexVariant, 'plain-glass'>, string> = {
-  'sparkle-button': '[cp_presentation]sparkling[/cp_presentation]',
-  'plain-button': '[cp_presentation]plain[/cp_presentation]',
-  inline: '[cp_presentation]inline[/cp_presentation]',
-  glass: '[cp_presentation]glass[/cp_presentation]',
+  'sparkle-button': '<cp_presentation>sparkling</cp_presentation>',
+  'plain-button': '<cp_presentation>plain</cp_presentation>',
+  inline: '<cp_presentation>inline</cp_presentation>',
+  glass: '<cp_presentation>glass</cp_presentation>',
 }
 
 const DRAMATIC_CUTAWAY_PACK = dramaticCutawayPack as unknown as NarrativeRegexPack
 const PLOT_SPARKS_PACK = plotSparksPack as unknown as NarrativeRegexPack
-const NARRATIVE_MEDIA_OWNER_CLASS = /(?:dg-dramatic-media|r65-media|rv6-media|ru-media|ru-portrait|ru-secret-media|ru-thread-media|ra66-archive-media|rrcp-media|rrcp-photo-media|rrcp-wallpaper)/
+const NARRATIVE_MEDIA_OWNER_CLASS = /(?:dg-dramatic-media|ch-media|r65-media|rv6-media|ru-media|ru-portrait|ru-secret-media|ru-thread-media|ra66-archive-media|rrcp-media|rrcp-photo-media|rrcp-wallpaper)/
 const NARRATIVE_PRIMARY_SURFACE_CLASS = /<(?:details|div) class="(?:r65\b|ra66\b|rrcp-wrap\b|ch-og\b|[^\"]*\bdg-dramatic-cutaway\b)/
+const CHARACTER_PHONE_STORY_SNAPSHOT_WIDGET = '<div class="rrcp-widget"><small>STORY SNAPSHOT</small><div><span><b>8</b>apps</span><span><b>Story</b>linked</span><span><b>Dark</b>mode</span></div></div>'
 const CHARACTER_PHONE_OPTIONAL_WALLPAPER_NORMALIZER: NarrativeRegexScript = {
   script_id: 'rrcp_repair_missing_optional_wallpaper_v462',
   name: 'Narrative - Character Phone - Optional Wallpaper Normalizer - Inline',
@@ -93,14 +100,15 @@ const CHARACTER_PHONE_OPTIONAL_WALLPAPER_NORMALIZER: NarrativeRegexScript = {
   sort_order: 499,
   disabled: false,
   description: 'Repairs a commonly omitted empty cp_wallpaper wrapper before the approved Character Phone shell renderer runs.',
-  folder: 'Narrative',
-  metadata: { surface: 'Character Phone', repair: 'missing-optional-wallpaper' },
+  folder: '📱 Character Phone — FINAL',
+  metadata: { release: 'FINAL', surface: 'Character Phone', repair: 'missing-optional-wallpaper' },
   actions: [],
 }
 
 /** Relay resolves Narrative-owned jobs to direct artifact media nodes. Keep
  * those nodes inside the approved layouts without redesigning their CSS. */
 export const NARRATIVE_MEDIA_COMPATIBILITY_STYLE = `<style data-reverie-narrative-media-compat="1">
+${SURFACE_MEDIA_GEOMETRY_CSS}
 .dg-dramatic-media{min-width:0;max-width:100%;overflow:hidden;text-align:center}
 .dg-dramatic-media>img,.dg-dramatic-media>.reverie-artifact-media{display:block!important;width:100%!important;max-width:100%!important;height:auto!important;margin-inline:auto!important;object-fit:contain!important;object-position:center!important}
 .r65-media>.reverie-artifact-media,.rv6-media>.reverie-artifact-media,.ru-media>.reverie-artifact-media,.ru-portrait>.reverie-artifact-media,.ru-secret-media>.reverie-artifact-media,.ru-thread-media>.reverie-artifact-media,.rrcp-media>.reverie-artifact-media,.rrcp-photo-media>.reverie-artifact-media{display:block!important;width:100%!important;max-width:100%!important;height:auto!important;margin-inline:auto!important;object-fit:contain!important;object-position:center!important}
@@ -166,7 +174,7 @@ const NARRATIVE_ICON_BY_SCRIPT_ID: Readonly<Record<string, string>> = {
 }
 
 const safeMessageId = (value: string): string => String(value || 'narrative').replace(/[^A-Za-z0-9_-]+/g, '-') || 'narrative'
-const NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel|persona_wardrobe|relationship_map|character_profile|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:dossier_ui|dramatic_parallel)\b/i
+const NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel|persona_wardrobe|relationship_map|character_profile|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:Plot_Sparks|SCENE|PARALLEL|NPC|NPC_REF|NPC_REL|SECRET|WORLD|WHATIF|else|npc|place|character_phone|private_phone|dossier_ui|dramatic_parallel|persona_wardrobe)\b/i
 
 const RELATIONSHIP_MAP_PROMPT = SHIPPED_SURFACE_BY_ID.get('relationship-map')?.promptModule || ''
 const CAST_SHEET_PROMPT = r45SupplementalSurfaceDefinitions().find(row => row.baseSurfaceId === 'character-profile')?.promptModule || ''
@@ -182,8 +190,7 @@ export const NARRATIVE_UTILITY_PACK: NarrativeUtilityPack = {
 }
 export const NARRATIVE_REGEX_VARIANTS: NarrativeRegexVariant[] = ['sparkle-button', 'plain-button', 'inline', 'glass', 'plain-glass']
 
-/** Canonical model-authored bracket fields consumed by the paired Regexes.
- * XML is intentionally limited to the image-control tags nested inside media. */
+/** Canonical XML authoring markers consumed by the paired Regexes. */
 export const NARRATIVE_UTILITY_FORMAT_CONTRACTS: Readonly<Record<string, readonly string[]>> = {
   'Character Phone': ['[character_phone]', '[cp_presentation]', '[cp_apps]', '[/character_phone]'],
   'Dramatic Cutaway': ['[dramatic_parallel]', '[dramatic_head]', '[dramatic_media]', '[dramatic_body]', '[dramatic_foot]', '[/dramatic_parallel]'],
@@ -201,6 +208,16 @@ export const NARRATIVE_UTILITY_FORMAT_CONTRACTS: Readonly<Record<string, readonl
   'Relationship Map': ['[relationship_map]', '[character_one]', '[character_two]', '[character_three]', '[connections]', '[/relationship_map]'],
   'Cast Sheet': ['[character_profile]', '[portrait]', '[name]', '[role]', '[hook]', '[trait]', '[/character_profile]'],
   'Persona Wardrobe': ['[persona_wardrobe]', '[wardrobe_context]', '[outfit_option]', '[pieces]', '[wear_text]', '[media]', '[/persona_wardrobe]'],
+}
+
+// Keep the registry's historical field inventory while exposing only the XML
+// grammar. Saved bracket messages are handled by the render adapter, not taught.
+for (const [name, markers] of Object.entries(NARRATIVE_UTILITY_FORMAT_CONTRACTS)) {
+  (NARRATIVE_UTILITY_FORMAT_CONTRACTS as Record<string, readonly string[]>)[name] = markers.map(marker => marker
+    .replace(/^\[\[(\/?)(else|npc|place)\s?\]?\]?$/, (_m, closing, tag) => closing ? `</${tag}>` : `<${tag} `)
+    .replace(/^\[(SCENE|PARALLEL|SECRET|WORLD|WHATIF)\|$/, '<$1 ')
+    .replace('[NPC:', '<NPC ')
+    .replace(/\[(\/?)([A-Za-z][\w-]*)\]/g, '<$1$2>'))
 }
 
 export const NARRATIVE_SURFACE_ROOT_TAGS = [
@@ -221,6 +238,11 @@ export function narrativeSurfaceBracketTags(): Set<string> {
   const opened = new Set<string>()
   const closed = new Set<string>()
   const contract = (NARRATIVE_UTILITY_PACK.loomItems || []).map(item => String(item.loomContent || '')).join('\n')
+  for (const match of contract.matchAll(/<(\/?)\s*([A-Za-z][\w-]*)(?:[^>]*)>/g)) {
+    const name = match[2].toLowerCase().replace(/-/g, '_')
+    if (match[1] === '/') closed.add(name)
+    else opened.add(name)
+  }
   for (const match of contract.matchAll(/\[(\/?)\s*([A-Za-z][\w-]*)(?:[^\]]*)\]/g)) {
     const name = String(match[2] || '').toLowerCase().replace(/-/g, '_')
     if (match[1] === '/') closed.add(name)
@@ -241,8 +263,11 @@ export function normalizeNarrativeClosingDelimiters(markup: string): string {
 }
 
 export function missingNarrativeUtilityFormatMarkers(name: string, content: string): string[] {
-  const source = String(content || '').toLocaleLowerCase()
-  return (NARRATIVE_UTILITY_FORMAT_CONTRACTS[name] || []).filter(marker => !source.includes(marker.toLocaleLowerCase()))
+  const source = xmlAuthoringInstructions(String(content || '')).toLocaleLowerCase()
+  return (NARRATIVE_UTILITY_FORMAT_CONTRACTS[name] || []).filter(marker => {
+    const canonical = marker.replace(/^\[\[\/?(else|npc|place)\s?\]?\]?$/, (_m, tag) => marker.includes('/') ? `</${tag}>` : `<${tag} `).replace(/^\[(SCENE|PARALLEL|SECRET|WORLD|WHATIF)\|$/, '<$1 ').replace('[NPC:', '<NPC ').replace(/\[(\/?)([A-Za-z][\w-]*)\]/g, '<$1$2>')
+    return !source.includes(canonical.toLowerCase())
+  })
 }
 
 /** One-way persisted-settings migration only. These names are not part of the
@@ -274,11 +299,11 @@ export function applyNarrativeDisplayNames(value: string, _rendered = false): st
 }
 
 export function narrativeUtilityNames(): string[] {
-  return (NARRATIVE_UTILITY_PACK.loomItems || []).map(item => item.loomName).filter(Boolean)
+  return narrativeUtilityItems().map(item => item.loomName).filter(Boolean)
 }
 
-export function narrativeUtilityItems(): NarrativeUtilityItem[] {
-  return (NARRATIVE_UTILITY_PACK.loomItems || []).map(item => item.loomName === 'Character Phone'
+export function narrativeUtilityItems(includeRetired = false): NarrativeUtilityItem[] {
+  return (NARRATIVE_UTILITY_PACK.loomItems || []).filter(item => includeRetired || item.loomName !== 'Character Phone').map(item => item.loomName === 'Character Phone'
     ? {
       ...item,
       loomContent: String(item.loomContent || '').replace(
@@ -286,7 +311,7 @@ export function narrativeUtilityItems(): NarrativeUtilityItem[] {
         'green|black|red|yellow|orange|blue|slate|photos|purple|browser|health',
       ),
     }
-    : { ...item })
+    : { ...item }).map(item => ({ ...item, loomContent: xmlAuthoringInstructions(item.loomContent) }))
 }
 
 const PARALLEL_SCENE_FIND = '\\[PARALLEL\\|(?<scope>[^\\|\\]\\r\\n]{1,500})\\|(?<relevance>[^\\]\\r\\n]{1,200})\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread1>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media1>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread2>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media2>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_entry\\]\\s*\\[text\\](?<thread3>[\\s\\S]{1,3000}?)\\[/text\\]\\s*\\[parallel_media\\](?<media3>[\\s\\S]{0,18000}?)\\[/parallel_media\\]\\s*\\[/parallel_entry\\]\\s*\\[parallel_context\\]\\s*\\[trajectory\\](?<trajectory>[\\s\\S]{1,6000}?)\\[/trajectory\\]\\s*\\[intersection\\](?<intersection>[\\s\\S]{1,6000}?)\\[/intersection\\]\\s*\\[/parallel_context\\]\\s*\\[/PARALLEL\\]'
@@ -361,16 +386,87 @@ function normalizeFlatArchiveDossiers(markup: string): string {
 }
 
 const PLOT_SPARKS_OWNER_RANGE = /(\[Plot_Sparks\])([\s\S]*?)(\[\/Plot_Sparks\])/gi
+const PLOT_SPARKS_ANY_OWNER_RANGE = /(?:\[Plot_Sparks\][\s\S]*?\[\/Plot_Sparks\]|<Plot_Sparks>[\s\S]*?<\/Plot_Sparks>)/gi
+
+/** Collapse only redundant empty Plot Sparks media wrappers and one repeated
+ * Vector opener when the complete ten-Spark or saved seven-Spark board is canonical.
+ * These exact duplicate tokens are harmless but currently make the shared
+ * renderer reject the entire owner and expose its raw markup. Content-bearing
+ * duplicate Media fields and all incomplete/ambiguous boards remain untouched. */
+export function normalizeDuplicatePlotSparksFieldMarkers(markup: string): string {
+  return String(markup || '').replace(PLOT_SPARKS_OWNER_RANGE, (full, opening: string, body: string, closing: string) => {
+    const head = /^\s*\[ID\]([\s\S]*?)\[\/ID\]\s*\[Lifecycle\]([\s\S]*?)\[\/Lifecycle\]\s*([\s\S]*)$/i.exec(body)
+    if (!head || !head[1].trim() || !head[2].trim()) return full
+    if ((body.match(/\[ID\]/gi) || []).length !== 1 || (body.match(/\[\/ID\]/gi) || []).length !== 1
+      || (body.match(/\[Lifecycle\]/gi) || []).length !== 1 || (body.match(/\[\/Lifecycle\]/gi) || []).length !== 1) return full
+
+    const sparkPattern = /\[Spark\]([\s\S]*?)\[\/Spark\]/gi
+    const sparks = [...head[3].matchAll(sparkPattern)]
+    if (!isRenderablePlotSparkCount(sparks.length) || (head[3].match(/\[Spark\]/gi) || []).length !== sparks.length || (head[3].match(/\[\/Spark\]/gi) || []).length !== sparks.length) return full
+
+    const keys = new Set<PlotSparkKey>()
+    let changed = false
+    const repaired: string[] = []
+    for (const match of sparks) {
+      let sparkBody = match[1]
+      const vectorOpens = sparkBody.match(/\[Vector\]/gi) || []
+      const vectorCloses = sparkBody.match(/\[\/Vector\]/gi) || []
+      if (vectorOpens.length === 2 && vectorCloses.length === 1) {
+        const duplicatedVector = /\[Vector\]\s*\[Vector\]([^\[\]]+)\[\/Vector\]/i
+        if (!duplicatedVector.test(sparkBody)) return full
+        sparkBody = sparkBody.replace(duplicatedVector, (_field, vector: string) => `[Vector]${vector}[/Vector]`)
+        changed = true
+      }
+
+      let mediaOpens = sparkBody.match(/\[Media\]/gi) || []
+      let mediaCloses = sparkBody.match(/\[\/Media\]/gi) || []
+      if (mediaOpens.length === 2 && mediaCloses.length === 2) {
+        const repeatedEmptyMedia = /\[Media\]\s*\[\/Media\]\s*\[Media\]\s*\[\/Media\]/i
+        if (!repeatedEmptyMedia.test(sparkBody)) return full
+        sparkBody = sparkBody.replace(repeatedEmptyMedia, '[Media][/Media]')
+        mediaOpens = sparkBody.match(/\[Media\]/gi) || []
+        mediaCloses = sparkBody.match(/\[\/Media\]/gi) || []
+        changed = true
+      }
+
+      const canonical = /^\s*\[Key\]([^\[\]]+)\[\/Key\]\s*\[Vector\]([^\[\]]+)\[\/Vector\]\s*\[Text\]([\s\S]*?)\[\/Text\](?:\s*\[Media\]([\s\S]*?)\[\/Media\])?\s*$/i.exec(sparkBody)
+      if (!canonical || (sparkBody.match(/\[Key\]/gi) || []).length !== 1 || (sparkBody.match(/\[\/Key\]/gi) || []).length !== 1
+        || (sparkBody.match(/\[Vector\]/gi) || []).length !== 1 || (sparkBody.match(/\[\/Vector\]/gi) || []).length !== 1
+        || (sparkBody.match(/\[Text\]/gi) || []).length !== 1 || (sparkBody.match(/\[\/Text\]/gi) || []).length !== 1
+        || !((mediaOpens.length === 0 && mediaCloses.length === 0 && canonical[4] === undefined)
+          || (mediaOpens.length === 1 && mediaCloses.length === 1 && canonical[4] !== undefined))
+        || !canonical[3].trim()) return full
+
+      const key = canonical[1].trim().toLocaleLowerCase() as PlotSparkKey
+      if (!(key in PLOT_SPARK_VECTOR_BY_KEY) || keys.has(key) || canonical[2].trim().toLocaleLowerCase() !== PLOT_SPARK_VECTOR_BY_KEY[key]) return full
+      keys.add(key)
+
+      const media = (canonical[4] || '').trim()
+      if (media && ((media.match(/<reverie-illustration\b/gi) || []).length !== 1
+        || (media.match(/<\/reverie-illustration\s*>/gi) || []).length !== 1
+        || !/<reverie-illustration\b[^>]*\brequest\s*=\s*["']generate["'][^>]*>[\s\S]*?<visual_prompt\b[^>]*>\s*[^<\s][\s\S]*?<\/visual_prompt\s*>[\s\S]*?<\/reverie-illustration\s*>/i.test(media))) return full
+
+      repaired.push(sparkBody)
+    }
+    if (!changed || keys.size !== sparks.length) return full
+
+    let index = 0
+    const repairedSparks = head[3].replace(sparkPattern, () => `[Spark]${repaired[index++]}[/Spark]`)
+    const headerLength = head[0].length - head[3].length
+    const repairedBody = `${body.slice(0, head.index)}${body.slice(head.index, head.index + headerLength)}${repairedSparks}`
+    return `${opening}${repairedBody}${closing}`
+  })
+}
 
 /** Repair only the two observed bracket/angle delimiter typos inside an
- * otherwise complete canonical seven-Spark owner. This is deliberately not a
+ * otherwise complete canonical ten-Spark or saved seven-Spark owner. This is not a
  * general permissive bracket repair: every key/vector/text/media field and
  * every complete illustration must validate before either byte is changed. */
 export function normalizePlotSparksFieldDelimiters(markup: string): string {
   return String(markup || '').replace(PLOT_SPARKS_OWNER_RANGE, (full, opening: string, body: string, closing: string) => {
     const sparkPattern = /\[Spark\]([\s\S]*?)\[\/Spark\]/gi
     const sparks = [...body.matchAll(sparkPattern)]
-    if (sparks.length !== 7 || (body.match(/\[Spark\]/gi) || []).length !== 7 || (body.match(/\[\/Spark\]/gi) || []).length !== 7) return full
+    if (!isRenderablePlotSparkCount(sparks.length) || (body.match(/\[Spark\]/gi) || []).length !== sparks.length || (body.match(/\[\/Spark\]/gi) || []).length !== sparks.length) return full
 
     const keys = new Set<PlotSparkKey>()
     let changed = false
@@ -406,7 +502,7 @@ export function normalizePlotSparksFieldDelimiters(markup: string): string {
         || !/<visual_prompt>[^<][\s\S]*?<\/visual_prompt>/i.test(fields.Media)) return full
       repairedSparks.push(spark)
     }
-    if (!changed || keys.size !== 7) return full
+    if (!changed || keys.size !== sparks.length) return full
 
     let index = 0
     const repairedBody = body.replace(sparkPattern, () => repairedSparks[index++])
@@ -414,9 +510,9 @@ export function normalizePlotSparksFieldDelimiters(markup: string): string {
   })
 }
 
-/** Keep a complete canonical Plot Sparks response renderable when the model
- * omits image ownership entirely. This inserts only empty [Media] containers;
- * it never authors an image request or changes ambiguous/partial Spark data. */
+/** Keep a complete canonical Plot Sparks response renderable when one or more
+ * Sparks omit image ownership. This inserts only empty [Media] containers for
+ * wholly absent fields; malformed or ambiguous media markup remains untouched. */
 export function normalizeMissingPlotSparksMediaFields(markup: string): string {
   return String(markup || '').replace(PLOT_SPARKS_OWNER_RANGE, (full, opening: string, body: string, closing: string) => {
     if ((body.match(/\[ID\]/gi) || []).length !== 1 || (body.match(/\[\/ID\]/gi) || []).length !== 1
@@ -425,7 +521,7 @@ export function normalizeMissingPlotSparksMediaFields(markup: string): string {
     if (!head || !head[1].trim() || !head[2].trim()) return full
     const sparkPattern = /\[Spark\]([\s\S]*?)\[\/Spark\]/gi
     const sparks = [...head[3].matchAll(sparkPattern)]
-    if (sparks.length !== 7 || (head[3].match(/\[Spark\]/gi) || []).length !== 7 || (head[3].match(/\[\/Spark\]/gi) || []).length !== 7) return full
+    if (!isRenderablePlotSparkCount(sparks.length) || (head[3].match(/\[Spark\]/gi) || []).length !== sparks.length || (head[3].match(/\[\/Spark\]/gi) || []).length !== sparks.length) return full
 
     const keys = new Set<PlotSparkKey>()
     let changed = false
@@ -451,10 +547,10 @@ export function normalizeMissingPlotSparksMediaFields(markup: string): string {
         repaired.push(`${sparkBody.slice(0, canonical[0].length)}[Media][/Media]`)
       } else repaired.push(sparkBody)
     }
-    // Do not turn a partial/malformed response into a successful whole block:
-    // the safe fallback applies only when all seven canonical Sparks omit
-    // media ownership together.
-    if (!changed || missingMediaFields !== 7 || keys.size !== 7) return full
+    // A missing image field is local to its Spark: preserve valid neighboring
+    // image requests and restore only the absent containers. Never guess at a
+    // half-open, duplicated, misplaced, or otherwise ambiguous Media field.
+    if (!changed || missingMediaFields < 1 || keys.size !== sparks.length) return full
     let index = 0
     const repairedSparks = head[3].replace(sparkPattern, () => `[Spark]${repaired[index++]}[/Spark]`)
     return `${opening}${body.slice(0, head.index) /* Preserve leading whitespace before the ID block. */}${body.slice(head.index, head.index + head[0].length - head[3].length)}${repairedSparks}${closing}`
@@ -594,14 +690,16 @@ export function normalizeWorldMarkup(markup: string): string {
   })
 }
 
-export function normalizeNarrativeMarkupForRendering(markup: string): string {
-  const withPlotMediaOwners = normalizeMissingPlotSparksMediaFields(String(markup || ''))
+function normalizeLegacyNarrativeMarkupForRendering(markup: string): string {
+  const withPlotFieldMarkers = normalizeDuplicatePlotSparksFieldMarkers(normalizePlotSparksLifecycleCloser(String(markup || '')))
+  const withPlotMediaOwners = normalizeMissingPlotSparksMediaFields(withPlotFieldMarkers)
   const structurallyNormalized = normalizeNarrativeClosingDelimiters(normalizePlotSparksFieldDelimiters(withPlotMediaOwners))
   return normalizeWorldMarkup(normalizeElsewhereMarkup(normalizeParallelSceneMarkup(normalizeDramaticParagraphMarkup(normalizeFlatArchiveDossiers(normalizePlotSparksMediaMarkup(structurallyNormalized))))))
     .replace(/<(character_phone|private_phone)\b[^>]*>((?:(?!<(?:character_phone|private_phone)\b)[\s\S])*?)<\/\1\s*>/gi, (_full, root: string, body: string) => {
       // A second observed phone drift uses an XML root around otherwise
       // canonical bracket fields. Convert only a complete, known phone root;
       // arbitrary XML and incomplete streaming fragments remain untouched.
+      if (!/\[cp_[A-Za-z][\w]*\]/.test(body)) return _full
       const repairedBody = body.replace(/<\/(cp_[A-Za-z][A-Za-z0-9_]*)>/gi, '[/$1]')
       return `[${root}]${repairedBody}[/${root}]`
     })
@@ -616,6 +714,13 @@ export function normalizeNarrativeMarkupForRendering(markup: string): string {
     })
     .replace(/(\[cp_battery\]\s*[0-9]{1,3}\s*\[\/cp_battery\])\s*(?=\[cp_apps\])/gi, '$1[cp_wallpaper][/cp_wallpaper]')
     .replace(/\[parallel_media\]\s*\[\/parallel_media\]/gi, '[parallel_media][/parallel_media]')
+}
+
+export function normalizeNarrativeMarkupForRendering(markup: string): string {
+  const legacy = normalizeLegacyNarrativeMarkupForRendering(markup)
+  // Display projection only, bounded to complete legacy owners. Literal prose
+  // outside a Surface and the actual persisted message remain unchanged.
+  return legacy.replace(/\[(Plot_Sparks|character_phone|private_phone|dramatic_parallel|persona_wardrobe|dossier_ui|relationship_map|character_profile)\]([\s\S]*?)\[\/\1\]|\[(SCENE|PARALLEL|SECRET|WORLD|WHATIF)\|[^\]\r\n]*\][\s\S]*?\[\/\3\]|\[NPC:(?:MAJOR|SUPPORT|MINOR|UP)\|[^\]\r\n]*\][\s\S]*?\[\/NPC\]|\[NPC:(?:REF|REL)\|[^\]\r\n]*\]|\[\[(else|npc|place)\s[^\]\r\n]*\]\][\s\S]*?\[\[\/\4\]\]/gi, full => xmlSurfaceExamples(full))
 }
 
 function narrativeRegexSourcePack(variant: NarrativeRegexSourceVariant): NarrativeRegexPack {
@@ -665,19 +770,27 @@ export function narrativeRegexScripts(variant: NarrativeRegexVariant, colorMode:
   const ids = scripts.map(script => script.script_id)
   if (new Set(ids).size !== ids.length) throw new Error(`Duplicate active Narrative Regex script IDs in ${variant}`)
   return scripts
+    .map(script => ({ ...script, find_regex: xmlSurfaceRegex(script.find_regex), replace_string: /<(?:style|details|div|section|figure|table|span|p|article|header|button)\b/i.test(script.replace_string) ? script.replace_string : xmlSurfaceExamples(script.replace_string) }))
+    .flatMap(plotSparksPresentationScripts)
     .map(script => {
       const isParallel = script.script_id === 'reverie_parallel_tracker_images_v1'
+      // Remove only the static shell footer requested by the user. App content,
+      // phone snapshots in storage, and the Story event projections are untouched.
+      const isPhoneShell = ['rrpp_proto_shell_inline_v42', 'rrpp_proto_shell_v31'].includes(script.script_id)
+      const sourceReplacement = isPhoneShell
+        ? script.replace_string.replace(CHARACTER_PHONE_STORY_SNAPSHOT_WIDGET, '')
+        : script.replace_string
       const replacement = applyNarrativeSurfacePresentation(
-        sceneCompassPresentation(script.script_id, isParallel ? parallelSceneReplacement(script.replace_string) : script.replace_string),
+        sceneCompassPresentation(script.script_id, isParallel ? parallelSceneReplacement(sourceReplacement) : sourceReplacement),
         variant,
       )
       const spacedReplacement = NARRATIVE_PRIMARY_SURFACE_CLASS.test(replacement)
         ? `${NARRATIVE_BLOCK_SPACING_STYLE}${replacement}`
         : replacement
-      const labeledReplacement = script.script_id === 'ria_plot_sparks_og_sparkle_tabs_bulletproof_v7'
+      const labeledReplacement = [PLOT_SPARKS_SCRIPT_ID, PLOT_SPARKS_LEGACY_SCRIPT_ID].includes(script.script_id)
         ? spacedReplacement.replaceAll('Branch from this hook', 'Branch from this Spark')
         : spacedReplacement
-      const iconId = NARRATIVE_ICON_BY_SCRIPT_ID[script.script_id]
+      const iconId = NARRATIVE_ICON_BY_SCRIPT_ID[script.script_id === PLOT_SPARKS_LEGACY_SCRIPT_ID ? PLOT_SPARKS_SCRIPT_ID : script.script_id]
       const iconizedReplacement = iconId
         ? decorateSurfaceLauncherMarkup(labeledReplacement, 'narrative', iconId, surfaceShellModeForNarrativeVariant(variant))
         : labeledReplacement
@@ -685,9 +798,9 @@ export function narrativeRegexScripts(variant: NarrativeRegexVariant, colorMode:
       const phoneTonePattern = '(green|black|red|yellow|orange|blue|slate|photos|purple)'
       return {
         ...script,
-        name: applyNarrativeDisplayNames(String(script.name || script.script_id)).replace(/ - (?:Inline|Button)$/, ` - ${variant === 'inline' ? 'Inline' : 'Button'}`),
+        name: applyNarrativeDisplayNames(String(script.name || script.script_id)).replace(/ - (?:Inline|Button)$/, '') + ` - ${variant === 'inline' ? 'Inline' : 'Button'}`,
         find_regex: isParallel
-          ? PARALLEL_SCENE_FIND
+          ? xmlSurfaceRegex(PARALLEL_SCENE_FIND)
           : isPhoneApp
             // A Story Model can use a semantic app tone despite the palette
             // contract. Keep the app navigable with its neutral fallback style;
@@ -805,6 +918,40 @@ function withLorebookExportAction(
 }
 
 export function renderNarrativeRegex(markup: string, variant: NarrativeRegexVariant, messageId = 'narrative', context: NarrativeRenderContext = {}, colorMode: SurfaceColorMode = 'realistic'): string {
+  const authoredImageControls = bracketImageControls(markup)
+  markup = projectBracketImageControlsToXml(markup)
+  // Claim failed boards before any regex or native image-control pass can
+  // partially consume their children. Keep the exact stored source inert for
+  // the existing editor/preview ownership checks; valid sibling owners remain
+  // on the established display/action path.
+  const recoveries = new Map<string, string>()
+  const plotScripts = narrativeRegexScripts(variant, colorMode).filter(script => [PLOT_SPARKS_SCRIPT_ID, PLOT_SPARKS_LEGACY_SCRIPT_ID].includes(script.script_id))
+  let ordinal = 0
+  const protectedMarkup = String(markup || '').replace(PLOT_SPARKS_ANY_OWNER_RANGE, original => {
+    ordinal += 1
+    const normalized = normalizeNarrativeMarkupForRendering(original)
+    const normalizedReason = plotSparksContractDiagnostic(normalized)
+    // A rejected compatibility projection must explain the authored failure,
+    // not a secondary shape error introduced while translating its delimiters.
+    // Successful, bounded legacy normalizations still use the established path.
+    const reason = (normalizedReason ? plotSparksContractDiagnostic(original) || normalizedReason : undefined)
+      || (!plotScripts.some(script => new RegExp(`^(?:${script.find_regex})$`, script.flags.replace(/g/g, '')).test(normalized.trim()))
+        ? 'The selected Plot Sparks renderer could not consume this board.' : undefined)
+    if (!reason) return original
+    let token = `<!--reverie-plot-recovery:${ordinal}-->`
+    while (markup.includes(token) || recoveries.has(token)) token = token.replace('-->', '-next-->')
+    recoveries.set(token, renderSurfaceContractRecovery(PLOT_SPARKS_SURFACE_ID, PLOT_SPARKS_ROOT, original, reason, {
+      authoredImageControls,
+      chatId: context.chatId || '', messageId, swipeId: context.swipeId, streamIslandOrdinal: ordinal,
+    }, 'Plot Sparks', 'Use Inspect / Fix to correct the listed fields. Assisted Repair can preview closing-tag fixes only; it cannot invent missing branches or change their text. Reparse / Rescan retries discovery, not malformed authoring.'))
+    return token
+  })
+  let rendered = renderNarrativeRegexContent(protectedMarkup, variant, messageId, context, colorMode)
+  for (const [token, card] of recoveries) rendered = rendered.replace(token, card)
+  return rendered
+}
+
+function renderNarrativeRegexContent(markup: string, variant: NarrativeRegexVariant, messageId: string, context: NarrativeRenderContext, colorMode: SurfaceColorMode): string {
   let output = normalizeNarrativeMarkupForRendering(markup)
   const macro = safeMessageId(messageId)
   for (const script of narrativeRegexScripts(variant, colorMode).filter(script => {
@@ -846,7 +993,7 @@ export function narrativeRegexVariantMatrix(): Array<{ variant: NarrativeRegexVa
       variant,
       scriptCount: pack.scripts.length,
       duplicateIds: ids.length - new Set(ids).size,
-      pinnedPresentation: /\[cp_presentation\]([^\[]+)\[\/cp_presentation\]/i.exec(pin)?.[1] || '',
+      pinnedPresentation: /<cp_presentation>([^<]+)<\/cp_presentation>/i.exec(pin)?.[1] || '',
     }
   })
 }

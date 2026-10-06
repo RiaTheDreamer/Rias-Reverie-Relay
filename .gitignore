@@ -56,5 +56,5 @@ docs/*HANDOVER*.md
 docs/private-staging-*.md
 docs/local/
 
-# Public packages use frozen prompt digests, not duplicate test assets.
+# Keep duplicate development prompt fixtures out of public packages.
 /test-fixtures/

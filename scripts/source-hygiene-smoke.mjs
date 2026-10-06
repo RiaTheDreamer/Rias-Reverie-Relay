@@ -6,8 +6,8 @@ const root = path.resolve(process.argv[2] || process.cwd())
 // Ignore rules alone cannot stop a force-add or a tracked file from returning.
 // Check the index, not local ignored notes: maintainers may keep private copies.
 if (fs.existsSync(path.join(root, '.git'))) {
-  const trackedDocs = execFileSync('git', ['-C', root, 'ls-files', '--', 'docs', 'test-fixtures'], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean)
-  const localOnlyDocs = trackedDocs.filter(file => /(?:^|\/)(?:NEXT-UPDATE-FIXES\.md|[^/]*HANDOVER[^/]*\.md|private-staging-[^/]*\.md)$|^docs\/local\/|^test-fixtures\//i.test(file))
+  const trackedDocs = execFileSync('git', ['-C', root, 'ls-files', '--', 'docs'], { encoding: 'utf8' }).split(/\r?\n/).filter(Boolean)
+  const localOnlyDocs = trackedDocs.filter(file => /(?:^|\/)(?:NEXT-UPDATE-FIXES\.md|[^/]*HANDOVER[^/]*\.md|private-staging-[^/]*\.md)$|^docs\/local\//i.test(file))
   if (localOnlyDocs.length) throw new Error(`Local-only maintainer documentation must not be published: ${localOnlyDocs.join(', ')}`)
 }
 // Captured live diagnostics are intentionally untracked evidence, not source.

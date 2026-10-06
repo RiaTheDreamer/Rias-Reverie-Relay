@@ -11,14 +11,16 @@ import {
   type NarrativeRegexVariant,
 } from './narrativeRegexAssets'
 import { PLOT_SPARK_VECTOR_BY_KEY } from './contracts'
+import { projectBracketImageControlsToXml } from './imageControlMarkup'
+import { xmlAuthoringInstructions, xmlNarrativeAsLegacy } from './xmlSurfaceFormat'
 import type { SurfaceColorMode } from './contracts'
 import { r45SurfaceAuthorityScripts } from './r45SurfaceAuthority'
 import { surfaceShellModeForNarrativeVariant } from './surfacePresentation'
 import { textOnlyNarrativeUtilityContent } from './narrativeTextOnlyPrompts'
+import { isRetiredPhoneRegexScript } from './retiredPhoneSurface'
 
-export const NARRATIVE_DLC_FOLDER = 'Reverie Relay · Regex Pack'
-export const NARRATIVE_DLC_NAMESPACE = 'reverie-relay:regex-pack'
-const RELAY_EXTENSION_ID = 'reverie_relay'
+export const NARRATIVE_DLC_FOLDER = 'Private Relay · Regex Pack'
+export const NARRATIVE_DLC_NAMESPACE = 'private-relay:regex-pack'
 export const NARRATIVE_DLC_VERSION = String(NARRATIVE_UTILITY_PACK.version || '6.1')
 
 export type NarrativeDlcSyncStatus = 'not-installed' | 'healthy' | 'drifted' | 'failed' | 'removed'
@@ -44,7 +46,7 @@ export function relayRegexImportScripts(variant: NarrativeRegexVariant, colorMod
   const shell = surfaceShellModeForNarrativeVariant(variant)
   const presentation = shell === 'plain-glass' ? 'glass' : shell === 'sparkling' ? 'sparkling' : shell === 'plain' ? 'plain' : shell === 'glass' ? 'glass' : 'inline'
   const core = r45SurfaceAuthorityScripts(presentation, colorMode).map(script => ({ ...script, disabled: true })) as NarrativeRegexScript[]
-  const narrative = narrativeRegexScripts(variant, colorMode).map(script => ({ ...script, disabled: true }))
+  const narrative = narrativeRegexScripts(variant, colorMode).filter(script => !isRetiredPhoneRegexScript(script.script_id)).map(script => ({ ...script, disabled: true }))
   return [...core, ...narrative]
 }
 
@@ -56,7 +58,7 @@ function selectedTarget(script: NarrativeRegexScript): 'prompt' | 'response' | '
 export function narrativeRegexCreateInput(script: NarrativeRegexScript, variant: NarrativeRegexVariant, colorMode: SurfaceColorMode = 'realistic'): NarrativeRegexMutationInput {
   return {
     name: applyNarrativeDisplayNames(String(script.name || script.script_id)),
-    script_id: `reverie_relay_${script.script_id}`,
+    script_id: `private_relay_${script.script_id}`,
     find_regex: script.find_regex,
     replace_string: applyNarrativeDisplayNames(script.replace_string, true),
     flags: script.flags || '',
@@ -77,7 +79,8 @@ export function narrativeRegexCreateInput(script: NarrativeRegexScript, variant:
     metadata: {
       ...(script.metadata || {}),
       reverie_namespace: NARRATIVE_DLC_NAMESPACE,
-      reverie_relay_regex_pack: true,
+      private_relay_regex_pack: true,
+      reverie_narrative_dlc: true,
       reverie_narrative_variant: variant,
       reverie_narrative_color_mode: colorMode,
       reverie_narrative_source_version: NARRATIVE_DLC_VERSION,
@@ -150,8 +153,7 @@ function isOwnedNarrativeScript(script: RegexScriptDTO): boolean {
   return script.can_mutate === true && (
     script.folder === NARRATIVE_DLC_FOLDER
     || script.metadata?.reverie_namespace === NARRATIVE_DLC_NAMESPACE
-    || (script.metadata?.reverie_narrative_dlc === true
-      && (script.metadata?._lumiverse_spindle_extension as { identifier?: string } | undefined)?.identifier === RELAY_EXTENSION_ID)
+    || script.metadata?.reverie_narrative_dlc === true
   )
 }
 
@@ -167,10 +169,10 @@ async function listAllScripts(api: NarrativeRegexApi, userId?: string): Promise<
 }
 
 function healthMessage(health: Omit<NarrativeDlcHealth, 'message'>): string {
-  if (health.blocked) return `${health.blocked} Regex script ID${health.blocked === 1 ? '' : 's'} collide with scripts Reverie Relay does not own.`
+  if (health.blocked) return `${health.blocked} Regex script ID${health.blocked === 1 ? '' : 's'} collide with scripts Private Relay does not own.`
   if (health.status === 'healthy') return `${health.healthy}/${health.expected} Core and Narrative Regex scripts are imported, disabled, and current.`
   if (health.status === 'not-installed') return 'The optional Core and Narrative Regex pack is not imported.'
-  if (health.status === 'removed') return 'Reverie Relay-owned Regex scripts were removed.'
+  if (health.status === 'removed') return 'Private Relay-owned Regex scripts were removed.'
   if (health.status === 'failed') return 'Regex import failed and prior owned state was restored.'
   return `${health.installed}/${health.expected} Regex scripts are imported; ${health.drifted} require repair.`
 }
@@ -215,9 +217,9 @@ export async function reconcileNarrativeRegex(api: NarrativeRegexApi, variant: N
   if (blocked.length) {
     const compatible = blocked.filter(input => all.some(script => script.script_id === input.script_id && !isOwnedNarrativeScript(script) && scriptPayloadMatches(script, input)))
     const migration = compatible.length
-      ? ` ${compatible.length} match the selected presentation, but Lumiverse marks them as manually imported or foreign and does not permit Reverie Relay to adopt, update, or remove them. Manage those scripts separately or remove the conflicting external pack before retrying.`
+      ? ` ${compatible.length} match the selected presentation, but Lumiverse marks them as manually imported or foreign and does not permit Private Relay to adopt, update, or remove them. Manage those scripts separately or remove the conflicting external pack before retrying.`
       : ' Lumiverse does not permit Relay to adopt, update, or remove manually imported or foreign scripts. Remove the conflicting external pack before retrying.'
-    throw new Error(`Cannot import Regex Pack because ${blocked.length} script ID${blocked.length === 1 ? '' : 's'} already exist outside Reverie Relay ownership: ${blocked.slice(0, 5).map(row => row.script_id).join(', ')}.${migration}`)
+    throw new Error(`Cannot import Regex Pack because ${blocked.length} script ID${blocked.length === 1 ? '' : 's'} already exist outside Private Relay ownership: ${blocked.slice(0, 5).map(row => row.script_id).join(', ')}.${migration}`)
   }
 
   const snapshots = new Map<string, NarrativeRegexMutationInput>()
@@ -268,10 +270,10 @@ const PLOT_SPARK_COMPLETION_LOCK = `PLOT SPARKS STRUCTURAL LOCK — BEFORE ENDIN
 
 Mandatory structured contracts outrank prose length. Shorten nonessential prose before dropping required Plot Sparks structure.
 
-Verify exactly seven [Spark] blocks with keys a through g, each key exactly once, and this exact mapping:
+Verify exactly ten [Spark] blocks with keys a through j, each key exactly once, and this exact mapping:
 ${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key} = ${vector}`).join('\n')}
 
-Every [Spark] must contain one non-empty [Text] and one non-empty [Media]. Every [Media] must contain exactly one complete current <reverie-illustration request="generate"> ... <visual_prompt> ... </visual_prompt> ... </reverie-illustration> with a non-empty <visual_prompt>. Close every Spark with [/Spark] and close the root with [/Plot_Sparks]. Plot Sparks d through g and required closing tags may never be silently dropped. Resolved historical images and Relay runtime markup do not count. If any check fails, fix the [Plot_Sparks] block before stopping.`
+Every [Spark] must contain one non-empty [Text] and one non-empty [Media]. Every [Media] must contain exactly one complete current <reverie-illustration request="generate"> ... <visual_prompt> ... </visual_prompt> ... </reverie-illustration> with a non-empty <visual_prompt>. Close every Spark with [/Spark] and close the root with [/Plot_Sparks]. Plot Sparks h through j and required closing tags may never be silently dropped. Resolved historical images and Relay runtime markup do not count. If any check fails, fix the [Plot_Sparks] block before stopping.`
 
 const WORLD_DETAIL_COMPLETION_LOCK = `SETTING THE SCENE STRUCTURAL LOCK — BEFORE ENDING [WORLD]
 
@@ -298,6 +300,7 @@ function singlePlotSparkField(block: string, field: 'Key' | 'Vector' | 'Text' | 
 }
 
 function containsOneCurrentPlotSparkIllustration(media: string): boolean {
+  media = projectBracketImageControlsToXml(media)
   const openings = [...media.matchAll(/<reverie-illustration\b([^>]*)>/gi)]
   if (openings.length !== 1 || countMatches(media, /<\/reverie-illustration>/gi) !== 1) return false
   if (!/\brequest\s*=\s*(["'])generate\1/i.test(openings[0][1])) return false
@@ -308,11 +311,13 @@ function containsOneCurrentPlotSparkIllustration(media: string): boolean {
 }
 
 export function isCurrentPlotSparksUtilityContent(content: string): boolean {
+  content = xmlNarrativeAsLegacy(content)
   for (const root of content.matchAll(/\[Plot_Sparks\]([\s\S]*?)\[\/Plot_Sparks\]/gi)) {
     const body = root[1]
-    if (countMatches(body, /\[Spark\]/gi) !== 7 || countMatches(body, /\[\/Spark\]/gi) !== 7) continue
+    const requiredCount = Object.keys(PLOT_SPARK_VECTOR_BY_KEY).length
+    if (countMatches(body, /\[Spark\]/gi) !== requiredCount || countMatches(body, /\[\/Spark\]/gi) !== requiredCount) continue
     const sparks = [...body.matchAll(/\[Spark\]([\s\S]*?)\[\/Spark\]/gi)].map(match => match[1])
-    if (sparks.length !== 7) continue
+    if (sparks.length !== requiredCount) continue
     const seenKeys = new Set<string>()
     const valid = sparks.every(spark => {
       const key = singlePlotSparkField(spark, 'Key')
@@ -349,11 +354,11 @@ export function buildNarrativeUtilityPrompt(
         : item.loomName === 'Setting the Scene'
           ? `${authoredContent}\n\n${WORLD_DETAIL_COMPLETION_LOCK}`
           : authoredContent
-      return { ...item, loomContent }
+      return { ...item, loomContent: xmlAuthoringInstructions(loomContent) }
     })
   return {
     content: items.length
-      ? `[reverie_narrative_utility]\n[contract]narrative[/contract]\n[version]${NARRATIVE_DLC_VERSION}[/version]\n[utilities]${items.map(item => applyNarrativeDisplayNames(item.loomName)).join(', ')}[/utilities]\n${items.map(item => item.loomContent).join('\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n')}\n[/reverie_narrative_utility]`
+      ? `<reverie_narrative_utility>\n<contract>narrative</contract>\n<version>${NARRATIVE_DLC_VERSION}</version>\n<utilities>${items.map(item => applyNarrativeDisplayNames(item.loomName)).join(', ')}</utilities>\n${items.map(item => item.loomContent).join('\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n')}\n</reverie_narrative_utility>`
       : '',
     utilityNames: items.map(item => item.loomName),
   }

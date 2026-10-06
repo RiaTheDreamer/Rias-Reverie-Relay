@@ -78,6 +78,12 @@ const liveProjection = backend.renderSnapshotRecords({
 } as any)
 assert.equal(liveProjection.length, 1)
 assert.equal(liveProjection[0].imageUrl, '/live.png', 'an archived completion overrode the live slot version')
+const rescanCollisionProjection = backend.renderSnapshotRecords({
+  slots: { [archivedProjection[0].key]: { ...archivedProjection[0], status: 'recovered-pending', recoverySource: 'unresolved-request', imageUrl: undefined } },
+  completedArchive: { archived: { ...archivedProjection[0], imageUrl: '/archived.png', completedAt: 100 } },
+} as any)
+assert.equal(rescanCollisionProjection[0].status, 'completed')
+assert.equal(rescanCollisionProjection[0].imageUrl, '/archived.png', 'an imageless rescan record obscured a durable completed image')
 
 const deferred = () => {
   let resolve!: (value?: unknown) => void

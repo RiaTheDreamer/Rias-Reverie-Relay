@@ -394,6 +394,40 @@ const emptyBedroomPolicy = quality.targetHumanPolicy(emptyBedroomJob, emptyBedro
 assert(emptyBedroomClass === 'location/interior' && !emptyBedroomPolicy.allowHumanPrompt, 'expected empty bedroom to classify as no-human location')
 assert(quality.detectHumanPromptContamination('empty bedroom, sleeping occupant visible').includes('occupant'), 'expected empty room contamination detector to catch occupant')
 
+const occupiedThresholdJob = {
+  ...objectJob,
+  requestId: 'occupied-threshold',
+  target: 'prose.illustration' as const,
+  cast: 'char' as const,
+  caption: '',
+  alt: 'Gabrielle watching an empty recording booth',
+  originalSceneBrief: 'Exactly one visible character: Gabrielle stands at an empty interior booth doorway, his mechanical left hand holding a red keycard; no person is inside the booth.',
+  prosePromptComposition: { perspectiveMode: 'solo-scene', peoplePolicy: 'allowed', expectedPeopleCount: 1, namedSubjects: ['Gabrielle'] } as any,
+}
+const occupiedThresholdClass = quality.classifyImageRequest(occupiedThresholdJob)
+const occupiedThresholdPolicy = quality.targetHumanPolicy(occupiedThresholdJob, occupiedThresholdClass)
+const occupiedThresholdProfile = quality.resolvePromptProfileDecision(occupiedThresholdJob, {
+  ...qualityTestConfig(),
+  defaultGenerationProfile: { ...qualityTestConfig().defaultGenerationProfile, defaultPromptProfileId: 'auto' },
+} as any)
+assert(!quality.hasExplicitNoHumanIntent(occupiedThresholdJob), 'an empty subsection of the scene must not erase an explicitly visible Character')
+assert(occupiedThresholdClass === 'narrative-scene' && occupiedThresholdPolicy.allowHumanPrompt, `occupied Char only scene must remain a human image, got ${occupiedThresholdClass} / ${JSON.stringify(occupiedThresholdPolicy)}`)
+assert(occupiedThresholdProfile.selectedProfileId !== 'environment-location' && !/\b(?:people|person|human|hands|body)\b/i.test(occupiedThresholdProfile.negativeAdditions), 'Auto profile must not negate the visible Character because the booth itself is empty')
+
+const vacantStoolJob = {
+  ...occupiedThresholdJob,
+  requestId: 'vacant-stool-scene',
+  cast: 'none' as const,
+  originalSceneBrief: 'Wide control-room establishing view. Gabrielle at the open booth threshold, carrying a red keycard toward the console while looking into the empty booth. Red tally light above the doorway cuts across the vacant stool and untouched microphone.',
+  caption: 'The Empty Booth',
+  alt: 'The Empty Booth',
+  prosePromptComposition: { perspectiveMode: 'scene-snapshot', peoplePolicy: 'required', expectedPeopleCount: 1, namedSubjects: ['Gabrielle'] } as any,
+}
+const vacantStoolClass = quality.classifyImageRequest(vacantStoolJob)
+const vacantStoolPolicy = quality.targetHumanPolicy(vacantStoolJob, vacantStoolClass)
+assert(!quality.hasExplicitNoHumanIntent(vacantStoolJob), 'a vacant stool must not make the entire scene person-free')
+assert(vacantStoolClass === 'narrative-scene' && vacantStoolPolicy.allowHumanPrompt, `Relay Planned visible subject must survive vacant scenery, got ${vacantStoolClass}`)
+
 
 const duoIllustrationJob = {
   ...objectJob,
@@ -765,6 +799,7 @@ assert(misplacedTwitterMarker.includes('<tw_post>') && misplacedTwitterMarker.in
 
 const backendSource = await readFile(new URL('../src/backend.ts', import.meta.url), 'utf8')
 const frontendSource = await readFile(new URL('../src/frontend.ts', import.meta.url), 'utf8')
+const instantStreamSource = await readFile(new URL('../src/instantIllustrationStream.ts', import.meta.url), 'utf8')
 const buildSource = await readFile(new URL('../src/build.ts', import.meta.url), 'utf8')
 const protocolsSource = await readFile(new URL('../src/protocols.ts', import.meta.url), 'utf8')
 const contractsSource = await readFile(new URL('../src/contracts.ts', import.meta.url), 'utf8')
@@ -779,9 +814,9 @@ assert(manifest.permissions?.includes('interceptor') && manifest.permissions?.in
 const versionMatch = buildSource.match(/EXTENSION_VERSION = '([^']+)'/)
 const buildIdMatch = buildSource.match(/BUILD_ID = '([^']+)'/)
 assert(versionMatch?.[1] === manifest.version && new RegExp(`^\\d{8}-${String(manifest.version).replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}$`, 'i').test(buildIdMatch?.[1] || ''), 'expected shared current release identity')
-assert(backendSource.includes('STATE_SCHEMA_VERSION = 36'), 'expected state schema 36')
+assert(backendSource.includes('STATE_SCHEMA_VERSION = 37'), 'expected state schema 37')
 
-assert(frontendSource.includes("type SuiteSection = 'relay' | 'illustrator' | 'surfaces' | 'memory' | 'archive' | 'settings'"), 'expected six-part Surface Suite navigation')
+assert(frontendSource.includes("type SuiteSection = 'relay' | 'illustrator' | 'surfaces' | 'memory' | 'archive' | 'story' | 'phone' | 'settings'") && frontendSource.includes("{ id: 'story', icon: '✺', label: 'Story' }") && frontendSource.includes("{ id: 'phone', icon: '▯', label: 'Phone' }"), 'expected independent Phone and Story suite navigation')
 assert(frontendSource.includes('dg-suite-primary') && frontendSource.includes('dg-suite-secondary') && frontendSource.includes('Current Chat Overview'), 'expected clean hierarchical workspace')
 assert(frontendSource.includes("['slots', 'Slots']") && frontendSource.includes("['illustrator', 'Illustrations']") && frontendSource.includes("['surface-library', 'Library']") && frontendSource.includes("['surfaces', 'Creator']") && frontendSource.includes("['surface-presets', 'Presets']") && frontendSource.includes("['utility-studio', 'Injection']") && frontendSource.includes("['genetics', 'Appearance Memory']") && frontendSource.includes("['history', 'Images & Versions']") && frontendSource.includes("['settings', 'Configuration']"), 'expected components to live in their intended suite sections')
 assert(frontendSource.includes('dg-section-title::before') && frontendSource.includes('dg-section-title::after') && frontendSource.includes('dg-surface-grid'), 'expected LumiBooks-inspired hierarchy without copying its exact UI')
@@ -790,20 +825,20 @@ assert(frontendSource.includes("button('Remove From Message'") && frontendSource
 assert(frontendSource.includes('const hasOwnedMessageImage = Boolean(') && frontendSource.includes("!actions.some(([label]) => label === 'Remove Image From Message')"), 'expected context-menu removal for every owned image, including model-placed prose illustrations')
 assert(contractsSource.includes("record.target === 'prose.illustration'") && contractsSource.includes("tail.match(/^\\s*!\\[reverie-relay\\]"), 'expected exact adjacent prose-image removal without consuming following narrative')
 assert(backendSource.includes("if (next === null) throw new Error('Could not find slot markup in message.')"), 'expected empty-message-safe image removal')
-assert(frontendSource.includes('Open Surface Library') && frontendSource.includes("id: 'open-reverie-surfaces'"), 'expected Surface Library input action instead of Illustrator')
+assert(frontendSource.includes('Open Surface Library') && frontendSource.includes("id: 'open-private-relay-surfaces'"), 'expected Surface Library input action instead of Illustrator')
 assert(!frontendSource.includes("if (value === 'image-lab') return 'illustrator'"), 'expected retired direct-lab tab migration to be removed')
 assert(!frontendSource.includes('Illustrator was retired in an earlier release'), 'user-facing retired-release wording must stay removed')
 assert(!frontendSource.includes("id: 'open-image-lab'"), 'expected no new Illustrator command registration')
 assert(!frontendSource.includes('Enable Illustrator Widget'), 'expected Illustrator widget control removed from visible settings')
 
 assert(backendSource.includes('function builtInSurfaceDefinitions') && backendSource.includes('FINAL R4.5 Surface inventory drift'), 'expected protected 46-Surface R4.5 built-in registry')
-assert(frontendSource.includes('custom.artifact-media') && frontendSource.includes('Copy Bracket Example'), 'expected authored bracket Surface artifact-media bridge reference')
+assert(frontendSource.includes('custom.artifact-media') && frontendSource.includes('Copy XML Example'), 'expected authored XML Surface artifact-media bridge reference')
 for (const surfaceId of ['album-cover', 'magazine-cover', 'photo-booth-strip', 'polaroid', 'youtube-thumbnail', 'newspaper']) {
   assert(r45CatalogSource.includes(`id: '${surfaceId}'`) || r45UtilitySource.includes(`'${surfaceId}'`), `expected built-in ${surfaceId} surface`)
 }
 assert(frontendSource.includes('Surface Presets') && frontendSource.includes('Relay Rendering') && frontendSource.includes('Regex Rendering') && frontendSource.includes('Edit as Preset'), 'expected Surface Presets studio')
 assert(frontendSource.includes("String(payload.tagName || '').toLocaleLowerCase() === 'reverie-illustration'") && frontendSource.includes("String(payload.attrs?.request || '').toLocaleLowerCase() === 'generate'"), 'Instant mode must only observe Model Planned request tags while streaming')
-assert(frontendSource.includes('scanInstantStreamingModelPlannedMessage') && frontendSource.includes('buildInstantIllustrationSource(renderedText, payload, precedingAnchorText)') && frontendSource.includes("querySelectorAll<HTMLElement>('[data-rrn-native-request]')") && frontendSource.includes('messagesApi.getRecent(16)') && frontendSource.includes('sourceContent, automatic: false, streaming: true'), 'Instant mode must recover the exact prose before its status-card island and send a bounded scan')
+assert(frontendSource.includes('scanInstantStreamingModelPlannedMessage') && frontendSource.includes('buildInstantIllustrationSource(renderedText, payload, precedingAnchorText)') && frontendSource.includes('findInstantIllustrationAnchor(messageContent,') && instantStreamSource.includes("querySelectorAll<HTMLElement>('[data-rrn-native-request]')") && frontendSource.includes('messagesApi.getRecent(16)') && frontendSource.includes('sourceContent, automatic: false, streaming: true'), 'Instant mode must recover the exact prose before its status-card island and send a bounded scan')
 assert(frontendSource.includes("phase: 'interceptor'") && frontendSource.includes("phase: 'source-resolution'") && backendSource.includes("eventType: 'instant_stream_probe'"), 'Instant streaming callback and hidden-markup anchor resolution must be diagnosable without storing prompt content')
 assert(frontendSource.includes("'Instant'") && frontendSource.includes('settings.instantIllustrationDispatch'), 'expected a Model Planned-only Instant Illustrator toggle')
 assert(backendSource.includes("settings.mode !== 'inline-protocol' || !settings.instantIllustrationDispatch") && backendSource.includes("parsedRequests.filter(request => request.target === 'prose.illustration')"), 'streaming dispatch must be backend-gated and limited to standalone prose illustration requests')

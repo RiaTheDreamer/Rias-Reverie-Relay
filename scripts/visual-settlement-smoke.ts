@@ -1,4 +1,5 @@
 // @ts-nocheck -- Deterministic DOM-event and placement-batch synchronization harness.
+import { readFileSync } from 'node:fs'
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
 
 ;(globalThis as any).spindle = {
@@ -7,12 +8,34 @@ function assert(value: unknown, reason: string): asserts value { if (!value) thr
 }
 
 const backend = await import('../src/backend')
-const { prepareFinalLifecycleImage, settlePlacementVisualLifecycle, shouldStartFinalImageReveal } = await import('../src/frontend')
+const { chooseReplacementProjectionOwner, concealPreviousLifecycleImage, currentLifecycleImageUrl, prepareFinalLifecycleImage, prepareRegeneratedLifecycleImage, restoreCompletedLifecycleImage, settlePlacementVisualLifecycle, shouldStartFinalImageReveal } = await import('../src/frontend')
 
 assert(shouldStartFinalImageReveal({ imageChanged: false, sawActiveLifecycle: false, pendingRecordReveal: true, cardAlreadyRevealed: false, recordAlreadyRevealed: false }), 'a newly completed final URL already hydrated by a Lumiverse remount did not reveal')
 assert(!shouldStartFinalImageReveal({ imageChanged: false, sawActiveLifecycle: false, pendingRecordReveal: true, cardAlreadyRevealed: false, recordAlreadyRevealed: false, readyForReveal: false }), 'a pending prose card started Reveal before the durable completed render')
 assert(!shouldStartFinalImageReveal({ imageChanged: false, sawActiveLifecycle: false, pendingRecordReveal: false, cardAlreadyRevealed: false, recordAlreadyRevealed: false }), 'a historical completed image revealed during cold hydration')
 assert(!shouldStartFinalImageReveal({ imageChanged: true, sawActiveLifecycle: true, pendingRecordReveal: true, cardAlreadyRevealed: false, recordAlreadyRevealed: true }), 'an already revealed record replayed its final animation')
+
+const proseProjectionOwner = {} as HTMLElement
+const lifecycleIslandOwner = {} as HTMLElement
+const lifecycleCardOwner = {} as HTMLElement
+const resolvedMediaOwner = {} as HTMLElement
+const authoredImageOwner = {} as HTMLElement
+assert(chooseReplacementProjectionOwner({ proseProjection: proseProjectionOwner, lifecycleIsland: lifecycleIslandOwner }) === proseProjectionOwner, 'prose regeneration must replace its complete projection owner')
+assert(chooseReplacementProjectionOwner({ lifecycleIsland: lifecycleIslandOwner, lifecycleCard: lifecycleCardOwner, resolvedMedia: resolvedMediaOwner }) === lifecycleIslandOwner, 'card-backed regeneration must replace the whole island, not nest a second card inside the image figure')
+assert(chooseReplacementProjectionOwner({ lifecycleCard: lifecycleCardOwner, resolvedMedia: resolvedMediaOwner }) === lifecycleCardOwner, 'a lifecycle card without an island must remain the replacement owner')
+assert(chooseReplacementProjectionOwner({ resolvedMedia: resolvedMediaOwner, image: authoredImageOwner }) === resolvedMediaOwner, 'authored media outside a lifecycle card must preserve its media wrapper')
+assert(chooseReplacementProjectionOwner({ image: authoredImageOwner }) === authoredImageOwner, 'authored images without a media wrapper must remain replaceable')
+
+const regenerationTriggers = ['regenerate-same-settings', 'regenerate-current-settings', 'intent-regeneration']
+for (const triggerType of regenerationTriggers) {
+  for (const status of ['queued', 'parsing', 'provider-waiting', 'generating', 'previewing'] as const) {
+    assert(currentLifecycleImageUrl({ status, triggerType, imageUrl: '/previous.png' }) === '', `${triggerType}/${status}: previous image must not be a live reveal candidate`)
+  }
+}
+assert(currentLifecycleImageUrl({ status: 'placement-pending', triggerType: 'regenerate-same-settings', imageUrl: '/previous.png', pendingPlacement: { imageUrl: '/replacement.png' } as any }) === '/replacement.png', 'a freshly generated replacement must become visible only from its own pending-placement URL')
+assert(currentLifecycleImageUrl({ status: 'placement-pending', triggerType: 'regenerate-same-settings', imageUrl: '/previous.png' }) === '', 'a replacement awaiting its new pending-placement URL must not flash the previous final image')
+assert(currentLifecycleImageUrl({ status: 'completed', triggerType: 'regenerate-same-settings', imageUrl: '/replacement.png' }) === '/replacement.png', 'completed regeneration must expose the new final image')
+assert(currentLifecycleImageUrl({ status: 'generating', triggerType: 'retry', imageUrl: '/previous.png' }) === '/previous.png', 'non-regeneration retry visibility behavior must remain unchanged')
 
 class FakeClassList {
   values = new Set<string>()
@@ -26,11 +49,19 @@ class FakeClassList {
 class FakeImage {
   complete = false
   naturalWidth = 0
-  style = { visibility: '' }
   events: string[] = []
+  private visibilityValue = ''
+  style!: { visibility: string }
   classList = new FakeClassList(this.events)
   private hiddenValue = false
   private srcValue = ''
+  constructor() {
+    const owner = this
+    this.style = Object.defineProperty({}, 'visibility', {
+      get() { return owner.visibilityValue },
+      set(value: string) { owner.visibilityValue = value; owner.events.push(`visibility:${value}`) },
+    }) as { visibility: string }
+  }
   get hidden() { return this.hiddenValue }
   set hidden(value: boolean) { this.hiddenValue = value; this.events.push(value ? 'hidden' : 'visible') }
   get src() { return this.srcValue }
@@ -86,6 +117,103 @@ assert(staleImage.classList.contains('rrl-final-reveal'), 'stale callback fixtur
 staleCurrent = false
 staleImage.dispatch('animationend')
 assert(await staleVisual === 'stale' && staleVisualAcks === 0, 'a replaced image node ACKed after becoming stale')
+
+const oldRegenerationImage = new FakeImage()
+oldRegenerationImage.src = '/previous.png'
+oldRegenerationImage.complete = true
+oldRegenerationImage.naturalWidth = 640
+let oldRegenerationAcks = 0
+const oldRegenerationReveal = settlePlacementVisualLifecycle({
+  image: oldRegenerationImage as any, isCurrent: () => true, reducedMotion: false,
+  onSettled: () => { oldRegenerationAcks += 1 },
+})
+await flushMicrotasks()
+assert(oldRegenerationImage.classList.contains('rrl-final-reveal'), 'previous completed image fixture did not begin its reveal')
+concealPreviousLifecycleImage(oldRegenerationImage as any)
+assert(oldRegenerationImage.style.visibility === 'hidden' && !oldRegenerationImage.classList.contains('rrl-final-reveal'), 'regeneration must conceal the old pixels and cancel their reveal class immediately')
+oldRegenerationImage.dispatch('animationcancel')
+assert(await oldRegenerationReveal === 'stale' && oldRegenerationAcks === 0, 'cancelled previous-image reveal must never settle or ACK as the replacement')
+assert(oldRegenerationImage.style.visibility === 'hidden' && oldRegenerationImage.classList.contains('rrl-final-reveal') === false, 'the old reveal must remain permanently cancelled after its stale callback drains')
+
+const replacementImage = new FakeImage()
+prepareFinalLifecycleImage(replacementImage as any, '/replacement.png', true, (current, expected) => current === expected)
+assert(replacementImage.hidden && replacementImage.events.indexOf('hidden') < replacementImage.events.indexOf('src'), 'replacement image must be hidden before its new URL is assigned')
+replacementImage.complete = true
+replacementImage.naturalWidth = 960
+let replacementAcks = 0
+const replacementReveal = settlePlacementVisualLifecycle({
+  image: replacementImage as any, isCurrent: () => true, reducedMotion: false,
+  onSettled: () => { replacementAcks += 1 },
+})
+await flushMicrotasks()
+assert(replacementImage.classList.contains('rrl-final-reveal') && replacementAcks === 0, 'replacement image must get a fresh reveal after decode')
+replacementImage.dispatch('animationend')
+assert(await replacementReveal === 'settled' && replacementAcks === 1, 'new image reveal must settle exactly once after its own animation')
+
+const regeneratedAuthoredImage = new FakeImage()
+regeneratedAuthoredImage.src = '/previous-authored.png'
+regeneratedAuthoredImage.complete = true
+regeneratedAuthoredImage.naturalWidth = 960
+prepareRegeneratedLifecycleImage(regeneratedAuthoredImage as any, '/replacement-authored.png', true, (current, expected) => current === expected)
+assert(!regeneratedAuthoredImage.hidden && regeneratedAuthoredImage.style.visibility === 'hidden', 'regeneration must cover authored pixels without collapsing their media geometry')
+assert(regeneratedAuthoredImage.events.lastIndexOf('visibility:hidden') < regeneratedAuthoredImage.events.lastIndexOf('src'), 'authored replacement URL was assigned before its stale pixels were covered')
+// The frontend mounts the selected placeholder effect after restoring the live
+// Surface wrapper. Keep it covered until decode; restore its original inline
+// visibility only as the replacement reveal begins.
+let regeneratedAuthoredAcks = 0
+const regeneratedAuthoredReveal = settlePlacementVisualLifecycle({
+  image: regeneratedAuthoredImage as any, isCurrent: () => true, reducedMotion: false, preserveGeometry: true, restoreVisibility: '',
+  onSettled: () => { regeneratedAuthoredAcks += 1 },
+})
+await flushMicrotasks()
+assert(regeneratedAuthoredImage.classList.contains('rrl-final-reveal') && regeneratedAuthoredImage.style.visibility === '' && regeneratedAuthoredAcks === 0, 'same authored Surface image node did not start a fresh reveal in its original layout box')
+regeneratedAuthoredImage.dispatch('animationend')
+assert(await regeneratedAuthoredReveal === 'settled' && regeneratedAuthoredAcks === 1, 'same-node regenerated image did not settle exactly once after its replacement reveal')
+
+const remountedAuthoredImage = new FakeImage()
+remountedAuthoredImage.src = '/replacement-after-remount.png'
+remountedAuthoredImage.complete = true
+remountedAuthoredImage.naturalWidth = 960
+remountedAuthoredImage.style.visibility = 'hidden'
+let remountedAuthoredAcks = 0
+const remountedAuthoredReveal = settlePlacementVisualLifecycle({
+  image: remountedAuthoredImage as any, isCurrent: () => true, reducedMotion: false, preserveGeometry: true,
+  onSettled: () => { remountedAuthoredAcks += 1 },
+})
+await flushMicrotasks()
+assert(remountedAuthoredImage.classList.contains('rrl-final-reveal') && remountedAuthoredImage.style.visibility === '', 'a remounted replacement inherited its temporary hidden cover as its permanent visibility')
+remountedAuthoredImage.dispatch('animationend')
+assert(await remountedAuthoredReveal === 'settled' && remountedAuthoredAcks === 1 && remountedAuthoredImage.style.visibility === '', 'remounted replacement did not remain visible after its reveal settled')
+
+const coveredAuthoredImage = new FakeImage()
+coveredAuthoredImage.src = '/replacement-covered.png'
+coveredAuthoredImage.complete = true
+coveredAuthoredImage.naturalWidth = 960
+coveredAuthoredImage.style.visibility = 'hidden'
+const coveredAuthoredReveal = settlePlacementVisualLifecycle({
+  image: coveredAuthoredImage as any, isCurrent: () => true, reducedMotion: false, preserveGeometry: true, restoreVisibility: 'hidden',
+  onSettled: () => {},
+})
+await flushMicrotasks()
+assert(coveredAuthoredImage.style.visibility === '', 'a stale hidden visibility token kept the decoded replacement invisible during reveal')
+coveredAuthoredImage.style.visibility = 'hidden'
+coveredAuthoredImage.dispatch('animationend')
+assert(await coveredAuthoredReveal === 'settled' && coveredAuthoredImage.style.visibility === '', 'a status update re-covered the current image before animation settlement')
+
+const remountedCompletedCardImage = new FakeImage()
+remountedCompletedCardImage.src = '/current-completed.png'
+remountedCompletedCardImage.complete = true
+remountedCompletedCardImage.naturalWidth = 960
+remountedCompletedCardImage.hidden = true
+remountedCompletedCardImage.style.visibility = 'hidden'
+assert(!restoreCompletedLifecycleImage(remountedCompletedCardImage as any, '/other.png', (current, expected) => current === expected), 'reconciliation uncovered a stale image URL')
+assert(restoreCompletedLifecycleImage(remountedCompletedCardImage as any, '/current-completed.png', (current, expected) => current === expected), 'completed current-URL image was not recovered after a cancelled remount reveal')
+assert(!remountedCompletedCardImage.hidden && remountedCompletedCardImage.style.visibility === '', 'completed image remained covered after recovery')
+assert(!restoreCompletedLifecycleImage(remountedCompletedCardImage as any, '/current-completed.png', (current, expected) => current === expected), 'already-visible completed image replayed recovery')
+const frontendSource = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')
+const recoveryIndex = frontendSource.indexOf('restoreCompletedLifecycleImage(slotImage, visualImageUrl, urlMatches)')
+const signatureSkipIndex = frontendSource.indexOf('if (update.signature === signature && previous === update) continue', recoveryIndex)
+assert(recoveryIndex >= 0 && signatureSkipIndex > recoveryIndex, 'completed-image recovery must run before the unchanged-signature fast path')
 
 const reducedImage = new FakeImage()
 reducedImage.complete = true

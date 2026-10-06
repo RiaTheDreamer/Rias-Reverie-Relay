@@ -7,6 +7,7 @@ import {
   type NarrativeRegexScript,
   type NarrativeRegexVariant,
 } from '../src/narrativeRegexAssets'
+import { PLOT_SPARKS_SCRIPT_ID, PLOT_SPARKS_LEGACY_SCRIPT_ID } from '../src/plotSparksPresentation'
 
 function assert(value: unknown, reason: string): asserts value {
   if (!value) throw new Error(reason)
@@ -19,39 +20,50 @@ function presentationHash(scripts: NarrativeRegexScript[]): string {
 
 const EXPECTED: Record<NarrativeRegexVariant, { raw: string; assembled: string }> = {
   inline: {
-    raw: 'fedb87a76b45236206c498243a86d160f3b53921c2382a35fc04ac1b7c9f9d77',
-    assembled: 'bf8acaca65078e41b8323e4e8b288701f94072e396d47ed7badb906aa43f53b7',
+    raw: 'a2375cb9cce3d6605a7cada86d7412132f94ae45ce76b1fbdf39dd7093fc8b40',
+    assembled: '9adaad5c5f393a6e4013ffc2207acdf9e505df107a2cbdadff3bf33087f3fb04',
   },
   'plain-button': {
-    raw: '2fc76fd965435f4d50ed2772cdc6145efe982a9bb3afc1327444e724b49d6b0e',
-    assembled: 'fb8f735c733b4cf74000cb92f366fc0e9f636f6fffa4338f2fa8cc7e55da9dc0',
+    raw: '11fb59ac7095ef9b5a71776666f68a76d04adec0e8d09346ad19865e477de978',
+    assembled: 'e494266ac4f63a93d0f1e1dd3d01066a09875a2108c2b4b57bb3b1ba5a57e6c5',
   },
   'sparkle-button': {
-    raw: '866e8351a2455f9c9754135c2c114a37a73292368f6f0db867d11920796e2c6b',
-    assembled: '2311b58261bb4b98c8210c78cb20d618b73ed3d5ba9ebcd3f3eb5e5a90b7c2e7',
+    raw: 'a2c7bbae82abbab02c2ebf876937b0ce55e8525f3a6489524c3be3d3b12d6854',
+    assembled: '7096349ad19ce13dad31b08e4691f394b4413613834dcfffbd468a088f2aa430',
   },
   glass: {
-    raw: 'e91c242f9ffd7c336562802cc5c766aafc30bf925b0cd7a380afd761fe89c6cb',
-    assembled: '632dff96cc93443749dbe2722554b1a4d13f80dbfcb6ff8bf6aa7cc659223a7e',
+    raw: 'fbfe2b91bf60b66b381f772c7e8a69970a13c99ce2151bd237f23cf05ea51bc9',
+    assembled: '40bad52ac82c132fb7a8c2c6693e899feb0f42a4df125756e80a67baea5eb4c7',
   },
   'plain-glass': {
-    raw: 'd7adeea0003765870b6a06d6add585c1a9e743e581f21c99c94e8c9fda50a787',
-    assembled: 'a57a781df597d7aa4ff8c636daa6c04470108e393a12fbd780063037a5bd9232',
+    raw: '3500a32d1e2952a251259ebb9c61db715de55869e33580f6836c5ddabe1fb8d8',
+    assembled: '9f6dcc082ead75c34c17aa36864d4119fa17c73076e78bb0183dee522c87d06b',
   },
 }
 
-const GLASS_BODY_ASSEMBLED = 'cc1c4d5b157e4c0a1693737b06f513ed6d70fcff339b8d41d8175e1413caf9d0'
+const GLASS_BODY_ASSEMBLED = 'a971857d5df926fe0240194d7ae2dc8d47471c8279b5ffdb91a982ca00025ed9'
+
+// XML normalization replacements and the ten-Spark extension are intentional.
+// Rendered HTML/CSS remains byte-identical to the pre-migration authority.
+// Lock every other
+// assembled body and the saved seven-panel body to the original authority;
+// the ten-panel captures, actions and all color/presentation variants have
+// their own executable acceptance gate in plot-sparks-ten-options-smoke.ts.
+function originalAuthorityProjection(scripts: NarrativeRegexScript[]): NarrativeRegexScript[] {
+  return scripts.filter(script => script.script_id !== PLOT_SPARKS_SCRIPT_ID)
+    .map(script => script.script_id === PLOT_SPARKS_LEGACY_SCRIPT_ID ? { ...script, script_id: PLOT_SPARKS_SCRIPT_ID } : script)
+}
 
 for (const variant of NARRATIVE_REGEX_VARIANTS) {
   const raw = narrativeRegexPack(variant).scripts
   const assembled = narrativeRegexScripts(variant)
   const rawHash = presentationHash(raw)
-  const assembledHash = presentationHash(assembled)
+  const assembledHash = presentationHash(originalAuthorityProjection(assembled))
   assert(raw.length === (variant === 'glass' || variant === 'plain-glass' ? 95 : 93), `${variant}: raw Narrative authority inventory changed`)
-  assert(assembled.length === 56, `${variant}: assembled Narrative authority inventory changed`)
+  assert(assembled.length === 57, `${variant}: assembled Narrative authority inventory changed`)
   assert(rawHash === EXPECTED[variant].raw && assembledHash === EXPECTED[variant].assembled, `${variant}: Narrative presentation authority drifted (raw ${rawHash}, assembled ${assembledHash})`)
 }
 
-assert(presentationHash(narrativeRegexScripts('glass', 'glass')) === GLASS_BODY_ASSEMBLED, 'Glass Color Mode must retain its complete independent body authority')
+assert(presentationHash(originalAuthorityProjection(narrativeRegexScripts('glass', 'glass'))) === GLASS_BODY_ASSEMBLED, 'Glass Color Mode must retain its complete independent body authority')
 
-console.log('Narrative presentation authority lock passed: 5 variants, 469 raw scripts and 280 assembled active scripts, replace_string/presentation drift 0.')
+console.log('Narrative presentation authority lock passed: 5 variants, 469 raw scripts and 285 assembled active scripts; intentional ten-Spark extension isolated, all other presentation drift 0.')

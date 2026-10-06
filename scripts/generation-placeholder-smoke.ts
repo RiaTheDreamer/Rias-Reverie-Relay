@@ -1,7 +1,7 @@
 // @ts-nocheck -- Deterministic contract coverage for the generation reservation appearance.
 import { readFileSync } from 'node:fs'
 import { normalizeGenerationPlaceholderEffect } from '../src/contracts'
-import { lifecycleRuntimeCss, renderCompletedProseLifecycleProjection, renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
+import { lifecycleRuntimeCss, renderCompletedProseLifecycleProjection, renderNativeSurfaceMarkup, renderRegenerationLifecycleProjection } from '../src/nativeSurfaces'
 import { renderNarrativeRegex } from '../src/narrativeRegexAssets'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
@@ -22,18 +22,18 @@ const baseRecord = { key: `chat:message:0:${requestId}:${requestId}`, requestId,
 
 const withoutStyles = (content: string) => content.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
 
-const runtimeMarkup = (effect: string, status = 'generating', imageUrl?: string) => {
+const runtimeMarkup = (effect: string, status = 'generating', imageUrl?: string, triggerType?: string) => {
   const content = renderNativeSurfaceMarkup(request, studio as any, {
     chatId: 'chat', messageId: 'message', swipeId: 0, autoGenerate: true,
     generationPlaceholderEffect: effect as any,
-    records: [{ ...baseRecord, status, imageUrl, imageId: imageUrl ? 'image-id' : undefined }],
+    records: [{ ...baseRecord, status, triggerType, imageUrl, imageId: imageUrl ? 'image-id' : undefined }],
   }).content
   return withoutStyles(content)
 }
 
 assert(normalizeGenerationPlaceholderEffect(undefined) === 'glitter', 'missing config must migrate to glitter')
 assert(normalizeGenerationPlaceholderEffect('corrupt') === 'glitter', 'invalid config must fall back to glitter')
-for (const effect of ['spinner', 'glitter', 'none', 'dream-orb'] as const) {
+for (const effect of ['spinner', 'glitter', 'none', 'dream-orb', 'diffusion-preview'] as const) {
   assert(normalizeGenerationPlaceholderEffect(effect) === effect, `${effect}: config value must survive normalization/save-load`)
   const markup = runtimeMarkup(effect)
   assert(markup.includes(`data-rr-placeholder-effect="${effect}"`), `${effect}: active reservation must use selected effect`)
@@ -47,6 +47,7 @@ for (const effect of ['spinner', 'glitter', 'none', 'dream-orb'] as const) {
   if (effect === 'spinner') assert(spinner === 1 && glitter === 0 && orb === 0, 'spinner mode must render spinner only')
   if (effect === 'glitter') assert(glitter === 1 && spinner === 0 && orb === 0 && (markup.match(/<i><\/i>/g) || []).length === 24, 'glitter mode must render exactly 24 Regex particles')
   if (effect === 'dream-orb') assert(orb === 1 && spinner === 0 && glitter === 0, 'dream-orb mode must render orb only')
+  if (effect === 'diffusion-preview') assert(markup.includes('class="rr-diffusion-stage"') && markup.includes('class="rr-diffusion-frame"') && markup.includes('Waiting for diffusion preview') && glitter === 0 && orb === 0, 'diffusion mode must reserve the same slot with a waiting state and a dedicated live frame')
   if (effect === 'none') assert(spinner === 0 && glitter === 0 && orb === 0 && /rrl-generation-placeholder[^>]*><\/div>/.test(markup), 'none mode must render an empty effect shell')
 }
 
@@ -86,6 +87,19 @@ const completedProse = renderCompletedProseLifecycleProjection({
 assert(completedProse.includes('data-dgir-prose-projection="chat:prose:0:prose-a:prose-a"') && completedProse.includes('data-rrn-native-request="prose-a"') && completedProse.includes('/images/prose-a.png') && completedProse.includes('data-rr-placeholder-effect="dream-orb"'), 'completed prose must rebuild its stable owner and selected effect from the record alone, without original request XML')
 const retry = runtimeMarkup('dream-orb', 'generating')
 assert(retry.includes('data-rr-placeholder-effect="dream-orb"'), 'retry returning to active state must restore selected effect')
+const regeneratingPreviousImage = runtimeMarkup('glitter', 'generating', '/images/previous.png', 'regenerate-same-settings')
+assert(regeneratingPreviousImage.includes('data-rr-placeholder-effect="glitter"') && regeneratingPreviousImage.includes('<strong class="rrl-title">Generating image</strong>') && !regeneratingPreviousImage.includes('/images/previous.png'), 'regeneration must render the active status card and placeholder instead of the previous final image')
+const proseRegenerationProjection = renderRegenerationLifecycleProjection({
+  ...baseRecord, chatId: 'chat', messageId: 'message', swipeId: 0, target: 'prose.illustration',
+  status: 'generating', imageUrl: '/images/previous.png', triggerType: 'regenerate-same-settings',
+} as any, studio as any, { chatId: 'chat', messageId: 'message', swipeId: 0, generationPlaceholderEffect: 'dream-orb' })
+assert(proseRegenerationProjection.includes(`data-dgir-prose-projection="${baseRecord.key}"`) && proseRegenerationProjection.includes('data-rrn-native-request="placeholder-contract"'), 'regeneration status projection must preserve the existing prose owner and request identity')
+assert(proseRegenerationProjection.includes('data-rr-placeholder-effect="dream-orb"') && proseRegenerationProjection.includes('<strong class="rrl-title">Generating image</strong>') && !proseRegenerationProjection.includes('/images/previous.png'), 'prose regeneration projection must show the selected placeholder/status instead of hydrating the old image')
+const surfaceRegenerationProjection = renderRegenerationLifecycleProjection({
+  ...baseRecord, chatId: 'chat', messageId: 'message', swipeId: 0, target: 'custom.artifact-media',
+  status: 'queued', imageUrl: '/images/previous.png', triggerType: 'regenerate-same-settings',
+} as any, studio as any, { chatId: 'chat', messageId: 'message', swipeId: 0, generationPlaceholderEffect: 'glitter' })
+assert(surfaceRegenerationProjection.includes('<div class="rrl-island"') && surfaceRegenerationProjection.includes('data-rrn-native-request="placeholder-contract"') && surfaceRegenerationProjection.includes('data-rr-placeholder-effect="glitter"'), 'non-prose Surface regeneration must rebuild the scoped Status Card with its selected effect')
 
 const placementPaths = [
   {
@@ -105,7 +119,7 @@ const placementPaths = [
   },
 ] as const
 
-function renderPlacementPath(path: typeof placementPaths[number], status: string, imageUrl?: string, recordsOverride?: any[], effect: 'spinner' | 'glitter' | 'none' | 'dream-orb' = 'glitter'): string {
+function renderPlacementPath(path: typeof placementPaths[number], status: string, imageUrl?: string, recordsOverride?: any[], effect: 'spinner' | 'glitter' | 'none' | 'dream-orb' | 'diffusion-preview' = 'glitter'): string {
   const record = {
     key: `chat:message:0:${path.requestId}:illustration`, requestId: path.requestId, slot: 'illustration',
     target: 'prose.illustration', status, messageId: 'message', swipeId: 0, requestAspect: '4:3',
@@ -149,7 +163,7 @@ for (const path of placementPaths) {
   assert(staleProof.includes(currentHealthy.imageUrl) && !/Regenerate|Reparse|Rescan|Repair \/ Reinsert/.test(staleProof), `${path.label}: stale previous failure must not override the current healthy slot`)
 }
 
-for (const effect of ['spinner', 'glitter', 'none', 'dream-orb'] as const) {
+for (const effect of ['spinner', 'glitter', 'none', 'dream-orb', 'diffusion-preview'] as const) {
   const finished = renderPlacementPath(placementPaths[1], 'completed', '/images/inline-reservation.png', undefined, effect)
   assert(finished.includes(`data-rr-placeholder-effect="${effect}"`), `${effect}: completed prose slot did not carry the selected effect into its decode handoff`)
 }
@@ -168,6 +182,7 @@ assert(recoveredAfterError.includes('/images/recovered-after-error.png') && !/Re
 
 const nativeSource = readFileSync(new URL('../src/nativeSurfaces.ts', import.meta.url), 'utf8')
 assert(lifecycleRuntimeCss().includes('.rrl-generation-placeholder') && !lifecycleRuntimeCss().includes('<style'), 'real host stylesheet must own lifecycle placeholder CSS without detached message style tags')
+assert(lifecycleRuntimeCss().includes('.rr-diffusion-frame') && lifecycleRuntimeCss().includes('.rr-diffusion-ambient') && lifecycleRuntimeCss().includes('prefers-reduced-motion:reduce'), 'diffusion preview must have dedicated live-frame, ambient and reduced-motion styling in the host stylesheet')
 assert(nativeSource.includes('linear-gradient(135deg,rgba(255,255,255,.045),rgba(255,255,255,.015)),var(--rr-bg)') && nativeSource.includes('backdrop-filter:blur(20px)') && nativeSource.includes('0 16px 50px rgba(0,0,0,.32)'), 'shared approved Dreamglass shell is missing')
 assert(nativeSource.includes('.rrl-generation-placeholder .rr-regex-particles i{') && nativeSource.includes('pointer-events:none'), 'decorative particles must be scoped and ignore pointer input')
 assert((nativeSource.match(/\.rrl-generation-placeholder \.rr-regex-particles i:nth-child\(/g) || []).length === 24, 'approved glitter particle values must contain exactly 24 rows')
@@ -192,6 +207,8 @@ const patchConfigSource = frontendSource.slice(frontendSource.indexOf('function 
 const placeholderSyncSource = frontendSource.slice(frontendSource.indexOf('function syncGenerationPlaceholderEffect('), frontendSource.indexOf('function applyGlobalInterfaceSettings('))
 assert(patchConfigSource.includes("type: 'set_config'") && !/scan_message|regenerate_slot|generate_image/.test(patchConfigSource), 'appearance setting must persist without dispatching image work')
 assert(frontendSource.includes('syncGenerationPlaceholderEffect') && frontendSource.includes('Array.from({ length: 24 }'), 'visible active placeholders must update in place')
+assert(frontendSource.includes("['diffusion-preview', 'Diffusion Preview']") && frontendSource.includes("const diffusionStage = card.querySelector<HTMLElement>('.rr-diffusion-stage')") && frontendSource.includes('diffusionFrame.src = stream.imageDataUrl') && frontendSource.includes('diffusionAmbient.src = stream.imageDataUrl'), 'diffusion effect must be selectable and consume the existing image-generation preview feed')
+assert(frontendSource.includes("if (handled) scheduleBindInlineImages()") && frontendSource.includes("const submittingPlacement = slotActionFeedback.isSubmitting(record.key, 'repair-placement')"), 'Insert feedback must repaint the mounted Status Card while its backend action changes state')
 assert(frontendSource.includes('ctx.dom.addStyle(lifecycleRuntimeCss())'), 'lifecycle CSS must be registered through the extension-owned host stylesheet')
 assert(frontendSource.includes('stripHealthyCompletedLifecycleUi(card)') && frontendSource.includes('isProse && lifecycleImages.length') && frontendSource.includes('for (const image of authoredImages) image.remove()'), 'completion transition must strip lifecycle chrome and retain one canonical prose slot')
 assert(frontendSource.includes('if (!ctx.connections?.list) return') && frontendSource.includes('const profiles = await ctx.connections.list()') && frontendSource.includes('parserConnections = frontendParserConnections ?? message.parserConnections'), 'parser and appearance selectors must recover credential-redacted profiles from the authenticated frontend API when backend context lookup is empty')
@@ -203,7 +220,6 @@ assert(frontendSource.includes('rememberBoundedMap(pendingFinalRevealByRecord, r
 assert(frontendSource.includes("record.status === 'placement-pending' && pendingRecordReveal") && frontendSource.includes('readyForReveal: !waitingForCompletedRender') && frontendSource.includes("mediaSlot.dataset.rrnMediaEmpty = waitingForCompletedRender || shouldReveal ? 'true' : 'false'"), 'all media must keep their selected effect through pending placement and until decoded final Reveal begins')
 assert(frontendSource.includes("if (mediaSlot) mediaSlot.dataset.rrnMediaEmpty = 'false'"), 'decoded final Reveal must clear the media-empty marker when its effect yields to the image')
 assert(frontendSource.includes('armProseRevealGuard(record)') && frontendSource.includes('disarmProseRevealGuard(expectedRecordKey, record.requestId)') && frontendSource.includes('visibility:hidden!important') && frontendSource.includes('display:grid!important;opacity:1!important'), 'a completed host remount must keep pixels covered and the effect present before its first paint')
-assert(frontendSource.includes('[data-message-id=${JSON.stringify(guard.messageId)}] img[src=${JSON.stringify(guard.imageUrl)}]') && !frontendSource.includes('`img[src=${JSON.stringify(guard.imageUrl)}]{visibility:hidden!important}`'), 'reveal guard must be message-scoped so previews and thumbnails with the same URL stay visible')
 assert(!nativeSource.includes('.rrl-media-slot[data-rrn-media-state="completed"] .rrl-generation-placeholder{display:none}') && nativeSource.includes('.rrl-media-slot[data-rrn-media-empty="false"] .rrl-media-skeleton') && nativeSource.includes("stableLifecycleMediaSlot(aspect, 'completed', input.title, resolved, false, input.context.generationPlaceholderEffect || 'glitter')"), 'fresh completion must keep its effect until Reveal while historical completed media hides its dormant effect')
 assert(finalRevealLifecycleSource.includes('if (!image.complete || image.naturalWidth <= 0)') && finalRevealLifecycleSource.includes("image.addEventListener('load', onLoad") && finalRevealLifecycleSource.includes('await image.decode?.()') && finalRevealLifecycleSource.includes('image.naturalWidth <= 0'), 'final reveal must wait for a usable loaded and decoded image')
 const revealKeyframeIndex = finalRevealLifecycleSource.indexOf("image.classList.add('rrl-final-reveal')")
@@ -212,7 +228,10 @@ assert(finalRevealLifecycleSource.includes('if (reveal) image.hidden = true') &&
 assert(finalRevealSource.includes('card ? card.isConnected') && finalRevealSource.includes('image.isConnected') && finalRevealSource.includes('mediaCardUpdates.get(card) === update') && finalRevealSource.includes('urlMatches(image.currentSrc || image.src, expectedUrl)'), 'asynchronous reveal must reject stale cards, images, records, and URLs')
 assert(finalRevealSource.includes("ctx.display?.invalidate(['*'])") && !finalRevealSource.includes('ctx.display?.invalidate([record.messageId])'), 'missing images must invalidate Lumiverse display output using its supported wildcard, not an inert message-id variable')
 assert(frontendSource.includes('ensureCompletedProseProjection(record, root, completedProseImageUrl)') && frontendSource.includes('renderCompletedProseLifecycleProjection(record, {') && frontendSource.includes("template.content.querySelector<HTMLElement>('.dgir-prose-lifecycle-projection')"), 'fresh authored prose Markdown must return to the stable lifecycle owner before reveal even without original request XML')
-assert(frontendSource.includes('mountAuthoredRevealEffect(image)') && frontendSource.includes('revealFinalImageWhenReady(null, image, visualImageUrl, record, null, authoredRevealOverlayByImage.get(image))') && finalRevealSource.includes('preserveGeometry: !card'), 'Core, Narrative and custom authored images must keep their effect through pending placement and reveal without collapsing geometry')
+assert(frontendSource.includes('mountAuthoredRevealEffect(image)') && frontendSource.includes('revealFinalImageWhenReady(null, image, visualImageUrl, record, null, authoredRevealOverlayByImage.get(image), authoredRevealVisibilityByImage.get(image))') && finalRevealSource.includes('preserveGeometry: !card') && finalRevealSource.includes('restoreVisibility'), 'Core, Narrative and custom authored images must keep their effect through pending placement and reveal without collapsing geometry')
+const regenerationSource = frontendSource.slice(frontendSource.indexOf('  function requestReplacementStatusProjection('), frontendSource.indexOf('  function openImageUrl('))
+const regenerationSettleSource = regenerationSource.slice(regenerationSource.indexOf('  function settleReplacementStatusProjection('))
+assert(regenerationSource.indexOf('const previousImageVisibility =') < regenerationSource.indexOf('concealPreviousLifecycleImage(state.image)') && regenerationSettleSource.indexOf('replacement.marker.replaceWith(replacement.previousOwner)') < regenerationSettleSource.indexOf('mountAuthoredRevealEffect(replacement.previousImage)'), 'regeneration must preserve prior visibility and mount its reveal only after restoring the original Surface owner')
 assert(finalRevealSource.includes("window.matchMedia?.('(prefers-reduced-motion: reduce)').matches") && finalRevealLifecycleSource.includes("image.addEventListener('animationend'") && finalRevealLifecycleSource.includes("image.classList.remove('rrl-final-reveal')"), 'final reveal must skip reduced motion and remove its one-shot class on animation end')
 assert(finalRevealSource.includes("type: 'placement_visual_settled'") && finalRevealLifecycleSource.lastIndexOf('onSettled()') > finalRevealLifecycleSource.indexOf('await animationFinished'), 'normal-motion visual settlement ACK must occur only after animationend')
 assert(!/MutationObserver|setInterval|setTimeout/.test(finalRevealLifecycleSource) && (visualSessionSource.match(/setInterval/g) || []).length === 1 && visualSessionSource.includes('sendFrontendSession(true, true)') && finalRevealSource.includes('PROJECTION_INVALIDATION_RETRY_MS'), 'final reveal must use event synchronization; missing-projection repair may use only its separate bounded retry timer')
@@ -226,4 +245,4 @@ assert(frontendSource.includes('dg-main-ready-indicator') && frontendSource.incl
 assert(frontendSource.includes("countBox('Ready', counts.readyToPlace, 'ready')") && frontendSource.includes('.dg-count-ready .dg-count-dot { color: #f29a63; background: currentColor;'), 'the Ready overview tile must use the same sunset-orange dot as the Ready action indicator')
 assert(!/requestAnimationFrame|setInterval|setTimeout|animationstart|animationiteration/i.test(placeholderSyncSource), 'placeholder effects must remain CSS-only without timer or animation restart logic')
 
-console.log('generation placeholder smoke passed: persistent four-mode config, active Status Card chrome, exact 24-particle glitter, seamless CSS loop contracts, lifecycle, identity, reduced motion, and in-place appearance updates verified.')
+console.log('generation placeholder smoke passed: persistent five-mode config, diffusion frame wiring, active Status Card chrome, exact 24-particle glitter, seamless CSS loop contracts, lifecycle, identity, reduced motion, and in-place appearance updates verified.')

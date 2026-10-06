@@ -1,4 +1,4 @@
-import { narrativeRegexScripts, type NarrativeLorebookKind } from './narrativeRegexAssets'
+import { narrativeRegexScripts, normalizeNarrativeMarkupForRendering, type NarrativeLorebookKind } from './narrativeRegexAssets'
 import { contentFingerprint } from './contracts'
 
 export type NarrativeLorebookRecord = {
@@ -51,7 +51,7 @@ export function extractNarrativeLorebookRecord(source: string, kind: NarrativeLo
   const script = narrativeRegexScripts('sparkle-button').find(candidate => candidate.script_id === SCRIPT_IDS[kind])
   if (!script) return null
   const flags = script.flags?.includes('g') ? script.flags : `${script.flags || ''}g`
-  const matches = Array.from(String(source || '').matchAll(new RegExp(script.find_regex, flags)))
+  const matches = Array.from(normalizeNarrativeMarkupForRendering(String(source || '')).matchAll(new RegExp(script.find_regex, flags)))
   const match = matches[Math.max(0, Number.isFinite(Number(occurrence)) ? Number(occurrence) : 0)]
   const groups = match?.groups || {}
   if (!match) return null

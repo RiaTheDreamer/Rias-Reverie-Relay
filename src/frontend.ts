@@ -1,4 +1,6 @@
 import type { SpindleFrontendContext } from 'lumiverse-spindle-types'
+import { mountPhoneWidget } from './phoneWidget'
+import { mountPhoneToolRenderSync } from './phoneToolRenderSync'
 import type {
   AppearanceCharacterSheet,
   AppearanceMemoryActionStatus,
@@ -45,7 +47,8 @@ import type {
   VersionTree,
   VisualAssetReference,
 } from './contracts'
-import { normalizeGenerationPlaceholderEffect } from './contracts'
+import { MAX_RELAY_JOB_CONCURRENCY, normalizeGenerationPlaceholderEffect } from './contracts'
+import { BracketIllustrationStream } from './instantIllustrationStream'
 import { SlotActionFeedbackCoordinator, type SlotActionFeedback, type SlotActionKind } from './slotActionFeedback'
 import { observeRelayMediaMounts, setMediaText } from './mediaDomStability'
 import { RelayRuntimeLifecycle, type RelayRuntimeHealth } from './runtimeLifecycle'
@@ -56,13 +59,15 @@ import { ORB_IMAGE_DESIGNS, ORB_IMAGE_DESIGN_URLS, type OrbImageDesignId } from 
 import { REVERIE_RELAY_OVERVIEW_ICON_URL, REVERIE_RELAY_SIDEBAR_ICON_URL } from './brandIconData'
 import { applyKakaoColorBinding } from './kakaoColor'
 import { bindImageLightboxZoom } from './imageLightboxZoom'
-import { lifecycleRuntimeCss, NATIVE_SURFACE_ROOT_TAGS, renderCompletedProseLifecycleProjection, renderGenerationPlaceholderEffect, renderNativeSurfaceMarkup } from './nativeSurfaces'
+import { lifecycleRuntimeCss, NATIVE_SURFACE_ROOT_TAGS, renderCompletedProseLifecycleProjection, renderGenerationPlaceholderEffect, renderNativeSurfaceMarkup, renderRegenerationLifecycleProjection } from './nativeSurfaces'
 import { shippedSurfaceDefinitions } from './shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_INLINE_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK } from './protocols'
-import { CHARACTER_PHONE_APPS, characterPhoneAppLabel, normalizeCharacterPhoneDefaultApps, type CharacterPhoneAppId } from './characterPhoneConfig'
+import { normalizeCharacterPhoneDefaultApps, type CharacterPhoneAppId } from './characterPhoneConfig'
 import { NARRATIVE_UTILITY_OVERVIEWS, SURFACE_UTILITY_OVERVIEWS, settingHelp } from './uxCopy'
 import { bracketExampleFromXml } from './bracketSurfaceAuthoring'
+import { xmlAuthoringInstructions } from './xmlSurfaceFormat'
+import { containsImageRequestMarkup } from './contracts'
 import { narrativeUtilityDisplayName } from './narrativeRegexAssets'
 import { surfaceIconMarkup } from './surfaceIcons'
 import { narrativeGlassButtonPresentationCss, narrativeVariantForSurfaceShellMode } from './surfacePresentation'
@@ -75,9 +80,12 @@ import { r45ScriptOverrideKey } from './r45SurfaceAuthority'
 import { validateDeclarativeSurfaceCss } from './surfaceCssSafety'
 import { validateRendererRegex } from './surfaceRendererValidation'
 import { activeSurfaceDefinitions } from './surfacePromptSelection'
-import { buildInstantIllustrationSource } from './instantIllustrationStream'
+import { buildInstantIllustrationSource, findInstantIllustrationAnchor, INSTANT_STREAM_RENDER_MAX_RETRIES, INSTANT_STREAM_RENDER_RETRY_MS } from './instantIllustrationStream'
+import { activeStoryEvents, visibleStoryPhoneEntries, type StoryBeliefState, type StoryConstellationState, type StoryEventNode, type StoryEventProposal, type StoryPhoneEntry, type StorySourceRef } from './storyState'
+import { projectStoryReel } from './storyReel'
+import { bindStoryGraphGeometry, storyEventImageIds } from './storyPresentation'
 
-const COPYABLE_IMAGE_REQUEST_TEMPLATE = `<reverie-illustration
+const COPYABLE_IMAGE_REQUEST_TEMPLATE = xmlAuthoringInstructions(`<reverie-illustration
   request="generate"
   slot="unique-image-request-id"
   aspect="4:3"
@@ -85,9 +93,9 @@ const COPYABLE_IMAGE_REQUEST_TEMPLATE = `<reverie-illustration
   alt="Accessible description of the finished image"
 >
   <visual_prompt>Describe the exact visible moment, subjects, established appearance and clothing, action, environment, lighting, camera, framing, and composition. Do not request readable interface text.</visual_prompt>
-</reverie-illustration>`
+</reverie-illustration>`)
 
-const COPYABLE_TRACKER_IMAGE_PATTERN = `<tracker_card>
+const COPYABLE_TRACKER_IMAGE_PATTERN = xmlAuthoringInstructions(`<tracker_card>
   <tracker_media>
     <image_request
       id="tracker-main-UNIQUE-ID"
@@ -100,9 +108,9 @@ const COPYABLE_TRACKER_IMAGE_PATTERN = `<tracker_card>
     </image_request>
   </tracker_media>
   <!-- Keep the tracker’s existing semantic fields here. -->
-</tracker_card>`
+</tracker_card>`)
 
-const COPYABLE_TRACKER_PRESET_GUIDANCE = `When the tracker is useful, author its existing semantic wrapper and fields exactly as defined. Add one <tracker_media> child in the documented position. Inside that owner, write one complete <image_request> with target="custom.artifact-media", a stable unique id and matching slot, an allowed aspect ratio, accessible alt text, and a complete <scene_brief>. Keep the request inside <tracker_media> through pending, generation, completion, retry, reparse, and reload. Do not place it beside or outside the tracker. Include {{reverie_artifact_media_protocol}} in the preset if Relay's automatic Surface injection is not supplying the custom Utility.`
+const COPYABLE_TRACKER_PRESET_GUIDANCE = xmlAuthoringInstructions(`When the tracker is useful, author its existing semantic wrapper and fields exactly as defined. Add one <tracker_media> child in the documented position. Inside that owner, write one complete <image_request> with target="custom.artifact-media", a stable unique id and matching slot, an allowed aspect ratio, accessible alt text, and a complete <scene_brief>. Keep the request inside <tracker_media> through pending, generation, completion, retry, reparse, and reload. Do not place it beside or outside the tracker. Include {{reverie_artifact_media_protocol}} in the preset if Relay's automatic Surface injection is not supplying the custom Utility.`)
 
 type ParserConnection = {
   id: string
@@ -156,6 +164,11 @@ type RouterConfig = {
   enableRelayOrb: boolean
   autoRescanOnChatOpen: boolean
   includeInactiveSwipesInRescan: boolean
+  storyConstellationsEnabled: boolean
+  autoConfirmStoryEvents: boolean
+  storyKnowledgeConflictAlerts: boolean
+  analyzeEditedStoryMessages: boolean
+  injectStoryEventContext: boolean
   followNativeParser: boolean
   followNativeImageGen: boolean
   generationSettingsSource: 'native' | 'relay'
@@ -164,6 +177,7 @@ type RouterConfig = {
   parserConnectionId: string | null
   parserModel: string
   parserParameters: Record<string, unknown>
+  surfaceRepairConnectionId: string | null
   appearanceSidecarConnectionId: string | null
   appearanceSidecarModel: string
   appearanceSidecarParameters: Record<string, unknown>
@@ -222,6 +236,8 @@ type RouterConfig = {
   narrativeUtilityOverrides: Record<string, { content: string; revision: number; updatedAt: number }>
   narrativeUtilityImageEnabled: Record<string, boolean>
   characterPhoneDefaultApps: CharacterPhoneAppId[]
+  characterPhonePresentation: 'widget' | 'surface'
+  phoneEnabled: boolean
   narrativeDlcLastSync: {
     status: 'not-installed' | 'healthy' | 'drifted' | 'failed' | 'removed'
     variant: 'sparkle-button' | 'plain-button' | 'inline' | 'glass' | 'plain-glass'
@@ -280,7 +296,8 @@ type ImageWorkerRecoveryState = {
 }
 
 type BackendMessage =
-  | { type: 'state'; chatId: string | null; records: SlotRecord[]; stats: RelayChatStats; recentCompleted: Array<Record<string, unknown>>; queueSafety: { rawPendingRecords: number; uniquePendingJobs: number; duplicateRecordsCollapsed: number; oldestPendingAgeMs: number; pausedBacklog: boolean; updatedAt: number }; config: RouterConfig; parserConnections: ParserConnection[]; imageConnections: ImageConnection[]; imageProviders?: ImageProviderInfo[]; logs: RouterLogEntry[]; candidateBatches: RelayCandidateBatch[]; queueDirector: QueueDirectorState; assetLibrary: AssetLibraryState; versionTrees: VersionTree[]; continuityVault: ContinuityVaultState; customSurfaces: CustomSurfaceStudioState; proseIllustrator: ProseIllustratorState; backgroundQueue: BackgroundQueueState; galleryLinks: GalleryLinkRequest[]; lastDryRun: DryRunReport | null; lastGenerationBlockers: GenerationBlocker[]; schemaVersion: number; revision: number; build: BackendBuildInfo; imageWorkerRecovery?: ImageWorkerRecoveryState; performance?: { statePayloadBytes: number; serializationMs: number; recordsSent: number; completedLifetime: number; hotCompleted: number } }
+  | { type: 'state'; chatId: string | null; records: SlotRecord[]; stats: RelayChatStats; recentCompleted: Array<Record<string, unknown>>; queueSafety: { rawPendingRecords: number; uniquePendingJobs: number; duplicateRecordsCollapsed: number; oldestPendingAgeMs: number; pausedBacklog: boolean; updatedAt: number }; config: RouterConfig; parserConnections: ParserConnection[]; imageConnections: ImageConnection[]; imageProviders?: ImageProviderInfo[]; logs: RouterLogEntry[]; candidateBatches: RelayCandidateBatch[]; queueDirector: QueueDirectorState; assetLibrary: AssetLibraryState; versionTrees: VersionTree[]; continuityVault: ContinuityVaultState; storyConstellations: StoryConstellationState; customSurfaces: CustomSurfaceStudioState; proseIllustrator: ProseIllustratorState; backgroundQueue: BackgroundQueueState; galleryLinks: GalleryLinkRequest[]; lastDryRun: DryRunReport | null; lastGenerationBlockers: GenerationBlocker[]; schemaVersion: number; revision: number; build: BackendBuildInfo; imageWorkerRecovery?: ImageWorkerRecoveryState; performance?: { statePayloadBytes: number; serializationMs: number; recordsSent: number; completedLifetime: number; hotCompleted: number } }
+  | { type: 'story_backfill_status'; chatId: string; status: 'running' | 'completed' | 'cancelled' | 'failed'; completed: number; total: number; stats?: { scanned: number; eligible: number; analyzed: number; skipped: number; failed: number; rawCandidates: number; normalizedCandidates: number; rejectedCandidates: number; proposals: number; phoneEntries: number; fallbackEchoes: number; reasons: Record<string, number> }; message?: string }
   | { type: 'status'; status: string; requestId?: string }
   | { type: 'gallery_link_claim'; chatId: string; linkId: string; sessionId: string; granted: boolean; operationLeaseId?: string; reason?: string }
   | { type: 'error'; source: string; message: string; key?: string; attemptNumber?: number }
@@ -304,6 +321,7 @@ type BackendMessage =
   | { type: 'model_placed_requests_missing'; chatId: string; messageId: string; runtimeDirective: string }
   | { type: 'prompt_registry_preview'; chatId: string; requestId?: string; prompt: string; registryIds: string[] }
   | { type: 'surface_prompt_preview'; requestId: string; prompt: string; surfaceModuleIds: string[]; narrativeUtilityNames: string[]; surfaceInjectionEnabled: boolean; narrativeInjectionEnabled: boolean; error?: string }
+  | { type: 'native_surface_repair_result'; requestId: string; chatId: string; messageId: string; status: 'preview-ready' | 'applied' | 'failed'; repairId?: string; proposedMarkup?: string; summary?: string; error?: string }
   | { type: 'custom_surface_action_result'; requestId: string; ok: boolean; error?: string }
   | { type: 'narrative_lorebook_export_result'; requestId: string; ok: boolean; message: string; bookId?: string; entryId?: string }
   | { type: 'lora_catalog_result'; requestId: string; connectionId: string; status: 'completed' | 'failed'; items: string[]; error?: string }
@@ -353,8 +371,8 @@ type NativeSettingsSnapshot = {
   capturedAt: number
 }
 
-type DrawerTab = 'slots' | 'illustrator' | 'recipes' | 'genetics' | 'surfaces' | 'surface-library' | 'surface-presets' | 'utility-studio' | 'history' | 'logs' | 'manual' | 'settings'
-type SuiteSection = 'relay' | 'illustrator' | 'surfaces' | 'memory' | 'archive' | 'settings'
+type DrawerTab = 'slots' | 'illustrator' | 'recipes' | 'genetics' | 'surfaces' | 'surface-library' | 'surface-presets' | 'utility-studio' | 'history' | 'logs' | 'manual' | 'settings' | 'story-constellations' | 'phone' | 'story-reel'
+type SuiteSection = 'relay' | 'illustrator' | 'surfaces' | 'memory' | 'archive' | 'story' | 'phone' | 'settings'
 type SlotFilter = 'all' | 'active' | 'generating' | 'failed' | 'completed' | 'recovered' | 'inactive'
 type MetadataVersion = SlotRecord | GenerationSnapshot
 type HistorySubTab = 'all-chats-gallery' | 'slot-history' | 'illustrator-candidates' | 'inline-illustrations' | 'deleted-message-images'
@@ -366,13 +384,19 @@ export async function settlePlacementVisualLifecycle(options: {
   isCurrent: () => boolean
   reducedMotion: boolean
   preserveGeometry?: boolean
+  restoreVisibility?: string
   onRevealStart?: () => void
   onSettled: () => void
 }): Promise<'settled' | 'stale' | 'failed'> {
-  const { image, isCurrent, reducedMotion, preserveGeometry, onRevealStart, onSettled } = options
+  const { image, isCurrent, reducedMotion, preserveGeometry, restoreVisibility, onRevealStart, onSettled } = options
   if (!isCurrent()) return 'stale'
   const wasHidden = image.hidden
-  const previousVisibility = preserveGeometry ? image.style.visibility : ''
+  // A host remount can replace the original image node after regeneration
+  // covered it, leaving the new node with `visibility:hidden` but without the
+  // saved pre-regeneration visibility token. Never restore that temporary
+  // cover as the completed image's permanent inline style.
+  const requestedVisibility = restoreVisibility ?? image.style.visibility
+  const previousVisibility = preserveGeometry && requestedVisibility !== 'hidden' ? requestedVisibility : ''
   // Keep progressive JPEG/mobile paints behind the slot placeholder until the
   // decoded final frame and its reveal keyframe are ready to appear together.
   if (preserveGeometry) image.style.visibility = 'hidden'
@@ -442,6 +466,7 @@ export async function settlePlacementVisualLifecycle(options: {
   const finished = await animationFinished
   image.classList.remove('rrl-final-reveal')
   if (!finished || !isCurrent()) return 'stale'
+  if (preserveGeometry && image.style.visibility === 'hidden') image.style.visibility = previousVisibility
   onSettled()
   return 'settled'
 }
@@ -459,6 +484,42 @@ export function prepareFinalLifecycleImage(
   if (!reveal) image.hidden = false
 }
 
+export function prepareRegeneratedLifecycleImage(
+  image: HTMLImageElement,
+  url: string,
+  preserveGeometry: boolean,
+  matchesUrl: (currentUrl: string, expectedUrl: string) => boolean,
+): void {
+  if (!preserveGeometry) {
+    prepareFinalLifecycleImage(image, url, true, matchesUrl)
+    return
+  }
+  // An authored Surface often relies on this image's intrinsic box for its
+  // layout. Cover its old pixels without `hidden`, then restore visibility
+  // immediately after the new reveal guard has been mounted.
+  image.hidden = false
+  image.style.visibility = 'hidden'
+  if (!matchesUrl(image.currentSrc || image.src, url)) image.src = url
+}
+
+/** Prefer the existing whole lifecycle owner during regeneration. Replacing
+ * only its inner image figure nests a second Status Card inside the completed
+ * card and loses the card-owned reveal lifecycle. */
+export function chooseReplacementProjectionOwner(options: {
+  proseProjection?: HTMLElement | null
+  lifecycleIsland?: HTMLElement | null
+  lifecycleCard?: HTMLElement | null
+  resolvedMedia?: HTMLElement | null
+  image?: HTMLElement | null
+}): HTMLElement | null {
+  return options.proseProjection
+    || options.lifecycleIsland
+    || options.lifecycleCard
+    || options.resolvedMedia
+    || options.image
+    || null
+}
+
 export function shouldStartFinalImageReveal(options: {
   imageChanged: boolean
   sawActiveLifecycle: boolean
@@ -471,6 +532,37 @@ export function shouldStartFinalImageReveal(options: {
     && ((options.imageChanged && options.sawActiveLifecycle) || options.pendingRecordReveal)
     && !options.cardAlreadyRevealed
     && !options.recordAlreadyRevealed
+}
+
+export function currentLifecycleImageUrl(record: Pick<SlotRecord, 'status' | 'triggerType' | 'imageUrl' | 'pendingPlacement'>): string {
+  const isRegeneration = ['regenerate-same-settings', 'regenerate-current-settings', 'intent-regeneration'].includes(String(record.triggerType || ''))
+  // A completed record keeps its previous URL while Relay prepares a
+  // replacement. That URL is history until the replacement is ready; treating
+  // it as the active final image replays the old image's reveal animation.
+  if (isRegeneration && (isGenerationActiveStatus(record.status)
+    || record.status === 'placement-pending' && !record.pendingPlacement?.imageUrl)) return ''
+  return record.pendingPlacement?.imageUrl || record.imageUrl || ''
+}
+
+export function concealPreviousLifecycleImage(image: HTMLImageElement): void {
+  image.style.visibility = 'hidden'
+  image.hidden = false
+  image.classList.remove('rrl-final-reveal')
+}
+
+/** A host remount can cancel the one-shot reveal after the new asset has
+ * already loaded. Never leave a completed, current-URL image covered forever. */
+export function restoreCompletedLifecycleImage(
+  image: HTMLImageElement,
+  expectedUrl: string,
+  matchesUrl: (currentUrl: string, expectedUrl: string) => boolean,
+): boolean {
+  if (!image.complete || image.naturalWidth <= 0 || image.classList.contains('rrl-final-reveal')
+    || !matchesUrl(image.currentSrc || image.src, expectedUrl)) return false
+  if (!image.hidden && image.style.visibility !== 'hidden') return false
+  image.hidden = false
+  image.style.visibility = ''
+  return true
 }
 
 export function setup(ctx: SpindleFrontendContext) {
@@ -497,6 +589,8 @@ export function setup(ctx: SpindleFrontendContext) {
   let assetLibrary: AssetLibraryState = { assets: {}, compare: {}, updatedAt: 0 }
   let versionTrees: VersionTree[] = []
   let continuityVault: ContinuityVaultState = { chatId: '', strength: 'off', characters: {}, characterSheets: {}, visualIdentity: {}, wardrobe: {}, currentAppearance: {}, suggestions: {}, quarantine: {}, history: [], migrationPreview: null, ignoredForSlotKeys: [], deliberateBreaks: {}, appearanceSidecar: { revision: 0, processedTurnKeys: {}, lastRunAt: 0 }, updatedAt: 0 }
+  let storyConstellations: StoryConstellationState = { schemaVersion: 1, activeTimelineId: 'main', actors: {}, events: {}, proposals: {}, echoes: {}, knowledgeEdges: {}, conflicts: {}, phoneEntries: {}, reelOverrides: {}, processedMessageFingerprints: {}, updatedAt: 0 }
+  let storyBackfillStatus: Extract<BackendMessage, { type: 'story_backfill_status' }> | null = null
   let customSurfaces: CustomSurfaceStudioState = frontendSurfaceFallback()
   let proseIllustrator: ProseIllustratorState = { settings: {}, opportunities: {}, plans: {}, records: {}, processedMessageKeys: {}, autoCounters: {}, frequencyDecisions: {}, activeOpportunityIdByChat: {}, activePlanIdByChat: {} }
   let backgroundQueue: BackgroundQueueState = { items: {}, abortRequestedAt: 0, updatedAt: 0 }
@@ -517,9 +611,12 @@ export function setup(ctx: SpindleFrontendContext) {
   const proseRevealGuardStyles = new Map<Document | ShadowRoot, HTMLStyleElement>()
   const slotActionFeedback = new SlotActionFeedbackCoordinator()
   const pendingSurfacePromptPreviews = new Map<string, { setValue: (value: string) => void }>()
+  const pendingAssistedSurfaceRepairRequests = new Map<string, (message: Extract<BackendMessage, { type: 'native_surface_repair_result' }>) => void>()
   const pendingCustomSurfaceSaves = new Map<string, (ok: boolean, error?: string) => void>()
   const appearanceActionStatuses = new Map<string, AppearanceMemoryActionStatus & { receivedAt: number }>()
-  const optimisticSlotActions = new Map<string, { status: SlotRecord['status']; statusText: string; intent?: RegenerationIntent; basedOnUpdatedAt: number }>()
+  const optimisticSlotActions = new Map<string, { status: SlotRecord['status']; statusText: string; intent?: RegenerationIntent; triggerType?: SlotRecord['triggerType']; previousRecord: SlotRecord; basedOnUpdatedAt: number }>()
+  type ReplacementStatusProjection = { marker: Comment; previousOwner: HTMLElement; previousImage?: HTMLImageElement; previousImages: Array<{ image: HTMLImageElement; visibility: string; hidden: boolean }>; projection: HTMLElement; previousImageUrl: string; previousImageId?: string; previousImageVisibility: string; previousImageHidden: boolean }
+  const replacementStatusProjections = new Map<string, ReplacementStatusProjection>()
   const activeSwipeByMessage = new Map<string, number>()
   const openedSlotPreviewKeys = new Set<string>()
   let activeSlotPreviewKey: string | null = null
@@ -534,6 +631,8 @@ export function setup(ctx: SpindleFrontendContext) {
   let backendBuild: BackendBuildInfo | null = null
   let schemaVersion = 0
   let stateRevision = -1
+  let lastChatStateReceivedAt = 0
+  let lastLifecycleRefreshAt = 0
   let lastDisplayContractSignature = ''
   let pendingProseSettingsWrite: { settings: ProseIllustratorSettings; sentAt: number } | null = null
   let pendingPromptPreviewRequestId: string | null = null
@@ -550,10 +649,23 @@ export function setup(ctx: SpindleFrontendContext) {
   let config: RouterConfig | null = null
   let activeChatId: string | null = ctx.getActiveChat().chatId
   let activeTab: DrawerTab = 'slots'
+  let selectedStoryEventId = ''
+  let storyGraphCleanup: (() => void) | undefined
+  lifecycle.track(() => storyGraphCleanup?.(), 'observer')
+  let pendingStoryEventNavigation = ''
+  let storyIncludeInactiveSwipes = false
+  let storyAnalysisExpanded = false
+  let storySettingsExpanded = false
+  let storyProposalVisibleLimit = 80
+  let storyEventVisibleLimit = 80
+  const storyPhoneVisibleByOwner = new Map<string, number>()
   let nativeImageSettingsCache: Record<string, unknown> = {}
   let nativeImageSettingsCachedAt = 0
+  let nativeImageSettingsCacheChatId: string | null = null
   let nativeSettingsLastSyncedAt = 0
   let nativeSettingsFetchInFlight: Promise<NativeSettingsSnapshot | null> | null = null
+  let nativeSettingsFetchInFlightChatId: string | null = null
+  let nativeSettingsFetchToken: object | null = null
   const NATIVE_SETTINGS_CACHE_TTL_MS = 1_000
   const nativeSnapshotScanAttempts = new Map<string, number>()
   const nativeSnapshotScanTimers = new Map<string, number>()
@@ -565,6 +677,9 @@ export function setup(ctx: SpindleFrontendContext) {
   let completedHistoryChatId = ''
   let completedHistoryRows: Array<Record<string, unknown>> = []
   let completedHistoryNextCursor: number | null = null
+  let completedHistoryTotal = 0
+  let completedHistoryRequestedForCount = -1
+  let completedHistoryAutoPageCursor = -1
   const pendingCompletedRecordLoads = new Map<string, (record: SlotRecord | null) => void>()
   let vaultSelectedCharacterId = ''
   const streamPreviews = new Map<string, { imageDataUrl?: string; statusText?: string; updatedAt: number; source: string; streaming?: boolean; step?: number; totalSteps?: number; failed?: boolean }>()
@@ -659,20 +774,44 @@ export function setup(ctx: SpindleFrontendContext) {
         ? 'placement-pending'
         : 'queued'
     const typedIntent = intent as RegenerationIntent | undefined
-    optimisticSlotActions.set(key, { status, statusText, intent: typedIntent, basedOnUpdatedAt: current.updatedAt })
-    const next = { ...current, status, regenerationIntent: typedIntent || current.regenerationIntent }
+    const regeneration = lower.includes('regenerat')
+    const previous = optimisticSlotActions.get(key)
+    const triggerType: SlotRecord['triggerType'] | undefined = regeneration
+      ? typedIntent ? 'intent-regeneration' : 'regenerate-same-settings'
+      : undefined
+    optimisticSlotActions.set(key, {
+      status, statusText, intent: typedIntent, triggerType,
+      previousRecord: previous?.previousRecord || current,
+      basedOnUpdatedAt: previous?.basedOnUpdatedAt ?? current.updatedAt,
+    })
+    const next = { ...current, status, triggerType: triggerType || current.triggerType, regenerationIntent: typedIntent || current.regenerationIntent }
     records = records.map(record => record.key === key ? next : record)
     recordByKey.set(key, next)
+    if (regeneration && current.imageUrl) requestReplacementStatusProjection(next)
     streamPreviews.set(key, { statusText, updatedAt: Date.now(), source: 'relay-slot', streaming: false, failed: false })
     renderPanel()
     scheduleBindInlineImages()
     renderRelayOrb()
   }
 
+  function restoreOptimisticSlotAction(key: string): void {
+    const optimistic = optimisticSlotActions.get(key)
+    if (!optimistic) return
+    optimisticSlotActions.delete(key)
+    records = records.map(record => record.key === key ? optimistic.previousRecord : record)
+    recordByKey.set(key, optimistic.previousRecord)
+    if (optimistic.triggerType && optimistic.previousRecord.imageUrl) {
+      restorePreviousLifecycleImage(optimistic.previousRecord)
+    }
+    renderPanel()
+    scheduleBindInlineImages()
+  }
+
   function finishOptimisticSlotBusy(key: string, status: 'completed' | 'failed', message?: string): void {
     optimisticSlotActions.delete(key)
     const current = recordByKey.get(key)
     if (status === 'failed' && current) {
+      restorePreviousLifecycleImage(current)
       const failed = { ...current, status: 'failed' as const, error: message || 'Relay could not complete the action.' }
       records = records.map(record => record.key === key ? failed : record)
       recordByKey.set(key, failed)
@@ -721,11 +860,22 @@ export function setup(ctx: SpindleFrontendContext) {
     fullMatch?: string
     isUser?: boolean
     isStreaming?: boolean
+    sourceContent?: string
+    swipeId?: number
   }
   const lifecycleScanTimers = new Map<string, number>()
   const lifecycleScanCooldown = new Map<string, number>()
   const lifecycleStreamingSignatures = new Map<string, string>()
+  let instantStreamEpoch = 0
+  const bracketIllustrationStream = new BracketIllustrationStream()
   const lifecycleInterceptorCleanups: Array<() => void> = []
+
+  function cancelPendingLifecycleScans(): void {
+    instantStreamEpoch += 1
+    bracketIllustrationStream.clear()
+    for (const timer of lifecycleScanTimers.values()) window.clearTimeout(timer)
+    lifecycleScanTimers.clear()
+  }
 
   function scheduleLifecycleAutoScan(payload: NativeSurfaceTagPayload): void {
     if (payload?.isUser) return
@@ -747,14 +897,27 @@ export function setup(ctx: SpindleFrontendContext) {
       instantEnabled: true, mode: liveSettings.mode,
     })
     if (payload.isStreaming === true && !instantStreaming) return
-    const key = `${chatId}:${messageId}`
+    const messageKey = `${chatId}:${messageId}`
+    // Every completed request needs its own pending resolution. A later tag
+    // in the same response must not cancel an earlier illustration's timer.
+    const key = instantStreaming ? `${messageKey}:${String(payload.attrs?.slot || payload.attrs?.id || '')}` : messageKey
+    if (!instantStreaming) {
+      for (const [pendingKey, pendingTimer] of lifecycleScanTimers) {
+        if (pendingKey.startsWith(`${messageKey}:`)) {
+          window.clearTimeout(pendingTimer)
+          lifecycleScanTimers.delete(pendingKey)
+          lifecycleStreamingSignatures.delete(pendingKey)
+        }
+      }
+    }
     const existing = lifecycleScanTimers.get(key)
     if (existing) window.clearTimeout(existing)
     if (!instantStreaming) lifecycleStreamingSignatures.delete(key)
+    const scheduledEpoch = instantStreamEpoch
     const timer = window.setTimeout(() => {
       lifecycleScanTimers.delete(key)
       if (instantStreaming) {
-        void scanInstantStreamingModelPlannedMessage(chatId, messageId, key, payload)
+        void scanInstantStreamingModelPlannedMessage(chatId, messageId, key, payload, 0, scheduledEpoch)
         return
       }
       const now = Date.now()
@@ -768,35 +931,17 @@ export function setup(ctx: SpindleFrontendContext) {
     lifecycleScanTimers.set(key, timer)
   }
 
-  function proseParagraphBeforeStreamingRequest(messageContent: HTMLElement, payload: NativeSurfaceTagPayload): { cardFound: boolean; text: string | null } {
-    const requestId = String(payload.attrs?.slot || payload.attrs?.id || '').trim()
-    if (!requestId) return { cardFound: false, text: null }
-    const card = Array.from(messageContent.querySelectorAll<HTMLElement>('[data-rrn-native-request]'))
-      .find(candidate => candidate.getAttribute('data-rrn-native-request') === requestId)
-    if (!card) return { cardFound: false, text: null }
-    const island = card.closest<HTMLElement>('.dgir-prose-lifecycle-projection')
-      || card.closest<HTMLElement>('.rrl-island')
-    if (!island || !messageContent.contains(island)) return { cardFound: true, text: null }
-
-    const previous = island.previousElementSibling as HTMLElement | null
-    if (!previous || previous.matches('.rrl-island, .dgir-prose-lifecycle-projection, [data-rrn-native-request]')) return { cardFound: true, text: null }
-    if (previous.matches('p, blockquote, li')) return { cardFound: true, text: String(previous.innerText || previous.textContent || '').trim() || null }
-    const paragraphs = previous.querySelectorAll<HTMLElement>('p, blockquote, li')
-    const lastParagraph = paragraphs.item(paragraphs.length - 1)
-    return { cardFound: true, text: String(lastParagraph?.innerText || lastParagraph?.textContent || '').trim() || null }
-  }
-
-  async function scanInstantStreamingModelPlannedMessage(chatId: string, messageId: string, key: string, payload: NativeSurfaceTagPayload): Promise<void> {
+  async function scanInstantStreamingModelPlannedMessage(chatId: string, messageId: string, key: string, payload: NativeSurfaceTagPayload, retry: number, epoch: number): Promise<void> {
     const settings = currentProseSettings()
-    if (!settings.enabled || settings.mode !== 'inline-protocol' || !settings.instantIllustrationDispatch || chatId !== activeChatId) return
+    if (epoch !== instantStreamEpoch || !settings.enabled || settings.mode !== 'inline-protocol' || !settings.instantIllustrationDispatch || chatId !== activeChatId) return
     try {
       const domApi = (ctx as any).dom
       const bubble = typeof domApi?.findMessageElement === 'function' ? domApi.findMessageElement(messageId) : null
       const messageContent = bubble?.querySelector?.('[data-component="MessageContent"]') as HTMLElement | null
       const renderedText = String(messageContent?.innerText || messageContent?.textContent || '')
-      const anchor = messageContent ? proseParagraphBeforeStreamingRequest(messageContent, payload) : { cardFound: false, text: null }
+      const anchor = messageContent ? findInstantIllustrationAnchor(messageContent, String(payload.attrs?.slot || payload.attrs?.id || '')) : { cardFound: false, text: null }
       const precedingAnchorText = anchor.text
-      const sourceContent = buildInstantIllustrationSource(renderedText, payload, precedingAnchorText)
+      const sourceContent = payload.sourceContent || buildInstantIllustrationSource(renderedText, payload, precedingAnchorText)
       ctx.sendToBackend({
         type: 'instant_stream_probe', chatId, messageId,
         requestId: String(payload.attrs?.slot || payload.attrs?.id || ''),
@@ -805,13 +950,24 @@ export function setup(ctx: SpindleFrontendContext) {
         cardFound: anchor.cardFound, anchorLength: precedingAnchorText?.length || 0,
         sourceReady: Boolean(sourceContent),
       })
-      if (!sourceContent) return
+      if (!sourceContent) {
+        // Interception runs before React has necessarily mounted the island.
+        // Retry briefly; completed-response discovery remains the safe fallback.
+        if (retry < INSTANT_STREAM_RENDER_MAX_RETRIES) {
+          const timer = window.setTimeout(() => {
+            lifecycleScanTimers.delete(key)
+            void scanInstantStreamingModelPlannedMessage(chatId, messageId, key, payload, retry + 1, epoch)
+          }, INSTANT_STREAM_RENDER_RETRY_MS)
+          lifecycleScanTimers.set(key, timer)
+        }
+        return
+      }
 
       const messagesApi = (ctx as any).messages
       const recentMessages = typeof messagesApi?.getRecent === 'function' ? messagesApi.getRecent(16) : []
       const message = Array.isArray(recentMessages) ? recentMessages.find(candidate => candidate?.id === messageId) : null
       if (message?.is_user === true) return
-      const swipeId = Number.isFinite(Number(message?.swipe_id)) ? Number(message.swipe_id) : 0
+      const swipeId = Number.isFinite(Number(payload.swipeId)) ? Number(payload.swipeId) : Number.isFinite(Number(message?.swipe_id)) ? Number(message.swipe_id) : 0
       let hash = 2166136261
       for (let cursor = 0; cursor < sourceContent.length; cursor += 1) hash = Math.imul(hash ^ sourceContent.charCodeAt(cursor), 16777619)
       const slot = String(payload.attrs?.slot || 'request')
@@ -848,6 +1004,25 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   registerLifecycleAutoScanInterceptors()
+
+  lifecycle.track(ctx.events.on('GENERATION_STARTED', (payload: any) => {
+    if (payload?.chatId !== activeChatId) return
+    cancelPendingLifecycleScans()
+    lifecycleStreamingSignatures.clear()
+    bracketIllustrationStream.start(String(payload.generationId || ''), String(payload.chatId || ''), String(payload.targetMessageId || ''), Number(payload.targetSwipeId) || 0)
+  }), 'subscription')
+  lifecycle.track(ctx.events.on('STREAM_TOKEN_RECEIVED', (payload: any) => {
+    const settings = currentProseSettings()
+    if (payload?.chatId !== activeChatId || !settings.enabled || settings.mode !== 'inline-protocol' || !settings.instantIllustrationDispatch) return
+    for (const request of bracketIllustrationStream.push(payload)) scheduleLifecycleAutoScan({
+      ...request, tagName: 'reverie-illustration', isStreaming: true, isUser: false,
+    })
+  }), 'subscription')
+  for (const event of ['GENERATION_ENDED', 'GENERATION_STOPPED']) lifecycle.track(ctx.events.on(event, (payload: any) => {
+    if (payload?.chatId !== activeChatId) return
+    bracketIllustrationStream.clear()
+    // Completed-response discovery owns the final reconciliation.
+  }), 'subscription')
 
   const removeStyle = ctx.dom.addStyle(`
     .dg-router-panel {
@@ -960,6 +1135,41 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel details.dg-section > summary.dg-section-title { margin:0; cursor:pointer; list-style-position:inside; }
     .dg-router-panel details.dg-section[open] > summary.dg-section-title { margin-bottom:9px; }
     .dg-router-panel .dg-section-sub { margin: -4px 0 9px; color: var(--dgir-text-muted); font-size: 12px; line-height: 1.4; }
+    .dg-router-panel .dg-story-stack { display:grid; gap:9px; min-width:0; }
+    .dg-router-panel .dg-story-card { min-width:0; padding:10px; border:1px solid color-mix(in srgb,var(--dgir-border) 66%,transparent); border-radius:var(--dgir-radius-md); background:linear-gradient(145deg,color-mix(in srgb,var(--dgir-surface-raised) 60%,transparent),color-mix(in srgb,var(--dgir-surface-soft) 56%,transparent)); box-shadow:inset 0 1px color-mix(in srgb,var(--dgir-glass-highlight) 55%,transparent); }
+    .dg-router-panel .dg-story-title { margin:0 0 5px; font-size:13px; font-weight:800; overflow-wrap:anywhere; }
+    .dg-router-panel .dg-story-copy { margin:0 0 8px; color:var(--dgir-text-muted); font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
+    .dg-router-panel .dg-story-meta { display:flex; flex-wrap:wrap; gap:5px; margin:5px 0 8px; color:var(--dgir-text-dim); font-size:10px; }
+    .dg-router-panel .dg-story-pill { padding:3px 7px; border:1px solid color-mix(in srgb,var(--dgir-border) 60%,transparent); border-radius:999px; background:color-mix(in srgb,var(--dgir-surface) 52%,transparent); }
+    .dg-router-panel .dg-story-constellation { position:relative; display:grid; grid-template-rows:auto auto auto; gap:34px; min-width:0; padding:18px 3px; isolation:isolate; background:radial-gradient(ellipse at center,color-mix(in srgb,var(--dgir-accent) 10%,transparent),transparent 72%); }
+    .dg-router-panel .dg-story-orbit { z-index:1; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; min-width:0; }
+    .dg-router-panel .dg-story-orbit > :last-child:nth-child(odd) { grid-column:1/-1; justify-self:center; width:min(100%,145px); }
+    .dg-router-panel .dg-story-lines { position:absolute; inset:0; z-index:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+    .dg-router-panel .dg-story-lines line { stroke:var(--dgir-accent); stroke-width:1.2; vector-effect:non-scaling-stroke; }
+    .dg-router-panel .dg-story-lines line[data-belief="suspects"] { stroke-dasharray:2 3; }
+    .dg-router-panel .dg-story-lines line[data-belief="rumor"] { stroke-dasharray:6 5; opacity:.62; }
+    .dg-router-panel .dg-story-lines line[data-belief="misinformed"] { stroke-dasharray:7 2 1 2; stroke:var(--dgir-danger); }
+    .dg-router-panel .dg-story-lines line[data-belief="unaware"] { opacity:.28; }
+    .dg-router-panel .dg-story-lines line[data-belief="unknown"] { stroke-dasharray:1 5; opacity:.4; }
+    .dg-router-panel .dg-story-center { z-index:1; justify-self:center; width:min(100%,220px); padding:18px 14px; border:1px solid var(--dgir-border-bright); border-radius:32px; background:color-mix(in srgb,var(--dgir-accent-soft) 60%,var(--dgir-surface)); box-shadow:0 6px 20px color-mix(in srgb,var(--dgir-accent-glow) 25%,transparent); text-align:center; font-size:12px; font-weight:800; overflow-wrap:anywhere; }
+    .dg-router-panel .dg-story-actor { z-index:1; display:grid; justify-items:center; text-align:center; gap:5px; min-width:0; padding:12px 8px; border:1px solid color-mix(in srgb,var(--dgir-border-bright) 66%,transparent); border-radius:24px; background:color-mix(in srgb,var(--dgir-surface-raised) 94%,var(--dgir-surface)); font-size:11px; overflow-wrap:anywhere; }
+    .dg-router-panel .dg-story-initial { display:grid; place-items:center; width:32px; height:32px; border-radius:50%; background:var(--dgir-accent-soft); border:1px solid var(--dgir-border-bright); font-size:14px; font-weight:800; }
+    .dg-router-panel .dg-story-link { color:var(--dgir-text-muted); font-size:9px; }
+    .dg-router-panel .dg-story-merge { min-width:0; }
+    .dg-router-panel .dg-story-merge summary { cursor:pointer; color:var(--dgir-text-muted); }
+    .dg-router-panel .dg-story-media { display:block; width:100%; max-height:240px; object-fit:contain; border-radius:var(--dgir-radius-md); background:color-mix(in srgb,var(--dgir-surface) 75%,transparent); }
+    .dg-router-panel .dg-story-selected { border-color:var(--dgir-border-bright); }
+    .dg-router-panel .dg-story-field { display:grid; gap:4px; min-width:0; color:var(--dgir-text-muted); font-size:10px; }
+    .dg-router-panel .dg-story-field select,.dg-router-panel .dg-story-field input { min-width:0; width:100%; }
+    .dg-router-panel .dg-story-gallery { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+    .dg-router-panel .dg-story-image-button { display:block; width:100%; min-width:0; padding:0; overflow:hidden; border:1px solid var(--dgir-border); border-radius:var(--dgir-radius-md); background:var(--dgir-surface); cursor:zoom-in; }
+    .dg-router-panel .dg-story-image-button:focus-visible { outline:2px solid var(--dgir-accent); outline-offset:3px; }
+    .dg-router-panel .dg-story-image-button .dg-story-media { margin:0; }
+    .dg-router-panel .dg-story-gallery .dg-story-media { height:100px; object-fit:cover; }
+    .dg-router-panel .dg-story-manage { margin-top:12px; }
+    .dg-router-panel .dg-story-manage > summary { cursor:pointer; min-height:44px; display:flex; align-items:center; font-weight:700; }
+    .dg-router-panel .dg-story-manage .dg-actions select { width:100%; min-width:0; }
+    @media (prefers-reduced-motion: reduce) { .dg-router-panel .dg-story-card, .dg-router-panel .dg-story-constellation { scroll-behavior:auto; animation:none!important; transition:none!important; } }
     .dg-router-panel .dg-field-help { margin-top: 5px; color: var(--dgir-text-dim); font-size: 10px; line-height: 1.45; }
     .dg-router-panel .dg-label-with-help,.dg-router-panel .dg-toggle-title-row { display:flex; align-items:center; gap:6px; min-width:0; }
     .dg-router-panel .dg-narrative-utility-row .rr-surface-svg-icon,.dg-router-panel .dg-narrative-utility-heading .rr-surface-svg-icon { display:inline-grid; place-items:center; flex:0 0 17px; width:17px; height:17px; color:var(--lumiverse-primary,#ff70bd); }
@@ -1171,13 +1381,14 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-slot-lightbox-primary-actions .dg-btn { flex: 0 1 auto; min-height: 32px; }
     .dg-router-panel .dg-slot-lightbox-history-manage { display: flex; flex: 0 0 auto; align-items: center; gap: 5px; min-width: 0; }
     .dg-router-panel .dg-slot-lightbox-history-manage:has(> .dg-manage[open]) { flex: 1 1 100%; flex-wrap: wrap; }
+    .dg-router-panel .dg-slot-lightbox-history-manage > .dg-manage { flex: 0 0 auto; min-width: 0; margin: 0; border: 0; padding: 0; }
+    .dg-router-panel .dg-slot-lightbox-history-manage > .dg-manage > summary { box-sizing: border-box; width: max-content; min-height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 6px 9px; border: 1px solid var(--dgir-glass-line); border-radius: var(--dgir-radius-md); background: linear-gradient(145deg, color-mix(in srgb, var(--dgir-surface-raised) 60%, transparent), color-mix(in srgb, var(--dgir-surface-soft) 56%, transparent)); color: var(--dgir-text); font: 700 11px/1.1 var(--lumiverse-font-family, system-ui, sans-serif); list-style: none; text-align: center; }
+    .dg-router-panel .dg-slot-lightbox-history-manage > .dg-manage > summary::-webkit-details-marker { display: none; }
+    .dg-router-panel .dg-slot-lightbox-history-manage > .dg-manage > summary:hover, .dg-router-panel .dg-slot-lightbox-history-manage > .dg-manage > summary:focus-visible { border-color: var(--dgir-border-bright); background: color-mix(in srgb, var(--dgir-surface-raised) 82%, var(--dgir-accent-soft)); box-shadow: 0 4px 12px color-mix(in srgb, var(--dgir-accent) 12%, transparent); color: var(--dgir-text); outline: none; }
     .dg-router-panel .dg-slot-lightbox-history-manage > .dg-manage[open] { flex: 1 1 100%; }
     .dg-router-panel .dg-slot-lightbox-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; min-width: 0; padding: 5px 0 0; border: 0; border-top: 1px solid color-mix(in srgb, var(--dgir-border) 66%, transparent); border-radius: 0; background: transparent; }
     .dg-router-panel .dg-slot-lightbox-footer .dg-actions { gap: 5px; }
-    .dg-router-panel .dg-slot-lightbox-primary-actions > .dg-manage { flex: 0 0 auto; min-width: 0; margin: 0; border: 0; padding: 0; }
-    .dg-router-panel .dg-slot-lightbox-primary-actions > .dg-manage > summary { min-height: 32px; padding: 6px 9px; }
-    .dg-router-panel .dg-slot-lightbox-primary-actions > .dg-manage[open] { flex: 1 1 100%; }
-    .dg-router-panel .dg-slot-lightbox-primary-actions > .dg-manage[open] .dg-actions { max-height: none; overflow: visible; }
+    .dg-router-panel .dg-slot-lightbox-history-manage > .dg-manage[open] .dg-actions { max-height: none; overflow: visible; }
     .dg-router-panel .dg-slot-history-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); gap: 12px; }
     .dg-router-panel .dg-slot-history-version { display: flex; flex-direction: column; gap: 9px; min-width: 0; padding: 10px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-lg); background: var(--dgir-surface-soft); }
     .dg-router-panel .dg-slot-history-version img { display: block; width: 100%; height: 190px; object-fit: contain; border-radius: var(--dgir-radius-md); background: #030203; cursor: zoom-in; }
@@ -1188,10 +1399,25 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-thumb-streaming::before, .dg-router-panel .dg-thumb-streaming::after { display: none !important; }
     .dg-router-panel .dg-thumb-streaming img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; border: 0 !important; outline: 0 !important; box-shadow: none !important; }
     .dg-router-panel .dg-thumb-streaming .dg-thumb-label { position: absolute; left: 5px; right: 5px; bottom: 5px; z-index: 2; max-height: 32px; overflow: hidden; padding: 4px 6px; border-radius: 5px; color: var(--dgir-text); background: color-mix(in srgb, var(--dgir-bg) 84%, transparent); backdrop-filter: blur(7px); font-size: 9px; line-height: 1.25; }
-    .dg-router-panel.dg-menu { position: fixed; z-index: 2147483647; min-width: 210px; max-width: min(280px, calc(100vw - 16px)); padding: 6px; border: 1px solid var(--dgir-border-bright); border-radius: var(--dgir-radius-lg); background: #12080f !important; background-image: linear-gradient(145deg, #24141d, #09070d) !important; box-shadow: 0 16px 40px rgba(0,0,0,.52); backdrop-filter: blur(12px); }
-    .dg-router-panel.dg-menu button { display: block; width: 100%; text-align: left; margin: 0; border: 0; border-radius: var(--dgir-radius-sm); padding: 8px 9px; background: transparent; color: var(--dgir-text); font: 700 11px/1.2 var(--lumiverse-font-family, system-ui, sans-serif); cursor: pointer; }
-    .dg-router-panel.dg-menu button:hover:not(:disabled) { background: var(--dgir-accent-soft); }
+    .dg-router-panel.dg-menu { --dgir-text: #fff7fb; --dgir-text-muted: #ddd0da; --dgir-text-dim: #b9a7b5; --dgir-danger: #ff9eb5; position: fixed; z-index: 2147483647; box-sizing: border-box; width: min(288px, calc(100dvw - 16px)) !important; min-width: 0; max-width: calc(100dvw - 16px); max-height: min(78dvh, calc(100dvh - 16px)); overflow: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid #a76787; border-radius: 16px; background: #211820 !important; background-image: none !important; box-shadow: 0 16px 48px #000a, inset 0 1px #ffffff14; -webkit-backdrop-filter: none; backdrop-filter: none; color: #fff7fb; }
+    .dg-router-panel.dg-menu::before { content: none !important; }
+    .dg-router-panel.dg-menu button { display: block; width: 100%; min-height: 40px; text-align: left; margin: 0; border: 0; border-radius: 10px; padding: 10px 12px; background: transparent; color: var(--dgir-text); font: 600 13px/1.35 var(--lumiverse-font-family, system-ui, sans-serif); cursor: pointer; }
+    .dg-router-panel.dg-menu button:hover:not(:disabled), .dg-router-panel.dg-menu button:focus-visible { outline: none; background: var(--dgir-accent-soft); }
     .dg-router-panel.dg-menu button:disabled { opacity: .65; color: var(--dgir-text-dim); cursor: not-allowed; }
+    .dg-router-panel.dg-menu > .dg-menu-more { margin-top: 4px; border-top: 1px solid color-mix(in srgb, var(--dgir-glass-line, var(--dgir-border)) 68%, transparent); padding-top: 4px; }
+    .dg-router-panel.dg-menu .dg-menu-more > summary, .dg-router-panel.dg-menu .dg-menu-group > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 40px; padding: 8px 12px; border-radius: 10px; color: var(--dgir-text-muted); font: 700 12px/1.35 var(--lumiverse-font-family, system-ui, sans-serif); cursor: pointer; list-style: none; }
+    .dg-router-panel.dg-menu summary::-webkit-details-marker { display: none; }
+    .dg-router-panel.dg-menu .dg-menu-more > summary::after, .dg-router-panel.dg-menu .dg-menu-group > summary::after { content: '+'; color: var(--dgir-accent-text); font-size: 13px; }
+    .dg-router-panel.dg-menu details[open] > summary::after { content: '−'; }
+    .dg-router-panel.dg-menu .dg-menu-more > summary:hover, .dg-router-panel.dg-menu .dg-menu-group > summary:hover, .dg-router-panel.dg-menu summary:focus-visible { outline: none; background: var(--dgir-accent-soft); color: var(--dgir-text); }
+    .dg-router-panel.dg-menu .dg-menu-group { margin: 2px 0; border: 1px solid color-mix(in srgb, var(--dgir-glass-line, var(--dgir-border)) 48%, transparent); border-radius: var(--dgir-radius-sm); background: color-mix(in srgb, var(--dgir-surface-soft) 55%, transparent); }
+    .dg-router-panel.dg-menu .dg-menu-group[open] { padding-bottom: 3px; }
+    .dg-router-panel.dg-menu .dg-menu-danger { border-top: 1px solid color-mix(in srgb, var(--dgir-danger) 42%, transparent); }
+    .dg-router-panel.dg-menu .dg-menu-danger > summary { color: var(--dgir-danger); }
+    .dg-router-panel.dg-menu .dg-menu-danger-action { color: var(--dgir-danger); }
+    .dg-router-panel.dg-menu .dg-menu-count { color: var(--dgir-text-dim); font-size: 11px; font-weight: 600; }
+    .dg-router-panel.dg-menu button:focus-visible, .dg-router-panel.dg-menu summary:focus-visible { outline: 2px solid #f4a1c8; outline-offset: -2px; background: #513247; }
+    @media (pointer: coarse) { .dg-router-panel.dg-menu button, .dg-router-panel.dg-menu summary { min-height: 44px; } }
     [data-component="MessageContent"] .dg-illustration-quick-button, [data-component="MessageContent"] [data-dgir-illustration-menu] { display: none !important; }
     .dg-danger-card { border-color: color-mix(in srgb, var(--dgir-danger) 52%, var(--dgir-border)) !important; background: color-mix(in srgb, var(--dgir-danger) 8%, var(--dgir-surface-soft)) !important; }
     img[data-dgir-key], img[data-dgir-image-id], img[data-dgir-request-id] { cursor: zoom-in; pointer-events: auto !important; }
@@ -1291,6 +1517,7 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-choice-compact.dg-choice-three { grid-template-columns: repeat(3, minmax(0,1fr)); }
     .dg-router-panel .dg-choice-compact.dg-choice-four { grid-template-columns: repeat(4, minmax(0,1fr)); }
     .dg-router-panel .dg-choice-compact.dg-choice-five { grid-template-columns: repeat(5, minmax(0,1fr)); }
+    .dg-router-panel .dg-choice-compact.dg-choice-six { grid-template-columns: repeat(3, minmax(0,1fr)); }
     .dg-router-panel .dg-prose-mode-selector { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 4px; }
     .dg-router-panel .dg-prose-mode-selector .dg-illustrator-mode-card { min-width: 0; min-height: 34px; align-content: center; justify-items: center; padding: 5px 3px; text-align: center; }
     .dg-router-panel .dg-prose-mode-selector .dg-illustrator-mode-card strong { white-space: nowrap; font-size: 10px; }
@@ -1411,7 +1638,7 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-overview-label::before, .dg-router-panel .dg-overview-label::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--dgir-border), transparent); }
     .dg-router-panel .dg-head-actions { justify-content: flex-end; }
     .dg-router-panel .dg-suite-navigation { display: grid; gap: 8px; margin-bottom: 12px; }
-    .dg-router-panel .dg-suite-primary { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; padding: 5px; overflow: hidden; border: 1px solid var(--dgir-glass-line); border-radius: var(--dgir-radius-lg); background: color-mix(in srgb, var(--dgir-surface) 92%, transparent); box-shadow: inset 0 1px var(--dgir-glass-highlight); }
+    .dg-router-panel .dg-suite-primary { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; padding: 5px; overflow: hidden; border: 1px solid var(--dgir-glass-line); border-radius: var(--dgir-radius-lg); background: color-mix(in srgb, var(--dgir-surface) 92%, transparent); box-shadow: inset 0 1px var(--dgir-glass-highlight); }
     .dg-router-panel .dg-suite-primary-tab { min-width: 0; min-height: 58px; display: grid; place-items: center; align-content: center; gap: 5px; border: 0; border-radius: var(--dgir-radius-md); padding: 8px 4px; color: var(--dgir-text-dim); background: transparent; font: 700 10px/1.1 var(--lumiverse-font-family, system-ui, sans-serif); letter-spacing: .02em; cursor: pointer; transition: background-color .16s ease, color .16s ease; overflow: hidden; }
     .dg-router-panel .dg-suite-primary-tab:hover { color: var(--dgir-text); background: rgba(255,255,255,.035); }
     .dg-router-panel .dg-suite-primary-tab.is-active { color: var(--dgir-accent-text); background: var(--dgir-accent-soft); box-shadow: inset 0 -2px var(--dgir-accent); }
@@ -1464,6 +1691,7 @@ export function setup(ctx: SpindleFrontendContext) {
       .dg-suite-stage .dg-choice-compact.dg-choice-three,
       .dg-suite-stage .dg-choice-compact.dg-choice-four,
       .dg-suite-stage .dg-choice-compact.dg-choice-five,
+      .dg-suite-stage .dg-choice-compact.dg-choice-six,
       .dg-suite-stage .dg-illustrator-mode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .dg-suite-stage .dg-prose-mode-selector { grid-template-columns: repeat(3, minmax(0,1fr)); }
       .dg-suite-stage .dg-illustrator-essentials,
@@ -1501,6 +1729,7 @@ export function setup(ctx: SpindleFrontendContext) {
       .dg-router-panel .dg-choice-compact .dg-illustrator-mode-card { min-height: 48px; padding: 7px 5px; text-align: center; place-items: center; }
       .dg-router-panel .dg-choice-compact .dg-illustrator-mode-card small { display: none; }
       .dg-router-panel .dg-choice-compact.dg-choice-five { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .dg-router-panel .dg-choice-compact.dg-choice-six { grid-template-columns: repeat(2, minmax(0,1fr)); }
       .dg-router-panel .dg-prose-mode-selector { grid-template-columns: repeat(3, minmax(0,1fr)); }
       .dg-router-panel .dg-prose-mode-selector .dg-illustrator-mode-card { min-height: 34px; padding: 4px 2px; }
       .dg-router-panel .dg-surface-intro, .dg-router-panel .dg-protocol-card { align-items: stretch; flex-direction: column; }
@@ -1539,7 +1768,7 @@ export function setup(ctx: SpindleFrontendContext) {
       .dg-router-panel .dg-slot-lightbox-footer { justify-content: center; gap: 4px; padding-top: 4px; }
       .dg-router-panel .dg-slot-lightbox-footer .dg-actions { justify-content: center; gap: 4px; }
       .dg-router-panel .dg-slot-lightbox-footer .dg-btn { min-height: 28px; padding: 5px 6px; font-size: 9px; }
-      .dg-router-panel .dg-slot-lightbox-primary-actions > .dg-manage > summary { min-height: 29px; padding: 5px 7px; font-size: 9px; }
+      .dg-router-panel .dg-slot-lightbox-history-manage > .dg-manage > summary { min-height: 29px; padding: 5px 7px; font-size: 9px; }
       .dg-router-panel .dg-plan-row { grid-template-columns: 1fr; gap: 3px; }
       .dg-router-panel .dg-meta-grid { grid-template-columns: 1fr; }
       .dg-router-panel .dg-meta-label { margin-top: 5px; }
@@ -1629,8 +1858,8 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-surface-icon { border-radius: var(--dgir-radius-sm); }
     .dg-router-panel .dg-btn { min-height: 36px; border-radius: var(--dgir-radius-md); }
     .dg-router-panel .dg-btn-subtle { background-color: transparent !important; }
-    .dg-router-panel .dg-help-popover,
-    .dg-router-panel .dg-menu { background-color: #21121d !important; }
+    .dg-router-panel .dg-help-popover { background-color: var(--dgir-surface-raised) !important; }
+    .dg-router-panel .dg-menu { background-color: var(--dgir-surface) !important; }
     .dg-router-panel .dg-beat-review-controls,
     .dg-router-panel .dg-modal-footer { background-color: var(--dgir-bg) !important; }
     .dg-router-panel .dg-history-track::before,
@@ -1652,55 +1881,72 @@ export function setup(ctx: SpindleFrontendContext) {
   const removeLifecycleStyle = ctx.dom.addStyle(lifecycleRuntimeCss())
 
   const tab = ctx.ui.registerDrawerTab({
-    id: 'reverie-relay',
-    title: 'Reverie Relay',
-    shortName: 'PR',
-    headerTitle: 'Reverie Relay · Surface Suite',
+    id: 'private-relay',
+    title: "Ria's Reverie Relay",
+    shortName: 'Reverie',
+    headerTitle: "Ria's Reverie Relay",
     description: 'Living-world surfaces, prose illustrations, visual memory, and media archives',
     keywords: ['reverie', 'relay', 'surface', 'illustrator', 'media', 'instagram', 'twitter', 'smartphone', 'kakao'],
     iconUrl: REVERIE_RELAY_SIDEBAR_ICON_URL,
   })
 
   const inputRelayAction = ctx.ui.registerInputBarAction({
-    id: 'open-reverie-relay',
-    label: 'Open Reverie Relay',
+    id: 'open-private-relay',
+    label: "Open Ria's Reverie Relay",
     iconUrl: REVERIE_RELAY_OVERVIEW_ICON_URL,
   })
   const inputSurfacesAction = ctx.ui.registerInputBarAction({
-    id: 'open-reverie-surfaces',
+    id: 'open-private-relay-surfaces',
     label: 'Open Surface Registry',
     iconUrl: REVERIE_RELAY_SIDEBAR_ICON_URL,
   })
   const unsubInputRelay = inputRelayAction.onClick(() => tab.activate())
   const unsubInputSurfaces = inputSurfacesAction.onClick(() => { activeTab = 'surfaces'; tab.activate(); renderPanel() })
+  const phoneWidget = typeof ctx.ui.createFloatWidget === 'function' ? mountPhoneWidget(ctx,{enabled:false,onSettings:()=>{activeTab='phone';tab.activate();patchConfig({lastActiveDrawerTab:'phone'});renderPanel()}}) : null
+  const offPhoneToolRenderSync = mountPhoneToolRenderSync(ctx)
 
   const unsubBackend = lifecycle.track(lifecycle.track(ctx.onBackendMessage((payload: unknown) => {
     const message = payload as BackendMessage
     if (message.type === 'state') {
       if (!message.chatId || message.chatId === activeChatId) {
         if (message.chatId && message.revision < stateRevision) return
-        stateRevision = message.revision
-        for (const record of message.records) {
-          if (isSlotLifecycleActive(record.status)) {
-            rememberBoundedMap(pendingFinalRevealByRecord, record.key, record.requestId, C5B_CACHE_LIMITS.messageSnapshots)
-            armProseRevealGuard(record)
-          } else if (record.status === 'failed' || record.status === 'image-unavailable' || record.status === 'cancelled') {
-            pendingFinalRevealByRecord.delete(record.key)
-            disarmProseRevealGuard(record.key, record.requestId)
+        const hasChatProjection = Boolean(message.chatId)
+        if (hasChatProjection) {
+          stateRevision = message.revision
+          lastChatStateReceivedAt = Date.now()
+          for (const record of message.records) {
+            if (isSlotLifecycleActive(record.status)) {
+              rememberBoundedMap(pendingFinalRevealByRecord, record.key, record.requestId, C5B_CACHE_LIMITS.messageSnapshots)
+              armProseRevealGuard(record)
+              if (['regenerate-same-settings', 'regenerate-current-settings', 'intent-regeneration'].includes(String(record.triggerType || '')) && isGenerationActiveStatus(record.status)) {
+                requestReplacementStatusProjection(record)
+              }
+            } else if (record.status === 'failed' || record.status === 'image-unavailable' || record.status === 'cancelled') {
+              pendingFinalRevealByRecord.delete(record.key)
+              disarmProseRevealGuard(record.key, record.requestId)
+              restorePreviousLifecycleImage(record)
+            } else if (record.status === 'completed') {
+              settleReplacementStatusProjection(record)
+            }
           }
+          records = message.records.map(record => {
+            const optimistic = optimisticSlotActions.get(record.key)
+            if (!optimistic) return record
+            if (record.updatedAt > optimistic.basedOnUpdatedAt || ['preparing', 'queued', 'parsing', 'provider-waiting', 'generating', 'previewing', 'placement-pending'].includes(record.status)) {
+              optimisticSlotActions.delete(record.key)
+              return record
+            }
+            return {
+              ...record,
+              status: optimistic.status,
+              triggerType: optimistic.triggerType || record.triggerType,
+              regenerationIntent: optimistic.intent || record.regenerationIntent,
+            }
+          })
+          stats = message.stats || emptyRelayChatStats()
+          queueSafety = message.queueSafety || { rawPendingRecords: 0, uniquePendingJobs: 0, duplicateRecordsCollapsed: 0, oldestPendingAgeMs: 0, pausedBacklog: false, updatedAt: 0 }
+          recordByKey = new Map(records.map(record => [record.key, record]))
         }
-        records = message.records.map(record => {
-          const optimistic = optimisticSlotActions.get(record.key)
-          if (!optimistic) return record
-          if (record.updatedAt > optimistic.basedOnUpdatedAt || ['preparing', 'queued', 'parsing', 'provider-waiting', 'generating', 'previewing', 'placement-pending'].includes(record.status)) {
-            optimisticSlotActions.delete(record.key)
-            return record
-          }
-          return { ...record, status: optimistic.status, regenerationIntent: optimistic.intent || record.regenerationIntent }
-        })
-        stats = message.stats || emptyRelayChatStats()
-        queueSafety = message.queueSafety || { rawPendingRecords: 0, uniquePendingJobs: 0, duplicateRecordsCollapsed: 0, oldestPendingAgeMs: 0, pausedBacklog: false, updatedAt: 0 }
-        recordByKey = new Map(records.map(record => [record.key, record]))
         const incomingProseSettings = message.config.proseIllustratorSettings
         const pendingStillFresh = Boolean(pendingProseSettingsWrite && Date.now() - pendingProseSettingsWrite.sentAt < 15_000)
         const pendingMatchesIncoming = Boolean(pendingProseSettingsWrite && JSON.stringify(incomingProseSettings) === JSON.stringify(pendingProseSettingsWrite.settings))
@@ -1718,7 +1964,8 @@ export function setup(ctx: SpindleFrontendContext) {
         })
         const effectiveConfig = pendingConfigPatches.reduce((resolved, pending) => ({ ...resolved, ...pending.patch }), message.config)
         config = { ...effectiveConfig, proseIllustratorSettings: effectiveProseSettings }
-        proseIllustrator = message.proseIllustrator || { settings: {}, opportunities: {}, plans: {}, records: {}, processedMessageKeys: {}, autoCounters: {}, frequencyDecisions: {}, activeOpportunityIdByChat: {}, activePlanIdByChat: {} }
+        phoneWidget?.setEnabled(config.phoneEnabled!==false)
+        if (hasChatProjection) proseIllustrator = message.proseIllustrator || { settings: {}, opportunities: {}, plans: {}, records: {}, processedMessageKeys: {}, autoCounters: {}, frequencyDecisions: {}, activeOpportunityIdByChat: {}, activePlanIdByChat: {} }
         proseIllustrator = {
           ...proseIllustrator,
           settings: {
@@ -1730,12 +1977,15 @@ export function setup(ctx: SpindleFrontendContext) {
         parserConnections = frontendParserConnections ?? message.parserConnections
         imageConnections = message.imageConnections || []
         imageProviders = message.imageProviders || []
-        logs = message.logs
-        candidateBatches = message.candidateBatches || []
-        queueDirector = message.queueDirector || { pausedAfterCurrent: false, concurrencyLimit: 1, selectedKeys: [], jobStatuses: {} }
-        assetLibrary = message.assetLibrary || { assets: {}, compare: {}, updatedAt: 0 }
-        versionTrees = message.versionTrees || []
-        continuityVault = message.continuityVault || { chatId: activeChatId || '', strength: 'off', characters: {}, characterSheets: {}, visualIdentity: {}, wardrobe: {}, currentAppearance: {}, suggestions: {}, quarantine: {}, history: [], migrationPreview: null, ignoredForSlotKeys: [], deliberateBreaks: {}, updatedAt: 0 }
+        if (hasChatProjection) {
+          logs = message.logs
+          candidateBatches = message.candidateBatches || []
+          queueDirector = message.queueDirector || { pausedAfterCurrent: false, concurrencyLimit: 1, selectedKeys: [], jobStatuses: {} }
+          assetLibrary = message.assetLibrary || { assets: {}, compare: {}, updatedAt: 0 }
+          versionTrees = message.versionTrees || []
+          continuityVault = message.continuityVault || { chatId: activeChatId || '', strength: 'off', characters: {}, characterSheets: {}, visualIdentity: {}, wardrobe: {}, currentAppearance: {}, suggestions: {}, quarantine: {}, history: [], migrationPreview: null, ignoredForSlotKeys: [], deliberateBreaks: {}, updatedAt: 0 }
+          storyConstellations = message.storyConstellations || { schemaVersion: 1, activeTimelineId: 'main', actors: {}, events: {}, proposals: {}, echoes: {}, knowledgeEdges: {}, conflicts: {}, phoneEntries: {}, reelOverrides: {}, processedMessageFingerprints: {}, updatedAt: 0 }
+        }
         continuityVault.strength = effectiveConfig.vaultStrength
         // A chatless state broadcast carries global settings only. Its empty
         // transient chat state must never replace the persisted Surface
@@ -1766,13 +2016,15 @@ export function setup(ctx: SpindleFrontendContext) {
         // resurrect the last acknowledged/default values.
         for (const pending of settingsPatchQueue) applyRelaySettingsDraft(pending.patch)
         invalidateDisplayIfContractChanged(effectiveConfig, customSurfaces)
-        backgroundQueue = message.backgroundQueue || { items: {}, abortRequestedAt: 0, updatedAt: 0 }
-        imageWorkerRecovery = message.imageWorkerRecovery || { active: false, draining: false, resetAvailable: false, laneResetCount: 0, waiterCount: 0 }
-        galleryLinks = message.galleryLinks || []
-        for (const linkId of [...galleryLinkClaimPending]) if (!galleryLinks.some(link => link.id === linkId && link.status === 'pending')) galleryLinkClaimPending.delete(linkId)
-        for (const linkId of [...galleryLinkResultAwaitingAck]) if (!galleryLinks.some(link => link.id === linkId && link.status === 'pending')) galleryLinkResultAwaitingAck.delete(linkId)
-        lastDryRun = message.lastDryRun || null
-        lastGenerationBlockers = message.lastGenerationBlockers || []
+        if (hasChatProjection) {
+          backgroundQueue = message.backgroundQueue || { items: {}, abortRequestedAt: 0, updatedAt: 0 }
+          imageWorkerRecovery = message.imageWorkerRecovery || { active: false, draining: false, resetAvailable: false, laneResetCount: 0, waiterCount: 0 }
+          galleryLinks = message.galleryLinks || []
+          for (const linkId of [...galleryLinkClaimPending]) if (!galleryLinks.some(link => link.id === linkId && link.status === 'pending')) galleryLinkClaimPending.delete(linkId)
+          for (const linkId of [...galleryLinkResultAwaitingAck]) if (!galleryLinks.some(link => link.id === linkId && link.status === 'pending')) galleryLinkResultAwaitingAck.delete(linkId)
+          lastDryRun = message.lastDryRun || null
+          lastGenerationBlockers = message.lastGenerationBlockers || []
+        }
         void processPendingGalleryLinks()
         void enforceNativeAutoGenerationGuard()
         backendBuild = message.build
@@ -1805,7 +2057,15 @@ export function setup(ctx: SpindleFrontendContext) {
       else window.setTimeout(() => void processPendingGalleryLinks(), 250)
       return
     }
+    if (message.type === 'story_backfill_status') {
+      if (message.chatId === activeChatId) {
+        storyBackfillStatus = message
+        if (activeTab.startsWith('story-')) renderPanel()
+      }
+      return
+    }
     if (message.type === 'queue_abort_ack') {
+      cancelPendingLifecycleScans()
       // The acknowledgement is a terminal UI boundary. Do not let an older
       // optimistic action, placement state, or processing candidate batch
       // repaint the Orb as busy while the terminal state broadcast settles.
@@ -1882,6 +2142,13 @@ export function setup(ctx: SpindleFrontendContext) {
       else openTextModal('Enabled Surface Prompt Dry Run · no model calls', value)
       return
     }
+    if (message.type === 'native_surface_repair_result') {
+      const finish = pendingAssistedSurfaceRepairRequests.get(message.requestId)
+      pendingAssistedSurfaceRepairRequests.delete(message.requestId)
+      finish?.(message)
+      if (message.status === 'failed') showToast('error', message.error || 'Assisted Surface repair failed safely; no changes were made.')
+      return
+    }
     if (message.type === 'custom_surface_action_result') {
       const finish = pendingCustomSurfaceSaves.get(message.requestId)
       pendingCustomSurfaceSaves.delete(message.requestId)
@@ -1932,6 +2199,7 @@ export function setup(ctx: SpindleFrontendContext) {
     if (message.type === 'slot_action_feedback') {
       const handled = slotActionFeedback.handle(message)
       if (handled && message.status === 'failed' && message.message) showToast('error', message.message)
+      if (handled) scheduleBindInlineImages()
       return
     }
     if (message.type === 'error') {
@@ -2019,9 +2287,14 @@ export function setup(ctx: SpindleFrontendContext) {
       return
     }
     if (message.type === 'completed_history_page') {
+      if (message.chatId !== activeChatId) return
+      if (activeTab === 'slots' && message.completedLifetime !== completedHistoryRequestedForCount) return
       completedHistoryChatId = message.chatId
-      completedHistoryRows = message.cursor === 0 ? message.rows : [...completedHistoryRows, ...message.rows]
+      const pageRows = message.cursor === 0 ? message.rows : [...completedHistoryRows, ...message.rows]
+      completedHistoryRows = [...new Map(pageRows.map(row => [String(row.key || ''), row])).values()]
       completedHistoryNextCursor = message.nextCursor
+      completedHistoryTotal = message.total
+      loadFirstArchivedOnlyPage()
       renderPanel()
       return
     }
@@ -2075,6 +2348,7 @@ export function setup(ctx: SpindleFrontendContext) {
       if (index >= 0) settingsPatchQueue.splice(index, 1)
       if (settingsPatchInFlight === message.operationId) settingsPatchInFlight = null
       config = message.config
+      phoneWidget?.setEnabled(config.phoneEnabled!==false)
       customSurfaces = message.customSurfaces
       for (const pending of settingsPatchQueue) applyRelaySettingsDraft(pending.patch)
       if (message.status === 'failed') showToast('error', `Setting was rolled back: ${message.error || 'backend persistence failed'}`)
@@ -2155,6 +2429,15 @@ export function setup(ctx: SpindleFrontendContext) {
     if (chatId === activeChatId) return
     clearPlacementVisualHeartbeats()
     activeChatId = chatId
+    activeSlotPreviewKey = null
+    // Enriched Native bindings belong to the previous chat's subjects.
+    nativeImageSettingsCache = {}
+    nativeImageSettingsCachedAt = 0
+    nativeImageSettingsCacheChatId = null
+    nativeSettingsLastSyncedAt = 0
+    nativeSettingsFetchInFlight = null
+    nativeSettingsFetchInFlightChatId = null
+    nativeSettingsFetchToken = null
     pendingPromptPreviewRequestId = null
     sendFrontendSession(true)
     slotActionFeedback.clear()
@@ -2318,21 +2601,23 @@ export function setup(ctx: SpindleFrontendContext) {
     }
     if (isSlotActionBusy(record) && record.status !== 'placement-pending') return false
     const previousOrbStatus = relayOrbStatus
+    const originalButtonLabel = options.trigger?.textContent || ''
     relayOrbStatus = 'generating'
-    lastStatus = 'Repairing Relay placement…'
+    lastStatus = record.status === 'placement-pending' ? 'Inserting Relay image…' : 'Repairing Relay placement…'
     renderRelayOrb()
     const id = submissionId('repair-placement', record.key)
     const submitted = slotActionFeedback.submit({
       submissionId: id,
       key: record.key,
       action: 'repair-placement',
-      statusText: 'Repairing placement…',
+      statusText: record.status === 'placement-pending' ? 'Inserting image…' : 'Repairing placement…',
       dispatch: () => ctx.sendToBackend({ type: 'retry_placement', submissionId: id, key: record.key }),
       closePopup: () => { options.closePopup?.(); closeActionMenu() },
       setDisabled: disabled => {
         if (options.trigger) {
           options.trigger.disabled = disabled
           options.trigger.dataset.rrlSubmitting = disabled ? 'true' : 'false'
+          options.trigger.textContent = disabled ? record.status === 'placement-pending' ? 'Inserting…' : 'Repairing…' : originalButtonLabel
         }
       },
       showPopupError: showError,
@@ -2344,6 +2629,7 @@ export function setup(ctx: SpindleFrontendContext) {
       relayOrbStatus = previousOrbStatus
       renderRelayOrb()
     }
+    scheduleBindInlineImages()
     return submitted
   }
 
@@ -2380,6 +2666,7 @@ export function setup(ctx: SpindleFrontendContext) {
       return
     }
     if (action === 'abort') {
+      cancelPendingLifecycleScans()
       if (record) ctx.sendToBackend({ type: 'queue_action', chatId: record.chatId, action: 'cancel_selected', selectedKeys: [record.key] })
       else if (chatId) ctx.sendToBackend({ type: 'queue_action', chatId, action: 'abort_all' })
       else showToast('warning', 'Relay could not locate the owning generation for this request.')
@@ -2439,6 +2726,30 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   }
 
+  function requestAssistedSurfaceRepair(payload:
+    | { type: 'native_surface_repair_preview'; chatId: string; messageId: string; swipeId?: number; surfaceId: string; rootTag: string; sourceMarkup: string; originalMarkup: string; repairConnectionId?: string | null }
+    | { type: 'native_surface_repair_apply'; chatId: string; messageId: string; repairId: string }
+    | { type: 'native_surface_action'; chatId: string; messageId: string; swipeId?: number; action: 'edit'; surfaceId: string; rootTag: string; originalMarkup: string; replacementMarkup: string },
+  ): Promise<Extract<BackendMessage, { type: 'native_surface_repair_result' }>> {
+    const requestId = `surface-repair-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+    return new Promise(resolve => {
+      const timeout = window.setTimeout(() => {
+        const finish = pendingAssistedSurfaceRepairRequests.get(requestId)
+        pendingAssistedSurfaceRepairRequests.delete(requestId)
+        finish?.({ type: 'native_surface_repair_result', requestId, chatId: payload.chatId, messageId: payload.messageId, status: 'failed', error: payload.type === 'native_surface_repair_preview' ? 'The repair preview timed out. No change was applied. Your draft is still here.' : 'The save acknowledgement timed out. Your draft is still here. Check the message before retrying.' })
+      }, 180_000)
+      pendingAssistedSurfaceRepairRequests.set(requestId, message => { window.clearTimeout(timeout); resolve(message) })
+      try {
+        if (payload.type === 'native_surface_action') ctx.sendToBackend({ ...payload, operationId: requestId })
+        else ctx.sendToBackend({ ...payload, requestId })
+      } catch (error) {
+        pendingAssistedSurfaceRepairRequests.delete(requestId)
+        window.clearTimeout(timeout)
+        resolve({ type: 'native_surface_repair_result', requestId, chatId: payload.chatId, messageId: payload.messageId, status: 'failed', error: error instanceof Error ? error.message : String(error) })
+      }
+    })
+  }
+
   function openSurfaceMarkupEditor(buttonEl: HTMLElement): void {
     const host = buttonEl.closest<HTMLElement>('[data-rrn-editable-surface]')
     const source = host?.dataset.rrnSurfaceSource
@@ -2453,35 +2764,113 @@ export function setup(ctx: SpindleFrontendContext) {
       showToast('warning', 'Relay could not open the editable source for this surface.')
       return
     }
-    const modal = ctx.ui.showModal({ title: `Edit ${buttonEl.dataset.rrnSurfaceId || 'Relay Surface'}`, width: 820, persistent: true })
+    const assisted = buttonEl.dataset.rrnAction === 'repair-surface'
+    const modal = ctx.ui.showModal({ title: `${assisted ? 'Assisted Repair' : 'Inspect / Fix'} · ${buttonEl.dataset.rrnSurfaceId || 'Surface'}`, width: 820, persistent: true })
     modal.root.classList.add('dg-router-panel', 'dg-modal-host')
     const body = document.createElement('div'); body.className = 'dg-modal-body'
     const failed = host.querySelector<HTMLElement>('[data-reverie-surface-contract="failed"]')
     const diagnostic = failed?.querySelector('span')?.textContent?.trim() || ''
-    const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = `${diagnostic ? `${diagnostic}\n\n` : ''}Edit the preserved semantic Surface markup. Safe delimiter repairs are already previewed in the editor. Relay keeps the canonical outer wrapper and rerenders this exact message position.`
+    const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = `${diagnostic ? `${diagnostic}\n\n` : ''}Edit the preserved markup and choose Save Surface for a manual fix. Choose the Assisted Repair connection below, then request a closing-tag-only preview. It cannot invent missing fields or rewrite text or images. Review the candidate before Apply Preview. Opening this editor makes no model call.`
+    let repairConnectionId = config?.surfaceRepairConnectionId || null
+    const repairConnectionField = surfaceRepairConnectionField(repairConnectionId, value => { repairConnectionId = value })
     const editor = document.createElement('textarea'); editor.className = 'dg-textarea dg-textarea-tall'; editor.value = source; editor.spellcheck = false; editor.style.minHeight = '340px'
+    editor.setAttribute('aria-label', 'Surface markup')
+    const repairStatus = document.createElement('div'); repairStatus.className = 'dg-recovery-note'; repairStatus.setAttribute('role', 'status'); repairStatus.textContent = 'Assisted repair is optional. The parser model is called only when you request a preview.'
+    const surfaceId = buttonEl.dataset.rrnSurfaceId || host.dataset.rrnSurfaceId || ''
+    const rootTag = buttonEl.dataset.rrnRootTag || host.dataset.rrnRootTag || ''
+    const rawSwipeId = buttonEl.dataset.rrnSwipeId || host.dataset.rrnSwipeId || ''
+    const swipeId = rawSwipeId === '' ? undefined : Number(rawSwipeId)
+    const invalidSwipeId = swipeId !== undefined && (!Number.isInteger(swipeId) || swipeId < 0)
+    let repairId = ''
+    let pending = false
+    const setPending = (value: boolean) => {
+      pending = value
+      editor.disabled = value
+      previewButton.disabled = value || invalidSwipeId || source !== originalSource
+      applyButton.disabled = value || !repairId
+      saveButton.disabled = value || invalidSwipeId
+      restoreButton.disabled = value
+      repairConnectionField.querySelector('select')!.disabled = value
+    }
     const actions = document.createElement('div'); actions.className = 'dg-actions'
+    const previewButton = button('Preview Assisted Repair', () => {
+      if (pending) return
+      if (source !== originalSource || editor.value !== source) {
+        repairStatus.textContent = 'Assisted repair is tied to the exact stored Surface source. Restore the original markup or use Save Surface for a manual edit.'
+        showToast('warning', 'This edited or transformed Surface cannot be safely previewed. The source was left unchanged.')
+        return
+      }
+      repairId = ''
+      setPending(true)
+      repairStatus.textContent = 'Sending this one Surface to the selected Assisted Repair connection…'
+      void requestAssistedSurfaceRepair({
+        type: 'native_surface_repair_preview', chatId, messageId, swipeId,
+        surfaceId, rootTag, sourceMarkup: source, originalMarkup: originalSource, repairConnectionId,
+      }).then(result => {
+        setPending(false)
+        if (result.status !== 'preview-ready' || !result.proposedMarkup || !result.repairId) {
+          repairStatus.textContent = result.error || 'Relay rejected the repair preview. No changes were made.'
+          return
+        }
+        editor.value = result.proposedMarkup
+        repairId = result.repairId
+        applyButton.disabled = false
+        repairStatus.textContent = `${result.summary || 'Candidate passed structural validation.'}\nReview the markup above. Apply is enabled for this exact, unchanged message only.`
+      })
+    }, invalidSwipeId || source !== originalSource, 'primary', 'Ask the selected repair connection for a bounded structure-only preview; nothing is saved yet.')
+    const applyButton = button('Apply Preview', () => {
+      if (pending || !repairId) return
+      setPending(true)
+      repairStatus.textContent = 'Rechecking the message fingerprint and applying the approved structure-only repair…'
+      void requestAssistedSurfaceRepair({ type: 'native_surface_repair_apply', chatId, messageId, repairId }).then(result => {
+        setPending(false)
+        if (result.status === 'applied') {
+          repairStatus.textContent = 'Repair applied. Relay is re-rendering the exact message position.'
+          modal.dismiss()
+          return
+        }
+        repairStatus.textContent = result.error || 'Relay could not apply this preview; the original Surface remains unchanged.'
+        repairId = ''
+        applyButton.disabled = true
+      })
+    }, true, 'primary', 'Apply the reviewed preview only if the original message and Surface still match exactly.')
+    editor.addEventListener('input', () => {
+      if (!repairId) return
+      repairId = ''
+      applyButton.disabled = true
+      repairStatus.textContent = 'The preview was edited, so its approval token is invalid. Request a fresh preview before applying.'
+    })
+    const restoreButton = button('Restore Original', () => {
+      editor.value = source
+      repairId = ''
+      applyButton.disabled = true
+      repairStatus.textContent = 'Original preserved source restored. You can request a fresh preview or make a manual correction.'
+    }, false, 'subtle')
+    const saveButton = button('Save Surface', () => {
+      if (pending) return
+      repairId = ''
+      setPending(true)
+      repairStatus.textContent = 'Saving this Surface to its original message position…'
+      void requestAssistedSurfaceRepair({
+        type: 'native_surface_action', chatId, messageId, swipeId, action: 'edit',
+        rootTag, surfaceId, originalMarkup: originalSource, replacementMarkup: editor.value,
+      }).then(result => {
+        setPending(false)
+        if (result.status === 'applied') modal.dismiss()
+        else repairStatus.textContent = result.error || 'Save failed. Your draft is still here; the original Surface was not replaced.'
+      })
+    }, invalidSwipeId, 'primary')
     actions.append(
-      button('Full Complete Dry Run', () => {
-        void fetchNativeSettingsSnapshot(true).then(snapshot => ctx.sendToBackend({
-          type: 'full_complete_dry_run', chatId: activeChatId, runtimeHealth: lifecycle.snapshot(),
-          nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt,
-        }))
-      }, false, 'primary', 'Resolve the complete local pipeline without calling a story model or image provider.'),
-      button('Copy Last Full Dry Run', () => copyText(JSON.stringify(lastFullCompleteDryRun, null, 2), 'Full Complete Dry Run copied.'), !lastFullCompleteDryRun),
-      button('Save Surface', () => {
-        ctx.sendToBackend({
-          type: 'native_surface_action', chatId, messageId, action: 'edit',
-          rootTag: buttonEl.dataset.rrnRootTag || host.dataset.rrnRootTag || undefined,
-          surfaceId: buttonEl.dataset.rrnSurfaceId || host.dataset.rrnSurfaceId || undefined,
-          originalMarkup: originalSource, replacementMarkup: editor.value,
-        })
-        modal.dismiss()
-      }, false, 'primary'),
+      previewButton,
+      applyButton,
+      restoreButton,
+      saveButton,
       button('Cancel', () => modal.dismiss(), false, 'subtle'),
     )
-    body.append(note, editor, actions)
+    body.append(note, repairConnectionField, editor, repairStatus, actions)
     modal.root.appendChild(body)
+    // Let the user choose a working provider before spending on a preview.
+    // Neither entry point calls a model merely by opening the editor.
   }
 
   const onNativeSurfaceActionClick = (event: MouseEvent) => {
@@ -2533,7 +2922,7 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   const onContext = (event: MouseEvent) => {
-    const target = event.target as HTMLElement | null
+    const target = event.composedPath().find(node => node instanceof HTMLElement) as HTMLElement | undefined
     const editableSurface = target?.closest<HTMLElement>('[data-rrn-editable-surface]')
     const image = target?.closest<HTMLImageElement>(relayImageSelector)
     const record = recordForImage(image)
@@ -2550,7 +2939,7 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   }
   const onPointerDown = (event: PointerEvent) => {
-    const target = event.target as HTMLElement | null
+    const target = event.composedPath().find(node => node instanceof HTMLElement) as HTMLElement | undefined
     const image = target?.closest<HTMLImageElement>(relayImageSelector)
     const record = recordForImage(image)
     const editableSurface = target?.closest<HTMLElement>('[data-rrn-editable-surface]')
@@ -2668,12 +3057,24 @@ export function setup(ctx: SpindleFrontendContext) {
   sendFrontendSession(true)
   void loadFrontendParserConnections()
   void refreshState(false)
+  // Broadcasts can be delayed/lost during concurrent provider completions.
+  // Recover persisted status while work is active; never restart a provider.
+  const lifecycleRefreshTimer = window.setInterval(() => {
+    const now = Date.now()
+    if (disposed || !activeChatId || !records.some(record => isSlotLifecycleActive(record.status))) return
+    if (now - lastChatStateReceivedAt < 20_000 || now - lastLifecycleRefreshAt < 20_000) return
+    lastLifecycleRefreshAt = now
+    void refreshState(false)
+  }, 20_000)
+  lifecycle.track(() => window.clearInterval(lifecycleRefreshTimer), 'timer')
   renderPanel()
   renderRelayOrb()
 
 
   async function refreshState(syncNative: boolean): Promise<void> {
+    if (disposed) return
     if (syncNative) await syncNativeSettings()
+    if (disposed) return
     ctx.sendToBackend({ type: 'list_state', chatId: activeChatId })
   }
 
@@ -2697,11 +3098,14 @@ export function setup(ctx: SpindleFrontendContext) {
 
   async function fetchNativeSettingsSnapshot(force = false): Promise<NativeSettingsSnapshot | null> {
     const now = Date.now()
-    if (!force && Object.keys(nativeImageSettingsCache).length && now - nativeImageSettingsCachedAt < NATIVE_SETTINGS_CACHE_TTL_MS) {
+    const requestedChatId = activeChatId
+    if (!force && nativeImageSettingsCacheChatId === requestedChatId && Object.keys(nativeImageSettingsCache).length && now - nativeImageSettingsCachedAt < NATIVE_SETTINGS_CACHE_TTL_MS) {
       return { settings: { ...nativeImageSettingsCache }, capturedAt: nativeImageSettingsCachedAt }
     }
-    if (!force && nativeSettingsFetchInFlight) return nativeSettingsFetchInFlight
+    if (!force && nativeSettingsFetchInFlight && nativeSettingsFetchInFlightChatId === requestedChatId) return nativeSettingsFetchInFlight
 
+    const token = {}
+    nativeSettingsFetchToken = token
     const request = (async (): Promise<NativeSettingsSnapshot | null> => {
       try {
         const response = await fetch('/api/v1/settings/imageGeneration', { headers: { Accept: 'application/json' } })
@@ -2709,22 +3113,31 @@ export function setup(ctx: SpindleFrontendContext) {
         const row = await response.json() as { value?: Record<string, unknown> }
         const settings = { ...(row.value || {}) }
         if (Object.keys(settings).length === 0) return null
-        await enrichNativeVisualPrompts(settings)
+        await enrichNativeVisualPrompts(settings, requestedChatId)
+        if (activeChatId !== requestedChatId) return null
         nativeImageSettingsCache = settings
         nativeImageSettingsCachedAt = Date.now()
+        nativeImageSettingsCacheChatId = requestedChatId
         return { settings: { ...settings }, capturedAt: nativeImageSettingsCachedAt }
       } catch {
         return null
       } finally {
-        nativeSettingsFetchInFlight = null
+        if (nativeSettingsFetchToken === token) {
+          nativeSettingsFetchInFlight = null
+          nativeSettingsFetchInFlightChatId = null
+          nativeSettingsFetchToken = null
+        }
       }
     })()
     nativeSettingsFetchInFlight = request
+    nativeSettingsFetchInFlightChatId = requestedChatId
     return request
   }
 
-  async function enrichNativeVisualPrompts(settings: Record<string, unknown>): Promise<void> {
-    const characterId = ctx.getActiveChat().characterId
+  async function enrichNativeVisualPrompts(settings: Record<string, unknown>, requestedChatId: string | null): Promise<void> {
+    const chat = ctx.getActiveChat()
+    if (chat.chatId !== requestedChatId) return
+    const characterId = chat.characterId
     const presets = Array.isArray(settings.promptPresets) ? settings.promptPresets as Array<Record<string, unknown>> : []
     const resolveBinding = async (kind: 'character' | 'persona', subjectId: string | null): Promise<void> => {
       if (!subjectId) return
@@ -2762,7 +3175,9 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   async function syncNativeSettings(force = false): Promise<NativeSettingsSnapshot | null> {
+    const requestedChatId = activeChatId
     const snapshot = await fetchNativeSettingsSnapshot(force)
+    if (activeChatId !== requestedChatId) return null
     if (snapshot && (force || Date.now() - nativeSettingsLastSyncedAt > NATIVE_SETTINGS_CACHE_TTL_MS)) {
       nativeSettingsLastSyncedAt = Date.now()
       ctx.sendToBackend({ type: 'sync_native_settings', chatId: activeChatId, imageGeneration: snapshot.settings, nativeSettingsCapturedAt: snapshot.capturedAt, frontendSessionId, platformClass: frontendPlatformClass })
@@ -2771,7 +3186,7 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function cachedNativeSettingsSnapshot(): NativeSettingsSnapshot | null {
-    if (!Object.keys(nativeImageSettingsCache).length) return null
+    if (nativeImageSettingsCacheChatId !== activeChatId || !Object.keys(nativeImageSettingsCache).length) return null
     return { settings: { ...nativeImageSettingsCache }, capturedAt: nativeImageSettingsCachedAt || Date.now() }
   }
 
@@ -3183,6 +3598,7 @@ export function setup(ctx: SpindleFrontendContext) {
   const revealedFinalImageByRecord = new Map<string, string>()
   const startedAuthoredReveals = new WeakSet<HTMLImageElement>()
   const authoredRevealOverlayByImage = new WeakMap<HTMLImageElement, HTMLElement>()
+  const authoredRevealVisibilityByImage = new WeakMap<HTMLImageElement, string>()
 
   function refreshProseRevealGuardStyles(extraScope?: ShadowRoot): void {
     // A completed host render can replace the pending card before its image's
@@ -3190,11 +3606,9 @@ export function setup(ctx: SpindleFrontendContext) {
     // decoding finishes; the guard lives outside the replaced message markup.
     const rules = [...proseRevealGuards.entries()].map(([key, guard]) => {
       const owner = `.rrl-card[data-rrn-record-key=${cssEscape(key)}][data-rrn-live-status="completed"] .rrl-media-slot`
-      // The URL can also be shown in a review modal, Slots thumbnail, or
-      // Gallery. Guard only the owning message's image during its reveal.
-      const resolvedImage = guard.imageUrl
-        ? `[data-message-id=${JSON.stringify(guard.messageId)}] img[src=${JSON.stringify(guard.imageUrl)}],img[data-dgir-message-id=${JSON.stringify(guard.messageId)}][src=${JSON.stringify(guard.imageUrl)}]{visibility:hidden!important}`
-        : ''
+      // The same URL is also used in Relay's review/lightbox UI. Never hide
+      // those images while guarding the in-chat reveal.
+      const resolvedImage = guard.imageUrl ? `img[src=${JSON.stringify(guard.imageUrl)}]:not(.dg-router-panel img){visibility:hidden!important}` : ''
       return `${resolvedImage}${owner} .rrl-slot-image{visibility:hidden!important}${owner} .rrl-media-skeleton{display:grid!important;opacity:1!important}`
     }).join('')
     const scopes = new Set<Document | ShadowRoot>([document, ...proseRevealGuardStyles.keys()])
@@ -3294,6 +3708,7 @@ export function setup(ctx: SpindleFrontendContext) {
     record: SlotRecord,
     update: MediaCardUpdate | null,
     effectOverlay?: HTMLElement,
+    restoreVisibility?: string,
   ): void {
     const expectedRecordKey = record.key
     const isCurrentFinalImage = () => (card ? card.isConnected : Boolean(ctx.dom.findMessageElement(record.messageId)?.contains(image)))
@@ -3354,20 +3769,20 @@ export function setup(ctx: SpindleFrontendContext) {
       isCurrent: isCurrentFinalImage,
       reducedMotion: Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches),
       preserveGeometry: !card,
+      restoreVisibility,
       onRevealStart: () => {
         if (!isCurrentFinalImage()) return
         disarmProseRevealGuard(expectedRecordKey, record.requestId)
         const mediaSlot = image.closest<HTMLElement>('.rrl-media-slot')
         if (mediaSlot) mediaSlot.dataset.rrnMediaEmpty = 'false'
-        if (effectOverlay) {
-          const parent = effectOverlay.parentElement
-          if (parent && effectOverlay.dataset.rrnParentPosition !== undefined) parent.style.position = effectOverlay.dataset.rrnParentPosition
-          effectOverlay.remove()
-        }
+        if (effectOverlay) removeAuthoredRevealEffect(image, effectOverlay)
         if (card && record.status === 'completed') stripHealthyCompletedLifecycleUi(card)
       },
       onSettled,
     }).then(outcome => {
+      if (restoreVisibility !== undefined && authoredRevealVisibilityByImage.get(image) === restoreVisibility) {
+        authoredRevealVisibilityByImage.delete(image)
+      }
       if (visualLifecycleTracked) finishPlacementVisualHeartbeat(visualVersionKey)
       if ((outcome === 'failed' || outcome === 'stale') && isCurrentFinalImage() && isCurrentPlacementVersion()) {
         ctx.sendToBackend({
@@ -3505,6 +3920,11 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function bindInlineImages(messageId?: string): void {
+    // A completed Surface can outlive its job record or be restored by host
+    // Regex rendering. Its figure still needs the same scoped geometry CSS;
+    // do not make that stylesheet depend on a live records-loop iteration.
+    const stylingRoot = messageId ? ctx.dom.findMessageElement(messageId) : document.body
+    if (stylingRoot) ensureMountedLifecycleStyle(stylingRoot)
     if (!messageId) {
       bindNarrativeInteractiveControls()
       for (const row of deepQueryAll<HTMLElement>(document, '[data-rr-kakao-color]')) applyKakaoColorBinding(row)
@@ -3532,16 +3952,15 @@ export function setup(ctx: SpindleFrontendContext) {
       if (!root) continue
       ensureMountedLifecycleStyle(root)
       ensureSyntheticProseProjection(record, root)
-      const completedProseImageUrl = record.pendingPlacement?.imageUrl || record.imageUrl
+      const completedProseImageUrl = currentLifecycleImageUrl(record)
       if (completedProseImageUrl) ensureCompletedProseProjection(record, root, completedProseImageUrl)
       const requestCards = deepQueryAll<HTMLElement>(root as ParentNode, `[data-rrn-native-request="${cssEscape(record.requestId)}"]`)
       const active = ['preparing', 'queued', 'awaiting-native-settings', 'parsing', 'provider-waiting', 'generating', 'previewing', 'placement-pending'].includes(record.status)
-      const stallEligible = ['preparing', 'parsing', 'generating', 'previewing', 'placement-pending'].includes(record.status)
       const stream = streamPreviews.get(record.key)
       // A provider result is visually final before its message-scoped
       // persistence transaction commits. Hydrate that preserved asset directly
       // into the mounted slot so sibling completions never require a host remount.
-      const visualImageUrl = record.pendingPlacement?.imageUrl || record.imageUrl
+      const visualImageUrl = currentLifecycleImageUrl(record)
       if (visualImageUrl) {
         const versionKey = JSON.stringify([record.key, visualImageUrl, record.pendingPlacement?.imageId || record.imageId || ''])
         if (requestCards.length === 0) {
@@ -3556,13 +3975,13 @@ export function setup(ctx: SpindleFrontendContext) {
           } else clearProjectionInvalidation(versionKey)
         } else clearProjectionInvalidation(versionKey)
       }
-      const lastActivityAt = Math.max(record.updatedAt || record.createdAt || now, stream?.updatedAt || 0)
-      const stalled = stallEligible && now - lastActivityAt > 90_000
       const needsPlacementRepair = record.status === 'placement-repair-needed'
+      const submittingPlacement = slotActionFeedback.isSubmitting(record.key, 'repair-placement')
       const canonicalFailure = isFailureRecoveryStatus(record.status)
-      const recoverable = stalled || canonicalFailure
-      const statusLabel = stalled ? 'Stalled'
-        : record.status === 'recovered-pending' ? 'Ready'
+      // Silence is not provider failure. Only canonical backend outcomes may
+      // expose failure/retry controls; the state watchdog recovers missed ticks.
+      const recoverable = canonicalFailure
+      const statusLabel = record.status === 'recovered-pending' ? 'Ready'
           : record.status === 'preparing' ? 'Preparing'
           : record.status === 'queued' ? 'Queued'
             : record.status === 'awaiting-native-settings' ? 'Waiting for settings'
@@ -3571,8 +3990,8 @@ export function setup(ctx: SpindleFrontendContext) {
                   : record.status === 'parsing' ? 'Preparing'
                     : record.status === 'provider-waiting' ? 'Waiting for image worker'
               : record.status === 'generating' ? 'Generating'
-                : record.status === 'placement-pending' ? record.pendingPlacement ? 'Ready' : 'Inserting'
-                  : record.status === 'placement-repair-needed' ? 'Repair needed'
+                : record.status === 'placement-pending' ? submittingPlacement ? 'Inserting' : record.pendingPlacement ? 'Ready' : 'Inserting'
+                  : record.status === 'placement-repair-needed' ? submittingPlacement ? 'Repairing' : 'Repair needed'
                   : record.status === 'completed' ? 'Ready'
                     : record.status === 'failed' || record.status === 'image-unavailable' ? 'Failed'
                       : record.status === 'cancelled' ? 'Stopped'
@@ -3581,7 +4000,7 @@ export function setup(ctx: SpindleFrontendContext) {
         const owningKey = card.dataset.rrnRecordKey
         if (owningKey && owningKey !== record.key) continue
         if (active) syncGenerationPlaceholderEffect(card)
-        const signature = JSON.stringify([record.key, record.status, stalled, visualImageUrl, record.requestAspect, record.error, stream])
+        const signature = JSON.stringify([record.key, record.status, submittingPlacement, normalizeGenerationPlaceholderEffect(config?.generationPlaceholderEffect), visualImageUrl, record.requestAspect, record.error, stream])
         const media = card.querySelector<HTMLElement>('.rrl-media-slot')
         let slotImage = card.querySelector<HTMLImageElement>('.rrl-slot-image')
         if (media && visualImageUrl && !slotImage) {
@@ -3600,25 +4019,32 @@ export function setup(ctx: SpindleFrontendContext) {
           ? previous
           : { signature: '', media, sawActiveLifecycle: false }
         if (active) update.sawActiveLifecycle = true
+        // The host may remount or re-cover the same completed image without
+        // changing Relay's record signature. Recover its decoded pixels before
+        // the signature fast-path can skip this card entirely.
+        if (record.status === 'completed' && visualImageUrl && slotImage
+          && restoreCompletedLifecycleImage(slotImage, visualImageUrl, urlMatches)) {
+          if (media) media.dataset.rrnMediaEmpty = 'false'
+          disarmProseRevealGuard(record.key, record.requestId)
+        }
         if (update.signature === signature && previous === update) continue
         update.signature = signature
         mediaCardUpdates.set(card, update)
-        card.dataset.rrnLiveStatus = stalled ? 'failed' : record.status
-        card.dataset.rrnPlacementReady = record.status === 'placement-pending' && Boolean(record.pendingPlacement) ? 'true' : 'false'
+        card.dataset.rrnLiveStatus = record.status
+        card.dataset.rrnPlacementReady = record.status === 'placement-pending' && Boolean(record.pendingPlacement) && !submittingPlacement ? 'true' : 'false'
         card.dataset.rrnRecordKey = record.key
         card.classList.toggle('rrl-error', recoverable)
         const status = card.querySelector<HTMLElement>('.rrl-status')
         setMediaText(status, statusLabel)
         const title = card.querySelector<HTMLElement>('.rrl-title')
         const stateIcon = card.querySelector<HTMLElement>('.rrl-state-icon')
-        if (title && stalled) title.textContent = 'Generation stalled'
-        else if (title && record.status === 'preparing') title.textContent = 'Preparing generation…'
+        if (title && record.status === 'preparing') title.textContent = 'Preparing generation…'
         else if (title && record.status === 'generating') title.textContent = 'Generating image…'
         else if (title && record.status === 'provider-waiting') title.textContent = 'Queued for ImageGen…'
         else if (title && record.status === 'parsing') title.textContent = 'Preparing image…'
         else if (title && record.status === 'queued') title.textContent = 'Waiting to generate…'
-        else if (title && record.status === 'placement-pending') title.textContent = record.pendingPlacement ? 'Image ready to insert' : 'Inserting image…'
-        else if (title && record.status === 'placement-repair-needed') title.textContent = 'Generated image needs placement repair'
+        else if (title && record.status === 'placement-pending') title.textContent = submittingPlacement ? 'Inserting image…' : record.pendingPlacement ? 'Image ready to insert' : 'Inserting image…'
+        else if (title && record.status === 'placement-repair-needed') title.textContent = submittingPlacement ? 'Repairing image placement…' : 'Generated image needs placement repair'
         else if (title && (record.status === 'failed' || record.status === 'image-unavailable')) title.textContent = 'Generation failed'
         else if (title && record.status === 'cancelled') title.textContent = 'Generation stopped'
         else if (title && record.status === 'completed') title.textContent = 'Image completed'
@@ -3626,7 +4052,7 @@ export function setup(ctx: SpindleFrontendContext) {
 
         const mediaSlot = media
         if (mediaSlot) {
-          mediaSlot.dataset.rrnMediaState = stalled ? 'failed' : record.status
+          mediaSlot.dataset.rrnMediaState = record.status
           if (record.requestAspect && !mediaSlot.style.getPropertyValue('--reverie-media-aspect')) {
             const ratio = /^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/.exec(record.requestAspect.trim())
             if (ratio) mediaSlot.style.setProperty('--reverie-media-aspect', `${Number(ratio[1])} / ${Number(ratio[2])}`)
@@ -3655,13 +4081,17 @@ export function setup(ctx: SpindleFrontendContext) {
             mediaSlot.dataset.rrnMediaEmpty = waitingForCompletedRender || shouldReveal ? 'true' : 'false'
             if (shouldReveal) {
               update.sawActiveLifecycle = false
-              revealFinalImageWhenReady(card, slotImage, visualImageUrl, record, update)
+              revealFinalImageWhenReady(card, slotImage, visualImageUrl, record, update, authoredRevealOverlayByImage.get(slotImage))
             } else if (record.status === 'completed') {
               update.sawActiveLifecycle = false
               if (pendingRecordReveal) pendingFinalRevealByRecord.delete(record.key)
             }
           } else if (!stream?.imageDataUrl && slotImage && record.status !== 'completed') {
-            slotImage.hidden = true
+            const replacingPreviousImage = ['regenerate-same-settings', 'regenerate-current-settings', 'intent-regeneration'].includes(String(record.triggerType || ''))
+              && isGenerationActiveStatus(record.status)
+            if (replacingPreviousImage && (slotImage.currentSrc || slotImage.src)) {
+              concealPreviousLifecycleImage(slotImage)
+            } else if (!replacingPreviousImage) slotImage.hidden = true
             mediaSlot.dataset.rrnMediaEmpty = 'true'
           }
         }
@@ -3671,7 +4101,26 @@ export function setup(ctx: SpindleFrontendContext) {
         const previewHost = card.querySelector<HTMLElement>('.rrl-preview')
         const previewImage = card.querySelector<HTMLImageElement>('.rrl-preview-image')
         const previewBadge = card.querySelector<HTMLElement>('.rrl-preview-badge')
-        if (active && !stalled && stream?.imageDataUrl && previewHost && previewImage) {
+        const diffusionStage = card.querySelector<HTMLElement>('.rr-diffusion-stage')
+        const diffusionFrame = diffusionStage?.querySelector<HTMLImageElement>('.rr-diffusion-frame')
+        const diffusionAmbient = diffusionStage?.querySelector<HTMLImageElement>('.rr-diffusion-ambient')
+        const diffusionStatus = diffusionStage?.querySelector<HTMLElement>('.rr-diffusion-status')
+        if (active && !visualImageUrl && stream?.imageDataUrl && diffusionStage && diffusionFrame && diffusionAmbient) {
+          if (diffusionFrame.src !== stream.imageDataUrl) diffusionFrame.src = stream.imageDataUrl
+          if (diffusionAmbient.src !== stream.imageDataUrl) diffusionAmbient.src = stream.imageDataUrl
+          diffusionFrame.hidden = false
+          diffusionAmbient.hidden = false
+          diffusionStage.dataset.rrPreviewReady = 'true'
+          if (diffusionStatus) {
+            diffusionStatus.textContent = stream.step !== undefined && stream.totalSteps ? `Diffusion preview · ${stream.step}/${stream.totalSteps}` : 'Diffusion preview'
+            diffusionStatus.hidden = false
+          }
+          if (previewHost) previewHost.hidden = true
+          if (mediaSlot) {
+            mediaSlot.dataset.rrnMediaState = 'previewing'
+            mediaSlot.dataset.rrnMediaEmpty = 'true'
+          }
+        } else if (active && !visualImageUrl && stream?.imageDataUrl && previewHost && previewImage) {
           if (previewImage.src !== stream.imageDataUrl) previewImage.src = stream.imageDataUrl
           previewHost.hidden = false
           if (mediaSlot) {
@@ -3695,7 +4144,7 @@ export function setup(ctx: SpindleFrontendContext) {
           progress.hidden = true
         }
 
-        const readyToInsert = record.status === 'placement-pending' && Boolean(record.pendingPlacement)
+        const readyToInsert = record.status === 'placement-pending' && Boolean(record.pendingPlacement) && !submittingPlacement
         let actions = card.querySelector<HTMLElement>('.rrl-actions')
         if (!actions && readyToInsert) {
           actions = document.createElement('div')
@@ -3703,7 +4152,9 @@ export function setup(ctx: SpindleFrontendContext) {
           card.appendChild(actions)
         }
         if (actions) {
-          const desired: Array<[string, string]> = needsPlacementRepair
+          const desired: Array<[string, string]> = submittingPlacement
+            ? []
+            : needsPlacementRepair
             ? [['repair-placement', 'Repair / Reinsert'], ['reparse', 'Reparse'], ['rescan', 'Rescan']]
             : canonicalFailure
             ? [['regenerate', 'Regenerate'], ['reparse', 'Reparse'], ['rescan', 'Rescan']]
@@ -3751,9 +4202,9 @@ export function setup(ctx: SpindleFrontendContext) {
         }
       }
     }
-    const completed = records.filter(record => (!messageId || record.messageId === messageId) && (record.pendingPlacement?.imageUrl || record.imageUrl))
+    const completed = records.filter(record => (!messageId || record.messageId === messageId) && currentLifecycleImageUrl(record))
     for (const record of completed) {
-      const visualImageUrl = record.pendingPlacement?.imageUrl || record.imageUrl || ''
+      const visualImageUrl = currentLifecycleImageUrl(record)
       const visualImageId = record.pendingPlacement?.imageId || record.imageId || ''
       const root = ctx.dom.findMessageElement(record.messageId)
       if (!root) continue
@@ -3822,7 +4273,7 @@ export function setup(ctx: SpindleFrontendContext) {
         }
         if (record.status === 'completed' && pendingAuthoredReveal && !startedAuthoredReveals.has(image)) {
           startedAuthoredReveals.add(image)
-          revealFinalImageWhenReady(null, image, visualImageUrl, record, null, authoredRevealOverlayByImage.get(image))
+          revealFinalImageWhenReady(null, image, visualImageUrl, record, null, authoredRevealOverlayByImage.get(image), authoredRevealVisibilityByImage.get(image))
         }
       }
     }
@@ -3835,10 +4286,10 @@ export function setup(ctx: SpindleFrontendContext) {
     const hadMountedContent = root.childNodes.length > 0
     ensureMountedLifecycleStyle(root)
     bindInlineImages(messageId)
-    const expected = records.filter(record => record.messageId === messageId && (record.pendingPlacement?.imageUrl || record.imageUrl))
+    const expected = records.filter(record => record.messageId === messageId && currentLifecycleImageUrl(record))
     const images = deepQueryAll<HTMLImageElement>(root as ParentNode, 'img')
     const missing = expected.filter(record => {
-      const expectedUrl = record.pendingPlacement?.imageUrl || record.imageUrl || ''
+      const expectedUrl = currentLifecycleImageUrl(record)
       return !images.some(image => urlMatches(image.currentSrc || image.src, expectedUrl))
     })
     if (hadMountedContent && root.childNodes.length === 0) console.warn('[Reverie Relay] Render reconciliation found an emptied message root.', { messageId })
@@ -3863,6 +4314,10 @@ export function setup(ctx: SpindleFrontendContext) {
       layer.setAttribute('aria-hidden', 'true')
       if (effect === 'spinner') layer.className = 'rr-spinner'
       else if (effect === 'dream-orb') layer.className = 'rr-orb'
+      else if (effect === 'diffusion-preview') {
+        placeholder.innerHTML = renderGenerationPlaceholderEffect(effect)
+        continue
+      }
       else {
         layer.className = 'rr-regex-particles'
         layer.append(...Array.from({ length: 24 }, () => document.createElement('i')))
@@ -3949,6 +4404,539 @@ export function setup(ctx: SpindleFrontendContext) {
     openQuickStartOverview()
   }
 
+  function sendStoryAction(action: string, fields: Record<string, unknown> = {}): void {
+    if (!activeChatId) return
+    ctx.sendToBackend({ type: 'story_action', chatId: activeChatId, action, ...fields })
+  }
+
+  function storyText(text: string, className = 'dg-story-copy'): HTMLElement {
+    const node = document.createElement('p')
+    node.className = className
+    node.textContent = text
+    return node
+  }
+
+  function storyImages(event: StoryEventNode): VisualAssetReference[] {
+    return storyEventImageIds(storyConstellations, event).map(id => assetLibrary.assets[id]).filter(asset => asset?.status === 'available' && Boolean(asset.imageUrl))
+  }
+
+  function openStoryEdit(options: { title: string; description?: string; fields?: Array<{ label: string; value: string; required?: boolean; maxLength?: number }>; submit?: string; danger?: boolean; save: (values: string[]) => void }): void {
+    // Embedded Lumiverse browsers do not implement native prompt/confirm.
+    // Use the host modal and keep edits scoped to the chat that opened it.
+    const openingChatId = activeChatId
+    const modal = ctx.ui.showModal({ title: options.title, width: 620, persistent: true })
+    modal.root.classList.add('dg-router-panel', 'dg-modal-host')
+    const dismiss = installAccessibleModalDismissal(modal, options.title)
+    const body = document.createElement('div'); body.className = 'dg-modal-body'
+    if (options.description) body.appendChild(storyText(options.description))
+    const values = (options.fields || []).map(field => field.value)
+    const inputs: HTMLTextAreaElement[] = []
+    for (const [index, field] of (options.fields || []).entries()) {
+      const control = textareaInput(field.label, field.value, value => { values[index] = value })
+      const input = control.querySelector('textarea')!
+      input.setAttribute('aria-label', field.label)
+      if (field.maxLength) input.maxLength = field.maxLength
+      input.required = field.required === true
+      inputs.push(input); body.appendChild(control)
+    }
+    const error = document.createElement('div'); error.className = 'dg-warning'; error.hidden = true
+    const actions = document.createElement('div'); actions.className = 'dg-actions'
+    actions.append(button('Cancel', dismiss, false, 'subtle'), button(options.submit || 'Save', () => {
+      inputs.forEach((input, index) => { values[index] = input.value })
+      if (!openingChatId || activeChatId !== openingChatId) { error.textContent = 'Return to the original chat before saving this edit.'; error.hidden = false; return }
+      const invalid = (options.fields || []).findIndex((field, index) => field.required && !values[index].trim())
+      if (invalid >= 0) { error.textContent = `${options.fields![invalid].label} cannot be empty.`; error.hidden = false; inputs[invalid].focus(); return }
+      options.save(values); dismiss()
+    }, false, options.danger ? 'danger' : 'primary'))
+    body.append(error, actions); modal.root.appendChild(body)
+    inputs[0]?.focus()
+  }
+
+  function storyImage(asset: VisualAssetReference, title: string): HTMLButtonElement {
+    const open = document.createElement('button'); open.type = 'button'; open.className = 'dg-story-image-button'
+    open.setAttribute('aria-label', `Open image: ${title}`)
+    const image = document.createElement('img'); image.className = 'dg-story-media'; image.src = asset.imageUrl; image.alt = asset.alt || title; image.loading = 'lazy'
+    open.appendChild(image); open.addEventListener('click', () => openAssetImage(asset))
+    return open
+  }
+
+  function goToStorySource(source: StorySourceRef | undefined): void {
+    if (!source) return
+    if (source.sourceState === 'deleted') { showToast('info', 'This source was deleted. Its confirmed story memory and evidence are retained.'); return }
+    if (source.chatId !== activeChatId) { showToast('info', 'Open the source chat to inspect this memory. No other chat or swipe was changed.'); return }
+    const message = ctx.dom.findMessageElement(source.messageId)
+    if (!message) { showToast('info', 'This source is outside the mounted chat window. Use Browse messages to load it.'); return }
+    // This host has no public virtual-message navigation or swipe-selection
+    // API. Never silently show a different swipe as the originating source.
+    const currentSwipe = activeSwipeByMessage.get(source.messageId)
+    if (source.sourceState === 'inactive-swipe' || (currentSwipe !== undefined && currentSwipe !== source.swipeId)) {
+      showToast('info', `Source belongs to swipe ${source.swipeId + 1}. Select that swipe to inspect the original; your active swipe was not changed.`)
+    } else if (source.sourceState === 'edited') showToast('info', 'This source was edited. The event retains its original supporting excerpt.')
+    message.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+    ;(message as HTMLElement).focus?.({ preventScroll: true })
+  }
+
+  function renderStorySettingsAndBackfill(): HTMLElement {
+    const box = document.createElement('div')
+    const stack = document.createElement('div')
+    stack.className = 'dg-story-stack'
+    if (!config) {
+      stack.appendChild(empty('Story settings are loading.'))
+      box.appendChild(panelSection('Story State', stack))
+      return box
+    }
+    stack.append(
+      toggleCard('Event Constellations', 'Analyzes new and edited story messages with the configured Relay parser. Findings remain proposals until you confirm them. Existing story data stays available when analysis is off.', config.storyConstellationsEnabled, checked => patchConfig({ storyConstellationsEnabled: checked })),
+      toggleCard('Auto-confirm high-confidence events', 'Allows only strongly grounded candidates at 95% confidence or higher to become canon automatically. Off by default; ambiguous or weak candidates always stay proposals.', config.autoConfirmStoryEvents, checked => patchConfig({ autoConfirmStoryEvents: checked }), !config.storyConstellationsEnabled),
+      toggleCard('Knowledge conflict alerts', 'Shows when a new source conflicts with a recorded character knowledge state. Unknown is not treated as unaware.', config.storyKnowledgeConflictAlerts, checked => patchConfig({ storyKnowledgeConflictAlerts: checked }), !config.storyConstellationsEnabled),
+      toggleCard('Analyze edited messages', 'Rechecks a changed message when Event Constellations is enabled. Confirmed events are preserved and changed meanings become new review proposals.', config.analyzeEditedStoryMessages, checked => patchConfig({ analyzeEditedStoryMessages: checked }), !config.storyConstellationsEnabled),
+      toggleCard('Inject character knowledge context', 'Adds a short character-scoped reminder from confirmed active events only. It does not inject the Story Reel or inactive/non-canon events.', config.injectStoryEventContext, checked => patchConfig({ injectStoryEventContext: checked }), !config.storyConstellationsEnabled),
+    )
+    if (config.storyConstellationsEnabled && !config.parserConnectionId) {
+      const warning = document.createElement('div'); warning.className = 'dg-warning'
+      warning.textContent = 'Event analysis needs a Relay parser connection. Without one, backfill can ingest authored Character Phones but cannot find Event proposals.'
+      stack.append(warning, button('Choose Parser Connection', () => { activeTab = 'utility-studio'; renderPanel() }, false, 'subtle'))
+    }
+    if (activeChatId) {
+      const includeInactive = document.createElement('label')
+      includeInactive.className = 'dg-story-field'
+      const checkbox = document.createElement('input')
+      checkbox.type = 'checkbox'
+      checkbox.checked = storyIncludeInactiveSwipes
+      checkbox.addEventListener('change', () => { storyIncludeInactiveSwipes = checkbox.checked })
+      includeInactive.append(checkbox, document.createTextNode('Include inactive swipes (still excluded from active views)'))
+      stack.appendChild(includeInactive)
+    }
+    const running = storyBackfillStatus?.chatId === activeChatId && storyBackfillStatus.status === 'running'
+    stack.appendChild(button(running ? 'Cancel Backfill' : 'Backfill Existing Chat', () => sendStoryAction(running ? 'cancel-backfill' : 'backfill', { includeInactiveSwipes: storyIncludeInactiveSwipes }), !config.storyConstellationsEnabled || !activeChatId, running ? 'danger' : 'primary', 'Manual, resumable, proposal-first analysis. This does not run during migration or chat open.'))
+    if (storyBackfillStatus?.chatId === activeChatId) {
+      const status = document.createElement('div')
+      status.className = 'dg-story-card'
+      const text = storyBackfillStatus.message || `${storyBackfillStatus.status}: ${storyBackfillStatus.completed} / ${storyBackfillStatus.total}`
+      status.textContent = `${storyBackfillStatus.status.toUpperCase()} · ${storyBackfillStatus.completed}/${storyBackfillStatus.total} terminal · ${text}`
+      stack.appendChild(status)
+    }
+    const recent = logs.filter(log => log.chatId === activeChatId && log.eventType === 'story_analysis_outcome').sort((left, right) => right.timestamp - left.timestamp).slice(0, 3)
+    if (recent.length) {
+      const analysis = document.createElement('details'); analysis.className = 'dg-story-card dg-story-manage'
+      analysis.open = storyAnalysisExpanded
+      analysis.addEventListener('toggle', () => { if (analysis.isConnected) storyAnalysisExpanded = analysis.open })
+      const heading = document.createElement('summary'); heading.textContent = 'Recent Story Analysis'; analysis.appendChild(heading)
+      for (const log of recent) {
+        const result = log.details || {}
+        const row = document.createElement('div'); row.className = 'dg-story-card'
+        const count = (key: string) => typeof result[key] === 'number' ? result[key] as number : 0
+        const status = result.status === 'failed' ? 'Analysis failed' : result.status === 'skipped' ? 'Analysis skipped' : count('rawCandidates') === 0 ? 'No event found' : `${count('proposals')} proposals · ${count('rejectedCandidates')} rejected`
+        row.appendChild(storyText(status, 'dg-story-title'))
+        if (typeof result.reason === 'string') row.appendChild(storyText(result.reason.replace(/-/g, ' ')))
+        const reasons = result.rejectionReasons && typeof result.rejectionReasons === 'object' ? Object.entries(result.rejectionReasons) : []
+        for (const [reason, amount] of reasons) row.appendChild(storyText(`${reason.replace(/-/g, ' ')} (${amount})`))
+        if (Array.isArray(result.rejectionExamples)) for (const example of result.rejectionExamples.slice(0, 3)) {
+          if (example && typeof example.anchor === 'string') row.appendChild(storyText(`Rejected evidence: “${example.anchor}”`))
+        }
+        if (log.messageId && typeof log.swipeId === 'number') row.appendChild(button('Retry Analysis', () => sendStoryAction('retry-analysis', { messageId: log.messageId, swipeId: log.swipeId }), !config.storyConstellationsEnabled || running, 'subtle', 'Recheck this source with the configured parser. This makes one model call when eligible; proposals still require confirmation.'))
+        analysis.appendChild(row)
+      }
+      stack.appendChild(analysis)
+    }
+    box.appendChild(panelSection('Story State & Backfill', stack))
+    return box
+  }
+
+  function renderStoryProposal(proposal: StoryEventProposal): HTMLElement {
+    const card = document.createElement('article')
+    card.className = 'dg-story-card'
+    const title = document.createElement('h4'); title.className = 'dg-story-title'; title.textContent = proposal.title
+    card.append(title, storyText(proposal.summary))
+    const meta = document.createElement('div'); meta.className = 'dg-story-meta'
+    for (const value of [proposal.eventType, proposal.importance, `${Math.round(proposal.confidence * 100)}% confidence`, `Source ${proposal.sourceRef.messageId} · swipe ${proposal.sourceRef.swipeId}`, proposal.sourceRef.sourceState]) {
+      const pill = document.createElement('span'); pill.className = 'dg-story-pill'; pill.textContent = value; meta.appendChild(pill)
+    }
+    card.appendChild(meta)
+    if (proposal.sourceRef.excerpt) card.appendChild(storyText(`Evidence: “${proposal.sourceRef.excerpt}”`))
+    const actors = proposal.participants.map(participant => storyConstellations.actors[participant.actorId]?.displayName || 'Unresolved character')
+    if (actors.length) card.appendChild(storyText(`Participants: ${actors.join(', ')}`))
+    const actions = document.createElement('div'); actions.className = 'dg-actions'
+    const canConfirm = proposal.sourceRef.sourceState === 'active'
+    const linksExistingEvent = proposal.proposalKind === 'event-echo' && Boolean(proposal.likelyDuplicateEventId && storyConstellations.events[proposal.likelyDuplicateEventId]?.canonState === 'confirmed')
+    actions.append(
+      button('Go to Source', () => goToStorySource(proposal.sourceRef), false, 'subtle'),
+      button(proposal.proposalKind === 'revision' ? 'Confirm Revision & Supersede' : linksExistingEvent ? 'Link as Event Echo' : 'Confirm', () => sendStoryAction(proposal.proposalKind === 'revision' && proposal.likelyDuplicateEventId ? 'supersede-event' : 'confirm-proposal', { proposalId: proposal.proposalId, eventId: proposal.likelyDuplicateEventId }), !canConfirm, 'primary', canConfirm ? proposal.proposalKind === 'revision' ? 'Confirm the new meaning and retain the old event as superseded history.' : linksExistingEvent ? 'Attach this source and its grounded knowledge/Echoes to the existing event.' : 'Add this event to confirmed canon.' : 'Reactivate the source swipe before confirming.'),
+      button('Edit', () => openStoryEdit({title:'Edit Event Proposal',fields:[{label:'Event title',value:proposal.title,required:true,maxLength:120},{label:'Event summary',value:proposal.summary,required:true,maxLength:520}],save:([title,summary])=>sendStoryAction('edit-proposal',{proposalId:proposal.proposalId,title,summary})}), false, 'subtle'),
+      button('Mark Non-Canon', () => sendStoryAction('mark-non-canon', { proposalId: proposal.proposalId }), false, 'danger'),
+    )
+    if (proposal.proposalKind !== 'revision' && proposal.likelyDuplicateEventId && storyConstellations.events[proposal.likelyDuplicateEventId]) actions.appendChild(button('Create Separate Event & Supersede', () => sendStoryAction('supersede-event', { proposalId: proposal.proposalId, eventId: proposal.likelyDuplicateEventId }), !canConfirm, 'subtle'))
+    card.appendChild(actions)
+    return card
+  }
+
+  function renderStoryEventSummary(event: StoryEventNode): HTMLElement {
+    const card = document.createElement('article'); card.className = 'dg-story-card'
+    const title = document.createElement('h4'); title.className = 'dg-story-title'; title.textContent = event.title
+    card.append(title, storyText(event.summary))
+    const images = storyImages(event)
+    if (images[0]) card.appendChild(storyImage(images[0], event.title))
+    const meta = document.createElement('div'); meta.className = 'dg-story-meta'
+    const names = event.participants.map(participant => storyConstellations.actors[participant.actorId]?.displayName || 'Unresolved character')
+    const knowledgeCount = event.participants.filter(participant => Boolean(storyConstellations.knowledgeEdges[`${event.eventId}:${participant.actorId}`])).length
+    for (const value of [event.storyTimeLabel, event.location, names.join(', '), `${event.echoIds.length} Echoes`, `${images.length} linked images`, `${knowledgeCount} knowledge links`, event.canonState]) {
+      if (!value) continue
+      const pill = document.createElement('span'); pill.className = 'dg-story-pill'; pill.textContent = value; meta.appendChild(pill)
+    }
+    card.appendChild(meta)
+    if (event.sourceWarning) { const warning = document.createElement('div'); warning.className = 'dg-warning'; warning.textContent = event.sourceWarning; card.appendChild(warning) }
+    const actions = document.createElement('div'); actions.className = 'dg-actions'
+    actions.appendChild(button('Open Constellation', () => { selectedStoryEventId = event.eventId; pendingStoryEventNavigation = event.eventId; renderPanel() }, false, 'primary'))
+    actions.appendChild(button('Go to Source', () => goToStorySource(event.sourceRefs[0]), !event.sourceRefs.length, 'subtle'))
+    card.appendChild(actions)
+    return card
+  }
+
+  function renderStoryEvent(eventId: string): HTMLElement {
+    const event = storyConstellations.events[eventId]
+    const card = document.createElement('article')
+    card.className = 'dg-story-card'
+    card.dataset.storyEventId = eventId
+    if (!event) return card
+    const heading = document.createElement('h4'); heading.className = 'dg-story-title'; heading.textContent = event.title
+    heading.tabIndex = -1
+    card.append(heading, storyText(event.summary), button('Close Detail', () => { selectedStoryEventId = ''; renderPanel() }, false, 'subtle'))
+    const manage = document.createElement('details'); manage.className = 'dg-story-card dg-story-manage'
+    const manageHeading = document.createElement('summary'); manageHeading.textContent = 'Edit Constellation'; manage.appendChild(manageHeading)
+    const identities = document.createElement('div'); identities.className = 'dg-story-stack'
+    const images = storyImages(event)
+    if (images[0]) card.appendChild(storyImage(images[0], event.title))
+    const nodes = document.createElement('div'); nodes.className = 'dg-story-constellation'
+    const lines = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    lines.setAttribute('viewBox', '0 0 100 100'); lines.setAttribute('preserveAspectRatio', 'none'); lines.setAttribute('aria-hidden', 'true'); lines.setAttribute('class', 'dg-story-lines')
+    const center = document.createElement('div'); center.className = 'dg-story-center'; center.textContent = `✧ ${event.title}`
+    const actorNodes: HTMLElement[] = []
+    const upperCount = Math.ceil(event.participants.length / 2)
+    for (const participant of event.participants) {
+      const actor = storyConstellations.actors[participant.actorId]
+      const name = actor?.displayName || 'Unresolved character'
+      const node = document.createElement('div'); node.className = 'dg-story-actor'
+      node.dataset.storyActorId = participant.actorId
+      const initial = document.createElement('span'); initial.className = 'dg-story-initial'; initial.textContent = Array.from(name)[0] || '?'; initial.setAttribute('aria-hidden', 'true'); node.appendChild(initial)
+      const actorName = document.createElement('strong'); actorName.textContent = `${name} · ${participant.role}`; node.appendChild(actorName)
+      const knowledgeEdge = storyConstellations.knowledgeEdges[`${eventId}:${participant.actorId}`]
+      const beliefState = knowledgeEdge?.beliefState || 'unknown'
+      const link = document.createElement('span'); link.className = 'dg-story-link'; link.textContent = `${beliefState} · ${knowledgeEdge?.acquisitionMode || 'acquisition unknown'}`; node.appendChild(link)
+      const index = actorNodes.length
+      const orbitIndex = index < upperCount ? index : index - upperCount
+      const orbitSize = index < upperCount ? upperCount : event.participants.length - upperCount
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+      const orbitRow = Math.floor(orbitIndex / 2)
+      const orbitX = orbitSize === 1 || (orbitSize % 2 === 1 && orbitIndex === orbitSize - 1) ? 50 : orbitIndex % 2 === 0 ? 25 : 75
+      const orbitY = index < upperCount ? orbitSize > 2 ? orbitRow === 0 ? 11 : 30 : 22 : orbitSize > 2 ? orbitRow === 0 ? 70 : 89 : 78
+      line.setAttribute('x1', '50'); line.setAttribute('y1', '50'); line.setAttribute('x2', String(orbitX)); line.setAttribute('y2', String(orbitY)); line.dataset.belief = beliefState
+      lines.appendChild(line)
+      line.dataset.storyActorId = participant.actorId
+      if (actor?.kind === 'temporary') node.appendChild(storyText('Unresolved identity', 'dg-story-link'))
+      if (actor && !actor.mergedIntoActorId) {
+        const identityRow = document.createElement('div'); identityRow.className = 'dg-story-card'
+        identityRow.appendChild(storyText(name, 'dg-story-title'))
+        const kind = document.createElement('select'); kind.className = 'dg-select'; kind.setAttribute('aria-label', `${name} identity type`)
+        for (const value of ['temporary', 'character', 'persona', 'npc', 'audience'] as const) {
+          const option = document.createElement('option'); option.value = value; option.textContent = value === 'temporary' ? 'Unresolved / temporary' : value; option.selected = actor.kind === value; kind.appendChild(option)
+        }
+        kind.addEventListener('change', () => {
+          const identityKind = kind.value as 'character' | 'persona' | 'npc' | 'audience' | 'temporary'
+          if (identityKind === 'character' || identityKind === 'persona') {
+            kind.value = actor.kind
+            openStoryEdit({title:`Link ${name}`,description:`Classify as ${identityKind}. A Lumiverse ID is optional; leave blank to classify without linking.`,fields:[{label:'Lumiverse identity ID',value:identityKind==='character'?actor.lumiverseCharacterId||'':actor.lumiversePersonaId||'',maxLength:120}],save:([canonicalIdentityId])=>sendStoryAction('set-actor-kind',{actorId:actor.actorId,actorKind:identityKind,canonicalIdentityId})})
+          } else sendStoryAction('set-actor-kind', { actorId: actor.actorId, actorKind: identityKind, canonicalIdentityId: '' })
+        })
+        identityRow.appendChild(kind)
+        const merge = document.createElement('details'); merge.className = 'dg-story-merge'
+        const mergeSummary = document.createElement('summary'); mergeSummary.textContent = 'Merge identity…'; merge.appendChild(mergeSummary)
+        const target = document.createElement('select'); target.className = 'dg-select'; target.setAttribute('aria-label', `Merge ${name} into another story identity`)
+        const blankTarget = document.createElement('option'); blankTarget.value = ''; blankTarget.textContent = 'Choose identity…'; target.appendChild(blankTarget)
+        for (const other of Object.values(storyConstellations.actors).filter(value => !value.mergedIntoActorId && value.actorId !== actor.actorId)) {
+          const option = document.createElement('option'); option.value = other.actorId; option.textContent = other.displayName; target.appendChild(option)
+        }
+        merge.append(target, button('Merge', () => {
+          const chosen = storyConstellations.actors[target.value]
+          if (chosen) openStoryEdit({title:'Merge Story Identities',description:`Merge ${name} into ${chosen.displayName}? Event, phone, and knowledge references will be reconciled.`,submit:'Merge Identities',danger:true,save:()=>sendStoryAction('merge-actors',{actorId:actor.actorId,mergeIntoActorId:chosen.actorId})})
+        }, !Object.keys(storyConstellations.actors).some(id => id !== actor.actorId && !storyConstellations.actors[id].mergedIntoActorId), 'subtle'))
+        identityRow.appendChild(merge)
+        identities.appendChild(identityRow)
+      }
+      actorNodes.push(node)
+    }
+    const upper = document.createElement('div'); upper.className = 'dg-story-orbit'
+    const lower = document.createElement('div'); lower.className = 'dg-story-orbit'
+    upper.append(...actorNodes.slice(0, upperCount))
+    lower.append(...actorNodes.slice(upperCount))
+    nodes.append(lines, upper, center, lower)
+    card.appendChild(nodes)
+    manage.appendChild(panelSection('Character Identities', identities))
+    const meta = document.createElement('div'); meta.className = 'dg-story-meta'
+    for (const value of [event.storyTimeLabel || 'Time not specified', event.location || '', `Sources ${event.sourceRefs.length}`, `State ${event.sourceState}`].filter(Boolean)) {
+      const pill = document.createElement('span'); pill.className = 'dg-story-pill'; pill.textContent = value; meta.appendChild(pill)
+    }
+    card.appendChild(meta)
+    if (event.sourceWarning) {
+      const warning = document.createElement('div'); warning.className = 'dg-warning'; warning.textContent = event.sourceWarning
+      card.appendChild(warning)
+      manage.appendChild(button('Resolve Source Warning', () => sendStoryAction('resolve-source-warning', { eventId }), false, 'subtle'))
+    }
+    const actions = document.createElement('div'); actions.className = 'dg-actions'
+    const source = event.sourceRefs[0]
+    actions.append(
+      button('Go to Source', () => goToStorySource(source), !source, 'subtle'),
+      button('Edit Constellation', () => { manage.open = !manage.open; if (manage.open) manage.scrollIntoView({block:'nearest'}) }, false, 'subtle'),
+    )
+    const duplicateSelect = document.createElement('select'); duplicateSelect.className = 'dg-select'
+    const blank = document.createElement('option'); blank.value = ''; blank.textContent = 'Merge another confirmed event…'; duplicateSelect.appendChild(blank)
+    for (const other of activeStoryEvents(storyConstellations).filter(candidate => candidate.eventId !== eventId)) {
+      const option = document.createElement('option'); option.value = other.eventId; option.textContent = other.title; duplicateSelect.appendChild(option)
+    }
+    const mergeActions = document.createElement('div'); mergeActions.className = 'dg-actions'
+    mergeActions.append(button('Mark Non-Canon', () => openStoryEdit({title:'Mark Event Non-Canon',description:'Its source and history will be retained, but it will leave active canon views.',submit:'Mark Non-Canon',danger:true,save:()=>sendStoryAction('mark-non-canon',{eventId})}), false, 'danger'), duplicateSelect, button('Merge', () => {
+      const duplicateEventId = duplicateSelect.value
+      if (duplicateEventId) openStoryEdit({title:'Merge Events',description:'Merge the selected event into this one? Source, Echo, knowledge, and Asset references are retained.',submit:'Merge Events',danger:true,save:()=>sendStoryAction('merge-events',{eventId,duplicateEventId})})
+    }, false, 'subtle'))
+    card.appendChild(actions)
+    manage.appendChild(mergeActions)
+
+    const assets = Object.values(assetLibrary.assets).filter(asset => asset.chatId === activeChatId && asset.status === 'available').slice(0, 60)
+    const knowledge = document.createElement('div'); knowledge.className = 'dg-story-stack'
+    for (const participant of event.participants) {
+      const actor = storyConstellations.actors[participant.actorId]
+      if (!actor) continue
+      const row = document.createElement('div'); row.className = 'dg-actions'
+      const label = document.createElement('span'); label.textContent = actor.displayName; row.appendChild(label)
+      const edge = storyConstellations.knowledgeEdges[`${eventId}:${actor.actorId}`]
+      const belief = document.createElement('select'); belief.setAttribute('aria-label', `${actor.displayName} knowledge of ${event.title}`)
+      for (const value of ['unknown', 'unaware', 'rumor', 'suspects', 'knows', 'misinformed'] as StoryBeliefState[]) {
+        const option = document.createElement('option'); option.value = value; option.textContent = value; option.selected = (edge?.beliefState || 'unknown') === value; belief.appendChild(option)
+      }
+      const acquisition = document.createElement('select'); acquisition.setAttribute('aria-label', `${actor.displayName} knowledge source`)
+      for (const value of ['manual', 'involved', 'witnessed', 'told', 'evidence', 'inferred', 'public-broadcast']) {
+        const option = document.createElement('option'); option.value = value; option.textContent = value; option.selected = (edge?.acquisitionMode || 'manual') === value; acquisition.appendChild(option)
+      }
+      row.append(belief, acquisition, button('Save', () => sendStoryAction('set-knowledge', { eventId, actorName: actor.displayName, beliefState: belief.value, acquisitionMode: acquisition.value }), false, 'subtle'))
+      knowledge.appendChild(row)
+    }
+    manage.appendChild(panelSection('Knowledge Boundaries', knowledge))
+
+    const echoes = document.createElement('div'); echoes.className = 'dg-story-stack'
+    for (const echoId of event.echoIds) {
+      const echo = storyConstellations.echoes[echoId]
+      if (!echo) continue
+      const row = document.createElement('div'); row.className = 'dg-story-card'
+      row.append(storyText(`${echo.kind}${echo.channel ? ` · ${echo.channel}` : ''} · ${echo.linkState}`, 'dg-story-title'), storyText(echo.summary))
+      const echoActions = document.createElement('div'); echoActions.className = 'dg-actions'
+      echoActions.appendChild(button('Go to Source', () => goToStorySource(echo.sourceRef), false, 'subtle'))
+      if (echo.assetId && assetLibrary.assets[echo.assetId]?.imageUrl) row.appendChild(storyImage(assetLibrary.assets[echo.assetId], echo.summary))
+      const echoManage = document.createElement('details'); echoManage.className = 'dg-story-merge'
+      const echoManageHeading = document.createElement('summary'); echoManageHeading.textContent = 'Manage Echo'; echoManage.appendChild(echoManageHeading)
+      if (echo.linkState === 'proposed') echoActions.appendChild(button('Confirm Echo Link', () => sendStoryAction('link-echo', { echoId, eventId }), false, 'subtle'))
+      echoActions.appendChild(button('Reject Echo', () => sendStoryAction('reject-echo', { echoId }), false, 'danger'))
+      const echoAsset = document.createElement('select'); echoAsset.setAttribute('aria-label', `Asset for ${echo.kind} Echo`)
+      const echoAssetBlank = document.createElement('option'); echoAssetBlank.value = ''; echoAssetBlank.textContent = 'Link an Asset…'; echoAsset.appendChild(echoAssetBlank)
+      for (const asset of assets) { const option = document.createElement('option'); option.value = asset.assetId; option.textContent = asset.caption || asset.alt || asset.assetId; option.selected = asset.assetId === echo.assetId; echoAsset.appendChild(option) }
+      echoActions.append(echoAsset, button(echo.assetId ? 'Update Echo Asset' : 'Link Echo Asset', () => echoAsset.value && sendStoryAction('link-echo-asset', { echoId, assetId: echoAsset.value }), false, 'subtle'))
+      if (echo.assetId) echoActions.appendChild(button('Unlink Echo Asset', () => sendStoryAction('unlink-echo-asset', { echoId }), false, 'subtle'))
+      // Keep source navigation visible; maintenance belongs in a disclosure.
+      row.appendChild(echoActions.firstElementChild!)
+      echoManage.appendChild(echoActions); row.appendChild(echoManage); echoes.appendChild(row)
+    }
+    card.appendChild(panelSection('Event Echoes', echoes.childNodes.length ? echoes : empty('No Echoes recorded.')))
+
+    const assetPicker = document.createElement('select'); assetPicker.setAttribute('aria-label', 'Link existing Asset to this event')
+    const noAsset = document.createElement('option'); noAsset.value = ''; noAsset.textContent = 'Link existing Asset…'; assetPicker.appendChild(noAsset)
+    for (const asset of assets) { const option = document.createElement('option'); option.value = asset.assetId; option.textContent = asset.caption || asset.alt || asset.assetId; assetPicker.appendChild(option) }
+    const assetArea = document.createElement('div'); assetArea.className = 'dg-actions'; assetArea.append(assetPicker, button('Link Asset', () => assetPicker.value && sendStoryAction('link-asset', { eventId, assetId: assetPicker.value }), false, 'subtle'))
+    for (const assetId of event.linkedAssetIds) assetArea.appendChild(button(`Unlink ${assetId}`, () => sendStoryAction('unlink-asset', { eventId, assetId }), false, 'subtle'))
+    const gallery = document.createElement('div'); gallery.className = 'dg-story-gallery'
+    for (const asset of images) gallery.appendChild(storyImage(asset, asset.caption || asset.alt || event.title))
+    card.appendChild(panelSection(`Linked Images (${images.length})`, images.length ? gallery : empty('No linked images yet. Link an existing image in Edit Constellation.')))
+    manage.appendChild(panelSection('Linked Assets', assetArea))
+    card.appendChild(manage)
+    return card
+  }
+
+  function renderPhonePage(): HTMLElement {
+    const box = document.createElement('div')
+    const launch = document.createElement('div'); launch.className = 'dg-story-stack'
+    const toggle=checkbox('Enable Reverie Phone',config?.phoneEnabled!==false,value=>patchConfig({phoneEnabled:value}));toggle.querySelector('input')?.setAttribute('aria-label','Enable Reverie Phone')
+    launch.append(toggle,storyText('Optional phones live alongside the story, independently of Story features and chat Surfaces. Disabling Phone hides its widget and stops incoming-text instructions, new deliveries and phone generation. Saved messages, accounts and settings are preserved.'), button('Open Phone', () => phoneWidget ? phoneWidget.open() : showToast('error', 'This Lumiverse build does not expose floating widgets. Update Lumiverse to use the phone.'),config?.phoneEnabled===false))
+    box.appendChild(panelSection('Reverie Phone', launch))
+    if(phoneWidget){const settings=document.createElement('div');box.appendChild(panelSection('Phone Settings · this chat',settings));phoneWidget.mountSettings(settings)}
+    const entries = visibleStoryPhoneEntries(storyConstellations)
+    const stack = document.createElement('div'); stack.className = 'dg-story-stack'
+    const grouped = new Map<string, StoryPhoneEntry[]>()
+    for (const entry of entries) grouped.set(entry.ownerActorId, [...(grouped.get(entry.ownerActorId) || []), entry])
+    if (!grouped.size) stack.appendChild(empty('No legacy phone records to display. Reverie Phone works in any saved character chat, with or without prior phone or app markup.'))
+    for (const [ownerId, ownerEntries] of grouped) {
+      const visibleLimit = storyPhoneVisibleByOwner.get(ownerId) || 40
+      const visibleEntries = ownerEntries.slice(-visibleLimit)
+      const ownerCard = document.createElement('section'); ownerCard.className = 'dg-story-card'
+      const owner = document.createElement('h4'); owner.className = 'dg-story-title'; owner.textContent = ownerEntries[0].ownerName; ownerCard.appendChild(owner)
+      for (const entry of visibleEntries) {
+        const record = document.createElement('article'); record.className = 'dg-story-card'
+        record.append(storyText(`${entry.app}${entry.storyTimeLabel ? ` · ${entry.storyTimeLabel}` : ''}`, 'dg-story-title'))
+        if (entry.assetId && assetLibrary.assets[entry.assetId]?.imageUrl) {
+          record.appendChild(storyImage(assetLibrary.assets[entry.assetId], entry.title))
+        }
+        record.appendChild(storyText(`${entry.title}${entry.body ? ` — ${entry.body}` : ''}`))
+        if (entry.kind === 'photo') {
+          const assets = Object.values(assetLibrary.assets).filter(asset => asset.chatId === activeChatId && asset.status === 'available').slice(0, 60)
+          const picker = document.createElement('select'); picker.setAttribute('aria-label', `Asset for ${entry.title}`)
+          const blank = document.createElement('option'); blank.value = ''; blank.textContent = entry.assetId ? 'Choose another Asset…' : 'Link an Asset…'; picker.appendChild(blank)
+          for (const asset of assets) { const option = document.createElement('option'); option.value = asset.assetId; option.textContent = asset.caption || asset.alt || asset.assetId; option.selected = asset.assetId === entry.assetId; picker.appendChild(option) }
+          const actions = document.createElement('div'); actions.className = 'dg-actions'
+          actions.append(picker, button(entry.assetId ? 'Update Asset Link' : 'Link Asset', () => picker.value && sendStoryAction('link-phone-asset', { phoneEntryId: entry.entryId, assetId: picker.value }), false, 'subtle'))
+          if (entry.assetId) actions.appendChild(button('Unlink Asset', () => sendStoryAction('unlink-phone-asset', { phoneEntryId: entry.entryId }), false, 'subtle'))
+          record.appendChild(actions)
+        }
+        record.appendChild(button('Go to Source', () => goToStorySource(entry.sourceRef), false, 'subtle'))
+        record.appendChild(button('Remove Record', () => openStoryEdit({title:'Remove Phone Record',description:'Remove this record from the Living Phone projection? The source chat message is unchanged.',submit:'Remove Record',danger:true,save:()=>sendStoryAction('remove-phone-entry',{phoneEntryId:entry.entryId})}), false, 'danger'))
+        ownerCard.appendChild(record)
+      }
+      if (ownerEntries.length > visibleEntries.length) ownerCard.appendChild(button(`Load Earlier Records (${ownerEntries.length - visibleEntries.length} remaining)`, () => {
+        storyPhoneVisibleByOwner.set(ownerId, visibleLimit + 40)
+        renderPanel()
+      }, false, 'subtle'))
+      stack.appendChild(ownerCard)
+    }
+    const stale = Object.values(storyConstellations.phoneEntries).filter(entry => entry.sourceRef.sourceState !== 'active')
+    if (stale.length) {
+      const details = document.createElement('details'); details.className = 'dg-story-card'
+      const summary = document.createElement('summary'); summary.textContent = `Inactive source records (${stale.length})`; details.appendChild(summary)
+      for (const entry of stale.slice(-30)) details.appendChild(storyText(`${entry.ownerName} · ${entry.app} · ${entry.sourceRef.sourceState}: ${entry.title}`))
+      stack.appendChild(details)
+    }
+    const archive = document.createElement('details'); archive.className = 'dg-story-card'
+    const summary = document.createElement('summary'); summary.textContent = 'Legacy snapshot records · advanced management'; archive.append(summary, stack)
+    box.appendChild(archive)
+    return box
+  }
+
+  function renderStoryReel(): HTMLElement {
+    const box = document.createElement('div')
+    const stack = document.createElement('div'); stack.className = 'dg-story-stack'
+    const items = projectStoryReel(storyConstellations)
+    if (!items.length) stack.appendChild(empty('The Story Reel is derived from confirmed, active-swipe events. Proposed, non-canon, and inactive-swipe events stay out.'))
+    for (const item of items) {
+      const card = document.createElement('article'); card.className = 'dg-story-card'
+      if (item.chapterLabel || item.pinned) {
+        const meta = document.createElement('div'); meta.className = 'dg-story-meta'
+        for (const label of [item.chapterLabel || '', item.pinned ? 'Pinned' : ''].filter(Boolean)) {
+          const pill = document.createElement('span'); pill.className = 'dg-story-pill'; pill.textContent = label; meta.appendChild(pill)
+        }
+        card.appendChild(meta)
+      }
+      const title = document.createElement('h4'); title.className = 'dg-story-title'; title.textContent = item.title
+      title.tabIndex = 0
+      title.addEventListener('click', () => { selectedStoryEventId = item.eventId; pendingStoryEventNavigation = item.eventId; activeTab = 'story-constellations'; renderPanel() })
+      title.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectedStoryEventId = item.eventId; pendingStoryEventNavigation = item.eventId; activeTab = 'story-constellations'; renderPanel() } })
+      card.appendChild(title)
+      const event = storyConstellations.events[item.eventId]
+      const images = storyImages(event)
+      if (images[0]) card.appendChild(storyImage(images[0], item.title))
+      card.appendChild(storyText(`${item.echoIds.length} Echoes · ${images.length} linked images`, 'dg-story-meta'))
+      card.append(storyText(item.caption), storyText([item.storyTimeLabel, item.location, item.participantNames.join(', ')].filter(Boolean).join(' · '), 'dg-story-meta'))
+      if (item.sourceWarning) card.appendChild(storyText(item.sourceWarning))
+      const actions = document.createElement('div'); actions.className = 'dg-actions'
+      actions.append(
+        button('Open Constellation', () => { selectedStoryEventId = item.eventId; pendingStoryEventNavigation = item.eventId; activeTab = 'story-constellations'; renderPanel() }, false, 'primary'),
+        button('Go to Source', () => goToStorySource(event.sourceRefs[0]), !event.sourceRefs.length, 'subtle'),
+        button(item.pinned ? 'Unpin' : 'Pin', () => sendStoryAction('set-reel-override', { eventId: item.eventId, pinned: !item.pinned }), false, 'subtle'),
+        button('Edit Caption', () => openStoryEdit({title:'Edit Reel Caption',fields:[{label:'Reel caption',value:item.caption,maxLength:600}],save:([captionOverride])=>sendStoryAction('set-reel-override',{eventId:item.eventId,captionOverride})}), false, 'subtle'),
+        button('Chapter', () => openStoryEdit({title:'Edit Reel Chapter',fields:[{label:'Chapter label',value:item.chapterLabel||'',maxLength:100}],save:([chapterLabelOverride])=>sendStoryAction('set-reel-override',{eventId:item.eventId,chapterLabelOverride})}), false, 'subtle'),
+        button('Hide', () => sendStoryAction('set-reel-override', { eventId: item.eventId, hidden: true }), false, 'danger'),
+      )
+      card.appendChild(actions)
+      const echoDetails = document.createElement('details'); echoDetails.className = 'dg-story-card'
+      const summary = document.createElement('summary'); summary.textContent = `Echoes (${item.echoIds.length})`; echoDetails.appendChild(summary)
+      for (const echoId of item.echoIds) { const echo = storyConstellations.echoes[echoId]; if (echo) echoDetails.append(storyText(`${echo.kind} · ${echo.summary}`), button('Go to Source', () => goToStorySource(echo.sourceRef), false, 'subtle')) }
+      card.appendChild(echoDetails)
+      stack.appendChild(card)
+    }
+    const hidden = Object.values(storyConstellations.reelOverrides).filter(override => override.hidden && storyConstellations.events[override.eventId]?.canonState === 'confirmed')
+    if (hidden.length) {
+      const hiddenSection = document.createElement('section'); hiddenSection.className = 'dg-story-card'
+      const heading = document.createElement('h4'); heading.className = 'dg-story-title'; heading.textContent = `Hidden Reel cards (${hidden.length})`; hiddenSection.appendChild(heading)
+      for (const override of hidden) { const event = storyConstellations.events[override.eventId]; hiddenSection.append(storyText(event.title), button('Restore', () => sendStoryAction('set-reel-override', { eventId: event.eventId, hidden: false }), false, 'subtle')) }
+      stack.appendChild(hiddenSection)
+    }
+    box.appendChild(panelSection('Story Reel', stack))
+    return box
+  }
+
+  function renderStoryView(): HTMLElement {
+    const box = document.createElement('div')
+    if (activeTab === 'story-reel') { box.appendChild(renderStoryReel()); return box }
+    const settings = document.createElement('details'); settings.className = 'dg-story-card dg-story-manage'
+    const settingsSummary = document.createElement('summary'); settingsSummary.textContent = 'Story Settings & Backfill'
+    settings.open = storySettingsExpanded || !activeStoryEvents(storyConstellations).length
+    settings.addEventListener('toggle', () => { storySettingsExpanded = settings.open })
+    settings.append(settingsSummary, renderStorySettingsAndBackfill()); box.appendChild(settings)
+    const proposals = Object.values(storyConstellations.proposals).filter(proposal => proposal.status === 'proposed' && proposal.sourceRef.sourceState !== 'deleted').sort((a, b) => b.createdAt - a.createdAt)
+    const proposalStack = document.createElement('div'); proposalStack.className = 'dg-story-stack'
+    if (!proposals.length) proposalStack.appendChild(empty('No pending Event proposals. Meaningful changes appear here for review.'))
+    else for (const proposal of proposals.slice(0, storyProposalVisibleLimit)) proposalStack.appendChild(renderStoryProposal(proposal))
+    if (proposals.length > storyProposalVisibleLimit) proposalStack.appendChild(button(`Show Older Proposals (${proposals.length - storyProposalVisibleLimit} remaining)`, () => { storyProposalVisibleLimit += 80; renderPanel() }, false, 'subtle'))
+    box.appendChild(panelSection(`Proposals (${proposals.length})`, proposalStack))
+    const events = activeStoryEvents(storyConstellations).sort((a, b) => b.updatedAt - a.updatedAt)
+    const eventStack = document.createElement('div'); eventStack.className = 'dg-story-stack'
+    if (!events.length) eventStack.appendChild(empty('No confirmed active-swipe events yet.'))
+    const visibleEvents = events.slice(0, storyEventVisibleLimit)
+    for (const event of visibleEvents) {
+      const card = renderStoryEventSummary(event)
+      if (event.eventId === selectedStoryEventId) card.classList.add('dg-story-selected')
+      eventStack.appendChild(card)
+    }
+    if (events.length > storyEventVisibleLimit) eventStack.appendChild(button(`Show Older Events (${events.length - storyEventVisibleLimit} remaining)`, () => { storyEventVisibleLimit += 80; renderPanel() }, false, 'subtle'))
+    box.appendChild(panelSection(`Confirmed Events (${events.length})`, eventStack))
+    const conflicts = Object.values(storyConstellations.conflicts).filter(conflict => conflict.status === 'open')
+    if (config?.storyKnowledgeConflictAlerts && conflicts.length) {
+      const conflictStack = document.createElement('div'); conflictStack.className = 'dg-story-stack'
+      for (const conflict of conflicts.slice(0, 30)) {
+        const row = document.createElement('div'); row.className = 'dg-story-card'
+        row.appendChild(storyText(`${conflict.severity.toUpperCase()} · ${conflict.summary}`))
+        const resolution = document.createElement('select'); resolution.setAttribute('aria-label', 'Resolve knowledge conflict')
+        const relatedEvent = storyConstellations.events[conflict.eventId]
+        const confirmedEchoes = (relatedEvent?.echoIds || []).map(echoId => storyConstellations.echoes[echoId]).filter(echo => echo?.linkState === 'confirmed' && echo.sourceRef.sourceState === 'active')
+        for (const [value, label] of [['learned-offscreen', 'Accept — learned off-screen'], ['linked-existing-echo', 'Link existing Echo'], ['kept-existing-state', 'Keep existing state'], ['model-mistake', 'Mark as model mistake'], ['manual', 'Set knows manually']]) {
+          const option = document.createElement('option'); option.value = value; option.textContent = label
+          if (value === 'linked-existing-echo' && !confirmedEchoes.length) option.disabled = true
+          resolution.appendChild(option)
+        }
+        const echoPicker = document.createElement('select'); echoPicker.setAttribute('aria-label', 'Confirmed Echo that explains character knowledge')
+        const echoPlaceholder = document.createElement('option'); echoPlaceholder.value = ''; echoPlaceholder.textContent = confirmedEchoes.length ? 'Choose confirmed Echo…' : 'No confirmed Echo available'; echoPicker.appendChild(echoPlaceholder)
+        for (const echo of confirmedEchoes) { const option = document.createElement('option'); option.value = echo.echoId; option.textContent = `${echo.kind}${echo.channel ? ` · ${echo.channel}` : ''}: ${echo.summary}`; echoPicker.appendChild(option) }
+        echoPicker.disabled = resolution.value !== 'linked-existing-echo'
+        resolution.addEventListener('change', () => { echoPicker.disabled = resolution.value !== 'linked-existing-echo' })
+        row.append(resolution, echoPicker, button('Resolve', () => sendStoryAction('resolve-conflict', {
+          conflictId: conflict.conflictId, resolution: resolution.value,
+          echoId: resolution.value === 'linked-existing-echo' ? echoPicker.value : undefined,
+        }), false, 'subtle'))
+        conflictStack.appendChild(row)
+      }
+      box.appendChild(panelSection(`Knowledge Conflicts (${conflicts.length})`, conflictStack))
+    }
+    if (selectedStoryEventId && storyConstellations.events[selectedStoryEventId]) {
+      const selected = renderStoryEvent(selectedStoryEventId)
+      selected.classList.add('dg-story-selected')
+      box.prepend(panelSection('Selected Event', selected))
+    }
+    if (pendingStoryEventNavigation && pendingStoryEventNavigation === selectedStoryEventId) {
+      const navigationId = pendingStoryEventNavigation
+      const target = Array.from(box.querySelectorAll<HTMLElement>('[data-story-event-id]')).find(node => node.dataset.storyEventId === navigationId)
+      if (target) window.requestAnimationFrame(() => {
+        if (!target.isConnected) return
+        target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        target.querySelector<HTMLElement>('.dg-story-title')?.focus({ preventScroll: true })
+        pendingStoryEventNavigation = ''
+      })
+    }
+    return box
+  }
+
   function renderPanel(): void {
     lifecycle.activateView(activeTab)
     const focused = document.activeElement
@@ -3978,7 +4966,9 @@ export function setup(ctx: SpindleFrontendContext) {
     if (activeTab === 'slots') root.appendChild(renderAdaptiveNextAction())
     if (activeTab === 'slots' && (lastRescanSummary || rescanInProgress)) root.appendChild(renderRescanResult())
 
-    const content = activeTab === 'settings' ? renderSettings()
+    phoneWidget?.unmountSettings()
+    const content = activeTab === 'phone' ? renderPhonePage()
+      : activeTab === 'settings' ? renderSettings()
       : activeTab === 'illustrator' ? renderProseIllustrator()
         : activeTab === 'recipes' ? renderGenerationRecipes()
           : activeTab === 'genetics' ? renderGeneticVault()
@@ -3987,6 +4977,7 @@ export function setup(ctx: SpindleFrontendContext) {
                 : activeTab === 'surface-presets' ? renderSurfacePresets()
                 : activeTab === 'utility-studio' ? renderUtilityStudio()
                   : activeTab === 'history' ? renderHistoryList()
+                : activeTab.startsWith('story-') ? renderStoryView()
                 : activeTab === 'logs' ? renderLogs()
                   : activeTab === 'manual' ? renderManual()
                     : renderSlotsView()
@@ -3994,7 +4985,9 @@ export function setup(ctx: SpindleFrontendContext) {
     stage.className = 'dg-suite-stage'
     stage.appendChild(content)
     root.appendChild(stage)
+    storyGraphCleanup?.()
     tab.root.replaceChildren(root)
+    storyGraphCleanup = bindStoryGraphGeometry(root)
     tab.setBadge(records.length ? String(records.length) : null)
     const restoreScrollTop = panelScrollTopByTab.get(activeTab) ?? previousScrollTop
     requestAnimationFrame(() => { tab.root.scrollTop = restoreScrollTop })
@@ -4600,7 +5593,7 @@ export function setup(ctx: SpindleFrontendContext) {
     titleLine.className = 'dg-title-line'
     const title = document.createElement('div')
     title.className = 'dg-title'
-    title.textContent = 'Reverie Relay'
+    title.textContent = "Ria's Reverie Relay"
     const buildChip = document.createElement('span')
     buildChip.className = 'dg-build-chip'
     buildChip.textContent = `R³ · v${EXTENSION_VERSION}`
@@ -4634,7 +5627,7 @@ export function setup(ctx: SpindleFrontendContext) {
       countBox('Generating', counts.processing, 'processing'),
       countBox('Ready', counts.readyToPlace, 'ready'),
       countBox('Failed', counts.failed, 'failed'),
-      countBox('Completed', counts.completed, 'completed'),
+      countBox('Completed', Math.max(counts.completed, completedHistoryChatId === activeChatId ? completedHistoryTotal : 0), 'completed'),
     )
     head.append(top, overviewTitle, summary)
     if (queueSafety.pausedBacklog && activeChatId) {
@@ -4663,6 +5656,8 @@ export function setup(ctx: SpindleFrontendContext) {
     if (value === 'surfaces' || value === 'surface-library' || value === 'surface-presets' || value === 'utility-studio') return 'surfaces'
     if (value === 'genetics') return 'memory'
     if (value === 'history') return 'archive'
+    if (value === 'phone') return 'phone'
+    if (value.startsWith('story-')) return 'story'
     if (value === 'settings' || value === 'manual' || value === 'logs') return 'settings'
     return 'relay'
   }
@@ -4672,6 +5667,8 @@ export function setup(ctx: SpindleFrontendContext) {
       : section === 'surfaces' ? 'surface-library'
         : section === 'memory' ? 'genetics'
           : section === 'archive' ? 'history'
+          : section === 'story' ? 'story-constellations'
+            : section === 'phone' ? 'phone'
             : section === 'settings' ? 'settings'
               : 'slots'
   }
@@ -4687,6 +5684,8 @@ export function setup(ctx: SpindleFrontendContext) {
       { id: 'illustrator', icon: '✧', label: 'Illustrations' },
       { id: 'surfaces', icon: '▧', label: 'Surfaces' },
       { id: 'memory', icon: '◇', label: 'Appearance' },
+      { id: 'story', icon: '✺', label: 'Story' },
+      { id: 'phone', icon: '▯', label: 'Phone' },
       { id: 'archive', icon: '▤', label: 'Archive' },
       { id: 'settings', icon: '⚙', label: 'Settings' },
     ]
@@ -4713,6 +5712,8 @@ export function setup(ctx: SpindleFrontendContext) {
       illustrator: [['illustrator', 'Illustrations'], ['recipes', 'Profiles']],
       surfaces: [['surface-library', 'Library'], ['surfaces', 'Creator'], ['surface-presets', 'Presets'], ['utility-studio', 'Injection']],
 memory: [['genetics', 'Appearance Memory']],
+      story: [['story-constellations', 'Constellations'], ['story-reel', 'Story Reel']],
+      phone: [['phone', 'Phone & Settings']],
       archive: [['history', 'Images & Versions']],
       settings: [['settings', 'Configuration'], ['logs', 'Diagnostics'], ['manual', 'Guide']],
     }
@@ -4775,7 +5776,7 @@ memory: [['genetics', 'Appearance Memory']],
     } else if (activeQueue) {
       title.textContent = `Working: ${activeQueue.statusText || titleCase(activeQueue.stage)}`
       copy.textContent = activeQueue.etaSeconds ? `Relay is handling this in the background. Estimated time remaining: ${formatEta(activeQueue.etaSeconds)}.` : 'Relay is handling this in the background. You can keep using the chat.'
-      actions.append(button('Abort All', () => activeChatId && ctx.sendToBackend({ type: 'queue_action', chatId: activeChatId, action: 'abort_all' }), !activeChatId, 'danger'))
+      actions.append(button('Abort All', abortActiveGeneration, !activeChatId, 'danger'))
     } else if (failed) {
       title.textContent = 'Next: inspect the failed generation'
       copy.textContent = 'Relay found a failure and can explain the exact blocker before you retry.'
@@ -4984,6 +5985,20 @@ memory: [['genetics', 'Appearance Memory']],
     return wrap
   }
 
+  function isArchiveOnlyCompletedRow(row: Record<string, unknown>): boolean {
+    if (!row.imageUrl) return false
+    const current = recordByKey.get(String(row.key || ''))
+    return !current || current.status === 'recovered-pending' && !current.imageUrl && !current.pendingPlacement?.imageUrl
+  }
+
+  function loadFirstArchivedOnlyPage(): void {
+    if (activeTab !== 'slots' || !activeChatId || completedHistoryNextCursor === null
+      || completedHistoryRows.some(isArchiveOnlyCompletedRow) || completedHistoryAutoPageCursor === completedHistoryNextCursor) return
+    const cursor = completedHistoryNextCursor
+    completedHistoryAutoPageCursor = cursor
+    ctx.sendToBackend({ type: 'completed_history_page', chatId: activeChatId, cursor, limit: 24 })
+  }
+
   function renderSlotsView(): HTMLElement {
     const box = document.createElement('div')
     const workflow = document.createElement('div')
@@ -5015,8 +6030,52 @@ memory: [['genetics', 'Appearance Memory']],
     workflow.append(modeActions, workflowCopy, workflowActions)
     box.appendChild(panelSection('Slot Workflow', workflow))
     box.appendChild(renderSlotFilters(slotFilter, value => { slotFilter = value; renderPanel() }))
-    const visible = records.filter(record => matchesSlotFilter(record, slotFilter))
-    box.appendChild(renderRecordList(visible, slotFilter === 'all' ? 'No Reverie Relay image slots in this chat yet.' : `No ${filterLabel(slotFilter).toLocaleLowerCase()} slots.`))
+    const archivedOnlyKeys = new Set(completedHistoryRows.filter(isArchiveOnlyCompletedRow).map(row => String(row.key)))
+    const visible = records.filter(record => !archivedOnlyKeys.has(record.key) && matchesSlotFilter(record, slotFilter))
+    const hasArchivedOnly = completedHistoryChatId === activeChatId
+      && completedHistoryRows.some(isArchiveOnlyCompletedRow)
+    if (visible.length || !hasArchivedOnly || slotFilter !== 'all' && slotFilter !== 'completed') box.appendChild(renderRecordList(visible, slotFilter === 'all' ? 'No Reverie Relay image slots in this chat yet.' : `No ${filterLabel(slotFilter).toLocaleLowerCase()} slots.`))
+    if (activeChatId && stateRevision >= 0 && (completedHistoryChatId !== activeChatId || completedHistoryRequestedForCount !== stats.completedTotal)) {
+      completedHistoryChatId = activeChatId
+      completedHistoryRows = []
+      completedHistoryNextCursor = null
+      completedHistoryTotal = 0
+      completedHistoryRequestedForCount = stats.completedTotal
+      completedHistoryAutoPageCursor = -1
+      ctx.sendToBackend({ type: 'completed_history_page', chatId: activeChatId, cursor: 0, limit: 24 })
+    }
+    loadFirstArchivedOnlyPage()
+    if (slotFilter === 'all' || slotFilter === 'completed') {
+      const archived = completedHistoryRows.filter(isArchiveOnlyCompletedRow)
+      if (archived.length || completedHistoryNextCursor !== null) {
+        const older = document.createElement('div')
+        older.className = 'dg-history-track'
+        for (const row of archived) {
+          const item = document.createElement('div')
+          item.className = 'dg-history-item'
+          const imageUrl = String(row.imageUrl)
+          const image = document.createElement('img')
+          image.className = 'dg-history-thumb'
+          image.src = imageUrl.includes('?') ? `${imageUrl}&size=sm` : `${imageUrl}?size=sm`
+          image.alt = String(row.slot || row.requestId || 'Relay image')
+          image.loading = 'lazy'
+          image.addEventListener('click', () => openImageUrl(imageUrl, image.alt, String(row.imageId || '')))
+          const copy = document.createElement('div')
+          copy.className = 'dg-slot-meta'
+          copy.textContent = `${String(row.requestId || '')} / ${String(row.slot || '')}\n${new Date(Number(row.completedAt) || 0).toLocaleString()}`
+          const actions = document.createElement('div')
+          actions.className = 'dg-actions'
+          actions.append(button('View Image', () => openImageUrl(imageUrl, image.alt, String(row.imageId || '')), false, 'subtle'))
+          if (row.diagnosticArchiveId) actions.append(button('Generation Details', () => requestCompletedRecord(row as unknown as SlotRecord, loaded => loaded && openPromptInspector(loaded)), false, 'subtle'))
+          item.append(image, copy, actions)
+          older.appendChild(item)
+        }
+        const section = document.createElement('div')
+        section.appendChild(older)
+        if (completedHistoryNextCursor !== null) section.appendChild(button('Load 24 Older Images', () => activeChatId && ctx.sendToBackend({ type: 'completed_history_page', chatId: activeChatId, cursor: completedHistoryNextCursor || 0, limit: 24 }), false, 'subtle'))
+        box.appendChild(panelSection(`Older Completed Images${completedHistoryTotal ? ` · ${completedHistoryTotal} archived` : ''}`, section))
+      }
+    }
     const surfaceCount = records.filter(record => record.chatId === activeChatId && record.target !== 'prose.illustration').length
     box.appendChild(panelSection('Chat Cleanup', renderChatMediaCleanup('surfaces', surfaceCount)))
     return box
@@ -5057,6 +6116,25 @@ memory: [['genetics', 'Appearance Memory']],
     }
     box.appendChild(panelSection('Who Chooses the Illustrated Moments?', modeControls))
 
+    const promptFormatControls = document.createElement('div')
+    promptFormatControls.className = 'dg-illustrator-mode-grid dg-choice-compact dg-choice-two'
+    const promptFormatOptions: Array<{ id: ProseIllustratorSettings['promptFormat']; label: string; description: string }> = [
+      { id: 'natural-language', label: 'Natural Language', description: 'Describe the image in sentences.' },
+      { id: 'danbooru-tags', label: 'Booru Tag Mode', description: 'Describe the image with comma-separated tags.' },
+    ]
+    for (const option of promptFormatOptions) {
+      const control = document.createElement('button')
+      control.type = 'button'
+      control.className = `dg-illustrator-mode-card${settings.promptFormat === option.id ? ' is-active' : ''}`
+      control.setAttribute('aria-pressed', String(settings.promptFormat === option.id))
+      const title = document.createElement('strong'); title.textContent = option.label
+      const description = document.createElement('small'); description.textContent = option.description
+      control.append(title, description)
+      control.addEventListener('click', () => patchProseSettings({ promptFormat: option.id }))
+      promptFormatControls.appendChild(control)
+    }
+    box.appendChild(panelSection('Image Prompt Format', promptFormatControls))
+
     if (settings.mode === 'relay-planned') {
       const insertionControls = document.createElement('div')
       insertionControls.className = 'dg-illustrator-mode-grid dg-choice-compact dg-choice-two'
@@ -5083,6 +6161,7 @@ memory: [['genetics', 'Appearance Memory']],
     chips.append(
       chip(settings.mode === 'relay-planned' ? 'Relay-Planned' : settings.mode === 'inline-protocol' || settings.mode === 'model-placed' ? 'Model Planned' : 'Off', settings.mode === 'off' ? '' : 'completed'),
       chip(`${settings.illustrationsPerRun || 1} per response`, ''),
+      chip(settings.promptFormat === 'danbooru-tags' ? 'Booru Tags' : 'Natural Language', ''),
       chip(settings.frequencyMode.replace(/-/g, ' '), ''),
       chip(settings.defaultAspectRatio, ''),
       chip(`${recordsForChat.length} generated`, ''),
@@ -5132,7 +6211,7 @@ memory: [['genetics', 'Appearance Memory']],
       const title = document.createElement('strong')
       title.textContent = 'No illustration requests were authored'
       const detail = document.createElement('div')
-      detail.textContent = 'The active Story Model illustration mode requested images, but the completed response contained no valid <reverie-illustration> tags.'
+      detail.textContent = 'The active Story Model illustration mode requested images, but the completed response contained no valid illustration request blocks.'
       const missingActions = document.createElement('div')
       missingActions.className = 'dg-actions'
       missingActions.append(
@@ -5292,7 +6371,7 @@ memory: [['genetics', 'Appearance Memory']],
     overlay.className = 'rrl-media-skeleton rrl-generation-placeholder rrl-reveal-overlay'
     overlay.dataset.rrPlaceholderEffect = effect
     overlay.setAttribute('aria-hidden', 'true')
-    overlay.innerHTML = renderGenerationPlaceholderEffect(effect)
+    overlay.innerHTML = renderGenerationPlaceholderEffect(effect === 'diffusion-preview' ? 'spinner' : effect)
     if (window.getComputedStyle(parent).position === 'static') {
       overlay.dataset.rrnParentPosition = parent.style.position
       parent.style.position = 'relative'
@@ -5306,6 +6385,150 @@ memory: [['genetics', 'Appearance Memory']],
     overlay.style.height = `${imageRect.height || parentRect.height}px`
     parent.appendChild(overlay)
     return overlay
+  }
+
+  function removeAuthoredRevealEffect(image: HTMLImageElement, overlay = authoredRevealOverlayByImage.get(image)): void {
+    if (!overlay) return
+    const parent = overlay.parentElement
+    if (parent && overlay.dataset.rrnParentPosition !== undefined) parent.style.position = overlay.dataset.rrnParentPosition
+    overlay.remove()
+    authoredRevealOverlayByImage.delete(image)
+  }
+
+  function createReplacementStatusProjection(record: SlotRecord): HTMLElement | null {
+    const prose = record.target === 'prose.illustration' || record.targetApp === 'prose'
+    const html = renderRegenerationLifecycleProjection(record, customSurfaces, {
+      chatId: record.chatId,
+      messageId: record.messageId,
+      swipeId: record.swipeId,
+      isUser: false,
+      autoGenerate: true,
+      generationPlaceholderEffect: config?.generationPlaceholderEffect,
+      rendererMode: customSurfaces.rendererMode,
+      colorMode: customSurfaces.colorMode,
+      defaultShellMode: customSurfaces.defaultShellMode,
+    })
+    const template = document.createElement('template')
+    template.innerHTML = html
+    return template.content.querySelector<HTMLElement>(prose
+      ? `[data-dgir-prose-projection="${cssEscape(record.key)}"]`
+      : '.rrl-island')
+  }
+
+  function requestReplacementStatusProjection(record: SlotRecord): void {
+    if (!record.imageUrl) return
+    // The same host URL may be reused for a newly persisted image identity.
+    // A prior settled record must not suppress the replacement's fresh reveal.
+    revealedFinalImageByRecord.delete(record.key)
+    if (replacementStatusProjections.has(record.key)) return
+    const root = ctx.dom.findMessageElement(record.messageId)
+    if (!root) return
+    const projection = createReplacementStatusProjection(record)
+    if (!projection) return
+    const prose = record.target === 'prose.illustration' || record.targetApp === 'prose'
+    const previousProjection = prose
+      ? deepQueryAll<HTMLElement>(root as ParentNode, `[data-dgir-prose-projection="${cssEscape(record.key)}"]`)[0]
+      : undefined
+    const matchingImages = deepQueryAll<HTMLImageElement>(root as ParentNode, 'img')
+      .filter(image => urlMatches(image.currentSrc || image.src, record.imageUrl || ''))
+    const ownedImages = matchingImages.filter(image => image.dataset.dgirKey === record.key
+      || image.dataset.dgirRequestId === record.requestId && image.dataset.dgirSlot === record.slot)
+    const previousImage = ownedImages[0] || (matchingImages.length === 1 ? matchingImages[0] : undefined)
+    const lifecycleCard = previousImage?.closest<HTMLElement>('.rrl-card') || null
+    const previousOwner = chooseReplacementProjectionOwner({
+      proseProjection: previousProjection,
+      lifecycleIsland: lifecycleCard?.closest<HTMLElement>('.rrl-island') || null,
+      lifecycleCard,
+      resolvedMedia: previousImage?.closest<HTMLElement>('.rrl-resolved') || null,
+      image: previousImage || null,
+    })
+    const parent = previousOwner?.parentNode
+    if (!previousOwner || !parent) return
+    const previousImages = deepQueryAll<HTMLImageElement>(previousOwner, 'img').map(image => ({
+      image, visibility: image.style.visibility || '', hidden: image.hidden === true,
+    }))
+    const previousImageState = previousImages.find(state => state.image === previousImage)
+    const previousImageVisibility = previousImageState?.visibility || ''
+    const previousImageHidden = previousImageState?.hidden || false
+
+    for (const state of previousImages) {
+      concealPreviousLifecycleImage(state.image)
+      removeAuthoredRevealEffect(state.image)
+    }
+    const marker = document.createComment(`Reverie Relay regeneration ${record.requestId}`)
+    parent.insertBefore(marker, previousOwner)
+    previousOwner.replaceWith(projection)
+    replacementStatusProjections.set(record.key, {
+      marker, previousOwner, previousImage, previousImages, projection, previousImageUrl: record.imageUrl,
+      previousImageId: record.imageId, previousImageVisibility, previousImageHidden,
+    })
+  }
+
+  function restorePreviousLifecycleImage(record: SlotRecord): void {
+    const replacement = replacementStatusProjections.get(record.key)
+    if (!replacement) return
+    replacement.projection.remove()
+    for (const state of replacement.previousImages) {
+      state.image.style.visibility = state.visibility
+      state.image.hidden = state.hidden
+      removeAuthoredRevealEffect(state.image)
+    }
+    if (replacement.marker.parentNode) replacement.marker.replaceWith(replacement.previousOwner)
+    replacementStatusProjections.delete(record.key)
+  }
+
+  function settleReplacementStatusProjection(record: SlotRecord): void {
+    const replacement = replacementStatusProjections.get(record.key)
+    if (!replacement) return
+    const finalImageUrl = currentLifecycleImageUrl(record)
+    const imageChanged = finalImageUrl && !urlMatches(finalImageUrl, replacement.previousImageUrl)
+    const imageIdentityChanged = Boolean(record.imageId && replacement.previousImageId && record.imageId !== replacement.previousImageId)
+    if (!imageChanged && !imageIdentityChanged) {
+      restorePreviousLifecycleImage(record)
+      return
+    }
+    if (replacement.previousImage && finalImageUrl) {
+      const finalImageId = record.pendingPlacement?.imageId || record.imageId
+      const lifecycleCard = replacement.previousImage.closest<HTMLElement>('.rrl-card')
+      // Keep the image covered while swapping its URL, but don't collapse an
+      // authored Surface's media geometry with the native `hidden` attribute.
+      prepareRegeneratedLifecycleImage(replacement.previousImage, finalImageUrl, !lifecycleCard, urlMatches)
+      if (finalImageId) replacement.previousImage.dataset.dgirImageId = finalImageId
+      replacement.previousImage.dataset.dgirKey = record.key
+      replacement.previousImage.dataset.dgirRequestId = record.requestId
+      replacement.previousImage.dataset.dgirSlot = record.slot
+      startedAuthoredReveals.delete(replacement.previousImage)
+      const priorCardUpdate = lifecycleCard ? mediaCardUpdates.get(lifecycleCard) : undefined
+      if (priorCardUpdate) {
+        priorCardUpdate.sawActiveLifecycle = true
+        priorCardUpdate.revealedImageUrl = undefined
+        priorCardUpdate.signature = ''
+      }
+      for (const state of replacement.previousImages) {
+        if (state.image === replacement.previousImage) continue
+        state.image.style.visibility = state.visibility
+        state.image.hidden = state.hidden
+      }
+      replacement.projection.remove()
+      if (replacement.marker.parentNode) replacement.marker.replaceWith(replacement.previousOwner)
+      // Authored reveal effects derive their size/offset from the live layout;
+      // mounting before restoring the Surface would capture a 0×0 rectangle.
+      const overlay = lifecycleCard ? undefined : mountAuthoredRevealEffect(replacement.previousImage)
+      if (overlay) authoredRevealOverlayByImage.set(replacement.previousImage, overlay)
+      if (lifecycleCard) {
+        replacement.previousImage.style.visibility = replacement.previousImageVisibility
+        replacement.previousImage.hidden = true
+      } else {
+        // Keep the replacement covered until the decode/reveal lifecycle starts;
+        // the explicit restore value prevents preserving this temporary cover.
+        authoredRevealVisibilityByImage.set(replacement.previousImage, replacement.previousImageVisibility)
+        replacement.previousImage.hidden = false
+      }
+    } else {
+      replacement.marker.remove()
+      replacement.previousOwner.remove()
+    }
+    replacementStatusProjections.delete(record.key)
   }
 
   function openImageUrl(imageUrl: string, titleText: string, imageId?: string, linkedRecord?: SlotRecord | null): void {
@@ -5408,8 +6631,8 @@ memory: [['genetics', 'Appearance Memory']],
 
     const essentials = document.createElement('div')
     essentials.className = 'dg-settings-grid dg-illustrator-essentials'
-    essentials.append(selectField('Generation Placeholder Effect', normalizeGenerationPlaceholderEffect(config?.generationPlaceholderEffect), [['glitter', 'Glitter'], ['spinner', 'Spinner'], ['dream-orb', 'Dream Orb'], ['none', 'None']], value => patchConfig({ generationPlaceholderEffect: normalizeGenerationPlaceholderEffect(value) })))
-    if (settings.mode !== 'off') essentials.append(prosePlannerSelect(settings), plannerModelControl(settings))
+    essentials.append(selectField('Generation Placeholder Effect', normalizeGenerationPlaceholderEffect(config?.generationPlaceholderEffect), [['glitter', 'Glitter'], ['spinner', 'Spinner'], ['dream-orb', 'Dream Orb'], ['diffusion-preview', 'Diffusion Preview'], ['none', 'None']], value => patchConfig({ generationPlaceholderEffect: normalizeGenerationPlaceholderEffect(value) })))
+    essentials.append(prosePlannerSelect(settings), plannerModelControl(settings), surfaceRepairConnectionField())
     if (settings.mode === 'inline-protocol' || settings.mode === 'model-placed') {
       essentials.append(toggleCard('Illustration Runtime Contract', 'Model Planned sends the configured protocol, exact count/range, aspect policy, and framing to the Story Model through the final prompt path.', true, () => patchProseSettings({ automaticProtocolInjection: true })))
       essentials.append(toggleCard(
@@ -5445,13 +6668,14 @@ memory: [['genetics', 'Appearance Memory']],
     )
     if (settings.frequencyMode === 'every-n') essentials.append(numberInput('Every N Eligible Messages', settings.everyNEligibleMessages, 1, 100, value => patchProseSettings({ everyNEligibleMessages: value })))
     const framingModes = document.createElement('div')
-    framingModes.className = 'dg-illustrator-mode-grid dg-choice-compact dg-choice-five'
+    framingModes.className = 'dg-illustrator-mode-grid dg-choice-compact dg-choice-six'
     const framingOptions: Array<{ id: ProseIllustratorSettings['perspectiveMode']; label: string; tooltip: string }> = [
       { id: 'scene-snapshot', label: 'Scene Snapshot', tooltip: 'Frames one readable moment from the current scene, including its setting, action, and visible subjects.' },
       { id: 'sequence', label: 'Sequence', tooltip: 'Treats the image as the next shot in an ongoing visual sequence while preserving continuity.' },
       { id: 'emotional-beat', label: 'Emotional Beat', tooltip: 'Centers the scene’s strongest emotional reaction, gesture, expression, or relationship beat.' },
-      { id: 'solo-scene', label: 'Solo Scene', tooltip: 'Keeps exactly one selected character visible inside the current scene.' },
+      { id: 'solo-scene', label: 'Char only', tooltip: 'Shows exactly one selected character in the current scene; no other people appear in the frame.' },
       { id: 'persona-pov', label: 'Persona POV', tooltip: 'The active chat Persona is the in-world camera. Visible subjects meet the lens only when interacting with that Persona.' },
+      { id: 'storyboard', label: 'Storyboard', tooltip: 'Requires each image prompt to depict the exact action in its anchored story paragraph—not just the characters, outfits, or mood.' },
     ]
     for (const option of framingOptions) {
       const control = document.createElement('button')
@@ -5519,7 +6743,9 @@ memory: [['genetics', 'Appearance Memory']],
       ? 'Relay automatically resolves the current chat character. An optional override can name a different single character. The character stays inside the current scene; no second, background, reflected, screen, or poster person is allowed.'
       : settings.perspectiveMode === 'persona-pov'
         ? 'Relay resolves the chat-bound Persona first, then the active host Persona. If neither exists, Persona POV refuses generation. The Persona holds the camera and is not automatically added to the visible cast.'
-        : 'Maximum Characters is validated before generation.'
+        : settings.perspectiveMode === 'storyboard'
+          ? 'The exact anchored story paragraph must be recognizable from the image prompt itself. Natural Language must describe the event; Booru Tag Mode must use action-bearing tags plus the relevant participants, props, and setting.'
+          : 'Maximum Characters is validated before generation.'
 
     const advanced = document.createElement('details')
     advanced.className = 'dg-illustrator-advanced'
@@ -5544,7 +6770,7 @@ memory: [['genetics', 'Appearance Memory']],
     const advancedToggles = document.createElement('div')
     advancedToggles.className = 'dg-toggle-grid'
     advancedToggles.append(
-      toggleCard('Adaptive Framing', 'Lets the configured Sidecar adapt framing guidance where supported. Relay does not deterministically rotate modes; Solo Scene and Persona POV remain fixed constraints.', settings.adaptiveMode, checked => patchProseSettings({ adaptiveMode: checked }), settings.perspectiveMode === 'solo-scene' || settings.perspectiveMode === 'persona-pov'),
+      toggleCard('Adaptive Framing', 'Lets the configured Sidecar adapt framing guidance where supported. Relay does not deterministically rotate modes; Char only and Persona POV remain fixed constraints.', settings.adaptiveMode, checked => patchProseSettings({ adaptiveMode: checked }), settings.perspectiveMode === 'solo-scene' || settings.perspectiveMode === 'persona-pov'),
       toggleCard('Reuse Accepted References', '', settings.reuseAcceptedReferences, checked => patchProseSettings({ reuseAcceptedReferences: checked })),
       toggleCard('Use Location References', '', settings.reuseLocationReferences, checked => patchProseSettings({ reuseLocationReferences: checked })),
       toggleCard('Show Captions', '', settings.showCaptions, checked => patchProseSettings({ showCaptions: checked })),
@@ -5568,9 +6794,10 @@ memory: [['genetics', 'Appearance Memory']],
   function prosePlannerSelect(settings: ProseIllustratorSettings): HTMLElement {
     const field = document.createElement('div')
     field.className = 'dg-field'
-    const label = fieldLabel('Sidecar Connection', 'The Lumiverse text connection used for illustration planning and Appearance Sidecar analysis.')
+    const label = fieldLabel('Sidecar Connection', 'Used for Relay illustration planning and targeted illustration repairs. Appearance has its own Sidecar setting; Surface Assisted Repair uses the separate connection below.')
     const select = document.createElement('select')
     select.className = 'dg-select'
+    select.setAttribute('aria-label', 'Illustration Sidecar Connection')
     const none = document.createElement('option')
     none.value = ''
     none.textContent = 'Select Sidecar connection'
@@ -5585,7 +6812,7 @@ memory: [['genetics', 'Appearance Memory']],
     }
     select.addEventListener('change', () => {
       const connection = parserConnections.find(item => item.id === select.value)
-      patchProseSettings({ plannerConnectionId: select.value || null, plannerModel: connection?.model || '' })
+      patchProseSettings({ plannerConnectionId: connection?.id || null, plannerModel: '' })
     })
     field.append(label, select)
     return field
@@ -5788,9 +7015,13 @@ memory: [['genetics', 'Appearance Memory']],
     let overrideModel = settings.plannerModel || ''
     const connectionField = document.createElement('div')
     connectionField.className = 'dg-field'
-    const connectionLabel = fieldLabel('Sidecar connection', 'Selects the Lumiverse text connection used for Appearance Sidecar extraction. Its model is inherited unless you set the override below.')
+    const connectionLabel = fieldLabel('Sidecar connection', 'Used for illustration planning and targeted illustration repairs. Its model is inherited unless you set the override below.')
     const connectionSelect = document.createElement('select')
     connectionSelect.className = 'dg-select'
+    connectionSelect.setAttribute('aria-label', 'Illustration Sidecar Connection')
+    const noConnection = document.createElement('option')
+    noConnection.value = ''; noConnection.textContent = 'Select Sidecar connection'; noConnection.selected = !selectedConnectionId
+    connectionSelect.appendChild(noConnection)
     for (const connection of parserConnections) {
       const option = document.createElement('option')
       option.value = connection.id
@@ -5960,7 +7191,7 @@ memory: [['genetics', 'Appearance Memory']],
 
   function currentProseSettings(): ProseIllustratorSettings {
     const fallback: ProseIllustratorSettings = {
-      enabled: true, automaticProtocolInjection: true, instantIllustrationDispatch: false, mode: 'inline-protocol', plannerConnectionId: config?.parserConnectionId || null, plannerModel: config?.parserModel || '',
+      enabled: true, automaticProtocolInjection: true, instantIllustrationDispatch: false, mode: 'inline-protocol', promptFormat: 'natural-language', plannerConnectionId: config?.parserConnectionId || null, plannerModel: config?.parserModel || '',
       plannerParameters: {}, contextMessageCount: 4, maximumCharacters: 2, frequencyMode: 'key-moments',
       everyNEligibleMessages: 3, maximumOpportunitiesPerMessage: 3, maximumIllustrationsPerMessage: 3, illustrationsPerRun: 1,
       minimumImages: 1, maximumImages: 3, modelPlacedCountMode: 'fixed', perspectiveMode: 'scene-snapshot', imageAlignment: 'center', imageSize: 'medium', adaptiveMode: true,
@@ -6015,6 +7246,7 @@ memory: [['genetics', 'Appearance Memory']],
 
   function abortActiveGeneration(): void {
     if (!activeChatId) return
+    cancelPendingLifecycleScans()
     ctx.sendToBackend({ type: 'queue_action', chatId: activeChatId, action: 'abort_all' })
     localSidecarAnalysisStartedAt = 0
     updateSidecarTicker()
@@ -6798,7 +8030,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
   }
 
   const NARRATIVE_DLC_UTILITY_NAMES = [
-    'Character Phone', 'Dramatic Cutaway', 'Plot Sparks', 'Scene Shift', 'Parallel Scene', 'Cast Introduction',
+    'Dramatic Cutaway', 'Plot Sparks', 'Scene Shift', 'Parallel Scene', 'Cast Introduction',
     'Backstage Secrets', 'Setting the Scene', 'Off-Stage', 'Character Dossier', 'Location File', 'In Another Life', 'Archive Entry',
     'Relationship Map', 'Cast Sheet', 'Persona Wardrobe',
   ] as const
@@ -6831,51 +8063,6 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     }
   }
 
-  function renderCharacterPhoneAppSettings(current: RouterConfig): HTMLElement {
-    const defaults = normalizeCharacterPhoneDefaultApps(current.characterPhoneDefaultApps)
-    const wrap = document.createElement('div')
-    wrap.className = 'dg-stack'
-    const intro = document.createElement('div')
-    intro.className = 'dg-recovery-note'
-    intro.innerHTML = `<strong>Character Phone Apps</strong><br>Choose the apps that should always appear on Character Phone. The Story Model fills the remaining slots with apps that fit the current story. Every Character Phone uses exactly eight apps.<br><br><strong>Selected defaults: ${defaults.length} / 8</strong> · Story Model fills: ${8 - defaults.length}`
-    wrap.appendChild(intro)
-
-    const update = (next: CharacterPhoneAppId[]) => enqueueRelaySettingsPatch({ kind: 'character-phone-apps', defaultApps: normalizeCharacterPhoneDefaultApps(next, { migrateMissing: false }) })
-    const pinned = document.createElement('div')
-    pinned.className = 'dg-field-stack'
-    if (defaults.length) {
-      const heading = document.createElement('strong'); heading.textContent = 'Always include · slot order'
-      pinned.appendChild(heading)
-      defaults.forEach((id, index) => {
-        const row = document.createElement('div'); row.className = 'dg-actions'
-        const label = document.createElement('span'); label.className = 'dg-chip dg-chip-completed'; label.textContent = `${index + 1}. ${characterPhoneAppLabel(id)}`
-        row.append(
-          label,
-          button('↑', () => index > 0 && update(defaults.map((value, currentIndex) => currentIndex === index ? defaults[index - 1] : currentIndex === index - 1 ? id : value)), index === 0, 'subtle', 'Move earlier'),
-          button('↓', () => index < defaults.length - 1 && update(defaults.map((value, currentIndex) => currentIndex === index ? defaults[index + 1] : currentIndex === index + 1 ? id : value)), index === defaults.length - 1, 'subtle', 'Move later'),
-          button('Remove', () => update(defaults.filter(value => value !== id)), false, 'subtle'),
-        )
-        pinned.appendChild(row)
-      })
-    } else {
-      const emptyPinned = document.createElement('span'); emptyPinned.textContent = 'No defaults selected — the Story Model chooses all eight apps from current context.'
-      pinned.appendChild(emptyPinned)
-    }
-    wrap.appendChild(pinned)
-
-    const catalog = document.createElement('div')
-    catalog.className = 'dg-settings-grid'
-    for (const [id, label] of CHARACTER_PHONE_APPS) {
-      const selected = defaults.includes(id)
-      catalog.appendChild(toggleCard(label, selected ? `Mandatory in slot ${defaults.indexOf(id) + 1}.` : 'Available for contextual filling.', selected, checked => {
-        if (checked) update([...defaults, id])
-        else update(defaults.filter(value => value !== id))
-      }, !selected && defaults.length >= 8))
-    }
-    wrap.appendChild(catalog)
-    return wrap
-  }
-
   function renderNarrativeUtilityCategory(current: RouterConfig): HTMLElement {
     const category = document.createElement('div')
     const selectedNarrativeUtilities = new Set(current.narrativeDlcUtilityNames || [])
@@ -6894,9 +8081,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     for (const name of NARRATIVE_DLC_UTILITY_NAMES) {
       const displayName = narrativeUtilityDisplayName(name)
       const imagesEnabled = current.narrativeUtilityImageEnabled?.[name] !== false
-      const overview = !imagesEnabled && name === 'Character Phone'
-        ? 'Builds a story-aware character phone with apps, messages, records, and a text-only Photos gallery.'
-        : NARRATIVE_UTILITY_OVERVIEWS[displayName] || 'Adds a structured story-aware Narrative module to the prompt.'
+      const overview = NARRATIVE_UTILITY_OVERVIEWS[displayName] || 'Adds a structured story-aware Narrative module to the prompt.'
       const row = document.createElement('div')
       row.className = 'dg-narrative-utility-row'
       const utilityToggle = toggleCard(displayName, `${overview} · ${selectedNarrativeUtilities.has(name) ? 'Included in prompt' : 'Not injected'}`, current.narrativeDlcEnabled && selectedNarrativeUtilities.has(name), checked => {
@@ -6920,7 +8105,6 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       utilityToggles.appendChild(row)
     }
     category.append(categoryControl, utilityToggles)
-    if (current.narrativeDlcEnabled && selectedNarrativeUtilities.has('Character Phone')) category.appendChild(panelSection('Character Phone Apps', renderCharacterPhoneAppSettings(current)))
     return category
   }
 
@@ -6989,7 +8173,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     actions.className = 'dg-actions'
     const send = (action: 'install' | 'inspect' | 'remove') => {
       ctx.sendToBackend({ type: 'narrative_dlc_action', chatId: activeChatId, action, variant: narrativeVariantForSurfaceShellMode(current.surfaceDefaultShellMode) })
-      showToast('info', action === 'remove' ? 'Removing Reverie Relay Regex scripts…' : action === 'inspect' ? 'Checking Regex import…' : 'Importing disabled Core and Narrative Regex scripts…')
+      showToast('info', action === 'remove' ? 'Removing Private Relay Regex scripts…' : action === 'inspect' ? 'Checking Regex import…' : 'Importing disabled Core and Narrative Regex scripts…')
     }
     actions.append(
       button(current.narrativeDlcLastSync?.installed ? 'Repair Import' : 'Import Regex Pack', () => send('install'), false, 'primary'),
@@ -7041,7 +8225,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       label.append(caption, select)
       return label
     }
-    let source: R45ScriptSource = 'bracket'
+    let source: R45ScriptSource = 'legacy-xml'
     let presentation: R45PresentationMode = customSurfaces.defaultShellMode === 'sparkling'
       ? 'sparkling'
       : customSurfaces.defaultShellMode === 'glass' || customSurfaces.defaultShellMode === 'plain-glass'
@@ -7168,7 +8352,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       editor.append(validationMessage, actions)
     }
     controls.append(
-      makeSelect('Renderer source', source, [['bracket', 'Bracket Native'], ['legacy-xml', 'Legacy XML Compatibility']], value => { source = value; renderRows() }),
+      makeSelect('Renderer source', source, [['legacy-xml', 'XML (Canonical)'], ['bracket', 'Saved Bracket Compatibility']], value => { source = value; renderRows() }),
       makeSelect('Presentation', presentation, [['inline', 'Inline'], ['plain', 'Plain Button'], ['sparkling', 'Sparkling Button'], ['glass', 'Glass Button']], value => { presentation = value; renderRows() }),
       makeSelect('Color mode', colorMode, [['realistic', 'Realistic'], ['primary', 'Lumiverse Primary'], ['glass', 'Glass Mode']], value => { colorMode = value; renderRows() }),
     )
@@ -7664,7 +8848,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     actions.append(
       button(active ? 'Selected Preset' : 'Use Preset', () => sendSurfaceAction(definition.surfaceId, 'activate'), active, active ? 'primary' : 'subtle'),
       button('Preview', () => openSurfacePreview(definition), false, 'subtle'),
-      button('Copy Bracket Example', () => void copyText(bracketExampleFromXml(definition.sampleXml), `${definition.displayName} bracket example copied`), false, 'subtle'),
+      button('Copy XML Example', () => void copyText(definition.sampleXml, `${definition.displayName} XML example copied`), false, 'subtle'),
       button(definition.builtIn ? 'Edit as Preset' : 'Duplicate', () => sendSurfaceAction(definition.surfaceId, 'duplicate'), false, 'subtle'),
       button(definition.enabled ? 'Disable' : 'Enable', () => sendSurfaceAction(definition.surfaceId, definition.enabled ? 'disable' : 'enable'), false, 'subtle'),
     )
@@ -7748,9 +8932,9 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       'e.g. relationship-map',
     )
     const wrapper = creatorTextField(
-      'Bracket Surface Root',
+      'XML Surface Root',
       existing?.canonicalOuterWrapper || '',
-      'The bracket root the Story Model writes. Enter the root name only, without brackets. Example: relationship_map becomes [relationship_map]...[/relationship_map].',
+      'The XML root the Story Model writes. Enter the name only. Example: relationship_map becomes <relationship_map>...</relationship_map>.',
       'e.g. relationship_map',
     )
     const target = creatorTextField(
@@ -7786,14 +8970,14 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const sample = modalTextareaWithHelp(
       'Canonical Validation Fixture',
       existing?.sampleXml || '',
-      'Relay’s complete canonical validation fixture. This internal compatibility form defines every required field; the Story Model receives an equivalent bracket-native example, with only image_request remaining XML.',
+      'The complete canonical XML example used for validation, preview and Story Model instructions. Preserve its attributes, fields and order.',
       false,
       '<my_surface>...</my_surface>',
     )
     const utility = modalTextareaWithHelp(
       'Surface Utility / Model Instructions',
       existing?.promptModule || '',
-      'These instructions are injected when this surface is enabled. Explain when to use it, viewpoint limits, required bracket fields, image-request ownership, and the exact bracket-native output format.',
+      'These instructions are injected when this surface is enabled. Explain when to use it, viewpoint limits, XML fields, image-request ownership and the exact XML output format.',
       false,
       '[MY SURFACE — REVERIE RELAY UTILITY]\n\nUse this surface when...\n\nOUTPUT FORMAT — EXACT\n[my_surface]...[/my_surface]',
     )
@@ -7835,7 +9019,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const defaultOpen = toggleCard('Open Collapsible by Default', 'Only applies when Shell Mode is Collapsible.', existing?.defaultOpen === true, () => {})
     const enabled = toggleCard('Surface Enabled', 'Makes the renderer and Surface Library recognize this surface.', existing?.enabled !== false, () => {})
     const promptEnabled = toggleCard('Inject Surface Utility', 'Adds the Utility / Model Instructions to automatic surface prompt injection.', existing?.promptEnabled !== false, () => {})
-    const mediaRequired = toggleCard('Require Image', 'On: the validation example must include an owned image request. Off: this Surface may be text-only.', existing ? existing.mediaRequired ?? /<(?:image_request|reverie-illustration)\b/i.test(existing.sampleXml) : true, () => {})
+    const mediaRequired = toggleCard('Require Image', 'On: the validation example must include an owned image request. Off: this Surface may be text-only.', existing ? existing.mediaRequired ?? containsImageRequestMarkup(existing.sampleXml) : true, () => {})
 
     const getSelect = (node: HTMLElement) => node.querySelector('select') as HTMLSelectElement
     const getToggle = (node: HTMLElement) => node.querySelector('input') as HTMLInputElement
@@ -7870,9 +9054,9 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
 Use this text-only Surface when it adds a clear in-world artifact. Show only information available to the focal viewpoint.
 
 OUTPUT FORMAT — EXACT
-Output one bracket-native Surface only. No markdown fence, XML Surface shell, or explanation. Do not add an image_request.
+Output one complete XML Surface only. No Markdown fence, HTML or explanation. Do not add an image_request.
 
-${bracketExampleFromXml(fixture)}`)
+${fixture}`)
         if (!getText(sample)) setText(sample, fixture)
         return
       }
@@ -7885,8 +9069,8 @@ ${bracketExampleFromXml(fixture)}`)
 </media>
 <content>Add the surface's required semantic text fields here.</content>
 </${tag}>`
-      const bracketFixture = bracketExampleFromXml(fixture)
-      setText(utility, `[${name.toLocaleUpperCase()} — REVERIE RELAY UTILITY]
+      const bracketFixture = fixture
+      setText(utility, xmlAuthoringInstructions(`[${name.toLocaleUpperCase()} — REVERIE RELAY UTILITY]
 
 Use this surface when it materially improves clarity or immersion.
 Do not use it when the same information is already clear in prose.
@@ -7904,9 +9088,9 @@ IMAGE RULES
 - Do not request readable interface text inside generated images.
 
 OUTPUT FORMAT — EXACT
-Output one bracket-native Surface only. No markdown fence, XML Surface shell, or explanation. The nested <image_request> is the only XML exception.
+Output one complete XML Surface only. No Markdown fence, HTML or explanation. Keep each XML image_request inside its documented media element.
 
-${bracketFixture}`)
+${bracketFixture}`))
       if (!getText(sample)) setText(sample, fixture)
     }
     const utilityStarter = button('Generate Utility Starter', generateUtilityStarter, false, 'subtle')
@@ -7938,7 +9122,7 @@ ${bracketFixture}`)
       if (kind === 'comparison') {
         const fixture = `<${root}>\n<title>Scene-supported comparison title</title>\n<before><image_request id="${surfaceId}-before-001" target="${imageTarget}" slot="${surfaceId}-before" aspect="4:3" alt="Before view"><scene_brief>The established before state, with camera position, visible subjects, and environment.</scene_brief></image_request></before>\n<after><image_request id="${surfaceId}-after-001" target="${imageTarget}" slot="${surfaceId}-after" aspect="4:3" alt="After view"><scene_brief>The established after state from a comparable camera position. Describe only changes supported by the story.</scene_brief></image_request></after>\n</${root}>`
         setText(sample, fixture)
-        setText(utility, `[${name.toLocaleUpperCase()} — REVERIE RELAY UTILITY]\n\nUse this Surface only when two distinct, story-established states can be compared. Never invent a before or after state.\n\nOUTPUT FORMAT — EXACT\nWrite one bracket-native Surface. Keep both image requests in their own [before] and [after] fields, with distinct ids and slots. The nested <image_request> tags are the only XML exception. Describe the two views without asking the image model to draw text or labels.\n\n${bracketExampleFromXml(fixture)}`)
+        setText(utility, xmlAuthoringInstructions(`[${name.toLocaleUpperCase()} — REVERIE RELAY UTILITY]\n\nUse this Surface only when two distinct, story-established states can be compared. Never invent a before or after state.\n\nOUTPUT FORMAT — EXACT\nWrite one XML Surface. Keep both XML image requests in their own before and after elements, with distinct ids and slots. Describe the two views without asking the image model to draw text or labels.\n\n${fixture}`))
       }
     }
     if (!existing) exampleChoices.append(
@@ -7954,12 +9138,12 @@ ${bracketFixture}`)
     )
     const identifiers = creatorSection(
       '2 · Technical Identifiers',
-      'Relay can fill safe defaults for a brand-new Surface. The bracket root is model-facing; Relay keeps the validation fixture for compatibility and rendering.',
+      'Reverie can fill safe defaults for a new Surface. Its XML example is used for model instructions, validation and rendering.',
       recommendedIds, id, base, wrapper, target,
     )
     const modelContract = creatorSection(
       '3 · Utility & Surface Contract',
-      'The Utility teaches the Story Model when and how to author bracket-native output. Choose whether this Surface needs an image, then generate a starter and tailor the complete validation example.',
+      'The Utility teaches the Story Model when and how to author XML. Choose whether this Surface needs an image, then generate a starter and tailor its complete XML example.',
       promptEnabled, mediaRequired, promptCategory, utilityStarter, utility, sample,
     )
     const presentationDetails = document.createElement('details')
@@ -7983,7 +9167,7 @@ ${bracketFixture}`)
         const targetId = getText(target) || `custom.${baseSurfaceId}`
         const promptModule = getText(utility)
         if (!surfaceId || !baseSurfaceId || !canonicalOuterWrapper || !targetId) {
-          showToast('error', 'Surface name, Surface ID, Base Surface ID, Bracket Surface Root, and Image Target are required.')
+          showToast('error', 'Surface name, Surface ID, Base Surface ID, XML Surface Root, and Image Target are required.')
           return
         }
         const cssErrors = validateDeclarativeSurfaceCss(getText(css), surfaceId)
@@ -7998,10 +9182,10 @@ ${bracketFixture}`)
         }
         const fixture = getText(sample)
         if (!fixture.includes(`<${canonicalOuterWrapper}`) || !fixture.includes(`</${canonicalOuterWrapper}>`)) {
-          showToast('error', 'Add one complete XML validation fixture using the Bracket Surface Root.')
+          showToast('error', 'Add one complete XML validation fixture using the XML Surface Root.')
           return
         }
-        if (getToggle(mediaRequired).checked && !/<(?:image_request|reverie-illustration)\b/i.test(fixture)) {
+        if (getToggle(mediaRequired).checked && !containsImageRequestMarkup(fixture)) {
           showToast('error', 'Add an owned image request to the fixture, or switch off Require Image for a text-only Surface.')
           return
         }
@@ -8142,9 +9326,9 @@ ${bracketFixture}`)
     }, { chatId: activeChatId || 'preview', messageId: 'preview-message' }).content
     const actions = document.createElement('div')
     actions.className = 'dg-actions'
-    const bracketExample = bracketExampleFromXml(definition.sampleXml)
+    const bracketExample = definition.sampleXml
     actions.append(
-      button('Copy Bracket Example', () => void copyText(bracketExample, 'Bracket example copied'), false, 'subtle'),
+      button('Copy XML Example', () => void copyText(bracketExample, 'XML example copied'), false, 'subtle'),
       button('Copy Preset JSON', () => void copyText(JSON.stringify(definition, null, 2), 'Surface preset JSON copied'), false, 'subtle'),
     )
     const pre = document.createElement('pre')
@@ -8828,6 +10012,7 @@ ${bracketFixture}`)
       toggleCard('Follow Native Parser', '', current.followNativeParser, checked => patchConfig({ followNativeParser: checked })),
       parserSelect(current),
       parserModelField(current),
+      surfaceRepairConnectionField(),
     )
     wrap.appendChild(panelSection('Surface Parser Connection', sidecar))
     if (current.followNativeParser) {
@@ -8938,7 +10123,7 @@ ${bracketFixture}`)
     workload.className = 'dg-settings-grid'
     workload.append(
       selectField('Candidate Count', String(current.defaultCandidateCount), [['1', '1'], ['2', '2'], ['4', '4']], value => patchConfig({ defaultCandidateCount: Number(value) as 1 | 2 | 4 })),
-      numberInput('Concurrent Relay Preprocessing Jobs', current.queueConcurrencyLimit, 1, 4, value => patchConfig({ queueConcurrencyLimit: value })),
+      numberInput('Concurrent Relay Preprocessing Jobs', current.queueConcurrencyLimit, 1, MAX_RELAY_JOB_CONCURRENCY, value => patchConfig({ queueConcurrencyLimit: value })),
     )
     box.appendChild(panelSection('Workload', workload))
     const tutorial = document.createElement('div')
@@ -9233,6 +10418,7 @@ ${bracketFixture}`)
       renderRelayOrb()
       trigger.disabled = true
       showPopupError('')
+      if (action === 'regenerate') setOptimisticSlotBusy(record.key, 'Preparing regeneration…')
       try {
         const snapshot = await syncNativeSettings()
         const id = submissionId(action, record.key)
@@ -9247,13 +10433,18 @@ ${bracketFixture}`)
           closePopup: () => acceptedPopup?.(),
           setDisabled: disabled => { trigger.disabled = disabled },
           showPopupError,
-          restorePending: () => { relayOrbStatus = previousOrbStatus; renderRelayOrb() },
+          restorePending: () => {
+            if (action === 'regenerate') restoreOptimisticSlotAction(record.key)
+            relayOrbStatus = previousOrbStatus
+            renderRelayOrb()
+          },
           setBusy: setOptimisticSlotBusy,
           finishBusy: finishOptimisticSlotBusy,
         })
         if (!submitted) trigger.disabled = false
       } catch (error) {
         trigger.disabled = false
+        if (action === 'regenerate') restoreOptimisticSlotAction(record.key)
         relayOrbStatus = previousOrbStatus
         renderRelayOrb()
         showPopupError(error instanceof Error ? error.message : String(error))
@@ -9268,7 +10459,7 @@ ${bracketFixture}`)
     if (['placement-pending', 'placement-repair-needed'].includes(record.status) && record.pendingPlacement) {
       let repairButton: HTMLButtonElement
       actions.append(
-        repairButton = button(record.status === 'placement-repair-needed' ? 'Repair / Reinsert' : 'Retry Placement', () => submitRepairPlacement(record, { trigger: repairButton, showPopupError }), false, 'primary'),
+        repairButton = button(record.status === 'placement-repair-needed' ? 'Repair / Reinsert' : 'Retry Placement', () => submitRepairPlacement(record, { trigger: repairButton, showPopupError, closePopup: acceptedPopup }), false, 'primary'),
         button('Preview Unplaced Replacement', () => openImageUrl(record.pendingPlacement!.imageUrl, 'Generated replacement awaiting insertion', record.pendingPlacement?.imageId, record)),
         button('Discard Unplaced Replacement', () => ctx.sendToBackend({ type: 'discard_pending_placement', key: record.key }), false, 'danger'),
         button('Metadata', () => openMetadata(record)),
@@ -9598,7 +10789,14 @@ ${bracketFixture}`)
         ['Remove Image From Message', () => confirmRemoveImageFromMessage(record), isSlotActionBusy(record)],
       )
     }
-    for (const [label, handler, disabled, tooltip] of actions) {
+    const primaryLabels = new Set([
+      'Open Image', 'Regenerate - Same Settings', 'Edit Prompt', 'Edit / Supply Prompt',
+      'History', 'Reparse', 'Reparse Carousel', 'Abort', 'Preview Unplaced Replacement',
+      'Retry Placement', 'Repair / Reinsert', 'Generate Recovered Slot', 'Rebuild Request',
+    ])
+    const primaryActions = actions.filter(([label]) => primaryLabels.has(label))
+    const moreActions = actions.filter(([label]) => !primaryLabels.has(label))
+    const makeActionButton = ([label, handler, disabled, tooltip]: [string, () => void, boolean, string?]) => {
       const item = document.createElement('button')
       item.type = 'button'
       item.textContent = label
@@ -9608,21 +10806,73 @@ ${bracketFixture}`)
         closeActionMenu()
         handler()
       })
-      menu.appendChild(item)
+      if (label.startsWith('Remove ')) item.classList.add('dg-menu-danger-action')
+      return item
+    }
+    for (const action of primaryActions) menu.appendChild(makeActionButton(action))
+    if (moreActions.length) {
+      const more = document.createElement('details')
+      more.className = 'dg-menu-more'
+      const moreSummary = document.createElement('summary')
+      moreSummary.setAttribute('aria-label', `More actions, ${moreActions.length} available`)
+      moreSummary.append(document.createTextNode('More actions'))
+      const count = document.createElement('span')
+      count.className = 'dg-menu-count'
+      count.textContent = String(moreActions.length)
+      moreSummary.appendChild(count)
+      more.appendChild(moreSummary)
+
+      const groupOrder = ['Generate & revise', 'Inspect & copy', 'Repair', 'Remove']
+      const groups = new Map<string, typeof moreActions>()
+      const groupFor = (label: string): string => {
+        if (label.startsWith('Remove ')) return 'Remove'
+        if (label.startsWith('Copy ') || ['History', 'Generation Details', 'Why Did Relay Do That?', 'View Metadata'].includes(label)) return 'Inspect & copy'
+        if (['Clear Error State', 'Reconcile This Slot', 'Rebuild Request', 'Discard Unplaced Replacement'].includes(label)) return 'Repair'
+        return 'Generate & revise'
+      }
+      for (const action of moreActions) {
+        const groupName = groupFor(action[0])
+        const groupActions = groups.get(groupName) || []
+        groupActions.push(action)
+        groups.set(groupName, groupActions)
+      }
+      for (const groupName of groupOrder) {
+        const groupActions = groups.get(groupName)
+        if (!groupActions?.length) continue
+        const group = document.createElement('details')
+        group.className = `dg-menu-group${groupName === 'Remove' ? ' dg-menu-danger' : ''}`
+        const summary = document.createElement('summary')
+        summary.append(document.createTextNode(groupName))
+        const groupCount = document.createElement('span')
+        groupCount.className = 'dg-menu-count'
+        groupCount.textContent = String(groupActions.length)
+        summary.appendChild(groupCount)
+        group.appendChild(summary)
+        for (const action of groupActions) group.appendChild(makeActionButton(action))
+        more.appendChild(group)
+      }
+      menu.appendChild(more)
     }
     document.body.appendChild(menu)
     document.body.classList.add('dg-relay-menu-open')
     const firstEnabled = menu.querySelector<HTMLButtonElement>('button:not(:disabled)')
     firstEnabled?.focus({ preventScroll: true })
     const rect = menu.getBoundingClientRect()
-    menu.style.left = `${Math.min(x, window.innerWidth - rect.width - 8)}px`
-    menu.style.top = `${Math.min(y, window.innerHeight - rect.height - 8)}px`
+    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - rect.width - 8))}px`
+    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))}px`
     menuEl = menu
     attachMenuDismissHandlers(menu)
   }
 
   function attachMenuDismissHandlers(menu: HTMLElement): void {
     menuDismissCleanup?.()
+    const keepMenuInViewport = () => {
+      const rect = menu.getBoundingClientRect()
+      menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8))}px`
+      menu.style.top = `${Math.max(8, Math.min(rect.top, window.innerHeight - rect.height - 8))}px`
+    }
+    menu.addEventListener('toggle', keepMenuInViewport, true)
+    window.addEventListener('resize', keepMenuInViewport)
     let armed = false
     const dismissIfOutside = (event: Event) => {
       if (!armed) return
@@ -9641,6 +10891,8 @@ ${bracketFixture}`)
     document.addEventListener('contextmenu', dismissIfOutside, true)
     document.addEventListener('keydown', dismissOnKey, true)
     menuDismissCleanup = () => {
+      menu.removeEventListener('toggle', keepMenuInViewport, true)
+      window.removeEventListener('resize', keepMenuInViewport)
       document.removeEventListener('pointerdown', dismissIfOutside, true)
       document.removeEventListener('mousedown', dismissIfOutside, true)
       document.removeEventListener('touchstart', dismissIfOutside, true)
@@ -10048,17 +11300,27 @@ ${bracketFixture}`)
         try {
           const snapshot = cachedNativeSettingsSnapshot()
           const id = submissionId('regenerate-with-direction', record.key)
+          const candidateCount = Number(count.value) as 1 | 2 | 4
+          const replacesCurrentImage = candidateCount === 1
+          if (replacesCurrentImage) setOptimisticSlotBusy(record.key, 'Preparing regeneration…', intent)
           const submitted = slotActionFeedback.submit({
-            submissionId: id, key: record.key, action: 'regenerate-with-direction', statusText: 'Applying direction…', intent,
-            dispatch: () => ctx.sendToBackend({ type: 'regenerate_with_intent', submissionId: id, key: record.key, intent, candidateCount: Number(count.value) as 1 | 2 | 4, nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt }),
+            submissionId: id, key: record.key, action: 'regenerate-with-direction',
+            statusText: replacesCurrentImage ? 'Preparing regeneration…' : 'Generating alternate candidates…',
+            intent: replacesCurrentImage ? intent : undefined,
+            dispatch: () => ctx.sendToBackend({ type: 'regenerate_with_intent', submissionId: id, key: record.key, intent, candidateCount, nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt }),
             closePopup: () => { modal.dismiss(); acceptedPopup?.(); showToast('info', 'Regeneration accepted. Relay is preparing candidates.') },
             setDisabled: disabled => { generateButton.disabled = disabled; generateButton.textContent = disabled ? 'Submitting…' : 'Generate Candidates' },
             showPopupError: showError,
-            restorePending: () => { relayOrbStatus = previousOrbStatus; renderRelayOrb() },
+            restorePending: () => {
+              if (replacesCurrentImage) restoreOptimisticSlotAction(record.key)
+              relayOrbStatus = previousOrbStatus
+              renderRelayOrb()
+            },
             setBusy: setOptimisticSlotBusy,
             finishBusy: finishOptimisticSlotBusy,
           })
           if (!submitted) {
+            if (replacesCurrentImage) restoreOptimisticSlotAction(record.key)
             generateButton.disabled = false
             generateButton.textContent = 'Generate Candidates'
             relayOrbStatus = previousOrbStatus
@@ -10202,8 +11464,7 @@ ${bracketFixture}`)
       activeSlotPreviewKey = next.key
     } catch (error) {
       if (!(error instanceof Error) || !error.message.includes('Maximum of 2 stacked modals')) throw error
-      // Another Relay modal may occupy the host's limited stack. Keep this
-      // slot pending and retry when the frontend receives another state.
+      // Another Relay modal occupies the host stack. Retry on the next state update.
     }
   }
 
@@ -10217,8 +11478,8 @@ ${bracketFixture}`)
       modal.dismiss()
     }
     const closePreviewWave = () => {
-      // Closing a review must not immediately replace it with the next
-      // pending preview. Those images remain available in Relay Slots.
+      // Closing review leaves pending images accessible in Relay Slots without
+      // immediately opening the next pending preview over this one.
       for (const pending of records) {
         if (pending.status === 'placement-pending' && pending.previewPending && pending.pendingPlacement) openedSlotPreviewKeys.add(pending.key)
       }
@@ -10264,27 +11525,27 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
           slotActionFeedback.submit({
             submissionId: id, key: record.key, action: 'reparse', statusText: 'Reparsing…',
             dispatch: () => ctx.sendToBackend({ type: 'reparse_slot', submissionId: id, key: record.key, useCurrentNativeSettings: true, nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt }),
-            closePopup: dismissPreview,
+            closePopup: () => { openedSlotPreviewKeys.delete(record.key); dismissPreview() },
             setDisabled: disabled => { reparseButton.disabled = disabled },
             showPopupError: showSubmissionError,
             setBusy: setOptimisticSlotBusy,
             finishBusy: finishOptimisticSlotBusy,
           })
         } catch (error) {
+          restoreOptimisticSlotAction(record.key)
           reparseButton.disabled = false
           showSubmissionError(error instanceof Error ? error.message : String(error))
         }
       }, false, 'subtle'),
       button('Regenerate', async () => {
-        const snapshot = await syncNativeSettings()
-        ctx.sendToBackend({ type: 'regenerate_slot', key: record.key, useCurrentNativeSettings: true, nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt })
-        dismissPreview()
+        void regenerate(record, true)
+        openedSlotPreviewKeys.delete(record.key); dismissPreview()
       }),
       insertButton = button(record.status === 'placement-repair-needed' ? 'Repair / Reinsert' : 'Insert', () => {
         submitRepairPlacement(record, {
           trigger: insertButton,
           showPopupError: showSubmissionError,
-          closePopup: dismissPreview,
+          closePopup: () => { openedSlotPreviewKeys.delete(record.key); dismissPreview() },
         })
       }, false, 'primary'),
     )
@@ -10596,17 +11857,48 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
   }
 
   async function regenerate(record: SlotRecord, useCurrentNativeSettings = false, highResMode?: boolean): Promise<void> {
+    const current = recordByKey.get(record.key) || record
+    if (isSlotActionBusy(current)) return
+    const previousOrbStatus = relayOrbStatus
     relayOrbStatus = 'generating'
+    lastStatus = 'Preparing regeneration…'
+    setOptimisticSlotBusy(record.key, 'Preparing regeneration…')
     renderRelayOrb()
-    const snapshot = useCurrentNativeSettings ? await syncNativeSettings() : null
-    ctx.sendToBackend({
-      type: 'regenerate_slot',
-      key: record.key,
-      highResMode,
-      useCurrentNativeSettings,
-      nativeImageSettings: snapshot?.settings,
-      nativeSettingsCapturedAt: snapshot?.capturedAt,
-    })
+    try {
+      const snapshot = useCurrentNativeSettings ? await syncNativeSettings() : null
+      const id = submissionId('regenerate', record.key)
+      const submitted = slotActionFeedback.submit({
+        submissionId: id,
+        key: record.key,
+        action: 'regenerate',
+        statusText: 'Preparing regeneration…',
+        dispatch: () => ctx.sendToBackend({
+          type: 'regenerate_slot', submissionId: id, key: record.key, highResMode,
+          useCurrentNativeSettings, nativeImageSettings: snapshot?.settings,
+          nativeSettingsCapturedAt: snapshot?.capturedAt,
+        }),
+        closePopup: () => {},
+        setDisabled: () => {},
+        showPopupError: message => { if (message) showToast('error', message) },
+        restorePending: () => {
+          restoreOptimisticSlotAction(record.key)
+          relayOrbStatus = previousOrbStatus
+          renderRelayOrb()
+        },
+        setBusy: setOptimisticSlotBusy,
+        finishBusy: finishOptimisticSlotBusy,
+      })
+      if (!submitted) {
+        restoreOptimisticSlotAction(record.key)
+        relayOrbStatus = previousOrbStatus
+        renderRelayOrb()
+      }
+    } catch (error) {
+      restoreOptimisticSlotAction(record.key)
+      relayOrbStatus = previousOrbStatus
+      renderRelayOrb()
+      showToast('error', error instanceof Error ? error.message : String(error))
+    }
   }
 
   async function reparse(record: SlotRecord, useCurrentNativeSettings = false): Promise<void> {
@@ -10738,6 +12030,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     pendingConfigPatches.push({ patch, sentAt: Date.now() })
     if (config) {
       config = { ...config, ...patch }
+      if('phoneEnabled' in patch)phoneWidget?.setEnabled(config.phoneEnabled!==false)
       if (patch.vaultStrength) {
         continuityVault = { ...continuityVault, strength: patch.vaultStrength }
         if (config.proseIllustratorSettings.appearanceMemoryOverride === 'global') {
@@ -10890,6 +12183,20 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
       return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([entryKey, entryValue]) => [entryKey, redactSecrets(entryValue, entryKey)]))
     }
     return value
+  }
+
+  function surfaceRepairConnectionField(selected = config?.surfaceRepairConnectionId || null, onChange?: (value: string | null) => void): HTMLElement {
+    const inherited = parserConnections.find(connection => connection.id === config?.parserConnectionId)
+    const field = selectField('Assisted Repair Connection', selected || '', [
+      ['', inherited ? `Use Surface Parser (${inherited.name} / ${config?.parserModel || inherited.model})` : 'Use Surface Parser (not configured)'],
+      ...parserConnections.map(connection => [connection.id, `${connection.name} / ${connection.model}`] as [string, string]),
+    ], value => {
+      const next = value || null
+      onChange?.(next)
+      patchConfig({ surfaceRepairConnectionId: next })
+    })
+    field.querySelector('select')!.setAttribute('aria-label', 'Assisted Repair Connection')
+    return field
   }
 
   function parserSelect(current: RouterConfig): HTMLElement {
@@ -11334,6 +12641,9 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     if (value === 'genetics') return 'Appearance Memory'
     if (value === 'recipes') return 'Recipes'
     if (value === 'manual') return 'Guide'
+    if (value === 'story-constellations') return 'Constellations'
+    if (value === 'phone') return 'Phone'
+    if (value === 'story-reel') return 'Story Reel'
     return titleCase(value)
   }
 
@@ -11341,7 +12651,8 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     if (value === 'continuity') return 'genetics'
     if (value === 'assets') return 'history'
     if (value === 'queue') return 'slots'
-    const tabs: DrawerTab[] = ['slots', 'illustrator', 'recipes', 'genetics', 'surfaces', 'surface-library', 'surface-presets', 'utility-studio', 'history', 'logs', 'manual', 'settings']
+    if (value === 'story-phones') return 'phone'
+    const tabs: DrawerTab[] = ['slots', 'illustrator', 'recipes', 'genetics', 'surfaces', 'surface-library', 'surface-presets', 'utility-studio', 'history', 'logs', 'manual', 'settings', 'story-constellations', 'phone', 'story-reel']
     return tabs.includes(value as DrawerTab) ? value as DrawerTab : null
   }
 
@@ -11447,8 +12758,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     confirmEl?.remove()
     lifecycle.dispose()
     for (const cleanup of lifecycleInterceptorCleanups.splice(0)) cleanup()
-    for (const timer of lifecycleScanTimers.values()) window.clearTimeout(timer)
-    lifecycleScanTimers.clear()
+    cancelPendingLifecycleScans()
     lifecycleScanCooldown.clear()
     unsubBackend()
     unsubChat()
@@ -11460,6 +12770,8 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     unsubInputSurfaces()
     inputRelayAction.destroy()
     inputSurfacesAction.destroy()
+    phoneWidget?.destroy()
+    offPhoneToolRenderSync()
     tab.destroy()
     for (const style of mountedLifecycleStyleNodes) style.remove()
     mountedLifecycleStyleNodes.clear()

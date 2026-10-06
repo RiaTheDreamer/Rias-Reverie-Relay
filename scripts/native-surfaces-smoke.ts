@@ -132,6 +132,29 @@ for (const rendererMode of ['relay', 'legacy-regex'] as const) {
 }
 assert(imageFreeSurfaceCases === definitions.length * 2, `text-only Surface coverage is incomplete: ${imageFreeSurfaceCases}/${definitions.length * 2}`)
 
+const forumReplyDrift = '[forum_thread][community]salvage[/community][user]poster[/user][time]Just now[/time][score]+1[/score][title]A text-only repair thread[/title][fm_body]No attachment was posted.[/fm_body][fm_media][/fm_media][fm_comments][fm_comment][user]reply_one[/user][time]2m ago[/time][score]+5[/score][content]Check the fuse first.[/content][/fm_comment][fm_comment][user]reply_two[/user]Then inspect the socket.[/fm_comment][/fm_comments][/forum_thread]'
+const normalizedForumReply = normalizeBracketSurfaceDocument(forumReplyDrift, SHIPPED_SURFACE_SPECS).markup
+assert(normalizedForumReply.includes('[fm_comment][user]reply_one[/user]2m ago · +5 — Check the fuse first.[/fm_comment]'), 'Forum reply metadata drift was not flattened into readable text')
+assert(normalizedForumReply.includes('[fm_comment][user]reply_two[/user]Then inspect the socket.[/fm_comment]'), 'canonical Forum reply was altered')
+const renderedForumReply = renderNativeSurfaceMarkup(forumReplyDrift, studio, { chatId: 'forum-reply-drift', messageId: 'forum-reply-drift-message' })
+assert(renderedForumReply.renderedCount === 1 && !visibleBracketTags(renderedForumReply.content).length, 'text-only Forum reply leaked raw bracket fields into the rendered card')
+
+const phoneBatteryDrift = '[smart_phone][sender]Contact[/sender][initial]C[/initial][time]23:18[/time][day]Today[/day][battery]84%[/battery][contact]Contact[/contact][messages][s_recv][time]23:18[/time]Still there?[/s_recv][s_sent][time]23:19[/time]Yes.[/s_sent][/messages][/smart_phone]'
+const normalizedPhoneBattery = normalizeBracketSurfaceDocument(phoneBatteryDrift, SHIPPED_SURFACE_SPECS).markup
+assert(normalizedPhoneBattery.includes('[battery]84[/battery]'), 'bracket Smartphone battery percent was not normalized')
+const renderedPhoneBattery = renderNativeSurfaceMarkup(phoneBatteryDrift, studio, { chatId: 'phone-battery-drift', messageId: 'phone-battery-drift-message' })
+assert(renderedPhoneBattery.renderedCount === 1 && renderedPhoneBattery.content.includes('84%') && !renderedPhoneBattery.content.includes('84%%'), 'bracket Smartphone battery rendered a duplicate percent sign')
+
+const textOnlyEmail = '[email_thread][account]Inbox[/account][time]23:25[/time][email_item][slot]1[/slot][from]Sender[/from][subject]Note[/subject][preview]Text only.[/preview][time]23:25[/time][email_body]No file was attached.[/email_body][/email_item][/email_thread]'
+const renderedTextOnlyEmail = renderNativeSurfaceMarkup(textOnlyEmail, studio, { chatId: 'email-text-only', messageId: 'email-text-only-message' })
+assert(renderedTextOnlyEmail.renderedCount === 1 && !renderedTextOnlyEmail.content.includes('📎'), 'text-only Email falsely displayed an attachment icon')
+
+const textOnlyCastSheet = '[character_profile][portrait][/portrait][name]Ari[/name][role]Technician[/role][hook]Inspects the damaged card.[/hook][trait]Dark hair; work coat; patient.[/trait][/character_profile]'
+for (const rendererMode of ['relay', 'legacy-regex'] as const) {
+  const rendered = renderNativeSurfaceMarkup(textOnlyCastSheet, { ...studio, rendererMode }, { chatId: 'cast-sheet-text-only', messageId: `cast-sheet-text-only-${rendererMode}` })
+  assert(rendered.renderedCount === 1 && rendered.content.includes('grid-template-columns:minmax(0,1fr)!important') && rendered.content.includes('Established details'), `text-only Cast Sheet retained its empty portrait pane in ${rendererMode}`)
+}
+
 const readyMessage = '<image_request id="ready-slot" target="custom.artifact-media" slot="ready-slot" aspect="4:3"><scene_brief>Ready image.</scene_brief></image_request>'
 const readyRecord: any = {
   key: 'ready-slot-key', requestId: 'ready-slot', slot: 'ready-slot', target: 'custom.artifact-media', status: 'placement-pending',

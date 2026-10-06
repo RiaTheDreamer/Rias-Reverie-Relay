@@ -48,6 +48,11 @@ const CATEGORIES = new Set<AppearanceFactCategory>([
 const PROVENANCE = new Set(['chat-history', 'current-assistant-message', 'character-card', 'persona-card', 'lorebook', 'native-character-preset', 'native-persona-preset', 'prior-appearance-state'])
 
 const clean = (value: unknown): string => typeof value === 'string' ? value.trim() : ''
+const identityNameKey = (value: string): string => clean(value).normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+const namesKnownHostIdentity = (name: string, identity: AppearanceSidecarIdentity): boolean => {
+  const candidate = identityNameKey(name)
+  return Boolean(candidate) && [identity.name, ...identity.aliases].some(known => identityNameKey(known) === candidate)
+}
 const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 const stringList = (value: unknown): string[] => Array.isArray(value) ? value.map(clean).filter(Boolean) : []
 const clamp = (value: unknown): number => Number.isFinite(Number(value)) ? Math.max(0, Math.min(1, Number(value))) : 0
@@ -245,15 +250,15 @@ export function ingestAppearanceSidecarObservations(
   // Active host identities exist independently of Sidecar discoveries.
   for (const [role, identity] of [['character', input.activeCharacter], ['persona', input.activePersona]] as const) {
     if (!identity || !isValidCanonicalCharacterName(identity.name)) continue
-    registerCanonicalCharacter(vault, { name: identity.name, canonicalCharacterId: identity.id || undefined, lumiverseCharacterId: role === 'character' ? identity.id : undefined, lumiversePersonaId: role === 'persona' ? identity.id : undefined, aliases: identity.aliases, sourceType: role === 'persona' ? 'persona-card' : 'character-card', userConfirmed: true })
+    registerCanonicalCharacter(vault, { name: identity.name, canonicalCharacterId: identity.id || undefined, lumiverseCharacterId: role === 'character' ? identity.id : undefined, lumiversePersonaId: role === 'persona' ? identity.id : undefined, aliases: identity.aliases, sourceType: role === 'persona' ? 'persona-card' : 'character-card', userConfirmed: true, preserveSeparateNamedRecords: Boolean(identity.id) })
   }
   for (const observation of observations) {
     let canonical: CanonicalVisualCharacter | null = null
     try {
-      if (observation.subject.role === 'character' && input.activeCharacter) {
-        canonical = registerCanonicalCharacter(vault, { name: input.activeCharacter.name, canonicalCharacterId: input.activeCharacter.id, lumiverseCharacterId: input.activeCharacter.id, aliases: [...input.activeCharacter.aliases, ...observation.subject.aliases], sourceType: 'character-card', userConfirmed: true })
-      } else if (observation.subject.role === 'persona' && input.activePersona) {
-        canonical = registerCanonicalCharacter(vault, { name: input.activePersona.name, canonicalCharacterId: input.activePersona.id || undefined, lumiversePersonaId: input.activePersona.id, aliases: [...input.activePersona.aliases, observation.subject.name, ...observation.subject.aliases], sourceType: 'persona-card', userConfirmed: true })
+      if (observation.subject.role === 'character' && input.activeCharacter && namesKnownHostIdentity(observation.subject.name, input.activeCharacter)) {
+        canonical = registerCanonicalCharacter(vault, { name: input.activeCharacter.name, canonicalCharacterId: input.activeCharacter.id, lumiverseCharacterId: input.activeCharacter.id, aliases: input.activeCharacter.aliases, sourceType: 'character-card', userConfirmed: true, preserveSeparateNamedRecords: Boolean(input.activeCharacter.id) })
+      } else if (observation.subject.role === 'persona' && input.activePersona && namesKnownHostIdentity(observation.subject.name, input.activePersona)) {
+        canonical = registerCanonicalCharacter(vault, { name: input.activePersona.name, canonicalCharacterId: input.activePersona.id || undefined, lumiversePersonaId: input.activePersona.id, aliases: input.activePersona.aliases, sourceType: 'persona-card', userConfirmed: true, preserveSeparateNamedRecords: Boolean(input.activePersona.id) })
       } else if (observation.subject.role === 'npc' && observation.subject.trustworthy && observation.confidence >= 0.78) {
         canonical = registerCanonicalCharacter(vault, { name: observation.subject.name, aliases: observation.subject.aliases, sourceType: 'appearance-sidecar', sidecarVerified: true })
       }

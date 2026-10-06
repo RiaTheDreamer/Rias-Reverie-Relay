@@ -1,10 +1,11 @@
+import { xmlAuthoringInstructions } from './xmlSurfaceFormat'
+
 const ATTR_RE = /\s+([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
 const TOKEN_RE = /<!--[\s\S]*?-->|<\/?[A-Za-z][\w:-]*(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*)?\s*\/?>/g
 const VOID_TAGS = new Set('img br hr input meta link'.split(' '))
-// Relay image-control markup is transport syntax, not Surface structure.
-// Keep it XML while converting its owning Surface tree to bracket-native form.
-const RELAY_XML_CONTROL_TAGS = new Set(['image_request', 'reverie-illustration'])
-const XML_PASSTHROUGH_TAGS = new Set(['image_request_error', 'img', ...RELAY_XML_CONTROL_TAGS])
+// Image controls now share child-field bracket authoring with their Surface.
+// Runtime images/errors remain renderer-owned, never model-authored controls.
+const XML_PASSTHROUGH_TAGS = new Set(['image_request_error', 'img'])
 const tagOf = (token: string): string => /^<\/?([\w:-]+)/.exec(token)?.[1]?.toLowerCase() || ''
 const attrsOf = (token: string): Record<string, string> => Object.fromEntries([...String(token || '').matchAll(ATTR_RE)].map(match => [match[1], match[2] ?? match[3] ?? '']))
 
@@ -79,9 +80,15 @@ function compactXmlControlSchema(node: XmlNode): string {
 }
 
 function compactBracketSchema(node: XmlNode, depth = 0): string {
-  const pad = '  '.repeat(depth)
-
-  if (RELAY_XML_CONTROL_TAGS.has(node.tag)) return `${pad}${compactXmlControlSchema(node)}`
+  const pad = ' '.repeat(depth)
+  // A request's fields stay explicit; repeating Surface-depth indentation for
+  // every scalar across the full registry needlessly inflates the injection.
+  if (node.tag === 'image_request' || node.tag === 'reverie-illustration') {
+    const tag = node.tag.replace(/-/g, '_')
+    const fields = Object.keys(node.attrs).map(key => `[${key}]…[/${key}]`).join('')
+    const body = node.children.map(child => typeof child === 'string' ? (child.trim() ? '…' : '') : compactBracketSchema(child).replace(/\n\s*/g, '')).join('')
+    return `${pad}[${tag}]${fields}${body}[/${tag}]`
+  }
 
   const lines = [`${pad}[${node.tag}]`]
 
@@ -107,6 +114,11 @@ export function compactBracketSchemaFromXml(sampleXml: string): string {
   return root ? compactBracketSchema(root) : String(sampleXml || '')
 }
 
+export function compactXmlSchemaFromXml(sampleXml: string): string {
+  const root = parseLooseXml(sampleXml)
+  return root ? compactXmlControlSchema(root) : String(sampleXml || '')
+}
+
 export function compactSurfacePromptModule(input: {
   label: string
   root: string
@@ -124,13 +136,26 @@ export function compactSurfacePromptModule(input: {
     ? 'none'
     : `${required === 0 ? `optional, max=${maximum}` : `minimum=${required}, max=${maximum}`}${input.target ? `; target=${input.target}` : ''}${input.aspects?.length ? `; aspects=${input.aspects.join(',')}` : ''}. Use the exact owner position shown in SCHEMA; RULES override this summary when the Surface has multiple media roles.`
   const sections = [
-    `SURFACE: ${input.label.toUpperCase()}\nFORMAT: compact-v1\nROOT: [${input.root}]`,
+    `SURFACE: ${input.label.toUpperCase()}\nFORMAT: compact-v1\nROOT: <${input.root}>`,
     input.triggerOverride?.trim() ? `TRIGGER OVERRIDE\n${input.triggerOverride.trim()}` : '',
-    `SCHEMA\n${compactBracketSchemaFromXml(input.sampleXml)}`,
+    `SCHEMA\n${compactXmlSchemaFromXml(input.sampleXml)}`,
     `MEDIA\n${media}`,
     input.specificRules?.trim() ? `RULES\n${input.specificRules.trim()}` : '',
   ]
-  return sections.filter(Boolean).join('\n\n')
+  return xmlAuthoringInstructions(sections.filter(Boolean).join('\n\n'))
+}
+
+export function xmlSurfacePromptModule(input: {
+  label: string; root: string; sampleXml: string; target?: string; aspect?: string
+}): string {
+  return `SURFACE: ${input.label.toUpperCase()}
+Author one complete XML Surface using the exact schema below. Preserve attribute names, child order and repeated rows. Describe semantic content only; never author HTML, CSS, launcher chrome, data attributes or renderer internals. XML tags delimit fields; square brackets inside text are literal text, not tags. Escape & and < in values as &amp; and &lt;.
+${input.target ? `Media target: ${input.target}.` : ''} ${input.aspect ? `Media aspect: ${input.aspect}.` : ''}
+Every image request remains literal XML directly inside its documented media owner, never beside the Surface or in an invented generic media wrapper.
+
+XML ROOT: <${input.root}>
+CANONICAL XML EXAMPLE
+${input.sampleXml}`
 }
 
 export function bracketSurfacePromptModule(input: {
@@ -145,7 +170,7 @@ export function bracketSurfacePromptModule(input: {
   return `SURFACE: ${input.label.toUpperCase()}
 Author this Surface in bracket-native syntax, not XML. Describe semantic content only: names, titles, messages, timestamps, sections, captions, and approved media requests.${target}${aspect}
 No attributes in opening bracket tags. All semantic fields are child bracket nodes: [field]value[/field]. Repeated rows, messages, posts, comments, gallery items, and sections must be repeated child blocks, never attributes on an opening bracket.
-Preserve repeated child order exactly. Chat/message rows are ordered lists, never one combined text block. Do not author HTML, CSS, launcher chrome, data attributes, or renderer internals. Relay image requests remain canonical XML transport blocks directly inside their exact owning bracket field: <image_request ...><scene_brief>...</scene_brief></image_request>. Do not convert image_request or scene_brief to bracket tags. Never add a generic [media] wrapper unless that Surface explicitly names its owning field [media].
+Preserve repeated child order exactly. Chat/message rows are ordered lists, never one combined text block. Do not author HTML, CSS, launcher chrome, data attributes, or renderer internals. Reverie image requests use [image_request] with child fields, including [scene_brief], directly inside their exact owning field. Never add a generic [media] wrapper unless that Surface explicitly names its owning field [media].
 
 BRACKET ROOT: [${input.root}]
 

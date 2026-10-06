@@ -1,6 +1,7 @@
 // @ts-nocheck -- deterministic source/state contracts for the post-hotfix audit.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { contentFingerprint } from '../src/contracts'
 
 ;(globalThis as any).spindle = {
   registerMessageContentProcessor() {}, registerInterceptor() { return () => {} }, registerMacro() {}, on() {}, onFrontendMessage() {}, sendToFrontend() {},
@@ -100,11 +101,36 @@ const driftedJob: any = {
 const driftedResult: any = { slot: 'canonical-prose-slot', imageId: 'image-current', imageUrl: '/image-current', attemptNumber: 2 }
 const reconciled = backendModule.composeInitialPlacementBatchContent(driftedAuthoredProse, [{ job: driftedJob, results: [driftedResult], replaceExisting: true }])
 assert.equal(reconciled.failedEntries, undefined)
+assert.equal(backendModule.hasExactStateProjectionOwner(driftedAuthoredProse, driftedJob), true, 'an unchanged unique authored request must own state-projected media even without a host write')
+assert.equal(backendModule.hasExactStateProjectionOwner(`${driftedAuthoredProse}\n${driftedAuthoredProse}`, driftedJob), false, 'duplicate authored owners must remain ambiguous')
+assert.equal(backendModule.hasExactStateProjectionOwner(driftedAuthoredProse, { ...driftedJob, target: 'custom.artifact-media' }), false, 'a different media target must not claim the owner')
+const bracketOwner = '[image_request][id]canonical-bracket-slot[/id][target]prose.illustration[/target][slot]canonical-bracket-slot[/slot][scene_brief]Current scene.[/scene_brief][/image_request]'
+const bracketJob = { ...driftedJob, requestId: 'canonical-bracket-slot', slots: ['canonical-bracket-slot'] }
+assert.equal(backendModule.hasExactStateProjectionOwner(bracketOwner, bracketJob), true, 'a single canonical bracket request must own state-projected media')
+assert.equal(backendModule.hasExactStateProjectionOwner(`${bracketOwner}\n${bracketOwner}`, bracketJob), false, 'duplicate bracket owners must fail closed')
+const stateOwnerSyntheticJob = { ...driftedJob, synthetic: true, proseAnchor: { sourceContentFingerprint: contentFingerprint(driftedAuthoredProse) } }
+assert.equal(backendModule.hasExactStateProjectionOwner(driftedAuthoredProse, stateOwnerSyntheticJob), true, 'synthetic prose placement must keep its exact source fingerprint owner')
+assert.equal(backendModule.hasExactStateProjectionOwner(`${driftedAuthoredProse} Changed.`, stateOwnerSyntheticJob), false, 'drifted synthetic prose must not inherit an obsolete insertion anchor')
 assert.match(reconciled.content, /Before\./)
 assert.match(reconciled.content, /After\./)
 assert.equal((reconciled.content.match(/reverie-relay:image/g) || []).length, 1, 'canonical request/slot reconciliation did not project exactly once')
 const trulyMissing = backendModule.composeInitialPlacementBatchContent('Before. The authored request was intentionally removed. After.', [{ job: driftedJob, results: [driftedResult], replaceExisting: true }])
 assert.equal(trulyMissing.failedEntries?.length, 1, 'true missing source did not remain fail-closed')
+assert.equal(backendModule.hasExactStateProjectionOwner('Before. The authored request was intentionally removed. After.', driftedJob), false, 'missing request must not be completed by state projection')
+
+const syntheticProse = 'Gabrielle lifts the cracked card.\n\nHe studies its broken contact rail under the lamp.'
+const syntheticAnchor = {
+  messageId: 'message', swipeId: 0, paragraphIndex: 0, paragraphFingerprint: contentFingerprint('Gabrielle lifts the cracked card.'),
+  nextParagraphFingerprint: contentFingerprint('He studies its broken contact rail under the lamp.'),
+  insertionSide: 'after', sourceContentFingerprint: contentFingerprint(syntheticProse), selectedExcerpt: 'Gabrielle lifts the cracked card.',
+}
+const syntheticJob: any = { ...driftedJob, requestId: 'synthetic-prose-slot', slots: ['illustration'], originalRequestXml: '', synthetic: true, proseAnchor: syntheticAnchor }
+const syntheticResult: any = { ...driftedResult, slot: 'illustration' }
+const syntheticRegeneration = backendModule.composeInitialPlacementBatchContent(syntheticProse, [{ job: syntheticJob, results: [syntheticResult], replaceExisting: true }])
+assert.equal(syntheticRegeneration.failedEntries, undefined, 'state-projected synthetic prose regeneration lost its saved paragraph anchor')
+assert.equal((syntheticRegeneration.content.match(/reverie-relay:image/g) || []).length, 1, 'synthetic prose regeneration did not prove exactly one owned replacement')
+const missingSyntheticAnchor = backendModule.composeInitialPlacementBatchContent('An unrelated turn.\n\nNo card remains in this message.', [{ job: syntheticJob, results: [syntheticResult], replaceExisting: true }])
+assert.equal(missingSyntheticAnchor.failedEntries?.length, 1, 'a stale synthetic prose anchor must remain fail-closed')
 
 const migrated: any = backendModule.migrateRelayStateSnapshot({
   galleryLinks: {
@@ -126,5 +152,5 @@ for (const owner of ['dg-dramatic-media', 'r65-media', 'rv6-media', 'ru-media', 
   assert(narrative.includes(`.${owner}>.rrl-island`), `${owner}: lifecycle reservation visibility selector missing`)
 }
 
-assert.equal(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version, '0.4.0.2', 'staging build version is not aligned')
+assert.equal(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version, '0.4.0.20', 'staging build version is not aligned')
 console.log('Post-hotfix audit smoke passed: global abort ordering, complete provider origins, gallery-only durable retry, and reservation visibility are enforced.')

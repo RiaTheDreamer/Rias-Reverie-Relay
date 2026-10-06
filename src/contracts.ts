@@ -1,3 +1,6 @@
+import { bracketImageControls, decodeImageControlValue, imageControlAsXml } from './imageControlMarkup'
+import { xmlNarrativeAsLegacy } from './xmlSurfaceFormat'
+
 export type ImageTarget =
   | 'twitter.media'
   | 'instagram.single'
@@ -6,6 +9,17 @@ export type ImageTarget =
   | 'kakao.image'
   | 'prose.illustration'
   | `custom.${string}`
+
+export const DEFAULT_RELAY_JOB_CONCURRENCY = 2
+export const MAX_RELAY_JOB_CONCURRENCY = 8
+
+export function normalizeRelayJobConcurrency(value: unknown, fallback = DEFAULT_RELAY_JOB_CONCURRENCY): number {
+  const candidate = value === null || value === undefined || value === '' ? Number.NaN : Number(value)
+  const fallbackValue = Number(fallback)
+  const safeFallback = Number.isFinite(fallbackValue) ? fallbackValue : DEFAULT_RELAY_JOB_CONCURRENCY
+  const normalized = Number.isFinite(candidate) ? candidate : safeFallback
+  return Math.max(1, Math.min(MAX_RELAY_JOB_CONCURRENCY, Math.round(normalized)))
+}
 
 export type ImageIntent =
   | 'auto'
@@ -332,11 +346,12 @@ export type QueueDirectorState = {
 }
 
 export type ProseIllustratorMode = 'off' | 'relay-planned' | 'model-placed' | 'inline-protocol'
+export type ProseIllustratorPromptFormat = 'natural-language' | 'danbooru-tags'
 export type ProseIllustratorFrequencyMode = 'key-moments' | 'every-eligible' | 'every-n'
 export type ProseIllustratorPlacementPolicy = 'after-beat' | 'before-beat' | 'end-of-message' | 'ask'
 export type ProseIllustratorInsertionMode = 'auto' | 'review'
 export type ProseIllustratorPeoplePolicy = 'required' | 'allowed' | 'forbidden'
-export type ProseIllustratorPerspectiveMode = 'scene-snapshot' | 'sequence' | 'emotional-beat' | 'solo-scene' | 'persona-pov'
+export type ProseIllustratorPerspectiveMode = 'scene-snapshot' | 'sequence' | 'emotional-beat' | 'solo-scene' | 'persona-pov' | 'storyboard'
 export type ProseIllustratorAspectPolicy = 'adaptive' | '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9'
 
 export type PersonaPovContext = {
@@ -388,6 +403,8 @@ export type ProseIllustratorSettings = {
   /** Dispatch a complete Model Planned illustration request as soon as it streams. */
   instantIllustrationDispatch: boolean
   mode: ProseIllustratorMode
+  /** Format for image-model positive prompts; story prose remains unchanged. */
+  promptFormat: ProseIllustratorPromptFormat
   plannerConnectionId: string | null
   plannerModel: string
   plannerParameters: Record<string, unknown>
@@ -971,10 +988,10 @@ export type SurfaceRendererMode = 'relay' | 'legacy-regex'
 export type SurfaceUtilityInjectionPosition = 'system-prefix' | 'before-chat-history' | 'before-latest-user' | 'after-latest-user' | 'after-chat-history'
 export type SurfacePromptCategory = 'social-messaging' | 'photography-keepsakes' | 'covers-promotion' | 'evidence-editorial' | 'narrative-visuals' | 'custom'
 export type SurfaceDensity = 'compact' | 'comfortable' | 'spacious'
-export type GenerationPlaceholderEffect = 'spinner' | 'glitter' | 'none' | 'dream-orb'
+export type GenerationPlaceholderEffect = 'spinner' | 'glitter' | 'none' | 'dream-orb' | 'diffusion-preview'
 
 export function normalizeGenerationPlaceholderEffect(value: unknown): GenerationPlaceholderEffect {
-  return value === 'spinner' || value === 'glitter' || value === 'none' || value === 'dream-orb' ? value : 'glitter'
+  return value === 'spinner' || value === 'glitter' || value === 'none' || value === 'dream-orb' || value === 'diffusion-preview' ? value : 'glitter'
 }
 
 export type CustomSurfaceDefinition = {
@@ -1576,8 +1593,8 @@ const RELAY_PROMPT_MARKDOWN_IMAGE_RE = /(?:\n\s*)*!\[reverie-relay\]\(\s*\/api\/
 const RELAY_OWNERSHIP_MARKER_RE = /<!--\s*(?:reverie-relay|dreamglass):image(?:-error)?\b[\s\S]*?-->/gi
 const RELAY_PROMPT_SCENE_IMAGE_RE = /<scene_image\b[^>]*>[\s\S]*?<\/scene_image>/gi
 const RELAY_PROMPT_OWNED_IMAGE_RE = /<img\b(?=[^>]*(?:\bdata-dgir-[\w:-]+\s*=|\bdata-reverie-artifact-media\s*=|\bclass\s*=\s*["'][^"']*\breverie-artifact-media\b|\bsrc\s*=\s*["']\/api\/v1\/(?:images|image-gen\/results)\/))[^>]*\/?\s*>/gi
-const RELAY_PROMPT_REVERIE_REQUEST_RE = /<reverie-illustration\b[^>]*>[\s\S]*?<\/reverie-illustration\s*>/gi
-const RELAY_PROMPT_IMAGE_REQUEST_RE = /<image_request(?:_error)?\b[^>]*(?:\/>|>[\s\S]*?<\/image_request(?:_error)?\s*>)/gi
+const RELAY_PROMPT_REVERIE_REQUEST_RE = /<reverie-illustration\b[^>]*>[\s\S]*?<\/reverie-illustration\s*>|\[reverie[_-]illustration\b[^\]]*\][\s\S]*?(?:\[\/reverie[_-]illustration\]|$)/gi
+const RELAY_PROMPT_IMAGE_REQUEST_RE = /<image_request(?:_error)?\b[^>]*(?:\/>|>[\s\S]*?<\/image_request(?:_error)?\s*>)|\[image_request\b[^\]]*\][\s\S]*?(?:\[\/image_request\]|$)/gi
 const LEGACY_DREAMGLASS_REQUEST_RE = /<dreamglass(?:[-_:][a-z0-9_-]+)?\b[^>]*(?:\/>|>[\s\S]*?<\/dreamglass(?:[-_:][a-z0-9_-]+)?\s*>)/gi
 const RELAY_RUNTIME_RESULT_URL_RE = /\/api\/v1\/(?:images|image-gen\/results)\/[^\s<>)"']+/gi
 const RELAY_RUNTIME_DGIR_TOKEN_RE = /\bdata-dgir-(?:key|request-id|slot|image-id|message-id|swipe-id|custom-target)\s*=/gi
@@ -1782,6 +1799,9 @@ export const PLOT_SPARK_VECTOR_BY_KEY = {
   e: 'matchstrike',
   f: 'reputation-fire',
   g: 'wildcard-collision',
+  h: 'golden-door',
+  i: 'dangerous-bargain',
+  j: 'buried-thread',
 } as const
 
 export type PlotSparkKey = keyof typeof PLOT_SPARK_VECTOR_BY_KEY
@@ -1820,7 +1840,7 @@ function runtimeArtifactOccurrenceCount(value: string): number {
 }
 
 function removePlotSparkPayloads(value: string): string {
-  return value.replace(/\[Plot_Sparks\][\s\S]*?\[\/Plot_Sparks\]/gi, '')
+  return value.replace(/\[Plot_Sparks\][\s\S]*?\[\/Plot_Sparks\]|<Plot_Sparks>[\s\S]*?<\/Plot_Sparks>/gi, '')
 }
 
 /** Deterministic diagnostics for freshly authored Story Model output. This is
@@ -1833,7 +1853,7 @@ export function inspectStoryModelOutputContracts(
 ): StoryOutputContractInspection {
   const text = String(value || '')
   const inlineSource = removePlotSparkPayloads(text)
-  const canonicalInline = [...inlineSource.matchAll(/<reverie-illustration\b[^>]*\brequest\s*=\s*["']generate["'][^>]*>[\s\S]*?<visual_prompt\b[^>]*>\s*[^<\s][\s\S]*?<\/visual_prompt\s*>[\s\S]*?<\/reverie-illustration\s*>/gi)]
+  const canonicalInline = parseImageRequests(inlineSource).filter(request => request.target === 'prose.illustration' && request.promptSource === 'visual_prompt')
   const expected = Number.isFinite(Number(options.expectedInlineIllustrations)) ? Math.max(0, Number(options.expectedInlineIllustrations)) : null
   const countMode = options.inlineCountMode || 'unknown'
   const inlineValid = expected === null
@@ -1842,7 +1862,10 @@ export function inspectStoryModelOutputContracts(
       ? canonicalInline.length >= expected
       : canonicalInline.length === expected
 
-  const canonicalPayloads = [...text.matchAll(/\[Plot_Sparks\][\s\S]*?\[\/Plot_Sparks\]/gi)]
+  // XML Text is opaque prose. A literal [Media] in it must not be mistaken
+  // for the structural media owner by this read-only compatibility inspector.
+  const inspectionText = text.replace(/<Text>([\s\S]*?)<\/Text>/g, (_full, value: string) => `<Text>${value.replace(/\[/g, '&#91;').replace(/\]/g, '&#93;')}</Text>`)
+  const canonicalPayloads = [...xmlNarrativeAsLegacy(inspectionText).matchAll(/\[Plot_Sparks\][\s\S]*?\[\/Plot_Sparks\]/gi)]
   const payloads = canonicalPayloads
   const canonicalSparks = canonicalPayloads.flatMap(payload => [...payload[0].matchAll(/\[Spark\]([\s\S]*?)\[\/Spark\]/gi)].map(match => match[1] || ''))
   const sparkCount = canonicalSparks.length
@@ -1860,7 +1883,7 @@ export function inspectStoryModelOutputContracts(
     if (expectedVector && vector !== expectedVector) vectorMismatches.push({ key, expected: expectedVector, actual: vector })
     const sparkText = body.match(/\[Text\]\s*([\s\S]*?)\s*\[\/Text\]/i)?.[1]?.trim() || ''
     const sparkMedia = body.match(/\[Media\]\s*([\s\S]*?)\s*\[\/Media\]/i)?.[1] || ''
-    const canonicalMedia = /<reverie-illustration\b[^>]*\brequest\s*=\s*["']generate["'][^>]*>[\s\S]*?<visual_prompt\b[^>]*>\s*[^<\s][\s\S]*?<\/visual_prompt\s*>[\s\S]*?<\/reverie-illustration\s*>/i.test(sparkMedia)
+    const canonicalMedia = parseImageRequests(sparkMedia).some(request => request.promptSource === 'visual_prompt')
     const mediaValid = options.plotSparksImagesEnabled === false ? !sparkMedia.trim() : canonicalMedia
     if (!sparkText || !mediaValid) missingMedia.push(key || `spark-${index + 1}`)
   }
@@ -1968,6 +1991,11 @@ export function normalizeProseIllustrationContracts(content: string): { markup: 
 
 export function inspectProseIllustrationSchemas(content: string): ProseIllustrationSchemaDiagnostic[] {
   const diagnostics: ProseIllustrationSchemaDiagnostic[] = []
+  for (const control of bracketImageControls(content)) {
+    if (control.root !== 'reverie_illustration') continue
+    const failures = [...control.diagnostics, ...inspectProseIllustrationSchemas(imageControlAsXml(control)).map(issue => issue.message.replace(/^INVALID_PROSE_ILLUSTRATION_SCHEMA: /, ''))]
+    if (failures.length) diagnostics.push({ code: 'INVALID_PROSE_ILLUSTRATION_SCHEMA', message: `INVALID_PROSE_ILLUSTRATION_SCHEMA: ${failures.join('; ')}`, slot: control.fields.slot || '', index: control.index, fullMatch: control.fullMatch })
+  }
   const re = /<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi
   let match: RegExpExecArray | null
   while ((match = re.exec(content)) !== null) {
@@ -1994,6 +2022,7 @@ export function inspectProseIllustrationSchemas(content: string): ProseIllustrat
 }
 
 const NARRATIVE_MEDIA_CONTEXTS: ReadonlyArray<{ open: RegExp; close: RegExp }> = [
+  ...['Plot_Sparks', 'SCENE', 'PARALLEL', 'NPC', 'SECRET', 'WORLD', 'WHATIF', 'character_phone', 'private_phone', 'else', 'npc', 'place', 'persona_wardrobe'].map(tag => ({ open: new RegExp(`<${tag}\\b[^>]*>`, 'g'), close: new RegExp(`<\\/${tag}\\s*>`, 'g') })),
   { open: /\[dramatic_parallel\]/gi, close: /\[\/dramatic_parallel\]/gi },
   { open: /<dramatic_parallel\b[^>]*>/gi, close: /<\/dramatic_parallel\s*>/gi },
   { open: /\[Plot_Sparks\]/gi, close: /\[\/Plot_Sparks\]/gi },
@@ -2037,7 +2066,7 @@ export function isImageTarget(value: string): value is ImageTarget {
 }
 
 export function containsImageRequestMarkup(value: unknown): boolean {
-  return typeof value === 'string' && /<(?:image_request|reverie-illustration)\b|\[image_request\]/i.test(value)
+  return typeof value === 'string' && /<(?:image_request|reverie-illustration)\b|\[(?:image_request|reverie[_-]illustration)\b/i.test(value)
 }
 
 export function slotKey(parts: {
@@ -2100,7 +2129,6 @@ export function targetApp(target: ImageTarget): SlotRecord['targetApp'] {
 }
 
 export function parseImageRequests(content: string): ImageRequest[] {
-  content = normalizeProseIllustrationContracts(content).markup
   const out: ImageRequest[] = []
   const phoneRanges: Array<{ start: number; end: number; bodyStart: number; time: string }> = []
   const phoneRe = /<(?:smart_phone|smartphone)\b([^>]*)>([\s\S]*?)<\/(?:smart_phone|smartphone)>/gi
@@ -2122,15 +2150,17 @@ export function parseImageRequests(content: string): ImageRequest[] {
   }
 
   const re = /<(image_request|reverie-illustration)\b([^>]*)>([\s\S]*?)<\/\1>/gi
-  const invalidProseSpans = new Set(inspectProseIllustrationSchemas(content).map(diagnostic => `${diagnostic.index}:${diagnostic.fullMatch.length}`))
   let match: RegExpExecArray | null
 
   while ((match = re.exec(content)) !== null) {
     const tagName = match[1].toLocaleLowerCase()
-    const attrs = parseAttrs(match[2])
-    const body = match[3].trim()
+    const normalized = normalizeProseIllustrationContracts(match[0]).markup
+    const normalizedParts = /^<(?:image_request|reverie-illustration)\b([^>]*)>([\s\S]*?)<\/(?:image_request|reverie-illustration)>$/i.exec(normalized)
+    re.lastIndex = match.index + match[0].length
+    const attrs = parseAttrs(normalizedParts?.[1] || match[2])
+    const body = (normalizedParts?.[2] || match[3]).trim()
     const isIllustrationProtocol = tagName === 'reverie-illustration'
-    if (isIllustrationProtocol && invalidProseSpans.has(`${match.index}:${match[0].length}`)) continue
+    if (isIllustrationProtocol && inspectProseIllustrationSchemas(normalized).length) continue
     const narrativeOwned = isNarrativeOwnedImageRequest(content, match.index)
     const id = (attrs.id || attrs.request_id || (isIllustrationProtocol ? attrs.slot : ''))?.trim()
     const authoredTarget = (isIllustrationProtocol ? 'prose.illustration' : attrs.target?.trim()) as ImageTarget | undefined
@@ -2169,76 +2199,41 @@ export function parseImageRequests(content: string): ImageRequest[] {
       intent: normalizeImageIntent(attrs.intent),
       count: target === 'instagram.carousel' ? count : 1,
       aspect: attrs.aspect,
-      alt,
-      caption,
+      alt: decodeImageControlValue(alt),
+      caption: caption ? decodeImageControlValue(caption) : undefined,
       time: requestTime,
-      prompt: prompt.trim().slice(0, MAX_PROMPT_CHARS),
+      prompt: decodeImageControlValue(prompt.trim()).slice(0, MAX_PROMPT_CHARS),
       cast,
       promptSource: isIllustrationProtocol && narrativeOwned
         ? 'structured'
         : isIllustrationProtocol
         ? 'visual_prompt'
         : 'structured',
-      negative: firstTagText(body, 'negative')?.trim(),
+      negative: firstTagText(body, 'negative') ? decodeImageControlValue(firstTagText(body, 'negative')!.trim()) : undefined,
       slot: (attrs.slot?.trim() || (isIllustrationProtocol ? 'illustration' : undefined)),
       fullMatch: match[0],
       index: match.index,
     })
   }
 
-  // Current story-model authoring is bracket-only. Keep legacy XML above as
-  // an explicit compatibility ingress, but normalize both grammars into the
-  // same ImageRequest shape before generation and placement logic sees them.
-  const bracketRe = /\[image_request\]([\s\S]*?)\[\/image_request\]/gi
-  while ((match = bracketRe.exec(content)) !== null) {
-    const body = match[1] || ''
-    const id = (firstBracketTagText(body, 'id') || firstBracketTagText(body, 'request_id') || '').trim()
-    const authoredTarget = firstBracketTagText(body, 'target')?.trim() as ImageTarget | undefined
-    const narrativeOwned = isNarrativeOwnedImageRequest(content, match.index)
-    const target = (narrativeOwned && authoredTarget === 'prose.illustration'
-      ? 'custom.artifact-media'
-      : authoredTarget) as ImageTarget | undefined
-    if (!id || !target || !isImageTarget(target)) continue
-
-    const structuredPrompt = firstBracketTagText(body, 'scene_brief')
-      || firstBracketTagText(body, 'prompt')
-      || firstBracketTagText(body, 'visual_prompt')
-    if (!structuredPrompt?.trim()) continue
-
-    const rawCast = String(firstBracketTagText(body, 'cast') || '').trim().toLocaleLowerCase()
-    const cast = ['char', 'user', 'char+user', 'none'].includes(rawCast)
-      ? rawCast as ImageRequest['cast']
-      : undefined
-    const countValue = firstBracketTagText(body, 'count')
-    const count = clampInt(countValue ? Number(countValue) : 1, 1, MAX_COUNT)
-    const caption = firstBracketTagText(body, 'context_caption')?.trim()
-    const alt = firstBracketTagText(body, 'alt')?.trim() || caption || ''
-    let requestTime = firstBracketTagText(body, 'time')?.trim() || undefined
-    if (target === 'smartphone.message-image' && !requestTime) {
-      const phone = phoneRanges.find(range => match!.index >= range.start && match!.index < range.end)
-      if (phone) {
-        const beforeRequest = content.slice(phone.bodyStart, match.index)
-        requestTime = lastBracketTagText(beforeRequest, 'time')?.trim() || phone.time || undefined
-      }
+  // Both authoring envelopes enter the same validated IR. Preserve the raw
+  // bracket owner and source offset rather than a shifted XML projection.
+  for (const control of bracketImageControls(content)) {
+    if (!control.complete || control.diagnostics.length) continue
+    const request = parseImageRequests(imageControlAsXml(control))[0]
+    if (!request) continue
+    if (['char', 'user', 'char+user', 'none'].includes(control.fields.cast || '')) request.cast = control.fields.cast as ImageRequest['cast']
+    const narrativeOwned = isNarrativeOwnedImageRequest(content, control.index)
+    if (narrativeOwned && request.target === 'prose.illustration') {
+      request.target = 'custom.artifact-media'
+      request.promptSource = 'structured'
     }
-
-    out.push({
-      id,
-      target,
-      intent: normalizeImageIntent(firstBracketTagText(body, 'intent')),
-      count: target === 'instagram.carousel' ? count : 1,
-      aspect: firstBracketTagText(body, 'aspect')?.trim(),
-      alt,
-      caption,
-      time: requestTime,
-      prompt: structuredPrompt.trim().slice(0, MAX_PROMPT_CHARS),
-      cast,
-      promptSource: 'structured',
-      negative: (firstBracketTagText(body, 'negative_prompt') || firstBracketTagText(body, 'negative'))?.trim(),
-      slot: firstBracketTagText(body, 'slot')?.trim() || undefined,
-      fullMatch: match[0],
-      index: match.index,
-    })
+    if (request.target === 'smartphone.message-image' && !request.time) {
+      const phone = phoneRanges.find(range => control.index >= range.start && control.index < range.end)
+      if (phone) request.time = lastBracketTagText(content.slice(phone.bodyStart, control.index), 'time')?.trim() || phone.time || undefined
+    }
+    out.push({ ...request,
+      fullMatch: control.fullMatch, index: control.index })
   }
 
   // A reusable Surface avatar can intentionally appear in several message rows.

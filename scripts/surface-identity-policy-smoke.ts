@@ -51,4 +51,4 @@ for (const variant of NARRATIVE_REGEX_VARIANTS) {
   }
 }
 
-console.log('Surface identity policy smoke passed: 46 built-ins, twelve R4.5 packs, and Plot Sparks contain no Relay-invented person identities')
+console.log('Surface identity policy smoke passed: 46 built-ins, twelve Core packs, and Plot Sparks contain no Relay-invented person identities')

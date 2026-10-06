@@ -3,7 +3,7 @@ import {
   R45_ACTIVE_ROOTS,
   containsR45RenderedSurface,
   r45LegacyXmlSurfaceAuthorityPack,
-  r45SurfaceAuthorityPack,
+  r45BracketSurfaceAuthorityPack as r45SurfaceAuthorityPack,
   renderR45SurfaceAuthority,
   type R45ColorMode,
   type R45PresentationMode,
@@ -98,10 +98,10 @@ let closingDelimiterMutationCases = 0
 for (const definition of definitions) {
   const bracket = bracketExampleFromXml(definition.sampleXml)
   assert(bracket.includes(`[${definition.canonicalOuterWrapper}]`) && bracket.includes(`[/${definition.canonicalOuterWrapper}]`), `${definition.surfaceId}: canonical bracket root missing`)
-  assert(!/\[\/?(?:image_request|scene_brief|reverie-illustration|visual_prompt)\b/i.test(bracket), `${definition.surfaceId}: canonical fixture migrated Relay image-control XML`)
+  assert(!/<image_request\b/i.test(bracket), `${definition.surfaceId}: canonical fixture retained XML image-control authoring`)
   if (/<image_request\b/i.test(definition.sampleXml)) {
     protectedXmlCases += 1
-    assert(/<image_request\b[\s\S]*?<scene_brief>[\s\S]*?<\/scene_brief>[\s\S]*?<\/image_request>/i.test(bracket), `${definition.surfaceId}: protected XML image control left its bracket owner`)
+    assert(/\[image_request\][\s\S]*?\[scene_brief\][\s\S]*?\[\/scene_brief\][\s\S]*?\[\/image_request\]/i.test(bracket), `${definition.surfaceId}: bracket image control left its owning Surface`)
   }
   for (const close of bracket.matchAll(/\[\/([A-Za-z][\w-]*)\]/g)) {
     const start = close.index || 0

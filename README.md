@@ -8,13 +8,14 @@
 
 Reverie brings your roleplay's messages, memories, documents, and visual moments into the chat. A phone conversation can become a phone interface; a diary entry can become a readable keepsake; a story beat can have its own illustration.
 
-**Version:** `0.4.0.2`
+**Version:** `0.4.0.20`
 
 This is a preview build. Use the `main` branch for the public release; staging builds may change before release.
 
 ## What you can do
 
 - **Bring story artifacts to life.** Render messaging apps, social posts, diaries, news, photos, character records, and other interactive Surfaces inside your chat.
+- **Carry the story into a usable phone.** Open phone-local Core apps, read and respond to supported conversations or comments, and keep app activity alongside the roleplay without requiring an inline Surface first.
 - **Illustrate your story.** Let Relay plan illustrated moments, or let the Story Model author image requests alongside the prose.
 - **Keep visual references.** Appearance Memory separates established character traits from current outfits and temporary visual changes, with editable saved references.
 - **Control the presentation.** Choose which Utilities are enabled, customize their presentation, and save Surface presets for different chats.

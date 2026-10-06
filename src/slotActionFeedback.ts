@@ -30,6 +30,10 @@ export class SlotActionFeedbackCoordinator {
   private readonly pending = new Map<string, SlotActionSubmission>()
   private readonly activeKeys = new Set<string>()
 
+  isSubmitting(key: string, action: SlotActionKind): boolean {
+    return [...this.pending.values()].some(submission => submission.key === key && submission.action === action)
+  }
+
   submit(submission: SlotActionSubmission): boolean {
     if (this.activeKeys.has(submission.key)) return false
     this.activeKeys.add(submission.key)
