@@ -5748,10 +5748,10 @@ async function readReconciledPhoneDevice(chatId:string,userId?:string,identities
   return normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice))
 }
 
-async function readPhoneCoreRecords(chatId:string,userId?:string):Promise<PhoneCoreRecord[]>{
-  const history=await spindle.chat.getMessages(chatId) as ChatMessage[]
+async function readPhoneCoreRecords(chatId:string,userId?:string,snapshot?:{state:PhoneDeviceState;identities:PhoneIdentity[]},messages?:ChatMessage[]):Promise<PhoneCoreRecord[]>{
+  const history=messages||await spindle.chat.getMessages(chatId) as ChatMessage[]
   const sourceRecords=history.slice(-100).filter(message=>!isOwnMessage(message)&&phoneStorySourceCommitted((message as any).extra,activeSwipeId(message))).flatMap(message=>phoneCoreRecords(getSwipeContent(message,activeSwipeId(message)),message.id,activeSwipeId(message))).slice(-300)
-  const device=normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice)),identities=await phoneIdentities(chatId,userId)
+  const device=snapshot?.state||normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice)),identities=snapshot?.identities||await phoneIdentities(chatId,userId)
   return [...sourceRecords,...(device.localApps||[]).flatMap(record=>{const owner=identities.find(person=>person.id===record.ownerId);return owner?[phoneLocalAppRecord(record,owner)]:[]})]
 }
 
@@ -5793,7 +5793,7 @@ const phoneService = createPhoneService({
     const participants=await phoneIdentities(command.chatId,userId)
     return {appId:record.appId,recordId:record.id,title:record.title,interactionMode:phoneAppInteractionMode(record.appId),targets:targets.map(({markup,...target})=>({...target,replyActorId:phoneAppResponder(markup,participants,owner.id)})),bubbles:phoneSourceBubbles(targets,participants),replyActorId:phoneAppResponder(target.markup,participants,owner.id),targetId:target.id,sourceMarkup:target.markup,html:renderPhoneCoreRecord(record,state.customSurfaces,{chatId:command.chatId,records:renderSnapshotRecords(state)})}
   },
-  projection: async (chatId, userId) => {
+  projection: async (chatId, userId, snapshot) => {
     await phoneTransport.ready.catch(() => {})
     const state = await getState(chatId, userId)
     // Read-only import: old phone snapshots and stable media references survive.
@@ -5813,7 +5813,7 @@ const phoneService = createPhoneService({
       imageConnections:(await spindle.imageGen.listConnections(userId)).map(connection=>({id:connection.id,name:connection.name,model:connection.model,isDefault:connection.is_default})),
       framingModes:PHONE_FRAMING,
       apps:PHONE_CORE_APPS,
-      appRecords:(await readPhoneCoreRecords(chatId,userId)).map(({markup:_,...record})=>record),
+      appRecords:(await readPhoneCoreRecords(chatId,userId,snapshot,messages)).map(({markup:_,...record})=>record),
       saved: [...saved.values()].slice(-300).map(entry => {
         const asset = assets.find(asset => asset.chatId === chatId && asset.messageId === entry.sourceRef.messageId && asset.swipeId === entry.sourceRef.swipeId
           && (asset.assetId === entry.assetId || Boolean(entry.requestId && asset.requestId === entry.requestId) || Boolean(entry.imageId && asset.imageId === entry.imageId)))

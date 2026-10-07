@@ -51,7 +51,7 @@
     "smoke:event-lifecycle": "bun scripts/event-swipe-edit-regression-smoke.ts",
     "smoke:event-context": "bun scripts/event-context-firebreak-smoke.ts",
     "smoke:living-phones": "bun scripts/living-character-phone-smoke.ts && bun run smoke:phone-widget",
-    "smoke:phone-widget": "bun scripts/phone-widget-smoke.ts && bun scripts/phone-story-bridge-smoke.ts && bun scripts/phone-core-apps-smoke.ts && bun scripts/phone-local-apps-smoke.ts && bun scripts/phone-social-media-smoke.ts && bun scripts/phone-app-controls-smoke.ts && bun run smoke:phone-tools",
+    "smoke:phone-widget": "bun scripts/phone-open-performance-smoke.ts && bun scripts/phone-widget-smoke.ts && bun scripts/phone-story-bridge-smoke.ts && bun scripts/phone-core-apps-smoke.ts && bun scripts/phone-local-apps-smoke.ts && bun scripts/phone-social-media-smoke.ts && bun scripts/phone-app-controls-smoke.ts && bun run smoke:phone-tools",
     "smoke:phone-tools": "bun scripts/phone-tools-smoke.ts",
     "smoke:story-reel": "bun scripts/story-reel-smoke.ts",
     "smoke:story-migration": "bun scripts/story-state-migration-smoke.ts",

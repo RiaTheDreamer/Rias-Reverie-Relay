@@ -7,10 +7,10 @@ import {phoneLocalAppImageRequests,phoneLocalAppPrompt,validatePhoneLocalApp} fr
 import { normalizePhoneIncoming } from './phoneIncomingSettings'
 
 export type PhoneServiceDependencies = {
-  read(chatId: string, userId?: string): Promise<unknown>;
+  read(chatId: string, userId?: string, identities?: PhoneIdentity[]): Promise<unknown>;
   mutate(chatId: string, userId: string | undefined, change: (state: PhoneDeviceState) => void): Promise<void>;
   identities(chatId: string, userId?: string): Promise<PhoneIdentity[]>;
-  projection(chatId: string, userId?: string): Promise<Record<string, unknown>>;
+  projection(chatId: string, userId?: string, snapshot?: { state: PhoneDeviceState; identities: PhoneIdentity[] }): Promise<Record<string, unknown>>;
   rpContext?(chatId:string,userId?:string):Promise<string>;
   appView?(command:PhoneCommand,userId?:string):Promise<Record<string,unknown>>;
   generateImage?(command:PhoneCommand,userId?:string):Promise<{imageId:string;imageUrl:string}>;
@@ -22,11 +22,15 @@ export type PhoneServiceDependencies = {
 /** One serialized lane per user/chat. Provider retries reuse the original send id. */
 export function createPhoneService(deps: PhoneServiceDependencies) {
   const lanes = new Map<string, Promise<void>>()
+  const loads = new Map<string, Promise<Record<string, unknown> | undefined>>()
   const replying = new Set<string>()
-  async function project(command: PhoneCommand, userId?: string, error?: string) {
-    const state = normalizePhoneDevice(await deps.read(command.chatId, userId))
-    const identities = (await deps.identities(command.chatId, userId)).map(({ description: _, ...identity }) => identity)
-    deps.send({ type: 'phone_state', chatId: command.chatId, operationId: command.operationId, state, identities, ...await deps.projection(command.chatId, userId), error }, userId)
+  async function project(command: PhoneCommand, userId?: string, error?: string, snapshot?: { state: PhoneDeviceState; identities: PhoneIdentity[] }) {
+    const participants = snapshot?.identities || await deps.identities(command.chatId, userId)
+    const state = snapshot?.state || normalizePhoneDevice(await deps.read(command.chatId, userId, participants))
+    const identities = participants.map(({ description: _, ...identity }) => identity)
+    const message = { type: 'phone_state', chatId: command.chatId, operationId: command.operationId, state, identities, ...await deps.projection(command.chatId, userId, { state, identities: participants }), error }
+    deps.send(message, userId)
+    return message
   }
   async function run(command: PhoneCommand, userId?: string, authorized = () => true) {
     if (!command.chatId || command.chatId.length > 150 || !/^[\w-]{8,100}$/.test(command.operationId)) throw new Error('Invalid phone operation.')
@@ -284,7 +288,8 @@ export function createPhoneService(deps: PhoneServiceDependencies) {
       } finally { replying.delete(attempt) }
     } else if (command.action === 'load') {
       // A server restart cannot leave a persisted in-flight reply spinning forever.
-      const state = normalizePhoneDevice(await deps.read(command.chatId, userId))
+      const state = normalizePhoneDevice(await deps.read(command.chatId, userId, identities))
+      let recovered = false
       if (state.messages.some(message => message.replyStatus === 'pending' && !replying.has(`${userId}:${command.chatId}:${message.id}`)||message.image?.status==='pending'&&!replying.has(`${userId}:${command.chatId}:image:${message.id}`))||state.localApps?.some(app=>app.media?.some(media=>media.image.status==='pending'&&!replying.has(`${userId}:${command.chatId}:app-image:${app.id}:${media.id}`)))) {
         await deps.mutate(command.chatId, userId, draft => {
           for (const message of draft.messages) if (message.replyStatus === 'pending' && !replying.has(`${userId}:${command.chatId}:${message.id}`)) { message.replyStatus = 'failed'; message.error = 'Reply interrupted by a restart. Retry explicitly; your sent message was preserved.' }
@@ -292,8 +297,12 @@ export function createPhoneService(deps: PhoneServiceDependencies) {
           for(const app of draft.localApps||[])for(const media of app.media||[])if(media.image.status==='pending'&&!replying.has(`${userId}:${command.chatId}:app-image:${app.id}:${media.id}`))media.image={...media.image,status:'failed',error:'App image generation was interrupted by a restart. The app content is saved; retry this image from the app.'}
           draft.revision++
         })
+        recovered = true
       }
-      if(Object.entries(state.portraits||{}).some(([id,image])=>image.status==='pending'&&!replying.has(`${userId}:${command.chatId}:portrait:${id}`)))await deps.mutate(command.chatId,userId,draft=>{for(const [id,image] of Object.entries(draft.portraits||{}))if(image.status==='pending'&&!replying.has(`${userId}:${command.chatId}:portrait:${id}`))draft.portraits![id]={...image,status:'failed',error:'Portrait interrupted by restart. Retry explicitly.'};draft.revision++})
+      if(Object.entries(state.portraits||{}).some(([id,image])=>image.status==='pending'&&!replying.has(`${userId}:${command.chatId}:portrait:${id}`))){await deps.mutate(command.chatId,userId,draft=>{for(const [id,image] of Object.entries(draft.portraits||{}))if(image.status==='pending'&&!replying.has(`${userId}:${command.chatId}:portrait:${id}`))draft.portraits![id]={...image,status:'failed',error:'Portrait interrupted by restart. Retry explicitly.'};draft.revision++});recovered=true}
+      // Only reread after recovery actually changed storage. Ordinary opens use
+      // the reconciled state already read above, never a second history scan.
+      return project(command, userId, undefined, { state: recovered ? normalizePhoneDevice(await deps.read(command.chatId, userId, identities)) : state, identities })
     } else throw new Error('Unknown phone action.')
     await project(command, userId)
   }
@@ -304,10 +313,24 @@ export function createPhoneService(deps: PhoneServiceDependencies) {
       const lane = `${userId || '__default__'}:${command.chatId}`
       // Loads must see pending state immediately, not wait behind the provider.
       if (command.action === 'load') {
-        try { await run(command, userId) } catch (error) { deps.send({ type: 'phone_error', chatId: command.chatId, operationId: command.operationId, error: String(error instanceof Error ? error.message : error) }, userId) }
+        const loadKey = JSON.stringify([userId ?? null, command.chatId])
+        let task: Promise<Record<string, unknown> | undefined> | undefined
+        try {
+          if (!command.chatId || command.chatId.length > 150 || !/^[\w-]{8,100}$/.test(command.operationId)) throw new Error('Invalid phone operation.')
+          const pending = loads.get(loadKey)
+          if (pending) {
+            const message = await pending
+            if (message) deps.send({ ...message, operationId: command.operationId }, userId)
+          } else {
+            task = run(command, userId)
+            loads.set(loadKey, task)
+            await task
+          }
+        } catch (error) { deps.send({ type: 'phone_error', chatId: command.chatId, operationId: command.operationId, error: String(error instanceof Error ? error.message : error) }, userId) }
+        finally { if (task && loads.get(loadKey) === task) loads.delete(loadKey) }
         return
       }
-      const task = (lanes.get(lane) || Promise.resolve()).then(() => run(command, userId, authorized)).catch(async error => {
+      const task = (lanes.get(lane) || Promise.resolve()).then(async () => { await run(command, userId, authorized) }).catch(async error => {
         try { await project(command, userId, error instanceof Error ? error.message : String(error)) }
         catch { deps.send({ type: 'phone_error', chatId: command.chatId, operationId: command.operationId, error: String(error instanceof Error ? error.message : error) }, userId) }
       })

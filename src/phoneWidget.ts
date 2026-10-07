@@ -180,7 +180,12 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
   function openCoreApp(app:CoreApp){coreAppId=app.id;coreHtml='';coreRecordId='';coreLoading='';error='';page='core-app';const latest=appRecords().at(-1);if(latest)openCoreRecord(latest);else render()}
   function coreAppIcon(app:CoreApp,index:number){const button=btn('',()=>openCoreApp(app),'app');button.setAttribute('aria-label',`Open Core app ${app.label}`);const icon=node('span','glyph core-icon');icon.style.background=`linear-gradient(145deg,hsl(${(index*47+205)%360} 58% 49%),hsl(${(index*47+240)%360} 50% 27%))`;icon.innerHTML=surfaceIconMarkup('core',app.id)||APP_ICONS.apps;button.append(icon,node('span','app-label',CORE_APP_LABELS[app.id]||app.label));return button}
   function unread(){return data?phoneUnread(data.state,identities().map(person=>person.id)):[]}
-  function appUnread(){return (data?.state.appInteractions||[]).filter(entry=>entry.replyTo&&(data?.appRecords||[]).some(record=>record.id===entry.recordId)&&entry.createdAt>(data?.state.readAt[`app:${(data?.state.appInteractions||[]).find(parent=>parent.id===entry.replyTo)?.from}:${entry.recordId}`]||0))}
+  function appUnread(){
+    const entries=data?.state.appInteractions||[],records=new Set((data?.appRecords||[]).map(record=>record.id))
+    const parents=new Map<string,(typeof entries)[number]>()
+    for(const entry of entries)if(!parents.has(entry.id))parents.set(entry.id,entry)
+    return entries.filter(entry=>entry.replyTo&&records.has(entry.recordId)&&entry.createdAt>(data?.state.readAt[`app:${parents.get(entry.replyTo)?.from}:${entry.recordId}`]||0))
+  }
   function unreadCount(){return unread().length+appUnread().length}
   function badge(icon:HTMLElement,count:number){if(count){const dot=node('span','badge',count>99?'99+':String(count));dot.setAttribute('aria-label',`${count} unread notifications`);icon.append(dot)}}
   function stopNotification(){if(notificationTimer!==null)window.clearTimeout(notificationTimer);notificationTimer=null;badgeArriving=false;launchButton.classList.remove('is-vibrating')}
@@ -237,7 +242,8 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
   }
   function render() {
     launcher.setVisible(enabled&&Boolean(chatId)); launchButton.title = 'Open Reverie Phone'
-    launchButton.querySelector('.badge')?.remove();badge(launchButton,notificationTimer===null?unreadCount():badgeCount);if(badgeArriving)launchButton.querySelector('.badge')?.classList.add('is-arriving');launchButton.setAttribute('aria-label',unreadCount()?`Open Reverie Phone · ${unreadCount()} unread notifications`:'Open Reverie Phone')
+    const count=unreadCount()
+    launchButton.querySelector('.badge')?.remove();badge(launchButton,notificationTimer===null?count:badgeCount);if(badgeArriving)launchButton.querySelector('.badge')?.classList.add('is-arriving');launchButton.setAttribute('aria-label',count?`Open Reverie Phone · ${count} unread notifications`:'Open Reverie Phone')
     if(settingsRoot){settingsRoot.querySelector('.settings')?.remove();const screen=node('div','settings');if(error)screen.append(node('p','notice',error));renderPhoneSettings(screen);settingsRoot.append(screen)}
     if (!overlayRoot) return
     const appShadow=overlayRoot.querySelector('.core-app-view')?.shadowRoot
@@ -255,7 +261,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
     const head = node('div',`head${page==='home'?' home-head':''}`)
     head.append(btn('‹',()=>{if(page==='app-activity'){page='core-app'}else if(page==='bubble'&&selectedBubble?.app){page=bubbleReturnPage}else{page='home';draft=''}error='';render()},'icon'),node('strong','',pageTitle))
     const closeButton = btn('×', close, 'icon'); closeButton.setAttribute('aria-label','Close phone'); head.append(closeButton)
-    const bell=btn('♧',()=>{page='notifications';error='';render()},'icon bell');bell.innerHTML=svg('<path d="M8 22h16l-2-4v-6a6 6 0 0 0-12 0v6zM13 26h6"/>');bell.querySelector('svg')?.setAttribute('width','23');bell.querySelector('svg')?.setAttribute('height','23');bell.setAttribute('aria-label','Phone notifications');badge(bell,unreadCount());head.insertBefore(bell,closeButton)
+    const bell=btn('♧',()=>{page='notifications';error='';render()},'icon bell');bell.innerHTML=svg('<path d="M8 22h16l-2-4v-6a6 6 0 0 0-12 0v6zM13 26h6"/>');bell.querySelector('svg')?.setAttribute('width','23');bell.querySelector('svg')?.setAttribute('height','23');bell.setAttribute('aria-label','Phone notifications');badge(bell,count);head.insertBefore(bell,closeButton)
     if(page==='core-app'||page==='app-activity'){const activity=btn('',()=>{if(page==='app-activity'){page='core-app'}else{page='app-activity';if(!appTargets.some(target=>target.id===appTargetId))appTargetId=appTargets[0]?.id||'root'}error='';render()},'icon');activity.innerHTML=APP_ICONS.messages;activity.setAttribute('aria-label',page==='app-activity'?'Back to app':'Open messages and comments');activity.title=page==='app-activity'?'Back to app':'Messages & comments';head.insertBefore(activity,closeButton)}
     const picker = node('select','owner'); picker.setAttribute('aria-label','Phone owner')
     for (const identity of identities()) { const option=node('option','', `${identity.name} · ${identity.kind === 'persona' ? 'Your phone' : identity.kind==='npc'?'NPC phone':'Character phone'}`); option.value=identity.id; option.selected=identity.id===owner; picker.append(option) }

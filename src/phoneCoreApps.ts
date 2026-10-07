@@ -12,12 +12,17 @@ import type {PhoneLocalAppMedia} from './phoneDevice'
 export const PHONE_CORE_APPS=[...new Map([...shippedSurfaceDefinitions(0),...r45SupplementalSurfaceDefinitions(0)].map(definition=>[definition.baseSurfaceId,{id:definition.baseSurfaceId,label:definition.displayName,root:definition.canonicalOuterWrapper,icon:definition.icon}])).values()]
 export type PhoneCoreRecord={id:string;appId:string;messageId:string;swipeId:number;markup:string;ownerName?:string;ownerId?:string;local?:boolean;title:string;media?:PhoneLocalAppMedia[]}
 const PRIVATE_OWNER_APPS=new Set(['smartphone','notes-app','diary-app','phone-gallery'])
+const PHONE_SURFACE_SPECS=completeSurfaceSpecs(SHIPPED_SURFACE_SPECS)
+const PHONE_ROOT_MATCHERS=PHONE_CORE_APPS.map(app=>({app,matcher:new RegExp(`<${app.root}\\b[^>]*>[\\s\\S]*?<\\/${app.root}\\s*>`,'gi')}))
 export function phoneCoreRecords(source:string,messageId:string,swipeId:number):PhoneCoreRecord[]{
+  // Most history is prose. Do not rebuild all surface contracts and run the
+  // legacy bracket normalizer for every ordinary story paragraph.
+  if(!/[<\[]/.test(source))return []
   let content=source.replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|<!--[\s\S]*?(?:-->|$)|<(think|analysis|reasoning|script|style)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi,'')
-  content=normalizeBracketSurfaceDocument(content,completeSurfaceSpecs(SHIPPED_SURFACE_SPECS),block=>xmlSurfaceExamples(block.markup)).markup
+  if(content.includes('['))content=normalizeBracketSurfaceDocument(content,PHONE_SURFACE_SPECS,block=>xmlSurfaceExamples(block.markup)).markup
   const records:PhoneCoreRecord[]=[]
-  for(const app of PHONE_CORE_APPS){
-    for(const match of content.matchAll(new RegExp(`<${app.root}\\b[^>]*>[\\s\\S]*?<\\/${app.root}\\s*>`,'gi'))){
+  for(const {app,matcher} of PHONE_ROOT_MATCHERS){
+    for(const match of content.matchAll(matcher)){
       const parsed=parseSurfaceXml(match[0]);if(!parsed)continue
       const attrs=surfaceXmlAttributes(parsed.attrs)
       const ownerChild=parsed.children.find(child=>typeof child!=='string'&&child.tag==='owner')
