@@ -1,5 +1,5 @@
 import type { SpindleFrontendContext } from 'lumiverse-spindle-types'
-import { mountPhoneWidget } from './phoneWidget'
+import { mountPhoneWidget, phoneHostLayerCss } from './phoneWidget'
 import { mountPhoneToolRenderSync } from './phoneToolRenderSync'
 import type {
   AppearanceCharacterSheet,
@@ -1026,6 +1026,7 @@ export function setup(ctx: SpindleFrontendContext) {
   }), 'subscription')
 
   const removeStyle = ctx.dom.addStyle(`
+    ${phoneHostLayerCss}
     .dg-router-panel {
       --dgir-bg: color-mix(in srgb, var(--lumiverse-fill, #17121a) 88%, transparent);
       --dgir-surface: color-mix(in srgb, var(--lumiverse-fill, #211825) 86%, transparent);
@@ -2459,11 +2460,12 @@ export function setup(ctx: SpindleFrontendContext) {
     void refreshState(true)
   }
   const syncActiveChat = () => {
+    if (disposed) return
     const chatId = ctx.getActiveChat().chatId ?? null
     switchActiveChat(chatId)
   }
   const scheduleActiveChatSync = () => {
-    if (activeChatSyncTimer) return
+    if (disposed || activeChatSyncTimer) return
     activeChatSyncTimer = window.setTimeout(() => {
       activeChatSyncTimer = 0
       syncActiveChat()
@@ -3584,8 +3586,8 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function scheduleBindInlineImages(): void {
-    if (bindTimer) return
-    bindTimer = window.requestAnimationFrame(() => { bindTimer = 0; bindInlineImages() })
+    if (disposed || bindTimer) return
+    bindTimer = window.requestAnimationFrame(() => { bindTimer = 0; if (!disposed) bindInlineImages() })
   }
 
   type MediaCardUpdate = {
@@ -12746,12 +12748,14 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
   const cleanup = () => {
     if (disposed) return
     disposed = true
-    sendFrontendSession(false)
+    // Host unload revokes generation-bound APIs before calling this disposer.
+    // Disconnect is best effort; it must never prevent local resource cleanup.
+    try { sendFrontendSession(false) } catch { /* inactive host; finish teardown */ }
     clearPlacementVisualHeartbeats()
     clearProseRevealGuards()
     // Best effort only. Persisted ownership is cleared only after the host
     // setting write succeeds, so a later startup can repair a torn teardown.
-    void enforceNativeAutoGenerationGuard(true)
+    void enforceNativeAutoGenerationGuard(true).catch(() => { /* next startup repairs persisted ownership */ })
     streamPreviews.clear()
     completedPreviewGenerations.clear()
     if (bindTimer) window.cancelAnimationFrame?.(bindTimer)

@@ -2,6 +2,7 @@
 export function createPhoneLoadRecovery(options: {
   request: () => string;
   exhausted: () => void;
+  failed?: (cause: unknown) => void;
   schedule?: (callback: () => void, delay: number) => number;
   cancel?: (id: number) => void;
 }) {
@@ -16,7 +17,13 @@ export function createPhoneLoadRecovery(options: {
     const delays = [1500, 3000, 6000, 6000]
     function attempt(index: number) {
       if (run !== epoch) return
-      operation = options.request()
+      try { operation = options.request() }
+      catch (cause) {
+        stop()
+        if (options.failed) options.failed(cause)
+        else options.exhausted()
+        return
+      }
       if (run !== epoch) return
       if (!operation) { stop(); return }
       timer = schedule(() => {

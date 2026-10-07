@@ -52,6 +52,11 @@ class FakeElement {
   nodeType = 1
   shadowRoot: FakeElement | null = null
   get childNodes(): FakeElement[] { return this.children }
+  getRootNode(): FakeElement {
+    let root: FakeElement = this
+    while (root.parentNode) root = root.parentNode
+    return root
+  }
   append(...nodes: FakeElement[]): void { nodes.forEach(node => this.appendChild(node)) }
   appendChild(node: FakeElement): FakeElement {
     node.parentNode = this
@@ -99,9 +104,10 @@ class FakeElement {
 }
 
 class FakeMutationObserver {
+  static instances: FakeMutationObserver[] = []
   observed = false
   disconnected = false
-  constructor(private readonly callback: () => void) {}
+  constructor(private readonly callback: () => void) { FakeMutationObserver.instances.push(this) }
   observe(): void { this.observed = true }
   disconnect(): void { this.disconnected = true }
 }
@@ -592,5 +598,20 @@ for (const label of ['Booru Tag Mode', 'Natural Language']) {
   assert(!walk(formatPanel).some(node => node.textContent.startsWith('Image request:')), `${label}: inline example explanation must not return`)
 }
 cleanupPromptFormats()
+
+// The host invalidates a frontend generation before invoking its disposer.
+// A rejected disconnect notification must not strand document observers.
+const cleanupInactiveHost = frontendModule.setup(ctx)
+const liveObservers = FakeMutationObserver.instances.filter(observer => observer.observed && !observer.disconnected)
+const originalSend = ctx.sendToBackend
+ctx.sendToBackend = () => { throw new Error('SPINDLE_FRONTEND_INACTIVE') }
+try {
+  cleanupInactiveHost()
+} finally {
+  ctx.sendToBackend = originalSend
+}
+assert(liveObservers.length > 0 && liveObservers.every(observer => observer.disconnected), 'inactive host cleanup must disconnect every media observer')
+assert(activeTagInterceptors === 0, 'inactive host cleanup must release lifecycle interceptors')
+assert([...eventHandlers.values()].every(handlers => handlers.length === 0), 'inactive host cleanup must release chat subscriptions')
 
 console.log('Frontend boot smoke passed.')

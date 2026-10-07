@@ -11,6 +11,7 @@ import {phoneAvatar,mountPhoneConversationPicker,PHONE_ACCOUNTS_CSS,type PhoneCo
 import { normalizePhoneIncoming, type PhoneIncomingSettings } from './phoneIncomingSettings'
 import { appendPhoneDraftToComposer, phoneContextDraft } from './phoneComposerDraft'
 import { createPhoneLoadRecovery } from './phoneLoadRecovery'
+import { phoneOperationId } from './phoneOperationId'
 
 type SavedRecord = { entryId: string; ownerName: string; kind: string; app: string; title: string; body: string; storyTimeLabel?: string; imageUrl?: string }
 type CoreApp={id:string;label:string;icon:string}
@@ -28,6 +29,11 @@ const APP_ICONS: Record<string,string> = {
   apps:svg('<rect x="4" y="4" width="9" height="9" rx="2"/><rect x="19" y="4" width="9" height="9" rx="2"/><rect x="4" y="19" width="9" height="9" rx="2"/><rect x="19" y="19" width="9" height="9" rx="2"/>'),
 }
 const STATUS_ICONS='<svg viewBox="0 0 64 20" width="62" height="20" aria-hidden="true"><g fill="currentColor"><rect x="1" y="12" width="3" height="5" rx=".7"/><rect x="6" y="9" width="3" height="8" rx=".7"/><rect x="11" y="6" width="3" height="11" rx=".7"/><rect x="16" y="3" width="3" height="14" rx=".7"/></g><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M23 7q7-7 14 0M26 10q4-4 8 0M29 13q1-1 2 0"/><rect x="42" y="5" width="18" height="10" rx="2"/></g><rect x="44" y="7" width="12" height="6" rx="1" fill="currentColor"/><path d="M62 8v4" stroke="currentColor" stroke-width="1.5"/></svg>'
+// Spindle's placement wraps the extension root in a content div and a fixed
+// widget. Raise only our handset above the drawer, below host modal dialogs.
+export const phoneHostLayerCss = `
+div:has(> div > [data-reverie-phone-ui="handset"]) { z-index: 9993; }
+`
 export const phoneWidgetCss = `
 :host { color-scheme: dark; font: 14px/1.45 system-ui,sans-serif; color: #f6f2fa; }
 * { box-sizing: border-box; } button,select,textarea { font: inherit; } button { cursor:pointer; color:inherit; } button:disabled { opacity:.45; cursor:default; }
@@ -121,14 +127,20 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
   function applyPhoneScale(hardware:HTMLElement){const scale=Math.min(phoneScale,Math.max(.1,(window.innerWidth-28)/390),Math.max(.1,(window.innerHeight-28)/780));hardware.style.width=`${390*scale}px`;hardware.style.height=`${780*scale}px`}
   function setPhoneScale(value:number,save=true){phoneScale=Math.max(.8,Math.min(1.2,Math.round(value*100)/100));if(save)try{window.localStorage.setItem(PHONE_SCALE_KEY,String(phoneScale))}catch{};const hardware=overlayRoot?.querySelector<HTMLElement>('.hardware');if(hardware)applyPhoneScale(hardware);const slider=overlayRoot?.querySelector<HTMLInputElement>('.resize-menu input[type=range]');if(slider)slider.value=String(Math.round(phoneScale*100));const output=overlayRoot?.querySelector<HTMLOutputElement>('.resize-value');if(output)output.value=`${Math.round(phoneScale*100)}%`}
   function openResizeMenu(){resizeMenuOpen=true;render()}
-  const loadRecovery=createPhoneLoadRecovery({request:()=>send('load'),exhausted:()=>{loadError='The phone connection did not respond. Retry when connected; your saved phones were not changed.';render()}})
+  const loadRecovery=createPhoneLoadRecovery({
+    request:()=>send('load'),
+    exhausted:()=>{loadError='The phone connection did not respond. Retry when connected; your saved phones were not changed.';render()},
+    failed:cause=>{loadError=`Phone connection unavailable: ${cause instanceof Error?cause.message:String(cause)}`;render()},
+  })
   function loadPhone(){if(!enabled&&!settingsRoot)return;loadError='';loadRecovery.start()}
   const launcher = ctx.ui.createFloatWidget({ width:52, height:52, chromeless:true, snapToEdge:true, tooltip:'Open Reverie Phone', initialPosition:{ x:Math.max(8, window.innerWidth - 70), y:Math.max(16, window.innerHeight - 180) } })
+  launcher.root.setAttribute('data-reverie-phone-ui','launcher')
+  let launcherVisible = true
   const launcherRoot = shadow(launcher.root)
   const launchButton = btn('', () => open(), 'launcher'); launchButton.innerHTML = PHONE_ICON; launchButton.setAttribute('aria-label', 'Open Reverie Phone'); launcherRoot.append(launchButton)
   function send(action: PhoneCommand['action'], patch: Partial<PhoneCommand> = {}) {
     if (!chatId || (!enabled&&!['load','settings'].includes(action))) return ''
-    const operationId = crypto.randomUUID()
+    const operationId = phoneOperationId()
     if(action!=='load')selectedOperation = operationId
     ctx.sendToBackend({ type:'reverie_phone_command', action, chatId, operationId, ...patch })
     return operationId
@@ -145,6 +157,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
     requestedThread=target||null
     if (!overlay) {
       overlay = ctx.ui.createFloatWidget({ fullscreen:true, chromeless:true, width:window.innerWidth, height:window.innerHeight })
+      overlay.root.setAttribute('data-reverie-phone-ui','handset')
       overlayRoot = shadow(overlay.root)
       viewportHandler = () => {
         const viewport = window.visualViewport
@@ -162,7 +175,9 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
         }
       })
     }
-    loadPhone();render()
+    // The closeable shell must exist even if the backend bridge throws.
+    render()
+    loadPhone()
     overlayRoot?.querySelector<HTMLElement>('[aria-label="Close phone"]')?.focus()
   }
   function identities() { return data?.identities || [] }
@@ -241,10 +256,12 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
     }
   }
   function render() {
-    launcher.setVisible(enabled&&Boolean(chatId)); launchButton.title = 'Open Reverie Phone'
+    const visible=enabled&&Boolean(chatId)
+    if(visible!==launcherVisible){launcher.setVisible(visible);launcherVisible=visible}
+    launchButton.title = 'Open Reverie Phone'
     const count=unreadCount()
     launchButton.querySelector('.badge')?.remove();badge(launchButton,notificationTimer===null?count:badgeCount);if(badgeArriving)launchButton.querySelector('.badge')?.classList.add('is-arriving');launchButton.setAttribute('aria-label',count?`Open Reverie Phone · ${count} unread notifications`:'Open Reverie Phone')
-    if(settingsRoot){settingsRoot.querySelector('.settings')?.remove();const screen=node('div','settings');if(error)screen.append(node('p','notice',error));renderPhoneSettings(screen);settingsRoot.append(screen)}
+    if(settingsRoot){settingsRoot.querySelector('.settings')?.remove();const screen=node('div','settings');if(error||(data&&loadError))screen.append(node('p','notice',error||loadError));renderPhoneSettings(screen);settingsRoot.append(screen)}
     if (!overlayRoot) return
     const appShadow=overlayRoot.querySelector('.core-app-view')?.shadowRoot
     const appChecks=appShadow?Array.from(appShadow.querySelectorAll<HTMLInputElement>('input[type=radio],input[type=checkbox]')).map(el=>({id:el.id,checked:el.checked})):[]
@@ -267,7 +284,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
     for (const identity of identities()) { const option=node('option','', `${identity.name} · ${identity.kind === 'persona' ? 'Your phone' : identity.kind==='npc'?'NPC phone':'Character phone'}`); option.value=identity.id; option.selected=identity.id===owner; picker.append(option) }
     picker.addEventListener('change',()=>{ owner=picker.value; peer=''; page='home'; draft=''; error='';coreHtml='';coreRecordId='';coreLoading='';render() })
     const screen = node('main','screen'); phone.append(top,head);if(page==='home')phone.append(picker)
-    if (error) { const notice=node('div','notice',error); notice.setAttribute('role','status'); phone.append(notice) }
+    if (error||(data&&loadError)) { const notice=node('div','notice',error||loadError); notice.setAttribute('role','status'); phone.append(notice) }
     if (!data) { screen.append(node('p','intro',loadError||'Loading this chat’s phones…')); screen.append(btn('Retry',()=>{loadPhone();render()})) }
     else if (identities().length<2) screen.append(node('p','intro','Open a character chat and select a persona to use both phones. No identity will be invented.'))
     else if(page==='bubble'&&selectedBubble){
