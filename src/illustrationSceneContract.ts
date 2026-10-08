@@ -110,7 +110,7 @@ function assertedActions(value: string): string[] {
     // Require a noun modifier too: "folds in the corners" can be a real verb.
     if (family.id === 'fold' && /^(?:fold|crease)s?$/.test(match[0])
       && /\b(?:in|into|with|soft|deep|sharp|loose|gentle|natural|silken|fabric|cloth|silk|[\w]+['’]s)\s*$/.test(prefix)
-      && /^\s+(?:of|in|around|at|along|on|under|beneath|between)\b/.test(prose.slice(match.index! + match[0].length))) continue
+      && /^\s+(?:of|in|around|at|along|on|under|beneath|between|across|down|over)\b/.test(prose.slice(match.index! + match[0].length))) continue
     actions.add(family.id)
   }
   return [...actions]
@@ -136,9 +136,15 @@ export function buildIllustrationSceneContract(input: {
   const excerpt = input.anchorExcerpt?.trim() || ''
   const anchorExcerpt = excerpt && normalize(sourceParagraph).includes(normalize(excerpt)) ? excerpt : ''
   const candidates = assertedActions(anchorExcerpt || sourceParagraph)
+  const actionSource = normalize((anchorExcerpt || sourceParagraph).replace(/"[^"\n]*"|“[^”\n]*”/g, ''))
+  // A paragraph can explicitly move to a later instant even when its next verb
+  // is outside our small action vocabulary. Do not lock that paragraph to the
+  // earlier recognized action; a precise validated excerpt may still select it.
+  const sequentialInstant = [...actionSource.matchAll(/\b(?:then|afterwards?|subsequently)\s+(?:(?:he|she|they)\s+)?(?:steps?|stepped|offers?|offered|turns?|turned|walks?|walked|gives?|gave|releases?|released|sits?|sat|stands?|stood|takes?|took|kisses?|kissed|presses?|pressed|reaches?|reached)\b|\b(?:before|after)\s+(?:walking|stepping|offering|turning|giving|releasing|sitting|standing|taking|kissing|pressing|reaching)\b/g)]
+    .some(match => assertedActions(actionSource.slice(0, match.index!)).length > 0 && !unassertedPrefix(actionSource, match.index!))
   // Several actions may be sequential or simultaneous. A word matcher cannot
   // decide which instant the author meant, so leave the action unproven.
-  const centralAction = candidates.length === 1 && !(candidates[0]==='lift'&&competingLiftInstant(anchorExcerpt||sourceParagraph)) ? candidates[0] : ''
+  const centralAction = candidates.length === 1 && !sequentialInstant && !(candidates[0]==='lift'&&competingLiftInstant(anchorExcerpt||sourceParagraph)) ? candidates[0] : ''
   const actors = input.actors || []
   const family = ACTIONS.find(row => row.id === centralAction)
   // Only a directly named, asserted actor/action is machine-provable. Do not

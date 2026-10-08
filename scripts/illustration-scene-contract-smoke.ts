@@ -95,6 +95,8 @@ for (const prose of [
   'Her coat hangs in soft folds around her waist.',
   'Deep folds in the curtains catch the light.',
   'Sharp creases on his jacket remain visible.',
+  'Sharp creases across his trousers catch the light.',
+  'Deep folds down her skirt catch the light.',
   'Gabrielle carries a wooden folding chair toward the wall stack.',
   'Yejin holds a neatly folded letter against her chest.',
   'She examines the paper.',
@@ -102,6 +104,8 @@ for (const prose of [
   'Two sketches of the studio entrance lie beside the pencils.',
 ]) assert.equal(buildIllustrationSceneContract({ sourceParagraph: prose }).centralAction, '', `unasserted/unknown action must stay unknown: ${prose}`)
 assert.equal(buildIllustrationSceneContract({ sourceParagraph: 'Yejin writes on the form, then folds the paper.' }).centralAction, '', 'multiple action instants must not acquire a guessed central action')
+for(const sourceParagraph of ['She folds her arms, then steps forward and offers him her hand.','He folds the letter before walking over to give it to her.','She first folds her hands, then turns away.'])assert.equal(buildIllustrationSceneContract({sourceParagraph}).centralAction,'','explicit successive instants cannot lock the entire paragraph to the first recognized action')
+assert.equal(buildIllustrationSceneContract({sourceParagraph:'She folds the letter before walking over to give it to her.',anchorExcerpt:'She folds the letter'}).centralAction,'fold','a validated excerpt may select the fold instant within a sequential paragraph')
 assert.equal(buildIllustrationSceneContract({ sourceParagraph: 'Yejin folds in the corners of the sheet.' }).centralAction, 'fold', 'a real fold-in verb must remain actionable')
 assert.equal(buildIllustrationSceneContract({ sourceParagraph: 'Yejin is folding the chair.' }).centralAction, 'fold', 'actually folding furniture must still count')
 const mismatchedExcerpt = buildIllustrationSceneContract({ sourceParagraph: 'Yejin folds paper.', anchorExcerpt: 'Yejin writes on paper.' })
