@@ -73,7 +73,7 @@ import { surfaceIconMarkup } from './surfaceIcons'
 import { narrativeGlassButtonPresentationCss, narrativeVariantForSurfaceShellMode } from './surfacePresentation'
 import { updateNarrativeUtilitySelection } from './narrativeUtilitySelection'
 import { emptyRelayChatStats, type RelayChatStats } from './completedState'
-import { shouldDeferPanelRenderForControl } from './panelRenderPolicy'
+import { focusedPanelControl, shouldDeferPanelRenderForControl } from './panelRenderPolicy'
 import { regexSurfaceParityScripts } from './regexSurfaceParity'
 import type { R45PresentationMode, R45ScriptSource } from './r45SurfaceAuthority'
 import { r45ScriptOverrideKey } from './r45SurfaceAuthority'
@@ -1904,7 +1904,7 @@ export function setup(ctx: SpindleFrontendContext) {
   })
   const unsubInputRelay = inputRelayAction.onClick(() => tab.activate())
   const unsubInputSurfaces = inputSurfacesAction.onClick(() => { activeTab = 'surfaces'; tab.activate(); renderPanel() })
-  const phoneWidget = typeof ctx.ui.createFloatWidget === 'function' ? mountPhoneWidget(ctx,{enabled:false,onSettings:()=>{activeTab='phone';tab.activate();patchConfig({lastActiveDrawerTab:'phone'});renderPanel()}}) : null
+  const phoneWidget = typeof ctx.ui.createFloatWidget === 'function' ? mountPhoneWidget(ctx,{enabled:false}) : null
   const offPhoneToolRenderSync = mountPhoneToolRenderSync(ctx)
 
   const unsubBackend = lifecycle.track(lifecycle.track(ctx.onBackendMessage((payload: unknown) => {
@@ -4767,7 +4767,7 @@ export function setup(ctx: SpindleFrontendContext) {
     const toggle=checkbox('Enable Reverie Phone',config?.phoneEnabled!==false,value=>patchConfig({phoneEnabled:value}));toggle.querySelector('input')?.setAttribute('aria-label','Enable Reverie Phone')
     launch.append(toggle,storyText('Optional phones live alongside the story, independently of Story features and chat Surfaces. Disabling Phone hides its widget and stops incoming-text instructions, new deliveries and phone generation. Saved messages, accounts and settings are preserved.'), button('Open Phone', () => phoneWidget ? phoneWidget.open() : showToast('error', 'This Lumiverse build does not expose floating widgets. Update Lumiverse to use the phone.'),config?.phoneEnabled===false))
     box.appendChild(panelSection('Reverie Phone', launch))
-    if(phoneWidget){const settings=document.createElement('div');box.appendChild(panelSection('Phone Settings · this chat',settings));phoneWidget.mountSettings(settings)}
+    if(phoneWidget){const settings=document.createElement('div');box.appendChild(panelSection('Phone Settings · all chats',settings));phoneWidget.mountSettings(settings)}
     const entries = visibleStoryPhoneEntries(storyConstellations)
     const stack = document.createElement('div'); stack.className = 'dg-story-stack'
     const grouped = new Map<string, StoryPhoneEntry[]>()
@@ -4942,9 +4942,8 @@ export function setup(ctx: SpindleFrontendContext) {
 
   function renderPanel(): void {
     lifecycle.activateView(activeTab)
-    const focused = document.activeElement
+    const focused = focusedPanelControl(tab.root)
     const editing = focused instanceof HTMLElement
-      && tab.root.contains(focused)
       && shouldDeferPanelRenderForControl(focused)
     if (editing) {
       if (deferredPanelRenderElement !== focused) {

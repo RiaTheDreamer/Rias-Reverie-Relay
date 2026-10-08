@@ -324,7 +324,9 @@ assert(!launch.classList.contains('is-vibrating')&&loadTimers.size===0,'enabling
 optionalController.open();handlers[0]({...received,state:{...received.state,revision:1004},operationId:sentUi.at(-1).operationId})
 const optionalRoot=widgets.at(-1).root.shadowRoot
 optionalRoot.querySelector('[aria-label="Settings"]').click()
-assert.equal(settingsVisits,1);assert(widgets.at(-1).destroyed,'handset Settings navigates to dashboard settings instead of a second settings screen')
+assert.equal(settingsVisits,0,'handset Settings must not redirect to the dashboard')
+assert(!widgets.at(-1).destroyed,'Settings keeps the handset open')
+assert(optionalRoot.querySelector('#phone-connection'),'Settings exposes the actual in-phone connection editor')
 optionalController.destroy();settingsHost.remove()
 window.setTimeout=originalSchedule;window.clearTimeout=originalCancel
 assert.equal(handlers.length,0);assert.equal(events.size,0)

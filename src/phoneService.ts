@@ -5,10 +5,12 @@ import {phoneAppReplyPrompt} from './phoneAppInteractions'
 import {contentFingerprint} from './contracts'
 import {phoneLocalAppImageRequests,phoneLocalAppPrompt,validatePhoneLocalApp} from './phoneLocalApps'
 import { normalizePhoneIncoming } from './phoneIncomingSettings'
+import type {PhonePreferences} from './phonePreferences'
 
 export type PhoneServiceDependencies = {
   read(chatId: string, userId?: string, identities?: PhoneIdentity[]): Promise<unknown>;
   mutate(chatId: string, userId: string | undefined, change: (state: PhoneDeviceState) => void): Promise<void>;
+  savePreferences?(chatId: string, userId: string | undefined, patch: Partial<PhonePreferences>): Promise<void>;
   identities(chatId: string, userId?: string): Promise<PhoneIdentity[]>;
   projection(chatId: string, userId?: string, snapshot?: { state: PhoneDeviceState; identities: PhoneIdentity[] }): Promise<Record<string, unknown>>;
   rpContext?(chatId:string,userId?:string):Promise<string>;
@@ -214,6 +216,7 @@ export function createPhoneService(deps: PhoneServiceDependencies) {
         }
       }
     }else if (command.action === 'settings') {
+      if(command.contextMode!==undefined&&!['automatic','manual'].includes(command.contextMode))throw new Error('Choose Automatic or Manual phone context.')
       if (command.legacyOwnerName !== undefined) {
         const projection = await deps.projection(command.chatId, userId)
         const records=[...(Array.isArray(projection.saved)?projection.saved:[]),...(Array.isArray(projection.appRecords)?projection.appRecords:[])]
@@ -231,6 +234,13 @@ export function createPhoneService(deps: PhoneServiceDependencies) {
         if (command.legacyOwnerName !== undefined) state.linkedOwners = { ...state.linkedOwners, [command.legacyOwnerName]: command.from! }
         state.revision++
       })
+      const preferences:Partial<PhonePreferences>={
+        ...(command.connectionId!==undefined?{connectionId:command.connectionId||null}:{}),
+        ...(command.autoReply!==undefined?{autoReply:command.autoReply}:{}),
+        ...(command.contextMode!==undefined?{contextMode:command.contextMode}:{}),
+        ...(command.incoming!==undefined?{incoming:normalizePhoneIncoming(command.incoming)}:{}),
+      }
+      if(Object.keys(preferences).length)await deps.savePreferences?.(command.chatId,userId,preferences)
     } else if (command.action === 'read') {
       if(command.recordId){if(!identities.some(person=>person.id===command.from)||!deps.appView)throw new Error('Unknown phone identity.');await deps.appView(command,userId);await deps.mutate(command.chatId,userId,state=>{state.readAt[`app:${command.from}:${command.recordId}`]=Date.now();state.revision++});await project(command,userId);return}
       if (!identities.some(person => person.id === command.from) || !identities.some(person => person.id === command.to)) throw new Error('Unknown phone identity.')

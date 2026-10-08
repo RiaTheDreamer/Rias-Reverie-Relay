@@ -10,6 +10,7 @@ import { recentPlotSparksReference } from './plotSparksUtility'
 import { PLOT_SPARKS_SURFACE_ID } from './plotSparksContract'
 import { normalizePhoneDevice, emptyPhoneDevice, phoneContextForPrompt, type PhoneDeviceState, type PhoneIdentity, type PhoneCommand } from './phoneDevice'
 import {latestPhoneArchive,phoneArchivePath} from './phoneArchive'
+import {applyPhonePreferences,normalizePhonePreferences,type PhonePreferences} from './phonePreferences'
 import {phoneSourceBubbles,phoneAppResponder} from './phoneAppBubbles'
 import { createPhoneService } from './phoneService'
 import {phoneRpContext} from './phoneRpContext'
@@ -458,6 +459,7 @@ export type RouterConfig = {
   characterPhoneDefaultApps: CharacterPhoneAppId[]
   characterPhonePresentation: 'widget' | 'surface'
   phoneEnabled: boolean
+  phonePreferences?: PhonePreferences
   narrativeDlcLastSync: NarrativeDlcHealth | null
   globalSurfaceStudio: CustomSurfaceStudioState
   proseIllustratorSettings: ProseIllustratorSettings
@@ -3450,7 +3452,7 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
           const selection=phoneContextForPrompt(device,identities)
           const claim=selection.requestId?`${context?.userId||'__default__'}:${chatId}:${selection.requestId}`:''
           phoneContinuity=device.contextMode==='manual'&&claim&&pendingPhoneContextClaims.has(claim)?'':selection.content
-          if(claim&&!context?.isDryRun&&!pendingPhoneContextClaims.has(claim)){
+          if(claim&&!context?.isDryRun&&!context?.dryRun&&!pendingPhoneContextClaims.has(claim)){
             pendingPhoneContextClaims.add(claim)
             void mutateState(chatId,context?.userId,async state=>{
               const current=normalizePhoneDevice(await readPhoneArchive(chatId,context?.userId,state.phoneDevice))
@@ -5719,7 +5721,8 @@ async function phoneIdentities(chatId: string, userId?: string): Promise<PhoneId
 }
 
 async function readReconciledPhoneDevice(chatId:string,userId?:string,identities?:PhoneIdentity[],persist=true):Promise<PhoneDeviceState>{
-  if (!(await getConfig(userId)).phoneEnabled) return normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice))
+  const preferences=(await getConfig(userId)).phonePreferences
+  if (!(await getConfig(userId)).phoneEnabled) return applyPhonePreferences(normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice)),preferences)
   const participants=identities||await phoneIdentities(chatId,userId)
   const character=participants.find(person=>person.kind==='character'),persona=participants.find(person=>person.kind==='persona')
   const history=await spindle.chat.getMessages(chatId) as ChatMessage[]
@@ -5741,11 +5744,11 @@ async function readReconciledPhoneDevice(chatId:string,userId?:string,identities
   }
   const before=normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice))
   const projected=normalizePhoneDevice(before);reconcileStoryPhoneTexts(projected,current,participants)
-  if(!persist)return projected
+  if(!persist)return applyPhonePreferences(projected,preferences)
   if(JSON.stringify(projected)!==JSON.stringify(before))await mutateState(chatId,userId,async state=>{
     const device=normalizePhoneDevice(await readPhoneArchive(chatId,userId,state.phoneDevice));reconcileStoryPhoneTexts(device,current,participants);await checkpointPhoneArchive(chatId,device,userId);state.phoneDevice=device
   })
-  return normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice))
+  return applyPhonePreferences(normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice)),(await getConfig(userId)).phonePreferences)
 }
 
 async function readPhoneCoreRecords(chatId:string,userId?:string,snapshot?:{state:PhoneDeviceState;identities:PhoneIdentity[]},messages?:ChatMessage[]):Promise<PhoneCoreRecord[]>{
@@ -5756,6 +5759,12 @@ async function readPhoneCoreRecords(chatId:string,userId?:string,snapshot?:{stat
 }
 
 const phoneService = createPhoneService({
+  savePreferences:async(chatId,userId,patch)=>{
+    // Seed the first explicit save from that chat's old settings. Later partial
+    // saves merge atomically with this user's preferences, never another inbox.
+    const legacy=normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice))
+    await mutateConfigAtomic(current=>({...current,phonePreferences:normalizePhonePreferences({...normalizePhonePreferences(legacy),...current.phonePreferences,...patch})}),userId)
+  },
   enabled:async userId=>(await getConfig(userId)).phoneEnabled,
   captureAuthorization: userId => {
     const epoch = currentUserAbortEpoch(userId)
@@ -17511,6 +17520,7 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     }),
     characterPhonePresentation: 'widget', // Migrate the retired Surface choice without deleting archives.
     phoneEnabled: raw.phoneEnabled !== false,
+    ...(raw.phonePreferences?{phonePreferences:normalizePhonePreferences(raw.phonePreferences)}:{}),
     narrativeDlcLastSync: raw.narrativeDlcLastSync && typeof raw.narrativeDlcLastSync === 'object'
       ? raw.narrativeDlcLastSync as NarrativeDlcHealth
       : null,

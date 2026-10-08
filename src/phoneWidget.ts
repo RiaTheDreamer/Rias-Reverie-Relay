@@ -9,6 +9,7 @@ import {mountPhoneAppControls} from './phoneAppControls'
 import type {PhoneSourceBubble} from './phoneAppBubbles'
 import {phoneAvatar,mountPhoneConversationPicker,PHONE_ACCOUNTS_CSS,type PhoneConversationChoice} from './phoneAppAccounts'
 import { normalizePhoneIncoming, type PhoneIncomingSettings } from './phoneIncomingSettings'
+import {shouldDeferPanelRenderForControl} from './panelRenderPolicy'
 import { appendPhoneDraftToComposer, phoneContextDraft } from './phoneComposerDraft'
 import { createPhoneLoadRecovery } from './phoneLoadRecovery'
 import { phoneOperationId } from './phoneOperationId'
@@ -111,6 +112,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
   let appDraft='';let appReplyActor='';let appPosting=''
   const appDrafts=new Map<string,Map<string,string>>()
   const appResponders=new Map<string,Map<string,string>>()
+  const viewedThreadReplies=new Map<string,string>()
   let portraitActor='';let portraitPrompt='';let portraitConnection='';let portraitOperation=''
   let coreBubbles:PhoneSourceBubble[]=[]
   let selectedBubble:{id:string;targetId?:string;app:boolean}|null=null
@@ -119,6 +121,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
   let contextModeDraft:'automatic'|'manual'|null=null
   let autoReplyDraft:boolean|null=null
   let incomingDraft:PhoneIncomingSettings|null=null
+  let settingsSaving='';let settingsFeedback='';let settingsEdit=0;let savingEdit=0
   let loadError=''
   let resizeMenuOpen=false,bubbleReturnPage='core-app',longPressTimer:number|null=null
   const PHONE_SCALE_KEY='reverie-phone-scale-v1'
@@ -195,6 +198,15 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
   function openCoreApp(app:CoreApp){coreAppId=app.id;coreHtml='';coreRecordId='';coreLoading='';error='';page='core-app';const latest=appRecords().at(-1);if(latest)openCoreRecord(latest);else render()}
   function coreAppIcon(app:CoreApp,index:number){const button=btn('',()=>openCoreApp(app),'app');button.setAttribute('aria-label',`Open Core app ${app.label}`);const icon=node('span','glyph core-icon');icon.style.background=`linear-gradient(145deg,hsl(${(index*47+205)%360} 58% 49%),hsl(${(index*47+240)%360} 50% 27%))`;icon.innerHTML=surfaceIconMarkup('core',app.id)||APP_ICONS.apps;button.append(icon,node('span','app-label',CORE_APP_LABELS[app.id]||app.label));return button}
   function unread(){return data?phoneUnread(data.state,identities().map(person=>person.id)):[]}
+  function readVisibleThread(){
+    if(!enabled||!overlayRoot||document.hidden||page!=='thread'||!owner||!peer)return
+    const rows=unread().filter(entry=>entry.to===owner&&entry.from===peer)
+    if(!rows.length)return
+    const key=JSON.stringify([owner,peer]),fingerprint=JSON.stringify(rows.map(entry=>entry.id).sort())
+    if(viewedThreadReplies.get(key)===fingerprint)return
+    if(viewedThreadReplies.size>=100&&!viewedThreadReplies.has(key))viewedThreadReplies.delete(viewedThreadReplies.keys().next().value!)
+    viewedThreadReplies.set(key,fingerprint);send('read',{from:owner,to:peer})
+  }
   function appUnread(){
     const entries=data?.state.appInteractions||[],records=new Set((data?.appRecords||[]).map(record=>record.id))
     const parents=new Map<string,(typeof entries)[number]>()
@@ -220,7 +232,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
   function renderPhoneSettings(screen:HTMLElement) {
     if(!chatId){screen.append(node('p','intro','Open a saved character chat to configure its phones.'));return}
     if(!data){screen.append(node('p','intro',loadError||'Loading phone settings…'),btn('Retry',()=>{loadPhone();render()}));return}
-    screen.classList.add('settings'); screen.append(node('p','intro','Phone replies use this connection—not the Illustrator or Assisted Repair connection.'))
+    screen.classList.add('settings'); screen.append(node('p','intro','Phone preferences apply to all your chats. Replies use this connection—not the Illustrator or Assisted Repair connection. Inboxes and shared scene notes stay separate for each chat.'))
     screen.append(node('strong','','Incoming text transport: XML'),node('p','muted','This build uses XML only; Reverie registers no native phone function declarations. Incoming texts, replies, notifications and photos still work. Other extensions’ tools are not changed.'))
     const incoming=incomingDraft??normalizePhoneIncoming(data.state.incoming)
     const frequencyLabel=node('label','','Incoming text frequency');frequencyLabel.htmlFor='phone-incoming-frequency'
@@ -234,8 +246,10 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
     frequency.addEventListener('change',updateIncoming);interval.addEventListener('input',updateIncoming);cap.addEventListener('input',updateIncoming)
     screen.append(frequencyLabel,frequency,intervalRow,capLabel,cap,node('p','muted','Applies to incoming texts authored in normal story replies, not phone-sidecar replies. Eligible responses have a confirmed character and persona. Every X counts saved story replies; previews do not advance it. Zero notifications disables incoming texts. The model receives these limits in {{reverie_phone}} (automatically injected unless placed in your preset).'))
     const label=node('label','','Phone reply connection'); label.htmlFor='phone-connection'
-    const select=node('select'); select.id='phone-connection'; select.setAttribute('aria-label','Phone reply connection'); select.append(node('option','','Choose a connection…'))
+    const select=node('select'); select.id='phone-connection'; select.setAttribute('aria-label','Phone reply connection');const placeholder=node('option','','Choose a connection…');placeholder.value='';select.append(placeholder)
     for(const connection of data.connections){ const option=node('option','',`${connection.name} · ${connection.model}`); option.value=connection.id; select.append(option) }
+    const selectedConnection=connectionDraft??data.state.connectionId??''
+    if(selectedConnection&&!data.connections.some(connection=>connection.id===selectedConnection)){const unavailable=node('option','','Saved connection unavailable · choose another');unavailable.value=selectedConnection;select.append(unavailable)}
     select.value=connectionDraft??data.state.connectionId??''; select.addEventListener('change',()=>{connectionDraft=select.value})
     const sceneLabel=node('label','','Shared scene'); sceneLabel.htmlFor='phone-scene'
     const scene=node('textarea'); scene.id='phone-scene'; scene.setAttribute('aria-label','Shared phone scene'); scene.value=sceneDraft??data.state.sharedScene; scene.maxLength=3000; scene.placeholder='Optional shared facts. Replies also receive recent RP context from this chat, with character-knowledge boundaries.'; scene.addEventListener('input',()=>{sceneDraft=scene.value})
@@ -246,7 +260,14 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
     contextMode.value=contextModeDraft??data.state.contextMode??'automatic';contextMode.addEventListener('change',()=>{contextModeDraft=contextMode.value as 'automatic'|'manual'})
     const repliesLabel=node('label','','Character / NPC replies after sending');repliesLabel.htmlFor='phone-auto-reply'
     const replies=node('select');replies.id='phone-auto-reply';replies.setAttribute('aria-label','Automatic phone replies');for(const [value,title] of [['on','Automatic'],['off','Manual']]){const option=node('option','',title);option.value=value;replies.append(option)}replies.value=(autoReplyDraft??data.state.autoReply??true)?'on':'off';replies.addEventListener('change',()=>{autoReplyDraft=replies.value==='on'})
-    screen.append(label,select,sceneLabel,scene,repliesLabel,replies,contextLabel,contextMode,node('p','muted','Automatic replies use the selected phone connection after you send. Image generation always requires confirmation. Automatic context is added silently to story prompts; “Use in Story” appends editable notification XML to your main composer. Nothing is sent until you send it.'),btn('Save phone settings',()=>send('settings',{connectionId:select.value||null,sharedScene:scene.value,autoReply:replies.value==='on',contextMode:contextMode.value as 'automatic'|'manual',incoming:incomingDraft??incoming}),'primary'),btn('Use in Story',()=>useInStory()))
+    const save=btn('Save phone settings',()=>{
+      if(settingsSaving)return
+      savingEdit=settingsEdit;settingsSaving=send('settings',{connectionId:select.value||null,sharedScene:scene.value,autoReply:replies.value==='on',contextMode:contextMode.value as 'automatic'|'manual',incoming:incomingDraft??incoming})
+      settingsFeedback=settingsSaving?'Saving phone settings…':'Settings were not saved. Open a saved chat and retry.';updateSettingsFeedback()
+    },'primary');save.dataset.phoneSettingsSave='true';save.disabled=Boolean(settingsSaving);save.textContent=settingsSaving?'Saving…':'Save phone settings'
+    const feedback=node('p','muted',settingsFeedback);feedback.dataset.phoneSettingsFeedback='true';feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite')
+    for(const control of [frequency,interval,cap,select,scene,replies,contextMode])control.addEventListener(control.tagName==='SELECT'?'change':'input',()=>{settingsEdit++;settingsFeedback=settingsSaving?'Saving earlier changes… New changes are not saved yet.':'Unsaved changes';updateSettingsFeedback()})
+    screen.append(label,select,sceneLabel,scene,repliesLabel,replies,contextLabel,contextMode,node('p','muted','Automatic replies use the selected phone connection after you send. Image generation always requires confirmation. Automatic context is added silently to story prompts; “Use in Story” appends editable notification XML to your main composer. Nothing is sent until you send it.'),save,feedback,btn('Use in Story',()=>useInStory()))
     const oldOwners=[...new Set([...data.saved.map(record=>record.ownerName),...(data.appRecords||[]).flatMap(record=>record.ownerName?[record.ownerName]:[])])]
     if(oldOwners.length){
       const oldLabel=node('label','','Link saved phone records');oldLabel.htmlFor='phone-legacy-owner'
@@ -255,14 +276,35 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
       screen.append(oldLabel,oldPicker,node('p','muted',`Explicitly link an old snapshot’s records to ${currentOwner()?.name}’s phone. Source messages stay unchanged; no name guessing.`),btn('Link records to this phone',()=>{if(oldPicker.value)send('settings',{from:owner,legacyOwnerName:oldPicker.value})}))
     }
   }
+  function updateSettingsFeedback(){
+    for(const root of [settingsRoot,overlayRoot]){
+      root?.querySelectorAll<HTMLElement>('[data-phone-settings-feedback]').forEach(el=>{el.textContent=settingsFeedback})
+      root?.querySelectorAll<HTMLButtonElement>('[data-phone-settings-save]').forEach(el=>{el.disabled=Boolean(settingsSaving);el.textContent=settingsSaving?'Saving…':'Save phone settings'})
+    }
+  }
+  function settingsSignature(){return JSON.stringify([chatId,error,loadError,owner,data?.connections,data?.state.connectionId,data?.state.incoming,data?.state.contextMode,data?.state.autoReply,data?.state.sharedScene,data?.saved.map(record=>record.ownerName),data?.appRecords?.map(record=>record.ownerName)])}
+  function updateSettingsScreen(root:ShadowRoot,screen:HTMLElement){
+    const signature=settingsSignature()
+    if(screen.dataset.phoneSettingsSignature===signature)return
+    const focused=root.activeElement as HTMLElement|null
+    if(focused&&screen.contains(focused)&&shouldDeferPanelRenderForControl(focused)){
+      if(!focused.hasAttribute('data-phone-settings-deferred')){focused.setAttribute('data-phone-settings-deferred','');focused.addEventListener('blur',()=>{focused.removeAttribute('data-phone-settings-deferred');window.requestAnimationFrame(()=>{if(!disposed)render()})},{once:true})}
+      return
+    }
+    screen.replaceChildren();if(error)screen.append(node('p','notice',error));renderPhoneSettings(screen);screen.dataset.phoneSettingsSignature=signature
+  }
   function render() {
+    updateSettingsFeedback()
     const visible=enabled&&Boolean(chatId)
     if(visible!==launcherVisible){launcher.setVisible(visible);launcherVisible=visible}
     launchButton.title = 'Open Reverie Phone'
     const count=unreadCount()
     launchButton.querySelector('.badge')?.remove();badge(launchButton,notificationTimer===null?count:badgeCount);if(badgeArriving)launchButton.querySelector('.badge')?.classList.add('is-arriving');launchButton.setAttribute('aria-label',count?`Open Reverie Phone · ${count} unread notifications`:'Open Reverie Phone')
-    if(settingsRoot){settingsRoot.querySelector('.settings')?.remove();const screen=node('div','settings');if(error||(data&&loadError))screen.append(node('p','notice',error||loadError));renderPhoneSettings(screen);settingsRoot.append(screen)}
+    if(settingsRoot){let screen=settingsRoot.querySelector<HTMLElement>('.settings');if(!screen){screen=node('div','settings');settingsRoot.append(screen)}updateSettingsScreen(settingsRoot,screen)}
     if (!overlayRoot) return
+    // Keep the handset and editor nodes alive while native pickers are open.
+    const settingsScreen=overlayRoot.querySelector<HTMLElement>('.screen.settings')
+    if(page==='settings'&&settingsScreen&&overlayRoot.querySelector<HTMLElement>('.resize-menu')?.hidden===!resizeMenuOpen){updateSettingsScreen(overlayRoot,settingsScreen);updateSettingsFeedback();return}
     const appShadow=overlayRoot.querySelector('.core-app-view')?.shadowRoot
     const appChecks=appShadow?Array.from(appShadow.querySelectorAll<HTMLInputElement>('input[type=radio],input[type=checkbox]')).map(el=>({id:el.id,checked:el.checked})):[]
     const focused = (appShadow?.activeElement||overlayRoot.activeElement) as HTMLTextAreaElement | null
@@ -348,7 +390,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
       const grid=node('div','grid app-grid')
       const homeApps:HTMLElement[]=[]
       for (const [id,label,glyph] of [['messages','Messages','✉'],['contacts','Contacts','♧'],['photos','Photos','▧'],['apps','Core apps','▦'],['saved','Saved records','≡'],['settings','Settings','⚙']]) {
-        const app=btn('',()=>{if(id==='settings'&&options.onSettings){close();options.onSettings();return}page=id;error='';render()},`app app-${id}`);app.setAttribute('aria-label',label);const icon=node('span','glyph');icon.innerHTML=APP_ICONS[id];if(id==='messages')badge(icon,unread().filter(message=>message.to===owner).length);app.append(icon,node('span','',label));homeApps.push(app)
+        const app=btn('',()=>{page=id;error='';render()},`app app-${id}`);app.setAttribute('aria-label',label);const icon=node('span','glyph');icon.innerHTML=APP_ICONS[id];if(id==='messages')badge(icon,unread().filter(message=>message.to===owner).length);app.append(icon,node('span','',label));homeApps.push(app)
       }
       homeApps.push(...(data.apps||[]).map(coreAppIcon));const pages=Math.max(1,Math.ceil(homeApps.length/16));homePage=Math.min(homePage,pages-1);grid.append(...homeApps.slice(homePage*16,(homePage+1)*16))
       screen.append(grid)
@@ -460,7 +502,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
       input.addEventListener('keydown',event=>{ if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();compose.requestSubmit()} })
       const attach=btn('＋',()=>imageComposer(),'icon');attach.setAttribute('aria-label','Send generated photo');compose.append(attach,input,submit); phone.append(screen,compose); screen.scrollTop=screen.scrollHeight
     } else if (page==='settings') {
-      renderPhoneSettings(screen)
+      updateSettingsScreen(overlayRoot,screen)
     } else {
       const entries=saved().filter(entry=>page!=='photos'||entry.kind==='photo')
       const phonePhotos=data.state.messages.filter(message=>(message.from===owner||message.to===owner)&&message.sourceActive!==false&&message.image?.status==='ready')
@@ -486,11 +528,13 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
     for(const item of appChecks){const el=restoredApp?.getElementById(item.id) as HTMLInputElement|undefined;if(el)el.checked=item.checked}
     for(const item of appScroll){const el=Array.from(restoredApp?.querySelectorAll<HTMLElement>('*')||[]).find(el=>el.className===item.className);if(el)el.scrollTop=item.top}
     if(focusKey){ const restored=[...Array.from(overlayRoot.querySelectorAll<HTMLTextAreaElement>('textarea,select,button')),...Array.from(restoredApp?.querySelectorAll<HTMLTextAreaElement>('textarea,select,button')||[])].find(el=>el.getAttribute('aria-label')===focusKey&&el.dataset.phoneTarget===focusTarget); restored?.focus(); if(restored?.tagName==='TEXTAREA'&&start!=null&&end!=null)restored.setSelectionRange(start,end) }
+    updateSettingsFeedback();queueMicrotask(readVisibleThread)
   }
   function switchChat() {
     const next=ctx.getActiveChat().chatId
     if(next===chatId)return
     stopNotification();knownDelivered=null
+    settingsSaving='';settingsFeedback='';settingsEdit=0;savingEdit=0;viewedThreadReplies.clear()
     chatId=next;data=null;owner='';peer='';page='home';draft='';sceneDraft=null;connectionDraft=null;incomingDraft=null;error='';submitting='';handingOff='';submittedDraft=null;requestedThread=null;selectedOperation='';coreAppId='';coreRecordId='';coreHtml='';coreLoading=''
     imagePromptDraft='';imageCaption='';imageMessageId='';imageOperation='';portraitActor='';portraitPrompt='';portraitConnection='';portraitOperation='';contactName='';contactDescription='';appDraft='';appPosting='';appDrafts.clear();appResponders.clear();appImageRetryOperations.clear();appImageRetriesInFlight.clear();appTargets=[];coreBubbles=[];selectedBubble=null;contextModeDraft=null;autoReplyDraft=null;loadError='';close();render();if(chatId)loadPhone()
   }
@@ -504,6 +548,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
     }else if(message.type==='phone_state'){
       if(data&&message.state.revision<data.state.revision)return
       loadRecovery.stop();loadError=''
+      if(message.operationId===settingsSaving){settingsSaving='';settingsFeedback=message.error?'Settings were not saved. Retry after resolving the error.':settingsEdit===savingEdit?'Phone settings saved · applies to all chats.':'Earlier changes saved. New changes are not saved yet.'}
       registerIncoming(message)
       data=message
       const retryImage=appImageRetryOperations.get(message.operationId)
@@ -526,7 +571,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
       if(message.operationId===selectedOperation){error=message.error||''; if(!error){if(sceneDraft===message.state.sharedScene)sceneDraft=null;if(connectionDraft===(message.state.connectionId||''))connectionDraft=null;if(contextModeDraft===message.state.contextMode)contextModeDraft=null;if(autoReplyDraft===message.state.autoReply)autoReplyDraft=null;if(JSON.stringify(incomingDraft)===JSON.stringify(message.state.incoming))incomingDraft=null} }
       if(message.operationId===handingOff){handingOff=''}
       render()
-    }else if((message as any).type==='phone_error'){const retryImage=appImageRetryOperations.get(message.operationId);if(retryImage){appImageRetryOperations.delete(message.operationId);appImageRetriesInFlight.delete(retryImage.key)}if(loadRecovery.owns(message.operationId)){loadRecovery.stop();loadError=message.error||'Phone load failed. Retry when connected.'}error=message.error||'Phone request failed.';submitting='';if(message.operationId===handingOff)handingOff='';if(message.operationId===imageOperation)imageOperation='';if(message.operationId===appPosting)appPosting='';if(message.operationId===coreLoading)coreLoading='';render()}
+    }else if((message as any).type==='phone_error'){if(message.operationId===settingsSaving){settingsSaving='';settingsFeedback='Settings were not saved. Retry after resolving the error.'}const retryImage=appImageRetryOperations.get(message.operationId);if(retryImage){appImageRetryOperations.delete(message.operationId);appImageRetriesInFlight.delete(retryImage.key)}if(loadRecovery.owns(message.operationId)){loadRecovery.stop();loadError=message.error||'Phone load failed. Retry when connected.'}error=message.error||'Phone request failed.';submitting='';if(message.operationId===handingOff)handingOff='';if(message.operationId===imageOperation)imageOperation='';if(message.operationId===appPosting)appPosting='';if(message.operationId===coreLoading)coreLoading='';render()}
   })
   const offSwitch=ctx.events.on('CHAT_SWITCHED',switchChat);const offChange=ctx.events.on('CHAT_CHANGED',switchChat)
   const onNotification=(event:Event)=>{
