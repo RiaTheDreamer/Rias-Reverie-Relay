@@ -5721,8 +5721,14 @@ async function phoneIdentities(chatId: string, userId?: string): Promise<PhoneId
 }
 
 async function readReconciledPhoneDevice(chatId:string,userId?:string,identities?:PhoneIdentity[],persist=true):Promise<PhoneDeviceState>{
-  const preferences=(await getConfig(userId)).phonePreferences
-  if (!(await getConfig(userId)).phoneEnabled) return applyPhonePreferences(normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice)),preferences)
+  const before=normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice))
+  let preferences=(await getConfig(userId)).phonePreferences
+  if(persist&&!preferences&&before.connectionId){
+    // Upgrade a previously selected chat-local preference, not its private data.
+    preferences=(await mutateConfigAtomic(current=>current.phonePreferences?current:{...current,phonePreferences:normalizePhonePreferences(before)},userId)).phonePreferences
+    spindle.sendToFrontend({type:'phone_preferences_changed',preferences},userId)
+  }
+  if (!(await getConfig(userId)).phoneEnabled) return applyPhonePreferences(before,preferences)
   const participants=identities||await phoneIdentities(chatId,userId)
   const character=participants.find(person=>person.kind==='character'),persona=participants.find(person=>person.kind==='persona')
   const history=await spindle.chat.getMessages(chatId) as ChatMessage[]
@@ -5742,7 +5748,6 @@ async function readReconciledPhoneDevice(chatId:string,userId?:string,identities
       current.push({id:`story-${message.id}-${swipeId}-${entry.index}-${contentFingerprint(key).replace(':','-')}`,from:sender.id,to:recipient.id,body:entry.body,createdAt,sourceKey:key,...(entry.imagePrompt?{image:{status:'draft',prompt:entry.imagePrompt,framing:'auto',connectionId:''}}:{})})
     }
   }
-  const before=normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice))
   const projected=normalizePhoneDevice(before);reconcileStoryPhoneTexts(projected,current,participants)
   if(!persist)return applyPhonePreferences(projected,preferences)
   if(JSON.stringify(projected)!==JSON.stringify(before))await mutateState(chatId,userId,async state=>{
@@ -5763,7 +5768,8 @@ const phoneService = createPhoneService({
     // Seed the first explicit save from that chat's old settings. Later partial
     // saves merge atomically with this user's preferences, never another inbox.
     const legacy=normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice))
-    await mutateConfigAtomic(current=>({...current,phonePreferences:normalizePhonePreferences({...normalizePhonePreferences(legacy),...current.phonePreferences,...patch})}),userId)
+    const saved=await mutateConfigAtomic(current=>({...current,phonePreferences:normalizePhonePreferences({...normalizePhonePreferences(legacy),...current.phonePreferences,...patch})}),userId)
+    spindle.sendToFrontend({type:'phone_preferences_changed',preferences:saved.phonePreferences},userId)
   },
   enabled:async userId=>(await getConfig(userId)).phoneEnabled,
   captureAuthorization: userId => {
