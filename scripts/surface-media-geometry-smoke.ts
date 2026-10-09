@@ -33,7 +33,7 @@ assert(binder.includes('if (stylingRoot) ensureMountedLifecycleStyle(stylingRoot
 
 const studio = { definitions:{}, activePresetIds:{}, collectionPresets:{}, rendererMode:'relay', defaultShellMode:'inline', colorMode:'realistic', utilityInjectionEnabled:true, utilityInjectionPosition:'system-prefix', utilityTemplate:'', validationErrors:{}, lastInjectedModuleIds:[], lastInjectionAt:0, lastInjectionSource:'none', lastInjectionPosition:'none', lastInjectionSummary:'', updatedAt:0 } as unknown as CustomSurfaceStudioState
 const specs = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS)
-assert(specs.length === 46, 'Core Surface inventory drifted')
+assert(specs.length === 47, 'Core Surface inventory drifted')
 let cases = 0
 for (const spec of specs) for (const shell of ['inline','plain','sparkling','glass'] as const) {
   assert(spec.sampleXml, `${spec.id}: missing sample`)

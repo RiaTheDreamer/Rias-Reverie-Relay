@@ -8,7 +8,7 @@ import {bracketExampleFromXml} from '../src/bracketSurfaceAuthoring'
 import {parseImageRequests} from '../src/contracts'
 const definitions=[...shippedSurfaceDefinitions(1),...r45SupplementalSurfaceDefinitions(1)]
 const studio={definitions:Object.fromEntries(definitions.map(d=>[d.surfaceId,d])),activePresetIds:Object.fromEntries(definitions.map(d=>[d.baseSurfaceId,d.surfaceId])),defaultShellMode:'plain',rendererMode:'relay',colorMode:'realistic'}
-assert.equal(PHONE_CORE_APPS.length,46);assert.equal(new Set(PHONE_CORE_APPS.map(app=>app.id)).size,46)
+assert.equal(PHONE_CORE_APPS.length,47);assert.equal(new Set(PHONE_CORE_APPS.map(app=>app.id)).size,47)
 for(const definition of definitions){
   const records=phoneCoreRecords(definition.sampleXml,'sample-message',0)
   const record=records.find(row=>row.appId===definition.baseSurfaceId)

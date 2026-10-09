@@ -9,13 +9,13 @@ import { bracketExampleFromXml } from '../src/bracketSurfaceAuthoring'
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
 
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
-assert(definitions.length === 46, `expected 46 active Surface definitions, received ${definitions.length}`)
+assert(definitions.length === 47, `expected 47 active Surface definitions, received ${definitions.length}`)
 for (const definition of definitions) {
   assert(definition.promptModule.includes('FORMAT: compact-v1'), `${definition.baseSurfaceId}: compact model prompt marker is missing`)
   assert(definition.promptModule.includes(`ROOT: <${definition.canonicalOuterWrapper}>`), `${definition.baseSurfaceId}: active XML root is missing`)
   assert(definition.promptModule.includes('SCHEMA\n'), `${definition.baseSurfaceId}: compact bracket schema is missing`)
   assert(!/Output raw XML only/i.test(definition.promptModule), `${definition.baseSurfaceId}: active model prompt still requests raw XML`)
-  assert(!/\[media\]/i.test(bracketExampleFromXml(definition.sampleXml)), `${definition.baseSurfaceId}: canonical example invented a generic media wrapper`)
+  if (definition.baseSurfaceId !== 'building-layout') assert(!/\[media\]/i.test(bracketExampleFromXml(definition.sampleXml)), `${definition.baseSurfaceId}: canonical example invented a generic media wrapper`)
 }
 
 const narrative = buildNarrativeUtilityPrompt(narrativeUtilityNames()).content

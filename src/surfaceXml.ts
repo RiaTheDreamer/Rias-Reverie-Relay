@@ -2,6 +2,7 @@ import type { SurfaceNormalizationResult, SurfaceNormalizationSpec } from './c5b
 import { DEFAULT_SURFACE_PROMPT_MODULES } from './protocols'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { r45UtilityContract } from './r45UtilityContracts'
+import { parseBuildingLayout } from './buildingLayout'
 
 export type SurfaceXmlNode = { tag: string; attrs: string; children: Array<SurfaceXmlNode | string>; void: boolean }
 const escapeRe = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -739,6 +740,7 @@ function normalizeAttributeChildFieldDrift(root: SurfaceXmlNode, grammar: Gramma
   return notes
 }
 export function normalizeSurfaceBlock(input: string, spec: SurfaceNormalizationSpec): SurfaceNormalizationResult {
+  if (spec.id === 'building-layout') return { markup: input, changed: false, diagnostics: parseBuildingLayout(input).diagnostics }
   input = repairSurfaceLexicalMarkup(input)
   if (spec.wrapper === 'smart_phone') input = normalizeSmartphoneBlockForCanonicalParsing(input)
   const grammar = grammarFor(spec); const stack: SurfaceXmlNode[] = []; let root: SurfaceXmlNode | null = null; let at = 0; let error = ''

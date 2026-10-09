@@ -16,7 +16,7 @@ import { validateAssistedSurfaceRepair } from '../src/assistedSurfaceRepair'
 import { extractCharacterPhoneEntries } from '../src/livingCharacterPhone'
 
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
-assert.equal(definitions.length, 46)
+assert.equal(definitions.length, 47)
 for (const definition of definitions) {
   assert(parseSurfaceXml(definition.sampleXml), `${definition.baseSurfaceId}: canonical XML sample`)
   assert(definition.promptModule.includes(`ROOT: <${definition.canonicalOuterWrapper}>`))

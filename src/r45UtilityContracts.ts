@@ -4,9 +4,11 @@
  * metadata: every approved Surface receives its complete authoring contract.
  */
 import { xmlAuthoringInstructions } from './xmlSurfaceFormat'
+import { BUILDING_LAYOUT_CONTRACT } from './buildingLayoutContract'
 export const R45_UTILITY_CONTRACT_VERSION = 'R4.5 FINAL'
 
 export const R45_ACTIVE_SURFACE_IDS = [
+  'building-layout',
   'forum-thread', 'email-thread', 'imessage-chat', 'workspace-chat', 'livestream', 'dating-profile',
   'public-bulletin', 'case-file', 'relationship-map', 'instagram-dm', 'x-dm', 'discord-dm',
   'discord-server', 'google-images', 'phone-gallery', 'tiktok-post', 'naver-article', 'newspaper',
@@ -29,6 +31,7 @@ Use the current scene/message for names, places, timing, route information, text
 const utility = (root: string, body: string) => xmlAuthoringInstructions(`${SHARED}\n\nXML ROOT: <${root}>\n${body}\nUse attributes rather than child elements wherever the canonical SCHEMA shows an attribute. The schema owns field placement and order.`)
 
 export const R45_UTILITY_CONTRACTS: Record<R45ActiveSurfaceId, string> = {
+  'building-layout': BUILDING_LAYOUT_CONTRACT,
   'forum-thread': utility('forum_thread', 'Keep topic metadata, posts, replies, and media contextual. In <fm_comment>, use its user attribute then plain reply text, never <time>/<score>/<content> fields. Without an actual attachment, keep <fm_media></fm_media> empty and omit image requests. Actual attachments use 16:9 or 4:3.'),
   'email-thread': utility('email_thread', 'Author ordered <email_item> rows with slot, from, subject, preview and time attributes; <email_body> and optional <email_attachment> are children. Omit the attachment when none exists. Keep device facts grounded. Visual attachments own 16:9 media.'),
   'imessage-chat': utility('imessage_chat', 'Author ordered message rows. Incoming media is left; focal/user media is right. Every sent photo belongs to its exact message attachment and uses 4:3.'),

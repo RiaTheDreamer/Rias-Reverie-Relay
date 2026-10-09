@@ -98,6 +98,7 @@ export const SURFACE_ICON_REGISTRY: Record<string, SurfaceIconDefinition> = {
   "core:notes-app": { svg: VECTORS["notebook-pen"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/notebook-pen.svg" },
   "core:market-listing": { svg: VECTORS["shopping-bag"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/shopping-bag.svg" },
   "core:property-listing": { svg: VECTORS["house"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/house.svg" },
+  "core:building-layout": { svg: VECTORS["house"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/house.svg" },
   "core:letter-dispatch": { svg: VECTORS["send"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/send.svg" },
   "core:medical-record": { svg: VECTORS["stethoscope"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/stethoscope.svg" },
   "core:court-transcript": { svg: VECTORS["scale"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/scale.svg" },

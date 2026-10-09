@@ -2,6 +2,7 @@ import type { CustomSurfaceDefinition, ImageTarget, PromptProfileId, SurfaceProm
 import { compactSurfacePromptModule } from './bracketSurfaceAuthoring'
 import { r45UtilitySpecificGuidance } from './r45UtilityContracts'
 import { surfaceTriggerGuidance, surfaceTriggerOverride } from './shippedSurfaceDefinitions'
+import { BUILDING_LAYOUT_CONTRACT, BUILDING_LAYOUT_SAMPLE } from './buildingLayoutContract'
 
 type CatalogRow = {
   id: string
@@ -20,6 +21,7 @@ const request = (id: string, target = 'custom.artifact-media', aspect = '4:3', b
   `<image_request id="${id}" target="${target}" slot="${id}" aspect="${aspect}" alt="Surface media"><scene_brief>${brief}</scene_brief></image_request>`
 
 function runtimeUtilityPrompt(row: CatalogRow): string {
+  if (row.id === 'building-layout') return BUILDING_LAYOUT_CONTRACT
   const [requiredMediaCount, maximumMediaCount] = MEDIA_LIMITS[row.id] || [0, 0]
 
   return compactSurfacePromptModule({
@@ -36,6 +38,7 @@ function runtimeUtilityPrompt(row: CatalogRow): string {
 }
 
 const MEDIA_LIMITS: Record<string, readonly [number, number]> = {
+  'building-layout': [2, 16],
   smartphone: [0, 8], instagram: [1, 1], twitter: [0, 6], kakao: [0, 8],
   'album-cover': [1, 1], 'magazine-cover': [1, 1], 'photo-booth-strip': [4, 4], polaroid: [1, 1],
   'youtube-thumbnail': [1, 1], 'character-profile': [1, 1], 'music-player': [1, 1], 'location-share': [1, 1],
@@ -46,6 +49,7 @@ const MEDIA_LIMITS: Record<string, readonly [number, number]> = {
 }
 
 const rows: CatalogRow[] = [
+  { id: 'building-layout', label: 'Building Layout', icon: '⌂', root: 'building_layout', category: 'evidence-editorial', aspect: '4:3', profile: 'environment-location', sample: BUILDING_LAYOUT_SAMPLE },
   { id: 'smartphone', label: 'Smartphone', icon: '▣', root: 'smart_phone', target: 'smartphone.message-image', category: 'social-messaging', aspect: '4:3', sample: `<smart_phone sender="current contact" initial="A" time="21:14" day="Friday" battery="72"><notifications><s_note app="Messages" sender="current contact" time="21:12">New message</s_note></notifications><contact>current contact · mobile</contact><messages><s_recv time="21:12">Look at this.</s_recv><s_img side="recv" time="21:12">${request('phone-message-1', 'smartphone.message-image', '4:3', 'Context-specific photo sent by current contact in this conversation, no phone interface or readable text.')}</s_img><s_sent time="21:14">I see it.</s_sent></messages><info>Conversation details</info></smart_phone>` },
   { id: 'instagram', label: 'Instagram Post', icon: '◎', root: 'ig_app', target: 'instagram.single', category: 'social-messaging', aspect: '1:1', sample: `<ig_app user="@current_account" loc="North Pier" likes="1,284" verified="true">${request('instagram-post-1', 'instagram.single', '1:1', 'Square social photograph of North Pier after rain, complete scene visible, no interface or readable text.')}<caption>Blue hour after the rain.</caption><comments><i_comment user="@reply_author" time="12m" likes="4" verified="">Beautiful light.<i_reply user="@current_account" time="8m">Thank you.</i_reply></i_comment></comments></ig_app>` },
   { id: 'twitter', label: 'Twitter / X Post', icon: '𝕏', root: 'twitter_app', target: 'twitter.media', category: 'social-messaging', aspect: '16:9', sample: `<twitter_app><for_you><tw_post author="current account" handle="@current_account" time="19m" verified="true" replies="2" reposts="8" likes="34" views="1.2K" pinned="">The station lights are back.${request('twitter-media-1', 'twitter.media', '16:9', 'Wide photograph of a lit station platform at night, full platform visible, no social interface or readable text.')}<tw_comments><tw_comment author="reply author" handle="@reply_author" time="8m" verified="" likes="3">Finally.</tw_comment></tw_comments></tw_post></for_you><following></following><thread></thread><trends></trends></twitter_app>` },

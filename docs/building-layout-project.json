@@ -1,0 +1,22 @@
+{
+  "schema": "lumiverse-toolkit.project/v1",
+  "project": { "id": "reverie-building-layout-20261009", "name": "Building Layout", "version": "1", "status": "active", "target": { "application": "Lumiverse", "documentation_snapshot": "installed lumiverse-spindle-types 0.6.27" } },
+  "authority": { "source_order": ["user", "approved_project", "lumiverse_docs_technical", "external_reference", "generated"], "handover": "Building-Layout-Implementation-Handover.zip", "sha256": "70C8DAEB196D9950D9478C27BDDE89287E47BA59937E6D4EBCBFC3597D1AEEEC" },
+  "preferences": { "detail": "rich", "always_injected": "lean", "primary_surface": "responsive atlas" },
+  "agency": { "protected_subject": "{{user}}", "reserved": ["actions", "dialogue", "thoughts", "feelings", "attraction", "consent", "decisions", "relationships", "abilities", "backstory", "next_voluntary_action"] },
+  "policies": [{ "id": "manual-export", "origin": "user", "status": "canon", "text": "Add only the selected room, reuse one chat-bound lorebook per building, preserve human edits and existing chat bindings." }],
+  "entities": [], "canon": [],
+  "artifacts": [
+    { "id": "layout-contract", "type": "surface_utility", "status": "validated", "origin": "user", "display_name": "Building Layout", "filename": "src/buildingLayoutContract.ts", "version": "0.5.1", "owner": "Reverie Relay", "passport": { "evidence": "static_validated", "format": "XML" } },
+    { "id": "layout-runtime", "type": "extension_code", "status": "validated", "origin": "generated", "display_name": "Native atlas and lorebook export", "filename": "src/buildingLayout.ts", "version": "0.5.1", "owner": "Reverie Relay", "passport": { "evidence": "simulated", "tests": "scripts/building-layout-smoke.ts" } }
+  ],
+  "dependencies": [{ "id": "contract-runtime", "from": "layout-runtime", "to": "layout-contract", "type": "references", "status": "active", "origin": "generated" }],
+  "validation": { "status": "simulated", "last_run": "2026-10-09", "findings": [], "boundary": "Production parser/renderer/frontend/backend exercised locally with mounted ShadowDOM and mocked Lorebook APIs. Live Lumiverse/provider execution is not claimed." },
+  "release": { "status": "unreleased", "manifest": null },
+  "decisions": [
+    { "id": "xml-override", "origin": "user", "status": "canon", "source": "User: MUST change square brackets to Reverie's XML format", "text": "Canonical Utility and copyable examples use XML; original bracket fixture remains read-only compatibility." },
+    { "id": "lorebook-override", "origin": "user", "status": "canon", "source": "User: Add to lorebook; selected room, one lorebook per building", "text": "No Go here, move_text authoring, Composer insertion, automatic export or story movement." },
+    { "id": "native-owner", "origin": "approved_project", "status": "canon", "source": "Handover", "text": "Native variable-cardinality atlas; prototype regex remains reference-only and the historical 46-Surface regex pack is unchanged." }
+  ],
+  "unresolved": [{ "id": "live-host-proof", "text": "Actual Lumiverse installation, Story Model generation and real Lorebook persistence require a live host acceptance run after update." }]
+}

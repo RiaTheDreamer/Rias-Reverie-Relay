@@ -831,7 +831,7 @@ assert(!frontendSource.includes('Illustrator was retired in an earlier release')
 assert(!frontendSource.includes("id: 'open-image-lab'"), 'expected no new Illustrator command registration')
 assert(!frontendSource.includes('Enable Illustrator Widget'), 'expected Illustrator widget control removed from visible settings')
 
-assert(backendSource.includes('function builtInSurfaceDefinitions') && backendSource.includes('FINAL R4.5 Surface inventory drift'), 'expected protected 46-Surface R4.5 built-in registry')
+assert(backendSource.includes('function builtInSurfaceDefinitions') && backendSource.includes('Surface inventory drift: expected 47'), 'expected protected 47-Surface built-in registry')
 assert(frontendSource.includes('custom.artifact-media') && frontendSource.includes('Copy XML Example'), 'expected authored XML Surface artifact-media bridge reference')
 for (const surfaceId of ['album-cover', 'magazine-cover', 'photo-booth-strip', 'polaroid', 'youtube-thumbnail', 'newspaper']) {
   assert(r45CatalogSource.includes(`id: '${surfaceId}'`) || r45UtilitySource.includes(`'${surfaceId}'`), `expected built-in ${surfaceId} surface`)

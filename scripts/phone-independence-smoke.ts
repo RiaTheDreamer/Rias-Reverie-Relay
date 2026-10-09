@@ -61,7 +61,7 @@ frontendHandler({type:'reverie_phone_command',chatId:'cold-chat',operationId:'co
 for(let tick=0;tick<30&&!output.some(row=>row.operationId==='cold-open');tick++)await new Promise(resolve=>setTimeout(resolve,0))
 const projection=output.find(row=>row.operationId==='cold-open')
 assert.equal(projection.type,'phone_state');assert(!projection.error,projection.error)
-assert.equal(projection.identities.length,2);assert.equal(projection.apps.length,46)
+assert.equal(projection.identities.length,2);assert.equal(projection.apps.length,47)
 assert.equal(projection.saved.length,0);assert.equal(projection.appRecords.length,0);assert.equal(projection.state.messages.length,0)
 assert.equal(providerCalls,0,'opening an empty phone cannot spend a provider call')
 assert.equal(normalizePhoneIncoming(undefined).frequency,'model')

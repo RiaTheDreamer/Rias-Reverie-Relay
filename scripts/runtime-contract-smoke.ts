@@ -221,7 +221,7 @@ const assertUtilitiesInjected = (text: string, stage: string) => {
     expectedSurfaceIds,
     `${stage}: the injected Surface Utility inventory is incomplete`,
   )
-  assert.equal(expectedSurfaceIds.length, 44, `${stage}: expected 44 Core authoring modules after the Narrative move`)
+  assert.equal(expectedSurfaceIds.length, 45, `${stage}: expected 45 Core authoring modules after the Narrative move`)
   assert(text.includes(expectedNarrativeUtility.content), `${stage}: the complete enabled Narrative Utility payload was not injected`)
   assert.equal(expectedNarrativeUtility.utilityNames.length, 15, `${stage}: expected 15 inline Utilities with Character Phone hosted in the widget`)
 }

@@ -12,8 +12,10 @@ import { applyKakaoColorBinding, sanitizedKakaoColor } from '../src/kakaoColor'
 
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
 
-const shippedDefinitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
-const allSpecs = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS)
+// The historical 46-Surface regex matrix remains unchanged. The new native
+// Building Layout owner has its own parser/lifecycle/navigation acceptance gate.
+const shippedDefinitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)].filter(row => row.baseSurfaceId !== 'building-layout')
+const allSpecs = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).filter(row => row.id !== 'building-layout')
 const missingDefinitions = allSpecs.filter(spec => !shippedDefinitions.some(definition => definition.baseSurfaceId === spec.id)).map(spec => ({
   surfaceId: spec.id, baseSurfaceId: spec.id, presetName: 'R4.5 FINAL', displayName: spec.id, icon: '◇',
   targetId: spec.id === 'smartphone' ? 'smartphone.message-image' : 'custom.artifact-media', canonicalOuterWrapper: spec.wrapper,

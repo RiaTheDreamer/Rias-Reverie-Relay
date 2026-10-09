@@ -20,8 +20,8 @@ const separator = '\n\n---\n\n'
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
 const byId = new Map(definitions.map(definition => [definition.baseSurfaceId, definition]))
 
-assert(definitions.length === 46, `expected 46 built-in definitions, received ${definitions.length}`)
-assert(byId.size === 46, `expected 46 unique baseSurfaceId values, received ${byId.size}`)
+assert(definitions.length === 47, `expected 47 built-in definitions, received ${definitions.length}`)
+assert(byId.size === 47, `expected 47 unique baseSurfaceId values, received ${byId.size}`)
 assert(R45_ACTIVE_SURFACE_IDS.every(id => byId.has(id)), 'active R4.5 inventory is not fully represented')
 assert(definitions.every(definition => definition.builtIn && definition.promptEnabled === true), 'every built-in Surface must remain prompt-enabled by default')
 
@@ -69,6 +69,10 @@ for (const repeatedLesson of ['No attributes in opening bracket tags', "Author t
 for (const definition of definitions) {
   const module = definition.promptModule
   assert(module.includes(`ROOT: <${definition.canonicalOuterWrapper}>`), `${definition.baseSurfaceId}: canonical ROOT is missing`)
+  if (definition.baseSurfaceId === 'building-layout') {
+    assert(module.includes('<floor>') && module.includes('<room>') && module.includes('Add to lorebook') && !module.includes('[building_layout]'), 'Building Layout must use variable XML records and manual lorebook export')
+    continue
+  }
   const schema = module.match(/\nSCHEMA\n([\s\S]*?)\n\nMEDIA\n/)?.[1] || ''
   assert(schema.startsWith(`<${definition.canonicalOuterWrapper}`), `${definition.baseSurfaceId}: compact SCHEMA root is wrong`)
   assert(schema === compactBracketSchemaFromXml(definition.sampleXml), `${definition.baseSurfaceId}: SCHEMA drifted from its canonical structure or media owner positions`)
