@@ -10,13 +10,13 @@ const json = (relative: string) => JSON.parse(read(relative))
 
 const pkg = json('package.json')
 const manifest = json('spindle.json')
-assert.equal(pkg.version, '0.5.0')
-assert.equal(manifest.version, '0.5.0')
+assert.equal(pkg.version, '0.5.1')
+assert.equal(manifest.version, '0.5.1')
 assert.equal(manifest.name, "Ria's Reverie Relay")
 assert.equal(manifest.identifier, 'private_relay', 'display branding must preserve the private extension install identity')
 assert(read('README.md').includes(`**Version:** \`${pkg.version}\``), 'README must match the package version')
 assert(read('src/build.ts').includes(`EXTENSION_VERSION = '${pkg.version}'`))
-assert(read('src/build.ts').includes(`BUILD_ID = '20261006-${pkg.version}'`))
+assert(read('src/build.ts').includes(`BUILD_ID = '20261009-${pkg.version}'`))
 
 const authorityRoot = new URL('regex-packs/Core/', root)
 const authorityManifest = json('regex-packs/Core/Authorized-Regex-Manifest.json')
@@ -87,4 +87,4 @@ assert.ok(migrated.stats.completedTotal >= 1, 'lifetime Completed count survives
 assert.equal(migrated.proseIllustrator.opportunities['legacy-opportunity'].plannerVersion, 'prose-opportunity-v1')
 assert.ok(migrated.logs.some((row: any) => row.eventType === 'state_migrated'), 'schema 34 migration is recorded')
 
-console.log('0.5.0 staging smoke passed: version metadata and Reverie branding aligned, authority hashes verified, and a 0.2.7.5-era schema-34 completed image/state snapshot migrated without losing historical media.')
+console.log('0.5.1 release smoke passed: version metadata and Reverie branding aligned, authority hashes verified, and a 0.2.7.5-era schema-34 completed image/state snapshot migrated without losing historical media.')
