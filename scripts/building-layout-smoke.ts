@@ -38,11 +38,25 @@ assert(parseBuildingLayout(fourFloors).layout, 'four floors / sixteen rooms supp
 assert(!parseBuildingLayout(fourFloors.replace('</building_layout>', firstFloor + '</building_layout>')).layout, 'five floors rejected')
 const broken = xml.replace('</building_layout>', '') + BUILDING_LAYOUT_SAMPLE
 assert.equal(buildingLayoutBlocks(broken, ['building_layout']).length, 2, 'malformed layout cannot swallow sibling')
+assert.equal(buildingLayoutBlocks(xml.replace('Wide interior architectural photograph', '[smart_phone] Literal words in a visual brief'), ['smart_phone']).length, 1)
+assert(parseBuildingLayout(xml.replace('Wide interior architectural photograph', '[smart_phone] Literal words in a visual brief')).layout)
 
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
 assert.equal(definitions.length, 47)
 const studio = { definitions: Object.fromEntries(definitions.map(def => [def.surfaceId, def])), activePresetIds: {}, collectionPresets: {}, rendererMode: 'relay', defaultShellMode: 'plain', colorMode: 'realistic' }
 const context = { chatId: 'layout-chat', messageId: 'layout-message', swipeId: 0, autoGenerate: false }
+const longRoomName = 'Conservatory and Botanical Reading Gallery with an ExceptionallyLongUnbrokenArchitecturalName'
+const longRoomXml = BUILDING_LAYOUT_SAMPLE.replace('<room_name>Entrance</room_name>', `<room_name>${longRoomName}</room_name>`)
+assert(parseBuildingLayout(longRoomXml).layout, 'long names remain complete semantic values')
+const longRoomDom = new JSDOM(renderNativeSurfaceMarkup(longRoomXml, studio, context).content)
+assert.equal(longRoomDom.window.document.querySelector('.bl-room-node span').textContent, longRoomName)
+assert.equal(longRoomDom.window.document.querySelector('.bl-room-copy h3').textContent, longRoomName)
+assert(longRoomDom.window.document.querySelector('style[data-reverie-building-layout]').textContent.includes('overflow-wrap:anywhere'))
+const fourFloorDom = new JSDOM(renderNativeSurfaceMarkup(fourFloors, studio, context).content)
+assert.equal(fourFloorDom.window.document.querySelectorAll('[data-bl-floor]').length, 4)
+assert(handleBuildingLayoutNavigation(fourFloorDom.window.document.querySelector('[data-bl-floor="3"]')))
+assert(!fourFloorDom.window.document.querySelector('[data-bl-floor-panel="3"]').hidden)
+assert.equal(fourFloorDom.window.document.querySelectorAll('.bl-media').length, 16)
 const mediaRequests = [...xml.matchAll(/<image_request\b[^>]*id="([^"]+)"/g)].map(match => match[1])
 const visible = html => { const dom = new JSDOM(html); dom.window.document.querySelectorAll('style,textarea,template,script').forEach(node => node.remove()); return dom.window.document.body.textContent }
 for (const mode of ['inline', 'plain', 'sparkling', 'glass', 'plain-glass']) {

@@ -130,11 +130,12 @@ export function buildingLayoutBlocks(source: string, siblingRoots: readonly stri
     if (start < cursor) continue
     const bracket = open[0].startsWith('[')
     const tail = source.slice(start + open[0].length)
-    const closer = bracket ? /\[\/building_layout\]/i.exec(tail) : /<\/building_layout>/i.exec(tail)
+    const searchTail = tail.replace(/<image_request\b[^>]*>[\s\S]*?<\/image_request>/gi, request => ' '.repeat(request.length))
+    const closer = bracket ? /\[\/building_layout\]/i.exec(searchTail) : /<\/building_layout>/i.exec(searchTail)
     let end = closer ? start + open[0].length + closer.index + closer[0].length : source.length
     const siblings = [...siblingRoots, 'building_layout'].filter(root => /^[a-z][\w-]*$/i.test(root))
     if (siblings.length) {
-      const next = new RegExp(`(?:\\[|<)(?:${siblings.join('|')})(?=[\\s>\\]])`, 'i').exec(tail)
+      const next = new RegExp(`(?:\\[|<)(?:${siblings.join('|')})(?=[\\s>\\]])`, 'i').exec(searchTail)
       if (next && start + open[0].length + next.index < end) end = start + open[0].length + next.index
     }
     blocks.push({ source: source.slice(start, end), start, end }); cursor = end
