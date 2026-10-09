@@ -5675,6 +5675,67 @@ export function setup(ctx: SpindleFrontendContext) {
               : 'slots'
   }
 
+  function createSuitePrimaryIcon(name: string): SVGSVGElement {
+    const shapes: Record<string, Array<{ tag: 'path' | 'rect' | 'circle'; attrs: Record<string, string> }>> = {
+      'layout-dashboard': [
+        { tag: 'rect', attrs: { width: '7', height: '9', x: '3', y: '3', rx: '1' } },
+        { tag: 'rect', attrs: { width: '7', height: '5', x: '14', y: '3', rx: '1' } },
+        { tag: 'rect', attrs: { width: '7', height: '9', x: '14', y: '12', rx: '1' } },
+        { tag: 'rect', attrs: { width: '7', height: '5', x: '3', y: '16', rx: '1' } },
+      ],
+      'square-sparkles': [
+        { tag: 'path', attrs: { d: 'M11 15H7' } },
+        { tag: 'path', attrs: { d: 'M15.41 2.49a.6.6 0 011.18 0l.63 3.334a1.2 1.2 0 00.956.955l3.334.631a.6.6 0 010 1.18l-3.334.63a1.2 1.2 0 00-.955.956l-.631 3.334a.6.6 0 01-1.18 0l-.63-3.334a1.2 1.2 0 00-.956-.955L10.49 8.59a.6.6 0 010-1.18l3.334-.63a1.2 1.2 0 00.955-.956z' } },
+        { tag: 'path', attrs: { d: 'M21 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h6' } },
+        { tag: 'path', attrs: { d: 'M9 13v4' } },
+      ],
+      layers: [
+        { tag: 'path', attrs: { d: 'M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z' } },
+        { tag: 'path', attrs: { d: 'M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12' } },
+        { tag: 'path', attrs: { d: 'M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17' } },
+      ],
+      'venetian-mask': [
+        { tag: 'path', attrs: { d: 'M18 11c-1.5 0-2.5.5-3 2' } },
+        { tag: 'path', attrs: { d: 'M4 6a2 2 0 0 0-2 2v4a5 5 0 0 0 5 5 8 8 0 0 1 5 2 8 8 0 0 1 5-2 5 5 0 0 0 5-5V8a2 2 0 0 0-2-2h-3a8 8 0 0 0-5 2 8 8 0 0 0-5-2z' } },
+        { tag: 'path', attrs: { d: 'M6 11c1.5 0 2.5.5 3 2' } },
+      ],
+      'book-open': [
+        { tag: 'path', attrs: { d: 'M12 5v16' } },
+        { tag: 'path', attrs: { d: 'M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z' } },
+      ],
+      smartphone: [
+        { tag: 'rect', attrs: { width: '14', height: '20', x: '5', y: '2', rx: '2', ry: '2' } },
+        { tag: 'path', attrs: { d: 'M12 18h.01' } },
+      ],
+      archive: [
+        { tag: 'rect', attrs: { width: '20', height: '5', x: '2', y: '3', rx: '1' } },
+        { tag: 'path', attrs: { d: 'M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8' } },
+        { tag: 'path', attrs: { d: 'M10 12h4' } },
+      ],
+      settings: [
+        { tag: 'path', attrs: { d: 'M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915' } },
+        { tag: 'circle', attrs: { cx: '12', cy: '12', r: '3' } },
+      ],
+    }
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('viewBox', '0 0 24 24')
+    svg.setAttribute('width', '1em')
+    svg.setAttribute('height', '1em')
+    svg.setAttribute('fill', 'none')
+    svg.setAttribute('stroke', 'currentColor')
+    svg.setAttribute('stroke-width', '2')
+    svg.setAttribute('stroke-linecap', 'round')
+    svg.setAttribute('stroke-linejoin', 'round')
+    svg.setAttribute('aria-hidden', 'true')
+    svg.setAttribute('focusable', 'false')
+    for (const shape of shapes[name] || []) {
+      const node = document.createElementNS('http://www.w3.org/2000/svg', shape.tag)
+      for (const [attribute, value] of Object.entries(shape.attrs)) node.setAttribute(attribute, value)
+      svg.appendChild(node)
+    }
+    return svg
+  }
+
   function renderTabs(): HTMLElement {
     const shell = document.createElement('nav')
     shell.className = 'dg-suite-navigation'
@@ -5682,21 +5743,21 @@ export function setup(ctx: SpindleFrontendContext) {
     primary.className = 'dg-suite-primary'
     const currentSection = suiteSectionForTab(activeTab)
     const sections: Array<{ id: SuiteSection; icon: string; label: string }> = [
-      { id: 'relay', icon: '⌁', label: 'Relay' },
-      { id: 'illustrator', icon: '✧', label: 'Illustrations' },
-      { id: 'surfaces', icon: '▧', label: 'Surfaces' },
-      { id: 'memory', icon: '◇', label: 'Appearance' },
-      { id: 'story', icon: '✺', label: 'Story' },
-      { id: 'phone', icon: '▯', label: 'Phone' },
-      { id: 'archive', icon: '▤', label: 'Archive' },
-      { id: 'settings', icon: '⚙', label: 'Settings' },
+      { id: 'relay', icon: 'layout-dashboard', label: 'Relay' },
+      { id: 'illustrator', icon: 'square-sparkles', label: 'Illustrations' },
+      { id: 'surfaces', icon: 'layers', label: 'Surfaces' },
+      { id: 'memory', icon: 'venetian-mask', label: 'Appearance' },
+      { id: 'story', icon: 'book-open', label: 'Story' },
+      { id: 'phone', icon: 'smartphone', label: 'Phone' },
+      { id: 'archive', icon: 'archive', label: 'Archive' },
+      { id: 'settings', icon: 'settings', label: 'Settings' },
     ]
     for (const section of sections) {
       const btn = document.createElement('button')
       btn.type = 'button'
       btn.className = `dg-suite-primary-tab${currentSection === section.id ? ' is-active' : ''}`
       btn.setAttribute('aria-selected', String(currentSection === section.id))
-      const icon = document.createElement('span'); icon.className = 'dg-suite-primary-icon'; icon.textContent = section.icon
+      const icon = document.createElement('span'); icon.className = 'dg-suite-primary-icon'; icon.appendChild(createSuitePrimaryIcon(section.icon))
       const label = document.createElement('span'); label.textContent = section.label
       btn.append(icon, label)
       btn.addEventListener('click', () => {

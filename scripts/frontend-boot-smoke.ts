@@ -30,7 +30,7 @@ class FakeClassList {
 }
 
 class FakeElement {
-  constructor(readonly tagName = 'div') {}
+  constructor(readonly tagName = 'div', readonly namespaceURI = 'http://www.w3.org/1999/xhtml') {}
   listeners = new Map<string, Array<() => void>>()
   parentNode: FakeElement | null = null
   children: FakeElement[] = []
@@ -118,6 +118,7 @@ const documentMock = {
   documentElement: new FakeElement(),
   activeElement: null,
   createElement: (tagName: string) => new FakeElement(tagName),
+  createElementNS: (namespace: string, tagName: string) => new FakeElement(tagName, namespace),
   createDocumentFragment: () => new FakeElement(),
   addEventListener: () => {},
   removeEventListener: () => {},
@@ -252,6 +253,31 @@ assert(inputRegistrations.length === 2, 'frontend setup must register both input
 assert(inputRegistrations.some(entry => entry.options.id === 'open-private-relay'), 'Private Relay input-bar action must be registered')
 assert(inputRegistrations.find(entry => entry.options.id === 'open-private-relay')!.options.label === "Open Ria's Reverie Relay", 'input action must match the dashboard branding')
 assert(inputRegistrations.some(entry => entry.options.id === 'open-private-relay-surfaces'), 'Surface Registry input-bar action must be registered')
+const primaryTabs = drawer.root.querySelectorAll('.dg-suite-primary-tab')
+const expectedPrimaryTabs = [
+  ['Relay', 'rect', 4],
+  ['Illustrations', 'path', 4],
+  ['Surfaces', 'path', 3],
+  ['Appearance', 'path', 3],
+  ['Story', 'path', 2],
+  ['Phone', 'rect', 2],
+  ['Archive', 'rect', 3],
+  ['Settings', 'path', 2],
+]
+assert(primaryTabs.length === expectedPrimaryTabs.length, 'dashboard must render all eight primary tabs')
+for (const [index, primaryTab] of primaryTabs.entries()) {
+  const [label, firstShape, shapeCount] = expectedPrimaryTabs[index]
+  assert(primaryTab.children[1]?.textContent === label, `primary tab ${index + 1} must preserve its label and order`)
+  const icon = primaryTab.querySelector('.dg-suite-primary-icon')
+  const svg = icon?.children[0]
+  assert(svg?.tagName === 'svg' && svg.namespaceURI === 'http://www.w3.org/2000/svg', `${label} must use a real SVG namespace`)
+  assert(svg.getAttribute('viewBox') === '0 0 24 24' && svg.getAttribute('stroke') === 'currentColor', `${label} icon must retain Lucide sizing and theme color`)
+  assert(svg.getAttribute('aria-hidden') === 'true' && svg.getAttribute('focusable') === 'false', `${label} icon must not replace the accessible button label`)
+  assert(svg.children.length === shapeCount && svg.children[0].tagName === firstShape, `${label} must render the selected Lucide shapes`)
+  assert(svg.children.every(child => child.namespaceURI === svg.namespaceURI), `${label} shapes must use the SVG namespace`)
+}
+const phoneSvg = primaryTabs[5].querySelector('svg')!
+assert(phoneSvg.children[0].getAttribute('width') === '14' && phoneSvg.children[0].getAttribute('height') === '20' && phoneSvg.children[1].getAttribute('d') === 'M12 18h.01', 'Phone must use the supplied smartphone icon')
 for (const registration of [...drawerRegistrations, ...inputRegistrations.map(entry => entry.options)]) {
   assert(typeof registration.iconUrl === 'string' && registration.iconUrl.startsWith('data:image/png;base64,'), `${registration.id} must receive an embedded PNG data URL`)
 }
