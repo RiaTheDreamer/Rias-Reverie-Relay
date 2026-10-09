@@ -10,10 +10,10 @@ import { SURFACE_ICON_REGISTRY, decorateSurfaceLauncherMarkup } from '../src/sur
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
 const coreIds = new Set(definitions.map(definition => definition.baseSurfaceId))
 const narrativeIds = new Set(NARRATIVE_UTILITY_PACK.loomItems.map(item => item.loomName))
-assert.equal(coreIds.size, 46, 'Core Surface inventory drifted')
+assert.equal(coreIds.size, 47, 'Core Surface inventory drifted')
 assert.equal(narrativeIds.size, 16, 'Narrative Utility inventory drifted')
 assert.deepEqual(new Set(completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).map(spec => spec.id)), coreIds)
-assert.equal(Object.keys(SURFACE_ICON_REGISTRY).length, 62, 'icon registry must contain exactly 62 stable identifiers')
+assert.equal(Object.keys(SURFACE_ICON_REGISTRY).length, 63, 'icon registry must contain exactly 63 stable identifiers')
 for (const id of coreIds) assert(SURFACE_ICON_REGISTRY[`core:${id}`], `Core icon missing: ${id}`)
 for (const id of narrativeIds) assert(SURFACE_ICON_REGISTRY[`narrative:${id}`], `Narrative icon missing: ${id}`)
 for (const [key, icon] of Object.entries(SURFACE_ICON_REGISTRY)) {

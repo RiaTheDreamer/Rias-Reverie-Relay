@@ -193,7 +193,7 @@ for(let page=0;page<4;page++){
  for(const icon of root().querySelectorAll('[aria-label^="Open Core app "]')){assert(icon.querySelector('svg'),'every Core home icon has a vector');allHomeApps.add(icon.getAttribute('aria-label'))}
  const next=root().querySelector('[aria-label="Next app page"]');if(next&&!next.disabled)next.click()
 }
-assert.equal(allHomeApps.size,46,'all 46 Core apps are reachable from paged phone home icons')
+assert.equal(allHomeApps.size,47,'all 47 Core apps are reachable from paged phone home icons')
 // Exercise the persistent Messages doorway from every Core app, not just Instagram.
 handlers[0]({...projected,operationId:'app-doorway-sweep',state:{...projected.state,revision:108},apps:PHONE_CORE_APPS,appRecords:[]})
 while(root().querySelector<HTMLButtonElement>('[aria-label="Previous app page"]')&&!root().querySelector<HTMLButtonElement>('[aria-label="Previous app page"]')!.disabled)root().querySelector<HTMLButtonElement>('[aria-label="Previous app page"]')!.click()

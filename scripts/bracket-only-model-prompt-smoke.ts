@@ -93,7 +93,7 @@ assert(containsImageRequestMarkup(canonicalXml), 'production request detection g
 assert(containsImageRequestMarkup(bracketCompatible), 'production request detection gate must retain bracket compatibility ingress')
 
 const surfaces = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
-assert(surfaces.length === 46, `expected protected 46-Surface inventory, got ${surfaces.length}`)
+assert(surfaces.length === 47, `expected protected 47-Surface inventory, got ${surfaces.length}`)
 const canonicalSurfaceRequests = surfaces.filter(definition => String(definition.promptModule || '').includes('<image_request'))
 assert(canonicalSurfaceRequests.length > 0, 'current Surface prompts must teach canonical XML image requests')
 for (const definition of surfaces) {

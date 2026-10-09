@@ -13,6 +13,7 @@ import { sanitizedKakaoColor } from './kakaoColor'
 import { SURFACE_MEDIA_GEOMETRY_STYLE } from './surfaceMediaGeometry'
 import { validateDeclarativeSurfaceCss } from './surfaceCssSafety'
 import type { SurfaceNormalizationSpec } from './c5bReliability'
+import { buildingLayoutBlocks, parseBuildingLayout, renderBuildingLayout } from './buildingLayout'
 
 export type NativeSurfaceRenderContext = {
   chatId: string
@@ -727,6 +728,13 @@ export function renderNativeSurfaceMarkup(
   studio: CustomSurfaceStudioState,
   context: NativeSurfaceRenderContext,
 ): NativeSurfaceRenderResult {
+  // Claim this native owner before generic XML/bracket compatibility passes.
+  // A malformed layout cannot consume a neighboring Surface or expose briefs.
+  const buildingBlocks = buildingLayoutBlocks(input, NATIVE_SURFACE_ROOT_TAGS)
+  for (let index = buildingBlocks.length - 1; index >= 0; index--) {
+    const block = buildingBlocks[index]
+    input = input.slice(0, block.start) + `<!--rrl-building-owner:${index}-->` + input.slice(block.end)
+  }
   context = { ...context, authoredImageControls: bracketImageControls(input) }
   let bracketControlRecoveryCount = 0
   input = projectBracketImageControlsToXml(input, control => {
@@ -742,6 +750,17 @@ export function renderNativeSurfaceMarkup(
     rendererMode: context.rendererMode || studio.rendererMode,
     rendererScriptOverrides: studio.rendererScriptOverrides || {},
   }
+  const buildingMarkup = buildingBlocks.map((block, index) => {
+    const instanceContext = { ...renderContext, streamIslandOrdinal: index }
+    const parsed = parseBuildingLayout(block.source)
+    const preset = activePreset(studio, 'building-layout')
+    const configuredMode = preset?.shellMode || renderContext.defaultShellMode || 'plain'
+    const mode = configuredMode === 'collapsible' ? 'plain' : configuredMode
+    const rendered = parsed.layout
+      ? decorateSurfaceLauncherMarkup(renderBuildingLayout(parsed.layout, media => hydrateParityRequests(media, 'building-layout', instanceContext).replace(/<details\b[^>]*class="rrl-detail"[^>]*>[\s\S]*?<\/details>/gi, ''), mode), 'core', 'building-layout', mode)
+      : reviewedContractError('building-layout', parsed.diagnostics.join('; '))
+    return editableRelaySurface(NATIVE_SURFACE_CSS + rendered, block.source, 'building_layout', 'building-layout', instanceContext, block.source)
+  })
   const bracketRenderedSurfaceIds: string[] = []
   let bracketRenderedCount = 0
   const unsupportedAppDrift: string[] = []
@@ -849,8 +868,8 @@ export function renderNativeSurfaceMarkup(
   // explicitly selected legacy ownership, hide the semantic payload from
   // Relay's generic request pass so one instance never gets two render owners.
   const protectedRegexSurfaces = new Map<string, string>()
-  let renderedCount = bracketControlRecoveryCount + bracketRenderedCount + normalizationFailures.length + unsupportedAppDrift.length
-  const renderedSurfaceIds: string[] = [...bracketRenderedSurfaceIds, ...normalizationFailures, ...unsupportedAppDrift]
+  let renderedCount = buildingBlocks.length + bracketControlRecoveryCount + bracketRenderedCount + normalizationFailures.length + unsupportedAppDrift.length
+  const renderedSurfaceIds: string[] = [...buildingBlocks.map(() => 'building-layout'), ...bracketRenderedSurfaceIds, ...normalizationFailures, ...unsupportedAppDrift]
 
   // The reviewed Tinder contract has its own <tinder> wrapper. In Regex
   // presentation its nested media requests remain inside that owner.
@@ -1020,6 +1039,7 @@ export function renderNativeSurfaceMarkup(
     )
     content = preserveKakaoColorAttributes(content)
   }
+  buildingMarkup.forEach((html, index) => { content = content.replace(`<!--rrl-building-owner:${index}-->`, html) })
   return { content, renderedCount, renderedSurfaceIds }
 }
 

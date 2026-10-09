@@ -25,7 +25,7 @@ const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceD
 const observedPrivateNames = ['Mi' + 'na', 'Mi' + 'ra', 'K' + 'ai', 'A' + 'ri', 'Elena' + ' Ward']
 const forbiddenIdentity = new RegExp(`\\b(?:${observedPrivateNames.join('|')}|Character [A-Z]|Contact [A-Z]|Archive [A-Z]|Reader [A-Z]|Seller [A-Z]|Patient [A-Z]|Clinician [A-Z]|Judge [A-Z])\\b|@handle\\b|@reader\\b|>EW<`)
 
-assert(definitions.length === 46, `identity policy expected 46 built-in Surfaces, received ${definitions.length}`)
+assert(definitions.length === 47, `identity policy expected 47 built-in Surfaces, received ${definitions.length}`)
 for (const pack of packs) {
   assert(pack.scripts.length === 138, `${pack.name || 'R4.5 pack'}: identity policy expected 138 scripts`)
   for (const script of pack.scripts) {

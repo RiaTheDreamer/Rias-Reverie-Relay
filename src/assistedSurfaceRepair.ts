@@ -10,6 +10,8 @@ import {
 import { normalizeBracketSurfaceDocument } from './bracketSurfaceBridge'
 import { normalizeBracketName, parseBracketDocument } from './bracketParser'
 import { bracketImageControls } from './imageControlMarkup'
+import { parseBuildingLayout } from './buildingLayout'
+import { BUILDING_LAYOUT_SAMPLE, buildingLayoutLegacyBracketExample } from './buildingLayoutContract'
 import { PLOT_SPARKS_REPAIR_EXAMPLE, PLOT_SPARKS_XML_REPAIR_EXAMPLE, PLOT_SPARKS_ROOT, PLOT_SPARKS_SURFACE_ID, plotSparksContractDiagnostic } from './plotSparksContract'
 
 export const MAX_ASSISTED_SURFACE_REPAIR_CHARS = 24_000
@@ -17,6 +19,7 @@ export const MAX_ASSISTED_SURFACE_REPAIR_CHARS = 24_000
 const surfaceSpecs = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS)
 
 export function assistedSurfaceRepairSpec(surfaceId: string) {
+  if (surfaceId === 'building-layout') return { id: surfaceId, wrapper: 'building_layout', sampleXml: BUILDING_LAYOUT_SAMPLE, sampleBracket: buildingLayoutLegacyBracketExample(BUILDING_LAYOUT_SAMPLE) }
   if (surfaceId === PLOT_SPARKS_SURFACE_ID) return { id: surfaceId, wrapper: PLOT_SPARKS_ROOT, sampleXml: PLOT_SPARKS_XML_REPAIR_EXAMPLE, sampleBracket: PLOT_SPARKS_REPAIR_EXAMPLE }
   const spec = surfaceSpecs.find(row => row.id === surfaceId)
   return spec ? { ...spec, sampleBracket: undefined } : undefined
@@ -168,7 +171,10 @@ export function validateAssistedSurfaceRepair(
   }
 
   let contractCandidate = proposed
-  if (surfaceId === PLOT_SPARKS_SURFACE_ID) {
+  if (surfaceId === 'building-layout') {
+    const parsed = parseBuildingLayout(proposed)
+    if (!parsed.layout) return { ok: false, reason: parsed.diagnostics.join(' ') }
+  } else if (surfaceId === PLOT_SPARKS_SURFACE_ID) {
     const reason = plotSparksContractDiagnostic(proposed)
     if (reason) return { ok: false, reason }
   } else if (format === 'bracket') {

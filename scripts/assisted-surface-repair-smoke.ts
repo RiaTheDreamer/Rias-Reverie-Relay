@@ -10,7 +10,8 @@ function equal(actual: unknown, expected: unknown, reason = 'Values did not matc
 function match(actual: string, expected: RegExp, reason: string): void { if (!expected.test(actual)) throw new Error(reason) }
 function deepEqual(actual: unknown, expected: unknown, reason: string): void { if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(reason) }
 
-const specs = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS)
+// Building Layout's strict mixed XML/legacy-bracket repair gate is tested separately.
+const specs = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).filter(row => row.id !== 'building-layout')
 equal(specs.length, 46, 'repair registry must cover all shipped Core Surface contracts')
 
 const normalizationBlocked: string[] = []

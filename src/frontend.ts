@@ -60,6 +60,9 @@ import { REVERIE_RELAY_OVERVIEW_ICON_URL, REVERIE_RELAY_SIDEBAR_ICON_URL } from 
 import { applyKakaoColorBinding } from './kakaoColor'
 import { bindImageLightboxZoom } from './imageLightboxZoom'
 import { lifecycleRuntimeCss, NATIVE_SURFACE_ROOT_TAGS, renderCompletedProseLifecycleProjection, renderGenerationPlaceholderEffect, renderNativeSurfaceMarkup, renderRegenerationLifecycleProjection } from './nativeSurfaces'
+import { handleBuildingLayoutNavigation } from './buildingLayout'
+
+const pendingBuildingLorebookButtons = new Map<string, HTMLButtonElement>()
 import { shippedSurfaceDefinitions } from './shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_INLINE_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK } from './protocols'
@@ -2158,11 +2161,13 @@ export function setup(ctx: SpindleFrontendContext) {
       return
     }
     if (message.type === 'narrative_lorebook_export_result') {
-      const trigger = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-rrn-export-request-id]'))
+      const buildingTrigger = pendingBuildingLorebookButtons.get(message.requestId)
+      pendingBuildingLorebookButtons.delete(message.requestId)
+      const trigger = buildingTrigger || Array.from(document.querySelectorAll<HTMLButtonElement>('[data-rrn-export-request-id]'))
         .find(candidate => candidate.dataset.rrnExportRequestId === message.requestId)
       if (trigger) {
         trigger.disabled = false
-        trigger.textContent = message.ok ? 'Sent to Lorebook' : 'Send to Lorebook'
+        trigger.textContent = buildingTrigger ? (message.ok ? 'Added to lorebook' : 'Add to lorebook') : (message.ok ? 'Sent to Lorebook' : 'Send to Lorebook')
         delete trigger.dataset.rrnExportRequestId
       }
       showToast(message.ok ? 'success' : 'error', message.message)
@@ -2636,8 +2641,19 @@ export function setup(ctx: SpindleFrontendContext) {
     return submitted
   }
 
-  function handleNativeSurfaceCommand(input: { action: string; chatId: string; messageId: string; swipeId?: number; requestId: string; rootTag: string; surfaceId: string; lorebookKind?: string; lorebookIndex?: number }, trigger?: HTMLButtonElement): void {
+  function handleNativeSurfaceCommand(input: { action: string; chatId: string; messageId: string; swipeId?: number; requestId: string; rootTag: string; surfaceId: string; lorebookKind?: string; lorebookIndex?: number; layoutId?: string; roomId?: string }, trigger?: HTMLButtonElement): void {
     const { action, chatId, messageId, swipeId, requestId, rootTag, surfaceId, lorebookKind, lorebookIndex } = input
+    if (action === 'building-lorebook') {
+      if (!trigger || !chatId || !messageId || !input.layoutId || !input.roomId) { showToast('warning', 'Could not resolve the saved room selected for Lorebook export.'); return }
+      if (trigger.disabled) return
+      const exportRequestId = `building-lorebook:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`
+      trigger.disabled = true
+      trigger.textContent = 'Adding…'
+      trigger.dataset.rrnExportRequestId = exportRequestId
+      pendingBuildingLorebookButtons.set(exportRequestId, trigger)
+      ctx.sendToBackend({ type: 'export_building_lorebook', requestId: exportRequestId, chatId, messageId, swipeId, layoutId: input.layoutId, roomId: input.roomId })
+      return
+    }
     if (action === 'export-lorebook') {
       if (!trigger || !chatId || !messageId || !['cast-introduction', 'character-dossier', 'location-file'].includes(lorebookKind || '')) {
         showToast('warning', 'Relay could not resolve the Narrative Surface selected for Lorebook export.')
@@ -2886,6 +2902,7 @@ export function setup(ctx: SpindleFrontendContext) {
     if (!buttonEl) return
     event.preventDefault()
     event.stopImmediatePropagation()
+    if (handleBuildingLayoutNavigation(buttonEl)) return
     if (buttonEl.dataset.rrnAction === 'wardrobe-wear') {
       const owner = buttonEl.closest<HTMLElement>('.pw-wardrobe')
       const draft = owner && buttonEl.closest<HTMLElement>('.pw-panel')?.querySelector<HTMLElement>('.pw-wearcopy')?.textContent?.trim()
@@ -2921,6 +2938,8 @@ export function setup(ctx: SpindleFrontendContext) {
       surfaceId: buttonEl.dataset.rrnSurfaceId || host?.dataset.rrnSurfaceId || '',
       lorebookKind: buttonEl.dataset.rrnLorebookKind || '',
       lorebookIndex: buttonEl.dataset.rrnLorebookIndex === undefined || buttonEl.dataset.rrnLorebookIndex === '' ? undefined : Number(buttonEl.dataset.rrnLorebookIndex),
+      layoutId: buttonEl.dataset.blLayoutId,
+      roomId: buttonEl.dataset.blRoomId,
     }, buttonEl)
   }
 
@@ -12858,6 +12877,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     tab.destroy()
     for (const style of mountedLifecycleStyleNodes) style.remove()
     mountedLifecycleStyleNodes.clear()
+    pendingBuildingLorebookButtons.clear()
     removeLifecycleStyle()
     removeStyle()
     ctx.dom.cleanup()

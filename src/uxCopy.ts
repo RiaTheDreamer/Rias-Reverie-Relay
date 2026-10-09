@@ -1,5 +1,6 @@
 /** User-facing summaries only. These never alter the authoritative Utility contracts. */
 export const SURFACE_UTILITY_OVERVIEWS: Readonly<Record<string, string>> = {
+  'building-layout': 'An architectural atlas with variable floors, selectable rooms, owned room images, and manual Add to lorebook actions. Selection never moves a character or writes a Composer draft.',
   'forum-thread': 'A structured discussion board with separate posts, replies, authors, timestamps, and owned attachments.',
   'email-thread': 'An email client view that preserves each message, sender, subject, time, body, and attachment.',
   'imessage-chat': 'A phone-message conversation with ordered sent/received bubbles and message-owned photos.',

@@ -225,6 +225,9 @@ import {
 import { containsNarrativeRegexMarkup, missingNarrativeUtilityFormatMarkers, narrativeUtilityDisplayName, narrativeUtilityItems, narrativeUtilityNames, renderNarrativeRegex, shouldRelayRenderNarrativeMarkup, type NarrativeLorebookKind, type NarrativeRegexVariant } from './narrativeRegexAssets'
 import { textOnlyNarrativeUtilityContent } from './narrativeTextOnlyPrompts'
 import { exportNarrativeLorebookRecord, extractNarrativeLorebookRecord } from './narrativeLorebook'
+import { BUILDING_LAYOUT_CONTRACT } from './buildingLayoutContract'
+import { buildingLayoutBlocks, parseBuildingLayout } from './buildingLayout'
+import { exportBuildingRoomToLorebook } from './buildingLayoutLorebook'
 import { completeEventSidecarCandidates, normalizeEventSidecarOutput, prepareStoryAnalysisText, shouldAnalyzeStoryText } from './eventConstellationSidecar'
 import { emptyStoryBackfillStats, recordStoryBackfillOutcome, storyBackfillSummary, type StoryAnalysisOutcome, type StoryBackfillStats } from './storyBackfill'
 import { buildOptionalStoryPromptContext } from './eventConstellationContext'
@@ -794,6 +797,7 @@ type FrontendMessage =
   | { type: 'story_action'; chatId: string; action: 'confirm-proposal' | 'reject-proposal' | 'mark-non-canon' | 'resolve-conflict' | 'link-echo' | 'reject-echo' | 'set-knowledge' | 'set-actor-kind' | 'merge-actors' | 'set-reel-override' | 'link-asset' | 'unlink-asset' | 'link-echo-asset' | 'unlink-echo-asset' | 'link-phone-asset' | 'unlink-phone-asset' | 'remove-phone-entry' | 'edit-proposal' | 'merge-events' | 'supersede-event' | 'resolve-source-warning' | 'backfill' | 'cancel-backfill' | 'retry-analysis'; messageId?: string; swipeId?: number; proposalId?: string; eventId?: string; duplicateEventId?: string; echoId?: string; conflictId?: string; phoneEntryId?: string; actorId?: string; mergeIntoActorId?: string; actorKind?: 'character' | 'persona' | 'npc' | 'audience' | 'temporary'; canonicalIdentityId?: string; actorName?: string; beliefState?: StoryBeliefState; acquisitionMode?: 'involved' | 'witnessed' | 'told' | 'evidence' | 'inferred' | 'public-broadcast' | 'manual'; resolution?: StoryKnowledgeConflict['resolution']; includeInactiveSwipes?: boolean; pinned?: boolean; hidden?: boolean; captionOverride?: string; chapterLabelOverride?: string; preferredHeroAssetId?: string; assetId?: string; title?: string; summary?: string }
   | { type: 'narrative_dlc_action'; chatId?: string | null; action: 'install' | 'repair' | 'inspect' | 'remove'; variant?: NarrativeRegexVariant }
   | { type: 'export_narrative_lorebook'; requestId: string; chatId: string; messageId: string; swipeId?: number; kind: NarrativeLorebookKind; occurrence?: number }
+  | { type: 'export_building_lorebook'; requestId: string; chatId: string; messageId: string; swipeId?: number; layoutId: string; roomId: string }
   | { type: 'surface_prompt_preview'; chatId?: string | null; requestId: string }
   | { type: 'regenerate_slot'; key: string; submissionId?: string; highResMode?: boolean; useCurrentNativeSettings?: boolean; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
   | { type: 'regenerate_with_intent'; key: string; submissionId?: string; intent: RegenerationIntent; candidateCount?: 1 | 2 | 4; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
@@ -2666,6 +2670,7 @@ ${surfacePromptMediaContract(definition)}`
 const COMPACT_SURFACE_PROMPT_MARKER = 'FORMAT: compact-v1'
 
 function canonicalSurfacePromptModule(definition: CustomSurfaceDefinition): string {
+  if (definition.baseSurfaceId === 'building-layout') return BUILDING_LAYOUT_CONTRACT
   const text = cleanString(definition.promptModule)
   // A Surface Utility is user-editable.  Keep a non-stale authored module rather
   // than silently replacing it with the stock pack during the next state load.
@@ -5589,6 +5594,29 @@ async function exportNarrativeSurfaceToLorebook(payload: Extract<FrontendMessage
     api: spindle, chat, record, kind: payload.kind, messageId: payload.messageId, swipeId,
     occurrence: payload.occurrence, relayVersion: EXTENSION_VERSION, schemaVersion: STATE_SCHEMA_VERSION, userId,
   })
+  return openExportedLorebook(result, userId)
+}
+
+async function exportBuildingSurfaceToLorebook(payload: Extract<FrontendMessage, { type: 'export_building_lorebook' }>, userId?: string) {
+  if (!spindle.permissions.has('world_books') || !spindle.permissions.has('chats')) throw new Error('Grant Relay World Books and Chats permissions before adding a room.')
+  const chat = await spindle.chats.get(payload.chatId, userId)
+  if (!chat) throw new Error('The owning chat could not be found.')
+  const message = await resolveMessage(payload.chatId, payload.messageId)
+  if (!message) throw new Error('The owning message could not be found.')
+  const swipeId = payload.swipeId === undefined ? activeSwipeId(message) : Number(payload.swipeId)
+  if (!Number.isInteger(swipeId) || swipeId < 0) throw new Error('Invalid source swipe.')
+  if (swipeId !== activeSwipeId(message) && (!Array.isArray(message.swipes) || typeof message.swipes[swipeId] !== 'string')) throw new Error('The requested source swipe no longer exists.')
+  const matches = buildingLayoutBlocks(getAuthoritativeSwipeContent(message, swipeId), NATIVE_SURFACE_ROOT_TAGS)
+    .filter(block => {
+      const id = /(?:<id>([^<]+)<\/id>|\[id\]([^\]]+)\[\/id\])/i.exec(block.source)
+      return (id?.[1] || id?.[2] || '').trim() === payload.layoutId
+    }).map(block => parseBuildingLayout(block.source))
+  if (matches.length !== 1 || !matches[0].layout) throw new Error('Could not safely isolate that exact saved Building Layout.')
+  const result = await exportBuildingRoomToLorebook({ api: spindle, chat, layout: matches[0].layout, roomId: payload.roomId, messageId: payload.messageId, swipeId, userId, relayVersion: EXTENSION_VERSION })
+  return openExportedLorebook(result, userId)
+}
+
+async function openExportedLorebook(result: { bookId: string; entryId: string; message: string }, userId?: string) {
   const ui = spindle.ui as typeof spindle.ui & {
     getDrawerTabs?: (options?: { userId?: string }) => Promise<Array<{ id: string; shortName?: string; tabName?: string; tabDescription?: string; keywords?: string[] }>>
     openDrawerTab?: (tabId: string, options?: { userId?: string }) => Promise<void>
@@ -6075,9 +6103,10 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
       await sendState(userId, payload.chatId ?? undefined)
       return
     }
+    case 'export_building_lorebook':
     case 'export_narrative_lorebook': {
       try {
-        const result = await exportNarrativeSurfaceToLorebook(payload, userId)
+        const result = payload.type === 'export_building_lorebook' ? await exportBuildingSurfaceToLorebook(payload, userId) : await exportNarrativeSurfaceToLorebook(payload, userId)
         spindle.sendToFrontend({ type: 'narrative_lorebook_export_result', requestId: payload.requestId, ok: true, ...result }, userId)
       } catch (error) {
         spindle.sendToFrontend({
@@ -13163,7 +13192,7 @@ function builtInSurfaceDefinitions(now = Date.now()): Record<string, CustomSurfa
     })
   }
   const activeRows = [...byBaseId.values()]
-  if (activeRows.length !== 46) throw new Error(`FINAL R4.5 Surface inventory drift: expected 46, got ${activeRows.length}`)
+  if (activeRows.length !== 47) throw new Error(`Surface inventory drift: expected 47, got ${activeRows.length}`)
   const definitions = Object.fromEntries(activeRows.map(definition => [definition.surfaceId, definition]))
   builtInSurfaceDefinitionTemplate = definitions
   return Object.fromEntries(Object.entries(definitions).map(([id, definition]) => [id, { ...definition }]))
