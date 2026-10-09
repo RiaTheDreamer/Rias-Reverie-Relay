@@ -12,7 +12,7 @@ for (const path of ['src/backend.ts', 'src/frontend.ts', 'dist/backend.js', 'dis
 }
 assert(readFileSync('src/contracts.ts', 'utf8').includes("'persona-pov' | 'storyboard'"), 'both planning modes must retain the shared Storyboard framing type')
 const frontend = readFileSync('src/frontend.ts', 'utf8')
-assert.match(frontend, /id: 'story', icon: '✺', label: 'Story'/, 'Story navigation must be visible')
+assert.match(frontend, /id: 'story', icon: 'book-open', label: 'Story'/, 'Story navigation must be visible with the selected SVG icon')
 for (const view of ['renderStoryView()', 'renderPhonePage()', 'renderStoryReel()']) assert(frontend.includes(view), `View missing: ${view}`)
 assert.match(frontend,/story: \[\['story-constellations', 'Constellations'\], \['story-reel', 'Story Reel'\]\]/,'Phone must no longer live in Story navigation')
 assert.match(frontend, /Storyboard/, 'Storyboard illustration framing must remain available')
