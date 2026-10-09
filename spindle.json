@@ -1,10 +1,10 @@
 {
   "version": "0.5.0",
   "name": "Ria's Reverie Relay",
-  "identifier": "private_relay",
+  "identifier": "reverie_relay",
   "author": "Ria",
-  "github": "https://github.com/RiaTheDreamer/Private-Relay",
-  "homepage": "https://github.com/RiaTheDreamer/Private-Relay",
+  "github": "https://github.com/RiaTheDreamer/Rias-Reverie-Relay",
+  "homepage": "https://github.com/RiaTheDreamer/Rias-Reverie-Relay",
   "description": "Reverie Relay: persistent Surface controls, live-preview image generation, recoverable inline Status Cards, chat-wide media cleanup, Prose Illustrator, Appearance Memory, and Relay-owned ImageGen controls.",
   "permissions": [
     "generation",

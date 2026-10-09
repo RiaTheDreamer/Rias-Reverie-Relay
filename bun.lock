@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "private-relay",
+      "name": "reverie-relay",
       "devDependencies": {
         "jsdom": "29.1.1",
         "lumiverse-spindle-types": "0.6.27",

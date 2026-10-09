@@ -1179,7 +1179,7 @@ const DEFAULT_GENERATION_PROFILE: GenerationProfile = {
 }
 
 const CONFIG_PATH = 'config.json'
-const EXTENSION_ID = 'private_relay'
+const EXTENSION_ID = 'reverie_relay'
 const STATE_SCHEMA_VERSION = 37
 const PROSE_OPPORTUNITY_PLANNER_VERSION = 'prose-opportunity-sidecar-v1'
 const PROSE_PROMPT_COMPOSER_VERSION = 'prose-prompt-composer-v1'
