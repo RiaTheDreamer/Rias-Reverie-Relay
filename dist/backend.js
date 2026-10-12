@@ -2689,9 +2689,15 @@ TEN LENSES \u2014 EXACT KEY/VECTOR PAIRS
 ${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key.toUpperCase()} \u2014 ${vector}: ${LENSES[key]}`).join(`
 `)}
 
+COMPACT OUTPUT \u2014 FINISH THE WHOLE BOARD
+Each [Text] is one playable sentence of at most 30 words. In image mode, each visual_prompt is one concise scene-specific sentence of at most 55 words. Spend those words on the branch's actual visible action, distinct actor positions/contact, expression and essential setting/props; include only the confirmed appearance and current clothing needed to identify visible actors. Do not add introductions or commentary between options.
+
 ${images ? `IMAGES
 Each [Media] contains exactly one complete Reverie illustration of that branch's opening instant. Repeat confirmed appearance and current clothing independently for every visible actor. Depict their actual action and expression, not a UI card, captions, labels or borders. Cast selects only the bound Character/Persona, not an arbitrary head count; describe other established actors explicitly. Use a unique slot for each letter. Follow the active Natural Language or Booru format inside visual_prompt.` : `TEXT ONLY
 Keep every [Media] empty. Do not output any image request.`}
+
+PER-OPTION CLOSING ORDER
+${images ? "End EVERY option with this exact structural tail: </visual_prompt></reverie-illustration>[/Media][/Spark]. The illustration closer does not close Media: [/Media] must appear before [/Spark], including option J. Finish these closers before starting the next option or any tracker." : "End EVERY option with [Media][/Media][/Spark], including option J."}
 
 FORMAT \u2014 ONE BOARD, KEYS A\u2013J IN ORDER
 Brackets delimit named fields only. Write ordinary text directly between [Text] and [/Text], and the image description directly inside visual_prompt. Do not surround either value with another decorative pair of brackets. Replace the demonstration ID, slot, cast, Text and image values below with scene-specific values; they are examples, not content to copy.
@@ -5469,6 +5475,174 @@ function isRenderablePlotSparkCount(count) {
 }
 var PLOT_SPARKS_REPAIR_EXAMPLE = `[Plot_Sparks][ID]spark-board[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `[Spark][Key]${key}[/Key][Vector]${vector}[/Vector][Text]Possible branch ${key.toUpperCase()}.[/Text][Media][/Media][/Spark]`).join("")}[/Plot_Sparks]`;
 var PLOT_SPARKS_XML_REPAIR_EXAMPLE = xmlSurfaceExamples(PLOT_SPARKS_REPAIR_EXAMPLE);
+var PLOT_SPARKS_XML_CHILDREN = {
+  plot_sparks: ["id", "lifecycle", "spark"],
+  spark: ["key", "vector", "text", "media"],
+  media: ["reverie-illustration"],
+  "reverie-illustration": ["visual_prompt"]
+};
+var PLOT_SPARKS_XML_CANONICAL_TAG = {
+  plot_sparks: "Plot_Sparks",
+  id: "ID",
+  lifecycle: "Lifecycle",
+  spark: "Spark",
+  key: "Key",
+  vector: "Vector",
+  text: "Text",
+  media: "Media",
+  "reverie-illustration": "reverie-illustration",
+  visual_prompt: "visual_prompt"
+};
+function plotSparksXmlCanAccept(parent, child) {
+  if (parent.tag === "plot_sparks") {
+    if (child === "id")
+      return parent.childIndex === -1;
+    if (child === "lifecycle")
+      return parent.childIndex === 0;
+    if (child === "spark")
+      return parent.childIndex >= 1;
+  }
+  const children = PLOT_SPARKS_XML_CHILDREN[parent.tag] || [];
+  const index = children.indexOf(child);
+  return index >= 0 && index === parent.childIndex + 1;
+}
+function plotSparksXmlCanClose(frame) {
+  if (frame.tag === "plot_sparks")
+    return frame.childIndex === 2 && frame.sparkCount >= 7;
+  if (frame.tag === "spark")
+    return frame.childIndex >= 2;
+  if (frame.tag === "media")
+    return frame.childIndex === -1 || frame.childIndex === 0;
+  if (frame.tag === "reverie-illustration")
+    return frame.childIndex === 0;
+  return ["id", "lifecycle", "key", "vector", "text", "visual_prompt"].includes(frame.tag);
+}
+function plotSparksXmlMediaIsCurrent(media) {
+  const openings = [...media.matchAll(/<reverie-illustration\b([^>]*)>/gi)];
+  if (openings.length !== 1 || (media.match(/<\/reverie-illustration\s*>/gi) || []).length !== 1)
+    return false;
+  if (!/\brequest\s*=\s*(["'])generate\1/i.test(openings[0][1]))
+    return false;
+  const illustration = /<reverie-illustration\b[^>]*>([\s\S]*?)<\/reverie-illustration\s*>/i.exec(media)?.[1];
+  if (!illustration || (illustration.match(/<visual_prompt>/gi) || []).length !== 1 || (illustration.match(/<\/visual_prompt>/gi) || []).length !== 1)
+    return false;
+  return Boolean(/<visual_prompt>([\s\S]*?)<\/visual_prompt>/i.exec(illustration)?.[1].trim());
+}
+function normalizePlotSparksXmlClosingTags(markup) {
+  const input = String(markup || "");
+  return input.replace(/<Plot_Sparks\b[^>]*>[\s\S]*?<\/Plot_Sparks\s*>/gi, (original) => {
+    if (parseSurfaceXml(original))
+      return original;
+    const tokens = /<!--[\s\S]*?-->|<\/?[A-Za-z][\w:-]*(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*)?\s*\/?>/g;
+    const stack = [];
+    let output = "";
+    let cursor = 0;
+    let changed = false;
+    let unsafe = false;
+    for (const match of original.matchAll(tokens)) {
+      const index = match.index || 0;
+      const token = match[0];
+      output += original.slice(cursor, index);
+      cursor = index + token.length;
+      if (token.startsWith("<!--")) {
+        output += token;
+        continue;
+      }
+      const name = /^<\/?([A-Za-z][\w:-]*)/.exec(token)?.[1]?.toLocaleLowerCase();
+      if (!name) {
+        unsafe = true;
+        break;
+      }
+      if (token.startsWith("</")) {
+        const matchingIndex = stack.map((frame) => frame.tag).lastIndexOf(name);
+        if (matchingIndex < 0) {
+          unsafe = true;
+          break;
+        }
+        while (stack.length - 1 > matchingIndex) {
+          const frame = stack.at(-1);
+          if (!plotSparksXmlCanClose(frame)) {
+            unsafe = true;
+            break;
+          }
+          output += `</${PLOT_SPARKS_XML_CANONICAL_TAG[frame.tag]}>`;
+          stack.pop();
+          changed = true;
+        }
+        if (unsafe)
+          break;
+        const frame = stack.at(-1);
+        if (!frame || frame.tag !== name || !plotSparksXmlCanClose(frame)) {
+          unsafe = true;
+          break;
+        }
+        output += token;
+        stack.pop();
+        continue;
+      }
+      if (/\/\s*>$/.test(token)) {
+        unsafe = true;
+        break;
+      }
+      if (!PLOT_SPARKS_XML_CANONICAL_TAG[name]) {
+        unsafe = true;
+        break;
+      }
+      if (!stack.length) {
+        if (name !== "plot_sparks") {
+          unsafe = true;
+          break;
+        }
+        stack.push({ tag: name, childIndex: -1, sparkCount: 0 });
+        output += token;
+        continue;
+      }
+      let parent = stack.at(-1);
+      while (!plotSparksXmlCanAccept(parent, name)) {
+        if (stack.length <= 1) {
+          unsafe = true;
+          break;
+        }
+        const frame = stack.at(-1);
+        if (!plotSparksXmlCanClose(frame)) {
+          unsafe = true;
+          break;
+        }
+        output += `</${PLOT_SPARKS_XML_CANONICAL_TAG[frame.tag]}>`;
+        stack.pop();
+        changed = true;
+        parent = stack.at(-1);
+      }
+      if (unsafe)
+        break;
+      const children = PLOT_SPARKS_XML_CHILDREN[parent.tag] || [];
+      const childIndex = parent.tag === "plot_sparks" ? name === "spark" ? 2 : children.indexOf(name) : children.indexOf(name);
+      parent.childIndex = childIndex;
+      if (parent.tag === "plot_sparks" && name === "spark")
+        parent.sparkCount += 1;
+      output += token;
+      stack.push({ tag: name, childIndex: -1, sparkCount: 0 });
+    }
+    if (unsafe || stack.length || !changed)
+      return original;
+    output += original.slice(cursor);
+    if (!parseSurfaceXml(output) || plotSparksContractDiagnostic(output))
+      return original;
+    const imageEnabled = /<reverie-illustration\b/i.test(output);
+    const sparkCount = [...output.matchAll(/<Spark\b/gi)].length;
+    if (sparkCount === Object.keys(PLOT_SPARK_VECTOR_BY_KEY).length) {
+      if (!inspectStoryModelOutputContracts(output, { expectPlotSparks: true, plotSparksImagesEnabled: imageEnabled }).plotSparks.valid)
+        return original;
+    } else {
+      const mediaBlocks = [...output.matchAll(/<Media\b[^>]*>([\s\S]*?)<\/Media\s*>/gi)];
+      if (imageEnabled && (mediaBlocks.length !== sparkCount || !mediaBlocks.every((match) => plotSparksXmlMediaIsCurrent(match[1]))))
+        return original;
+      if (!imageEnabled && mediaBlocks.some((match) => match[1].trim()))
+        return original;
+    }
+    return output;
+  });
+}
 function normalizePlotSparksLifecycleCloser(markup) {
   return String(markup || "").replace(/\[Plot_Sparks\]((?:(?!\[Plot_Sparks\])[\s\S])*?)\[\/Plot_Sparks\]/gi, (full) => {
     if ((full.match(/\[Lifecycle\]/gi) || []).length !== 2 || /\[\/Lifecycle\]/i.test(full))
@@ -289135,7 +289309,7 @@ if (!RELATIONSHIP_MAP_PROMPT || !CAST_SHEET_PROMPT)
 var NARRATIVE_UTILITY_PACK = {
   ...Reverie_Narrative_Utilities_default,
   loomItems: [
-    ...Reverie_Narrative_Utilities_default.loomItems,
+    ...Reverie_Narrative_Utilities_default.loomItems.map((item) => item.loomName === "Plot Sparks" ? { ...item, loomContent: plotSparksUtilityPrompt(true) } : item),
     { loomName: "Relationship Map", loomContent: RELATIONSHIP_MAP_PROMPT },
     { loomName: "Cast Sheet", loomContent: CAST_SHEET_PROMPT },
     { loomName: "Persona Wardrobe", loomContent: PERSONA_WARDROBE_UTILITY_PROMPT }
@@ -289625,7 +289799,8 @@ function normalizeLegacyNarrativeMarkupForRendering(markup) {
   }).replace(/(\[cp_battery\]\s*[0-9]{1,3}\s*\[\/cp_battery\])\s*(?=\[cp_apps\])/gi, "$1[cp_wallpaper][/cp_wallpaper]").replace(/\[parallel_media\]\s*\[\/parallel_media\]/gi, "[parallel_media][/parallel_media]");
 }
 function normalizeNarrativeMarkupForRendering(markup) {
-  const legacy = normalizeLegacyNarrativeMarkupForRendering(markup);
+  const xmlWithSafePlotClosers = normalizePlotSparksXmlClosingTags(markup);
+  const legacy = normalizeLegacyNarrativeMarkupForRendering(xmlWithSafePlotClosers);
   return legacy.replace(/\[(Plot_Sparks|character_phone|private_phone|dramatic_parallel|persona_wardrobe|dossier_ui|relationship_map|character_profile)\]([\s\S]*?)\[\/\1\]|\[(SCENE|PARALLEL|SECRET|WORLD|WHATIF)\|[^\]\r\n]*\][\s\S]*?\[\/\3\]|\[NPC:(?:MAJOR|SUPPORT|MINOR|UP)\|[^\]\r\n]*\][\s\S]*?\[\/NPC\]|\[NPC:(?:REF|REL)\|[^\]\r\n]*\]|\[\[(else|npc|place)\s[^\]\r\n]*\]\][\s\S]*?\[\[\/\4\]\]/gi, (full) => xmlSurfaceExamples(full));
 }
 function narrativeRegexSourcePack(variant) {
@@ -290216,11 +290391,7 @@ var PLOT_SPARK_COMPLETION_LOCK = `PLOT SPARKS STRUCTURAL LOCK \u2014 BEFORE ENDI
 
 Mandatory structured contracts outrank prose length. Shorten nonessential prose before dropping required Plot Sparks structure.
 
-Verify exactly ten [Spark] blocks with keys a through j, each key exactly once, and this exact mapping:
-${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key} = ${vector}`).join(`
-`)}
-
-Every [Spark] must contain one non-empty [Text] and one non-empty [Media]. Every [Media] must contain exactly one complete current <reverie-illustration request="generate"> ... <visual_prompt> ... </visual_prompt> ... </reverie-illustration> with a non-empty <visual_prompt>. Close every Spark with [/Spark] and close the root with [/Plot_Sparks]. Plot Sparks h through j and required closing tags may never be silently dropped. Resolved historical images and Relay runtime markup do not count. If any check fails, fix the [Plot_Sparks] block before stopping.`;
+Verify the board has exactly ten [Spark] blocks, keys a\u2013j once each in order, and the exact key/vector pairs from the utility instructions above. Each [Text] is one playable sentence of at most 30 words. Each [Media] contains exactly one complete current <reverie-illustration request="generate"> with one non-empty, single-sentence <visual_prompt> of at most 55 words. Every option must end </visual_prompt></reverie-illustration>[/Media][/Spark]: closing the illustration does not close Media. Count ten [Media] openers AND ten [/Media] closers, then close the root [/Plot_Sparks] before any tracker. Keep all ten options and their media; shorten individual descriptions instead of dropping later Sparks. If a check fails, repair the board before ending.`;
 var WORLD_DETAIL_COMPLETION_LOCK = `SETTING THE SCENE STRUCTURAL LOCK \u2014 BEFORE ENDING [WORLD]
 
 Verify this order before ending the Surface:
@@ -290905,7 +291076,7 @@ function sanitizeRelayPromptMessageWithMetrics(message) {
 `);
   const reports = assistantHistory ? textParts.map(sanitizeRelayPromptHistoryTextWithReport) : [];
   let reportIndex = 0;
-  const sanitizeText = (text) => assistantHistory ? reports[reportIndex++]?.text || "" : sanitizeRelayRuntimePromptText(text);
+  const sanitizeText = (text) => assistantHistory ? normalizePlotSparksXmlClosingTags(reports[reportIndex++]?.text || "") : sanitizeRelayRuntimePromptText(text);
   const sanitized = typeof message.content === "string" ? { ...message, content: sanitizeText(message.content) } : {
     ...message,
     content: message.content.map((part) => part.type === "text" && typeof part.text === "string" ? { ...part, text: sanitizeText(part.text) } : part)
@@ -298262,11 +298433,13 @@ async function regenerateSlot(key, nativeSnapshot, userId, highResMode, provider
   await sendState(userId, chatId);
 }
 function normalizeRelaySurfaceContracts(content) {
-  const proseNormalized = normalizeProseIllustrationContracts(content).markup;
+  const narrativeNormalized = normalizePlotSparksXmlClosingTags(content);
+  const proseNormalized = normalizeProseIllustrationContracts(narrativeNormalized).markup;
   return normalizeSurfaceDocument(normalizeCharacterProfileContract(proseNormalized), SHIPPED_SURFACE_SPECS).markup;
 }
 function parseSafeSurfaceImageRequests(content) {
-  const safe = normalizeSurfaceDocument(maskRetiredPhoneSurfaces(content), SHIPPED_SURFACE_SPECS, (block) => block.diagnostics.length ? " ".repeat(block.original.length) : block.markup);
+  const narrativeNormalized = normalizePlotSparksXmlClosingTags(content);
+  const safe = normalizeSurfaceDocument(maskRetiredPhoneSurfaces(narrativeNormalized), SHIPPED_SURFACE_SPECS, (block) => block.diagnostics.length ? " ".repeat(block.original.length) : block.markup);
   return parseImageRequests(safe.markup);
 }
 var NARRATIVE_REQUEST_OWNERS = {

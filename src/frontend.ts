@@ -626,6 +626,9 @@ export function setup(ctx: SpindleFrontendContext) {
   let activeSlotPreviewKey: string | null = null
   let parserConnections: ParserConnection[] = []
   let frontendParserConnections: ParserConnection[] | null = null
+  let backendParserConnections: ParserConnection[] = []
+  let frontendParserConnectionsLoading: Promise<void> | null = null
+  const repairConnectionFields = new Map<HTMLElement, () => void>()
   let imageConnections: ImageConnection[] = []
   let imageProviders: ImageProviderInfo[] = []
   let loraCatalogState: { requestId: string; connectionId: string; status: 'idle' | 'loading' | 'completed' | 'failed'; items: string[]; error: string } = { requestId: '', connectionId: '', status: 'idle', items: [], error: '' }
@@ -1979,7 +1982,11 @@ export function setup(ctx: SpindleFrontendContext) {
             ...(activeChatId ? { [activeChatId]: { ...effectiveProseSettings, paused: proseIllustrator.settings?.[activeChatId]?.paused === true } } : {}),
           },
         }
-        parserConnections = frontendParserConnections ?? message.parserConnections
+        backendParserConnections = message.parserConnections || []
+        // A temporarily empty frontend inventory must not mask a populated
+        // backend list for the rest of this extension session.
+        parserConnections = frontendParserConnections?.length ? frontendParserConnections : backendParserConnections
+        refreshRepairConnectionFields()
         imageConnections = message.imageConnections || []
         imageProviders = message.imageProviders || []
         if (hasChatProjection) {
@@ -2810,6 +2817,7 @@ export function setup(ctx: SpindleFrontendContext) {
       saveButton.disabled = value || invalidSwipeId
       restoreButton.disabled = value
       repairConnectionField.querySelector('select')!.disabled = value
+      if (!value) refreshRepairConnectionFields()
     }
     const actions = document.createElement('div'); actions.className = 'dg-actions'
     const previewButton = button('Preview Assisted Repair', () => {
@@ -2888,6 +2896,9 @@ export function setup(ctx: SpindleFrontendContext) {
     )
     body.append(note, repairConnectionField, editor, repairStatus, actions)
     modal.root.appendChild(body)
+    // The editor may open before the startup inventory resolves, or after a
+    // new connection was created. Refresh metadata only; opening makes no LLM call.
+    void loadFrontendParserConnections()
     // Let the user choose a working provider before spending on a preview.
     // Neither entry point calls a model merely by opening the editor.
   }
@@ -3101,20 +3112,29 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   async function loadFrontendParserConnections(): Promise<void> {
-    if (!ctx.connections?.list) return
-    try {
-      const profiles = await ctx.connections.list()
-      if (disposed) return
-      frontendParserConnections = profiles.map(profile => ({
-        id: profile.id,
-        name: profile.name,
-        provider: profile.provider,
-        model: profile.model,
-      }))
-      parserConnections = frontendParserConnections
-      renderPanel()
-    } catch (error) {
-      console.warn('[Reverie Relay] Could not load credential-redacted connection profiles for selectors.', error)
+    const connectionApi = ctx.connections
+    if (!connectionApi?.list) return
+    if (frontendParserConnectionsLoading) return frontendParserConnectionsLoading
+    const load = (async () => {
+      try {
+        const profiles = await connectionApi.list()
+        if (disposed) return
+        frontendParserConnections = profiles.map(profile => ({
+          id: profile.id,
+          name: profile.name,
+          provider: profile.provider,
+          model: profile.model,
+        }))
+        parserConnections = frontendParserConnections.length ? frontendParserConnections : backendParserConnections
+        refreshRepairConnectionFields()
+        renderPanel()
+      } catch (error) {
+        console.warn('[Reverie Relay] Could not load credential-redacted connection profiles for selectors.', error)
+      }
+    })()
+    frontendParserConnectionsLoading = load
+    try { await load } finally {
+      if (frontendParserConnectionsLoading === load) frontendParserConnectionsLoading = null
     }
   }
 
@@ -12285,17 +12305,63 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     return value
   }
 
+  function refreshRepairConnectionFields(): void {
+    for (const [field, refresh] of repairConnectionFields) {
+      if (!field.isConnected) repairConnectionFields.delete(field)
+      else refresh()
+    }
+  }
+
   function surfaceRepairConnectionField(selected = config?.surfaceRepairConnectionId || null, onChange?: (value: string | null) => void): HTMLElement {
-    const inherited = parserConnections.find(connection => connection.id === config?.parserConnectionId)
-    const field = selectField('Assisted Repair Connection', selected || '', [
-      ['', inherited ? `Use Surface Parser (${inherited.name} / ${config?.parserModel || inherited.model})` : 'Use Surface Parser (not configured)'],
-      ...parserConnections.map(connection => [connection.id, `${connection.name} / ${connection.model}`] as [string, string]),
-    ], value => {
+    let chosen = selected || ''
+    const choices = (): Array<[string, string]> => {
+      const inherited = parserConnections.find(connection => connection.id === config?.parserConnectionId)
+      const options: Array<[string, string]> = [
+        ['', inherited ? `Use Surface Parser (${inherited.name} / ${config?.parserModel || inherited.model})` : 'Use Surface Parser (not configured)'],
+        ...parserConnections.map(connection => [connection.id, `${connection.name} / ${connection.model}`] as [string, string]),
+      ]
+      if (chosen && !options.some(([id]) => id === chosen)) options.push([chosen, 'Selected connection unavailable — refresh connections'])
+      return options
+    }
+    const initialOptions = choices()
+    const field = selectField('Assisted Repair Connection', chosen, initialOptions, value => {
+      chosen = value
       const next = value || null
       onChange?.(next)
       patchConfig({ surfaceRepairConnectionId: next })
     })
-    field.querySelector('select')!.setAttribute('aria-label', 'Assisted Repair Connection')
+    const select = field.querySelector('select')!
+    select.setAttribute('aria-label', 'Assisted Repair Connection')
+    let signature = JSON.stringify(initialOptions)
+    const refreshOptions = () => {
+      // Native pickers can close when options are replaced under focus. Wait
+      // until blur, and do not touch unchanged options during status broadcasts.
+      const controlRoot = select.getRootNode()
+      const focused = controlRoot instanceof ShadowRoot ? controlRoot.activeElement : select.ownerDocument.activeElement
+      if (select.disabled || focused === select) return
+      const options = choices()
+      const nextSignature = JSON.stringify(options)
+      if (signature === nextSignature) return
+      signature = nextSignature
+      select.replaceChildren(...options.map(([value, label]) => {
+        const option = document.createElement('option')
+        option.value = value; option.textContent = label; option.selected = value === chosen
+        return option
+      }))
+      select.value = chosen
+    }
+    repairConnectionFields.set(field, refreshOptions)
+    select.addEventListener('blur', () => queueMicrotask(refreshOptions))
+    const refreshButton = button('Refresh connections', () => {
+      refreshButton.disabled = true
+      refreshButton.textContent = 'Refreshing connections…'
+      void Promise.all([loadFrontendParserConnections(), refreshState(false)]).finally(() => {
+        refreshButton.disabled = false
+        refreshButton.textContent = 'Refresh connections'
+        refreshOptions()
+      })
+    }, false, 'subtle', 'Reload saved LLM connection metadata without calling a model or changing your selection.')
+    field.appendChild(refreshButton)
     return field
   }
 

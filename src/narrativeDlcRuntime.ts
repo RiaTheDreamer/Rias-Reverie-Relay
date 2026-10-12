@@ -270,10 +270,7 @@ const PLOT_SPARK_COMPLETION_LOCK = `PLOT SPARKS STRUCTURAL LOCK — BEFORE ENDIN
 
 Mandatory structured contracts outrank prose length. Shorten nonessential prose before dropping required Plot Sparks structure.
 
-Verify exactly ten [Spark] blocks with keys a through j, each key exactly once, and this exact mapping:
-${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key} = ${vector}`).join('\n')}
-
-Every [Spark] must contain one non-empty [Text] and one non-empty [Media]. Every [Media] must contain exactly one complete current <reverie-illustration request="generate"> ... <visual_prompt> ... </visual_prompt> ... </reverie-illustration> with a non-empty <visual_prompt>. Close every Spark with [/Spark] and close the root with [/Plot_Sparks]. Plot Sparks h through j and required closing tags may never be silently dropped. Resolved historical images and Relay runtime markup do not count. If any check fails, fix the [Plot_Sparks] block before stopping.`
+Verify the board has exactly ten [Spark] blocks, keys a–j once each in order, and the exact key/vector pairs from the utility instructions above. Each [Text] is one playable sentence of at most 30 words. Each [Media] contains exactly one complete current <reverie-illustration request="generate"> with one non-empty, single-sentence <visual_prompt> of at most 55 words. Every option must end </visual_prompt></reverie-illustration>[/Media][/Spark]: closing the illustration does not close Media. Count ten [Media] openers AND ten [/Media] closers, then close the root [/Plot_Sparks] before any tracker. Keep all ten options and their media; shorten individual descriptions instead of dropping later Sparks. If a check fails, repair the board before ending.`
 
 const WORLD_DETAIL_COMPLETION_LOCK = `SETTING THE SCENE STRUCTURAL LOCK — BEFORE ENDING [WORLD]
 

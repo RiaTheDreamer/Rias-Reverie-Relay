@@ -7,7 +7,7 @@ import { imageContentWithoutSurfaceDestination, portraitReplacedBySurfaceUi } fr
 import { bracketImageControls } from './imageControlMarkup'
 import { xmlAuthoringInstructions } from './xmlSurfaceFormat'
 import { recentPlotSparksReference } from './plotSparksUtility'
-import { PLOT_SPARKS_SURFACE_ID } from './plotSparksContract'
+import { PLOT_SPARKS_SURFACE_ID, normalizePlotSparksXmlClosingTags } from './plotSparksContract'
 import { normalizePhoneDevice, emptyPhoneDevice, phoneContextForPrompt, type PhoneDeviceState, type PhoneIdentity, type PhoneCommand } from './phoneDevice'
 import {latestPhoneArchive,phoneArchivePath} from './phoneArchive'
 import {applyPhonePreferences,normalizePhonePreferences,type PhonePreferences} from './phonePreferences'
@@ -545,8 +545,12 @@ function sanitizeRelayPromptMessageWithMetrics(message: LlmMessage): { message: 
   const before = textParts.join('\n')
   const reports = assistantHistory ? textParts.map(sanitizeRelayPromptHistoryTextWithReport) : []
   let reportIndex = 0
+  // Display recovery does not rewrite saved messages. Apply the same bounded
+  // closer repair to outgoing assistant history after removing old image
+  // controls, so an omitted Media closer is not fed back as an authoring example.
+  // Current system contracts and user text remain untouched by this projection.
   const sanitizeText = (text: string): string => assistantHistory
-    ? reports[reportIndex++]?.text || ''
+    ? normalizePlotSparksXmlClosingTags(reports[reportIndex++]?.text || '')
     : sanitizeRelayRuntimePromptText(text)
   const sanitized = typeof message.content === 'string'
     ? { ...message, content: sanitizeText(message.content) } as LlmMessage
@@ -8640,14 +8644,22 @@ async function regenerateSlot(key: string, nativeSnapshot?: NativeSettingsSnapsh
 }
 
 export function normalizeRelaySurfaceContracts(content: string): string {
-  const proseNormalized = normalizeProseIllustrationContracts(content).markup
+  // Complete Plot Sparks can omit an illustration closer even though its
+  // visual_prompt and Media boundaries are explicit. Recover the validated
+  // board before request parsing; display-only recovery otherwise yields
+  // visible panels with zero backend jobs. Scan/rescan persist these inserted
+  // closers before jobs snapshot their exact source/placement owner.
+  const narrativeNormalized = normalizePlotSparksXmlClosingTags(content)
+  const proseNormalized = normalizeProseIllustrationContracts(narrativeNormalized).markup
   return normalizeSurfaceDocument(normalizeCharacterProfileContract(proseNormalized), SHIPPED_SURFACE_SPECS).markup
 }
 
 export function parseSafeSurfaceImageRequests(content: string): ReturnType<typeof parseImageRequests> {
-  // Mask only ambiguous Surface islands; retain offsets and all other prose.
-  // Scans/reparse persist safe repairs before a job snapshots original XML.
-  const safe = normalizeSurfaceDocument(maskRetiredPhoneSurfaces(content), SHIPPED_SURFACE_SPECS, block => block.diagnostics.length ? ' '.repeat(block.original.length) : block.markup)
+  // Read-only callers use the same canonical projection as scan/rescan, which
+  // persist safe repairs before jobs snapshot original XML. Projection offsets
+  // are not raw-source edit offsets; placement still verifies its exact owner.
+  const narrativeNormalized = normalizePlotSparksXmlClosingTags(content)
+  const safe = normalizeSurfaceDocument(maskRetiredPhoneSurfaces(narrativeNormalized), SHIPPED_SURFACE_SPECS, block => block.diagnostics.length ? ' '.repeat(block.original.length) : block.markup)
   return parseImageRequests(safe.markup)
 }
 

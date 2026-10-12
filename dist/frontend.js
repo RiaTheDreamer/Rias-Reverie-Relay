@@ -259619,6 +259619,59 @@ var PERSONA_WARDROBE_STYLE = `${SURFACE_MEDIA_GEOMETRY_STYLE}<style data-reverie
 @media(prefers-reduced-motion:reduce){.pw-wardrobe *{animation:none!important;transition:none!important}}
 </style>`;
 
+// src/plotSparksUtility.ts
+var LENSES = {
+  a: "An active tension crosses a threshold; the present situation becomes harder to contain.",
+  b: "An established character makes an unexpected, revealing personal move without a personality reversal.",
+  c: "Something actually present does not add up; noticing it opens a question, not invented evidence.",
+  d: "An already-established person, obligation or nearby system interrupts what is happening now.",
+  e: "A pending choice can no longer be postponed; use existing pressure, not an arbitrary new deadline.",
+  f: "A real visible or audible signal could be misread by someone plausibly able to observe it.",
+  g: "Recombine current people, props or unfinished actions into the strangest causally natural next beat.",
+  h: "An earned opportunity opens: a skill, resource or connection already in play can achieve something unexpectedly desirable. Invite initiative, delight or ingenuity, not another emergency.",
+  i: "A tempting bargain appears between established interests: gain something wanted by accepting a concrete, meaningful cost. Leave acceptance open; do not force agreement or invent leverage.",
+  j: "An overlooked established detail, unfinished promise or earlier choice becomes newly useful or consequential in this moment. Reveal a fresh connection, not retroactive secret history."
+};
+function plotSparksUtilityPrompt(images) {
+  const media = (key) => images ? `<reverie-illustration request="generate" slot="plot-spark-${key}-unique-id" aspect="16:9" cast="char" alt="Opening action"><visual_prompt>The established character, with confirmed appearance and current clothing, performs this branch's opening action in the current setting; describe the expression, position and relevant props.</visual_prompt></reverie-illustration>` : "";
+  return xmlAuthoringInstructions(`[PLOT SPARKS — TEN CURRENT-SCENE POSSIBILITIES]
+Offer ten concise, exciting, playable NEXT BRANCHES after the main narrative. They are alternatives, not events that have happened or guaranteed outcomes. The prose owns the present moment.
+When this utility is enabled, append one complete ten-option board to each story reply unless the current user explicitly declines Sparks. A brief prose word limit does not reduce or omit the board. Sparks are reader-facing possibilities, not an in-world screen or document; no in-world opening trigger is required.
+
+GROUNDING
+Each branch must use two concrete anchors from the active scene, including one from this response. Preserve location, time, current clothing, injuries, object positions, emotional state and character knowledge. Use only supplied identities; an unnamed established person stays an unnamed role. Never invent, rename, or substitute a person, username, or handle. No invented evidence, secret history, arbitrary crises, new strangers or unrelated time/location jumps merely to fill a lens. Open the next action or exchange; leave its outcome and the human's choices unresolved.
+
+FRESHNESS — NOT TEN RESKINS
+Compare against the last two Plot Sparks boards in available history or the recent-ideas reference. Retire their unused premises: changing wording, names, the prop or the vector label is not a new idea. Change the causal trigger AND the playable choice or consequence. Do not keep recycling knocks, phone buzzes, confessions, dropped objects or discoveries. A selected branch may continue only from what actually became story prose, never from its unplayed proposed outcome.
+Within this board, give each option a distinct mechanism and payoff. Mix practical, emotional, social, playful, hopeful and unsettling possibilities according to this scene's tone; exciting does not always mean dangerous. H–J are full creative alternatives, not leftover versions of A–G. If a lens resembles a recent idea, find a different use of the scene's established facts rather than importing a random event.
+
+TEN LENSES — EXACT KEY/VECTOR PAIRS
+${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key.toUpperCase()} — ${vector}: ${LENSES[key]}`).join(`
+`)}
+
+COMPACT OUTPUT — FINISH THE WHOLE BOARD
+Each [Text] is one playable sentence of at most 30 words. In image mode, each visual_prompt is one concise scene-specific sentence of at most 55 words. Spend those words on the branch's actual visible action, distinct actor positions/contact, expression and essential setting/props; include only the confirmed appearance and current clothing needed to identify visible actors. Do not add introductions or commentary between options.
+
+${images ? `IMAGES
+Each [Media] contains exactly one complete Reverie illustration of that branch's opening instant. Repeat confirmed appearance and current clothing independently for every visible actor. Depict their actual action and expression, not a UI card, captions, labels or borders. Cast selects only the bound Character/Persona, not an arbitrary head count; describe other established actors explicitly. Use a unique slot for each letter. Follow the active Natural Language or Booru format inside visual_prompt.` : `TEXT ONLY
+Keep every [Media] empty. Do not output any image request.`}
+
+PER-OPTION CLOSING ORDER
+${images ? "End EVERY option with this exact structural tail: </visual_prompt></reverie-illustration>[/Media][/Spark]. The illustration closer does not close Media: [/Media] must appear before [/Spark], including option J. Finish these closers before starting the next option or any tracker." : "End EVERY option with [Media][/Media][/Spark], including option J."}
+
+FORMAT — ONE BOARD, KEYS A–J IN ORDER
+Brackets delimit named fields only. Write ordinary text directly between [Text] and [/Text], and the image description directly inside visual_prompt. Do not surround either value with another decorative pair of brackets. Replace the demonstration ID, slot, cast, Text and image values below with scene-specific values; they are examples, not content to copy.
+[Plot_Sparks]
+[ID]fresh-lowercase-id[/ID]
+[Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]
+${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `[Spark][Key]${key}[/Key][Vector]${vector}[/Vector][Text]One original scene-specific possible opening move for ${key.toUpperCase()}.[/Text][Media]${media(key)}[/Media][/Spark]`).join(`
+`)}
+[/Plot_Sparks]
+
+CHECK BEFORE SENDING
+Exactly ten Sparks, keys a–j once each, correct vectors, non-empty Text, balanced tags${images ? ", exactly ten complete illustrations" : ", empty Media"}. For each option ask: "This can happen next because what is already true?" Reject unsupported or repeated premises and replace them. Unused Sparks dissolve: never carry them into memories, character knowledge, off-screen facts or future canon.`);
+}
+
 // src/plotSparksContract.ts
 var PLOT_SPARKS_REPAIR_EXAMPLE = `[Plot_Sparks][ID]spark-board[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `[Spark][Key]${key}[/Key][Vector]${vector}[/Vector][Text]Possible branch ${key.toUpperCase()}.[/Text][Media][/Media][/Spark]`).join("")}[/Plot_Sparks]`;
 var PLOT_SPARKS_XML_REPAIR_EXAMPLE = xmlSurfaceExamples(PLOT_SPARKS_REPAIR_EXAMPLE);
@@ -259673,7 +259726,7 @@ if (!RELATIONSHIP_MAP_PROMPT || !CAST_SHEET_PROMPT)
 var NARRATIVE_UTILITY_PACK = {
   ...Reverie_Narrative_Utilities_default,
   loomItems: [
-    ...Reverie_Narrative_Utilities_default.loomItems,
+    ...Reverie_Narrative_Utilities_default.loomItems.map((item) => item.loomName === "Plot Sparks" ? { ...item, loomContent: plotSparksUtilityPrompt(true) } : item),
     { loomName: "Relationship Map", loomContent: RELATIONSHIP_MAP_PROMPT },
     { loomName: "Cast Sheet", loomContent: CAST_SHEET_PROMPT },
     { loomName: "Persona Wardrobe", loomContent: PERSONA_WARDROBE_UTILITY_PROMPT }
@@ -260096,6 +260149,9 @@ function setup(ctx) {
   let activeSlotPreviewKey = null;
   let parserConnections = [];
   let frontendParserConnections = null;
+  let backendParserConnections = [];
+  let frontendParserConnectionsLoading = null;
+  const repairConnectionFields = new Map;
   let imageConnections = [];
   let imageProviders = [];
   let loraCatalogState = { requestId: "", connectionId: "", status: "idle", items: [], error: "" };
@@ -261428,7 +261484,9 @@ function setup(ctx) {
             ...activeChatId ? { [activeChatId]: { ...effectiveProseSettings, paused: proseIllustrator.settings?.[activeChatId]?.paused === true } } : {}
           }
         };
-        parserConnections = frontendParserConnections ?? message.parserConnections;
+        backendParserConnections = message.parserConnections || [];
+        parserConnections = frontendParserConnections?.length ? frontendParserConnections : backendParserConnections;
+        refreshRepairConnectionFields();
         imageConnections = message.imageConnections || [];
         imageProviders = message.imageProviders || [];
         if (hasChatProjection) {
@@ -262324,6 +262382,8 @@ ${message.prompt}`;
       saveButton.disabled = value || invalidSwipeId;
       restoreButton.disabled = value;
       repairConnectionField.querySelector("select").disabled = value;
+      if (!value)
+        refreshRepairConnectionFields();
     };
     const actions = document.createElement("div");
     actions.className = "dg-actions";
@@ -262418,6 +262478,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     actions.append(previewButton, applyButton, restoreButton, saveButton, button("Cancel", () => modal.dismiss(), false, "subtle"));
     body.append(note, repairConnectionField, editor, repairStatus, actions);
     modal.root.appendChild(body);
+    loadFrontendParserConnections();
   }
   const onNativeSurfaceActionClick = (event) => {
     if (event.defaultPrevented || event.button !== 0)
@@ -262630,22 +262691,35 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     ctx.sendToBackend({ type: "list_state", chatId: activeChatId });
   }
   async function loadFrontendParserConnections() {
-    if (!ctx.connections?.list)
+    const connectionApi = ctx.connections;
+    if (!connectionApi?.list)
       return;
+    if (frontendParserConnectionsLoading)
+      return frontendParserConnectionsLoading;
+    const load = (async () => {
+      try {
+        const profiles = await connectionApi.list();
+        if (disposed)
+          return;
+        frontendParserConnections = profiles.map((profile) => ({
+          id: profile.id,
+          name: profile.name,
+          provider: profile.provider,
+          model: profile.model
+        }));
+        parserConnections = frontendParserConnections.length ? frontendParserConnections : backendParserConnections;
+        refreshRepairConnectionFields();
+        renderPanel();
+      } catch (error) {
+        console.warn("[Reverie Relay] Could not load credential-redacted connection profiles for selectors.", error);
+      }
+    })();
+    frontendParserConnectionsLoading = load;
     try {
-      const profiles = await ctx.connections.list();
-      if (disposed)
-        return;
-      frontendParserConnections = profiles.map((profile) => ({
-        id: profile.id,
-        name: profile.name,
-        provider: profile.provider,
-        model: profile.model
-      }));
-      parserConnections = frontendParserConnections;
-      renderPanel();
-    } catch (error) {
-      console.warn("[Reverie Relay] Could not load credential-redacted connection profiles for selectors.", error);
+      await load;
+    } finally {
+      if (frontendParserConnectionsLoading === load)
+        frontendParserConnectionsLoading = null;
     }
   }
   async function fetchNativeSettingsSnapshot(force = false) {
@@ -272230,17 +272304,67 @@ ${recovered} recovered / ${summary.imageUnavailable} unavailable / ${summary.exi
     }
     return value;
   }
+  function refreshRepairConnectionFields() {
+    for (const [field, refresh] of repairConnectionFields) {
+      if (!field.isConnected)
+        repairConnectionFields.delete(field);
+      else
+        refresh();
+    }
+  }
   function surfaceRepairConnectionField(selected = config?.surfaceRepairConnectionId || null, onChange) {
-    const inherited = parserConnections.find((connection) => connection.id === config?.parserConnectionId);
-    const field = selectField("Assisted Repair Connection", selected || "", [
-      ["", inherited ? `Use Surface Parser (${inherited.name} / ${config?.parserModel || inherited.model})` : "Use Surface Parser (not configured)"],
-      ...parserConnections.map((connection) => [connection.id, `${connection.name} / ${connection.model}`])
-    ], (value) => {
+    let chosen = selected || "";
+    const choices = () => {
+      const inherited = parserConnections.find((connection) => connection.id === config?.parserConnectionId);
+      const options = [
+        ["", inherited ? `Use Surface Parser (${inherited.name} / ${config?.parserModel || inherited.model})` : "Use Surface Parser (not configured)"],
+        ...parserConnections.map((connection) => [connection.id, `${connection.name} / ${connection.model}`])
+      ];
+      if (chosen && !options.some(([id]) => id === chosen))
+        options.push([chosen, "Selected connection unavailable — refresh connections"]);
+      return options;
+    };
+    const initialOptions = choices();
+    const field = selectField("Assisted Repair Connection", chosen, initialOptions, (value) => {
+      chosen = value;
       const next = value || null;
       onChange?.(next);
       patchConfig({ surfaceRepairConnectionId: next });
     });
-    field.querySelector("select").setAttribute("aria-label", "Assisted Repair Connection");
+    const select = field.querySelector("select");
+    select.setAttribute("aria-label", "Assisted Repair Connection");
+    let signature = JSON.stringify(initialOptions);
+    const refreshOptions = () => {
+      const controlRoot = select.getRootNode();
+      const focused = controlRoot instanceof ShadowRoot ? controlRoot.activeElement : select.ownerDocument.activeElement;
+      if (select.disabled || focused === select)
+        return;
+      const options = choices();
+      const nextSignature = JSON.stringify(options);
+      if (signature === nextSignature)
+        return;
+      signature = nextSignature;
+      select.replaceChildren(...options.map(([value, label]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        option.selected = value === chosen;
+        return option;
+      }));
+      select.value = chosen;
+    };
+    repairConnectionFields.set(field, refreshOptions);
+    select.addEventListener("blur", () => queueMicrotask(refreshOptions));
+    const refreshButton = button("Refresh connections", () => {
+      refreshButton.disabled = true;
+      refreshButton.textContent = "Refreshing connections…";
+      Promise.all([loadFrontendParserConnections(), refreshState(false)]).finally(() => {
+        refreshButton.disabled = false;
+        refreshButton.textContent = "Refresh connections";
+        refreshOptions();
+      });
+    }, false, "subtle", "Reload saved LLM connection metadata without calling a model or changing your selection.");
+    field.appendChild(refreshButton);
     return field;
   }
   function parserSelect(current) {

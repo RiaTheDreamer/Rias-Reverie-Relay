@@ -19,7 +19,7 @@
     "smoke:staging-scope": "bun scripts/staging-scope-smoke.mjs",
     "smoke:r45-ownership": "bun scripts/r45-normalization-ownership-smoke.ts",
     "smoke:core-bracket-matchers": "bun scripts/core-surface-bracket-matchers-smoke.ts",
-    "smoke:xml-system": "bun scripts/xml-system-smoke.ts",
+    "smoke:xml-system": "bun scripts/xml-system-smoke.ts && bun scripts/plot-sparks-xml-discovery-smoke.ts",
     "smoke:bracket-only": "bun run smoke:xml-system && bun scripts/bracket-only-model-prompt-smoke.ts",
     "smoke:bracket-images": "bun scripts/bracket-image-controls-smoke.ts",
     "smoke:serialized": "bun scripts/serialized-generation-smoke.mjs",

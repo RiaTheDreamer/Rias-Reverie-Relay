@@ -32,8 +32,14 @@ Within this board, give each option a distinct mechanism and payoff. Mix practic
 TEN LENSES — EXACT KEY/VECTOR PAIRS
 ${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key.toUpperCase()} — ${vector}: ${LENSES[key as keyof typeof LENSES]}`).join('\n')}
 
+COMPACT OUTPUT — FINISH THE WHOLE BOARD
+Each [Text] is one playable sentence of at most 30 words. In image mode, each visual_prompt is one concise scene-specific sentence of at most 55 words. Spend those words on the branch's actual visible action, distinct actor positions/contact, expression and essential setting/props; include only the confirmed appearance and current clothing needed to identify visible actors. Do not add introductions or commentary between options.
+
 ${images ? `IMAGES
 Each [Media] contains exactly one complete Reverie illustration of that branch's opening instant. Repeat confirmed appearance and current clothing independently for every visible actor. Depict their actual action and expression, not a UI card, captions, labels or borders. Cast selects only the bound Character/Persona, not an arbitrary head count; describe other established actors explicitly. Use a unique slot for each letter. Follow the active Natural Language or Booru format inside visual_prompt.` : 'TEXT ONLY\nKeep every [Media] empty. Do not output any image request.'}
+
+PER-OPTION CLOSING ORDER
+${images ? 'End EVERY option with this exact structural tail: </visual_prompt></reverie-illustration>[/Media][/Spark]. The illustration closer does not close Media: [/Media] must appear before [/Spark], including option J. Finish these closers before starting the next option or any tracker.' : 'End EVERY option with [Media][/Media][/Spark], including option J.'}
 
 FORMAT — ONE BOARD, KEYS A–J IN ORDER
 Brackets delimit named fields only. Write ordinary text directly between [Text] and [/Text], and the image description directly inside visual_prompt. Do not surround either value with another decorative pair of brackets. Replace the demonstration ID, slot, cast, Text and image values below with scene-specific values; they are examples, not content to copy.

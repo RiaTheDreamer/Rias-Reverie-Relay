@@ -6,6 +6,8 @@ import { SHIPPED_SURFACE_SPECS } from '../src/shippedSurfaceDefinitions'
 import { completeSurfaceSpecs } from '../src/surfaceXml'
 import { PLOT_SPARK_VECTOR_BY_KEY } from '../src/contracts'
 import { recentPlotSparksReference } from '../src/plotSparksUtility'
+import { xmlSurfaceExamples } from '../src/xmlSurfaceFormat'
+import { parseSurfaceXml } from '../src/surfaceXml'
 
 let interceptorPermission = false
 let permissionChanged: ((detail: any) => void) | undefined
@@ -272,6 +274,19 @@ assert(!/<hook_media>\s*<\/hook_media>/i.test(sanitizedInterception))
 // pure helper. Automatic and explicitly placed Utility paths each include it
 // once, and historical image requests never enter the reminder.
 const previousSparks = `[Plot_Sparks][ID]prior-board[/ID][Lifecycle]Unused.[/Lifecycle]${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `[Spark][Key]${key}[/Key][Vector]${vector}[/Vector][Text]Previous playable choice ${key}.[/Text][Media]<reverie-illustration request="generate" slot="past-${key}"><visual_prompt>PRIVATE-OLD-IMAGE-${key}</visual_prompt></reverie-illustration>[/Media][/Spark]`).join('')}[/Plot_Sparks]`
+const malformedXmlHistory = xmlSurfaceExamples(previousSparks).replaceAll('</Media>', '')
+const historyTracker = '<internal_states><details><summary>Historical tracker</summary>Only established events.</details></internal_states>'
+const malformedHistoryMessages = [{ role: 'assistant', content: `${malformedXmlHistory}\n${historyTracker}` }, ...baseMessages]
+const historyInputSnapshot = JSON.stringify(malformedHistoryMessages)
+const recoveredHistoryResult = await interceptor!(malformedHistoryMessages, { chatId: 'sparks-xml-closure-history', userId: 'u1', isDryRun: true })
+const recoveredHistoryText = assembledText(recoveredHistoryResult)
+const recoveredHistoryBoard = recoveredHistoryText.match(/<Plot_Sparks><ID>prior-board<\/ID>[\s\S]*?<\/Plot_Sparks>/)?.[0] || ''
+assert(parseSurfaceXml(recoveredHistoryBoard), 'real interceptor must not pass the malformed Media example back to the Story Model')
+assert.equal((recoveredHistoryBoard.match(/<\/Media>/g) || []).length, 10, 'outgoing history must recover all ten missing Media closers')
+assert(recoveredHistoryBoard.includes('Previous playable choice j.'), 'outgoing history recovery must preserve option text')
+assert(!recoveredHistoryText.includes('PRIVATE-OLD-IMAGE-'), 'history recovery cannot reintroduce stripped historical image controls')
+assert(recoveredHistoryText.includes(historyTracker), 'history recovery cannot change an adjacent tracker')
+assert.equal(JSON.stringify(malformedHistoryMessages), historyInputSnapshot, 'interceptor recovery must not mutate stored/input messages')
 const sparkHistory = [{ role: 'assistant', content: previousSparks }, ...baseMessages]
 const expectedRecentIdeas = recentPlotSparksReference(sparkHistory)
 assert(expectedRecentIdeas)

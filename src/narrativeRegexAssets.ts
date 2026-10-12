@@ -17,8 +17,9 @@ import { PLOT_SPARK_VECTOR_BY_KEY, type PlotSparkKey, type SurfaceColorMode } fr
 import { SHIPPED_SURFACE_BY_ID } from './shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { PERSONA_WARDROBE_UTILITY_PROMPT, renderPersonaWardrobeMarkup } from './personaWardrobe'
+import { plotSparksUtilityPrompt } from './plotSparksUtility'
 import { renderSurfaceContractRecovery } from './nativeSurfaces'
-import { PLOT_SPARKS_ROOT, PLOT_SPARKS_SURFACE_ID, plotSparksContractDiagnostic, isRenderablePlotSparkCount, normalizePlotSparksLifecycleCloser } from './plotSparksContract'
+import { PLOT_SPARKS_ROOT, PLOT_SPARKS_SURFACE_ID, plotSparksContractDiagnostic, isRenderablePlotSparkCount, normalizePlotSparksLifecycleCloser, normalizePlotSparksXmlClosingTags } from './plotSparksContract'
 import { plotSparksPresentationScripts, PLOT_SPARKS_SCRIPT_ID, PLOT_SPARKS_LEGACY_SCRIPT_ID } from './plotSparksPresentation'
 
 export type NarrativeRegexVariant = NarrativeSurfacePresentationVariant
@@ -182,7 +183,9 @@ if (!RELATIONSHIP_MAP_PROMPT || !CAST_SHEET_PROMPT) throw new Error('Moved Narra
 export const NARRATIVE_UTILITY_PACK: NarrativeUtilityPack = {
   ...(utilityPack as NarrativeUtilityPack),
   loomItems: [
-    ...(utilityPack as NarrativeUtilityPack).loomItems,
+    ...(utilityPack as NarrativeUtilityPack).loomItems.map(item => item.loomName === 'Plot Sparks'
+      ? { ...item, loomContent: plotSparksUtilityPrompt(true) }
+      : item),
     { loomName: 'Relationship Map', loomContent: RELATIONSHIP_MAP_PROMPT },
     { loomName: 'Cast Sheet', loomContent: CAST_SHEET_PROMPT },
     { loomName: 'Persona Wardrobe', loomContent: PERSONA_WARDROBE_UTILITY_PROMPT },
@@ -717,7 +720,8 @@ function normalizeLegacyNarrativeMarkupForRendering(markup: string): string {
 }
 
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
-  const legacy = normalizeLegacyNarrativeMarkupForRendering(markup)
+  const xmlWithSafePlotClosers = normalizePlotSparksXmlClosingTags(markup)
+  const legacy = normalizeLegacyNarrativeMarkupForRendering(xmlWithSafePlotClosers)
   // Display projection only, bounded to complete legacy owners. Literal prose
   // outside a Surface and the actual persisted message remain unchanged.
   return legacy.replace(/\[(Plot_Sparks|character_phone|private_phone|dramatic_parallel|persona_wardrobe|dossier_ui|relationship_map|character_profile)\]([\s\S]*?)\[\/\1\]|\[(SCENE|PARALLEL|SECRET|WORLD|WHATIF)\|[^\]\r\n]*\][\s\S]*?\[\/\3\]|\[NPC:(?:MAJOR|SUPPORT|MINOR|UP)\|[^\]\r\n]*\][\s\S]*?\[\/NPC\]|\[NPC:(?:REF|REL)\|[^\]\r\n]*\]|\[\[(else|npc|place)\s[^\]\r\n]*\]\][\s\S]*?\[\[\/\4\]\]/gi, full => xmlSurfaceExamples(full))
