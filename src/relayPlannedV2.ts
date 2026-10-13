@@ -1,11 +1,15 @@
-import type { ProseIllustrationPlan, ProsePromptComposition } from './contracts'
-import { normalizeBooruTagPrompt } from './booruTags'
+import type { ProseIllustrationOpportunity, ProseIllustrationPlan, ProseIllustratorSettings, ProsePromptComposition } from './contracts'
+import { isBooruSubjectMarker, normalizeBooruTagPrompt } from './booruTags'
 import { normalizeIllustrationViewWording } from './illustrationViewWording'
+import { isValidHostIdentityName } from './vault'
+import { storyboardFigureIntegrityClause } from './storyboardVisualIntegrity'
 import { buildIllustrationSceneContract, enforceIllustrationSceneContract, ownedSceneRequirementPresent, sceneActionTagRepairPreservesFacts, type IllustrationSceneContract } from './illustrationSceneContract'
 
 export const RELAY_PLANNED_V2 = 'relay-planned-2' as const
 
-export const RELAY_PLANNED_ASPECT_RATIOS = ['1:1', '4:3', '3:4', '16:9', '9:16', '4:5'] as const
+export const RELAY_PLANNED_BOORU_SUBJECT_SCHEMA = `BOORU SUBJECT OWNERSHIP: Every subjectDirectives entry must include its own "booruTags" array. Start it with exactly one supported singular marker (1boy, 1girl, 1other, or 1animal), then immediately that subject's authoritative appearance, complete current outfit, expression, pose, action and spatial position/orientation. Never infer gender from a name. Keep each character's traits and clothing entirely inside their own array; repeated markers and shared traits across different subjects are intentional. Also include a "blocking" string in each subject directive specifying that subject's source-grounded frame position, facing direction, distance and relation to the other subjects/props. Preserve actor/contact/target and prop ownership. Use canonical visual tags where known and short explicit spatial descriptions where tags cannot express the relationship; never invent underscore-joined sentences. The illustration-level booruTags array contains only shared setting, lighting, view and props. Do not put counts, hair, eyes, bodies, outfits or a character's pose in that global list. Keep normal planning prose and names in the remaining fields. Relay compiles the subject blocks first, in namedSubjects order, then the shared scene tags.`
+
+export const RELAY_PLANNED_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9'] as const
 
 export type RelayPlannedParagraph = { index: number; text: string; sourceText?: string }
 
@@ -14,9 +18,20 @@ export type RelayPlannedSubjectState = {
   role?: string
   identity: string[]
   current: string[]
+  wardrobe?: string[]
   pinned: string[]
   superseded: string[]
   activeFactIds?: string[]
+}
+
+/** Reusable Appearance is not choreography. Leave stored facts untouched and
+ * exclude clear pose/contact fragments only at the planning/prompt boundary.
+ * Current shot directives still own their action, including matching contact. */
+export function relayPlannedAppearanceDescriptors(values: string[]): string[] {
+  return values.flatMap(value => value.split(/[,;]+/)).map(value => value.trim()).filter(value => {
+    const readable = value.replace(/_/g, ' ')
+    return value && !/\b(?:touching|touches|gripping|grasping|clasping|hugging|embracing|kissing|kneeling|crouching|reaching|leaning|holding hands|holding (?:his|her|their|another)|standing (?:beside|behind|opposite|next to)|sitting (?:beside|behind|on|next to)|arms? (?:wrapped )?around)\b/i.test(readable)
+  })
 }
 
 export type RelayPlannedContext = {
@@ -25,6 +40,9 @@ export type RelayPlannedContext = {
   messageId: string
   swipeId: number
   maximumIllustrations: number
+  minimumIllustrations?: number
+  countMode?: 'fixed' | 'range'
+  frequencyMode?: 'key-moments' | 'every-eligible' | 'every-n'
   maximumCharacters: number
   maximumPromptCharacters: number
   perspectiveMode: string
@@ -35,6 +53,7 @@ export type RelayPlannedContext = {
   paragraphs: RelayPlannedParagraph[]
   latestUserVisualContext?: string
   subjects: RelayPlannedSubjectState[]
+  characterOnlySubjects?: string[]
   referenceAssetIds: string[]
   locationReferenceAssetIds: string[]
   priorIllustrations: Array<Record<string, unknown>>
@@ -76,6 +95,9 @@ export type RelayPlannedSubjectDirective = {
   action: string
   gaze: string
   contact: string
+  blocking?: string
+  /** Subject-owned tags: singular marker, identity, attire, pose and action. */
+  booruTags?: string[]
 }
 
 export type RelayPlannedIllustration = {
@@ -113,7 +135,7 @@ export type RelayPlannedIllustration = {
 export type RelayPlannedValidationIssue = {
   code: string
   message: string
-  repair: 'local' | 'ambiguous' | 'fatal'
+  repair: 'local' | 'ambiguous' | 'fatal' | 'review'
 }
 
 export type RelayPlannedValidatedIllustration = {
@@ -128,6 +150,85 @@ export type RelayPlannedValidationResult = {
   reason: string
   illustrations: RelayPlannedValidatedIllustration[]
   warnings: string[]
+}
+
+export function relayPlannedFrequencyRequiresIllustration(context: RelayPlannedContext): boolean {
+  return (context.frequencyMode === 'every-eligible' || context.frequencyMode === 'every-n')
+    && context.maximumIllustrations > 0 && context.paragraphs.length > 0
+}
+
+export function relayPlannedFrequencyDirective(context: RelayPlannedContext): string {
+  if (!relayPlannedFrequencyRequiresIllustration(context)) return ''
+  return 'REQUIRED ILLUSTRATION FREQUENCY: This saved story response has passed the user-selected frequency and eligibility gates. Select at least one grounded illustration, up to maximumIllustrations. Return shouldIllustrate true and a nonempty illustrations array. Several visual beats are candidates to choose from, not a reason to decline the response. Quiet scenes can be illustrated too. Preserve the source, actor limits and all validation requirements; never invent an event, actor or contact.'
+}
+
+export function relayPlannedIllustrationCountBounds(
+  settings: Pick<ProseIllustratorSettings, 'modelPlacedCountMode' | 'illustrationsPerRun' | 'minimumImages' | 'maximumImages'>,
+  remainingCapacity: number,
+): { countMode: 'fixed' | 'range'; minimumIllustrations: number; maximumIllustrations: number } {
+  const countMode = settings.modelPlacedCountMode === 'range' ? 'range' : 'fixed'
+  const bounded = (value: number, fallback: number) => Number.isFinite(value) ? Math.max(1, Math.min(32, Math.round(value))) : fallback
+  const requestedMaximum = countMode === 'range' ? bounded(settings.maximumImages, 1) : bounded(settings.illustrationsPerRun, 1)
+  const capacity = Number.isFinite(remainingCapacity) ? Math.max(0, Math.min(32, Math.floor(remainingCapacity))) : 0
+  const maximumIllustrations = Math.min(requestedMaximum, capacity)
+  const minimumIllustrations = countMode === 'fixed' ? maximumIllustrations : Math.min(bounded(settings.minimumImages, 1), maximumIllustrations)
+  return { countMode, minimumIllustrations, maximumIllustrations }
+}
+
+export function relayPlannedCountDirective(context: RelayPlannedContext): string {
+  if (!context.maximumIllustrations || context.minimumIllustrations === undefined) return ''
+  const count = context.countMode === 'range'
+    ? `from ${context.minimumIllustrations} through ${context.maximumIllustrations} illustrations, inclusive`
+    : `exactly ${context.maximumIllustrations} illustration${context.maximumIllustrations === 1 ? '' : 's'}`
+  return `ILLUSTRATION COUNT CONTRACT: When this eligible response is selected for illustration, return ${count}. This is the user-selected batch count, not merely permission to return one shot. Select distinct source-grounded stills; different supported instants in the same paragraph are allowed. Do not duplicate a shot, invent an event or relax cast, scene, identity or contact validation to fill the count. A key-moment policy may decline an unselected response; a frequency-required response may not.`
+}
+
+/** One shared bounded retry for an unjustified frequency decline or count
+ * shortfall, after structural repair when supplied. Never dispatch invented
+ * shots; preserve a safe partial result with a visible shortfall warning. */
+export async function runRelayPlannedDirectorWithFrequency(
+  messages: Array<{ role: 'system' | 'user'; content: string }>, context: RelayPlannedContext,
+  generate: (messages: Array<{ role: 'system' | 'user'; content: string }>) => Promise<string>,
+  prepare?: (validated: RelayPlannedValidationResult) => Promise<RelayPlannedValidationResult>,
+): Promise<{ raw: string; validated: RelayPlannedValidationResult }> {
+  const count = (validated: RelayPlannedValidationResult) => validated.shouldIllustrate ? validated.illustrations.filter(row => !row.rejected).length : 0
+  const required = relayPlannedFrequencyRequiresIllustration(context)
+  const minimum = context.minimumIllustrations ?? (required ? 1 : 0)
+  const read = async (request: Array<{ role: 'system' | 'user'; content: string }>) => {
+    const raw = await generate(request)
+    const selected = parseJsonObject(raw).shouldIllustrate === true
+    let validated = validateRelayPlannedDirectorResult(raw, context)
+    if (prepare && validated.shouldIllustrate) validated = await prepare(validated)
+    return { raw, validated, selected }
+  }
+  let result = await read(messages)
+  if ((!required && !result.selected) || count(result.validated) >= Math.max(1, minimum)) return result
+  const previous = result
+  const failure = count(result.validated) ? 'count-contract failure' : 'frequency-contract failure'
+  result = await read([...messages, { role: 'user', content: [
+    relayPlannedFrequencyDirective(context), relayPlannedCountDirective(context),
+    `The previous result selected ${count(previous.validated)} usable illustration(s). Correct that ${failure} using the same authoritative paragraphs and JSON schema. Return the complete batch, preserving the valid shots below and adding distinct supported shots as needed. Do not repeat a general summary as a decline reason.`,
+    JSON.stringify({ validatedIllustrations: previous.validated.illustrations.filter(row => !row.rejected).map(row => row.illustration) }),
+  ].filter(Boolean).join('\n') }])
+  if (count(previous.validated) > count(result.validated)) result = previous
+  const actual = count(result.validated)
+  if (!actual && required) throw new Error('Required illustration planning failed after one bounded retry: the Director supplied no usable source-grounded shot. The selected frequency was not optional; no image was dispatched. Check Director output or retry planning.')
+  if (!actual && previous.selected) throw new Error('Selected illustration planning failed after one bounded retry: no source-grounded shot passed validation. This was a count shortfall, not a key-moment decline. No image was dispatched. Check Director output or retry planning.')
+  if (actual < minimum) result.validated.warnings.push(`Illustration count shortfall after one bounded retry: requested ${minimum}${minimum === context.maximumIllustrations ? '' : `–${context.maximumIllustrations}`}, but only ${actual} source-grounded illustration(s) passed validation. Preserved usable shots; no invented or duplicate shots were dispatched.`)
+  return result
+}
+
+export function selectRelayPlannedDispatchOpportunities(opportunities: ProseIllustrationOpportunity[], maximum: number): ProseIllustrationOpportunity[] {
+  const seen = new Set<string>()
+  return [...opportunities].filter(item => item.status === 'proposed').sort((a, b) => b.confidence - a.confidence).filter(item => {
+    // V2 validation already rejects duplicate visual beats. Paragraph-level
+    // deduplication erased different validated instants in the same paragraph.
+    const key = item.plannerVersion === RELAY_PLANNED_V2 ? item.opportunityId
+      : `${item.messageId}:${item.swipeId}:${item.paragraphIndex}:${item.insertionSide}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, Math.max(0, maximum))
 }
 
 export type RelayPlannedCompiledPrompt = {
@@ -146,9 +247,14 @@ export function relayPlannedSceneContract(illustration: RelayPlannedIllustration
     anchorExcerpt: illustration.anchor.anchorExcerpt,
     actors: illustration.subjectDirectives.map(row => {
       const subject = context.subjects.find(subject => key(subject.name) === key(row.name))
-      return { name: row.name, identity: subject?.identity || [], current: subject?.current || [], action: row.action, contact: row.contact }
+      return { name: row.name, identity: subject?.identity || [], current: relayPlannedDirectiveCurrent(subject, row), action: row.action, contact: row.contact }
     }),
   })
+}
+
+function relayPlannedDirectiveCurrent(subject: RelayPlannedSubjectState | undefined, row: RelayPlannedIllustration['subjectDirectives'][number]): string[] {
+  const replaced = row.attireOverrides.length ? new Set(relayPlannedAppearanceDescriptors(subject?.wardrobe || []).map(key)) : new Set<string>()
+  return relayPlannedAppearanceDescriptors(subject?.current || []).filter(value => !replaced.has(key(value)))
 }
 
 /** Synthetic slot dispatch and later regeneration must use the same source as
@@ -169,14 +275,30 @@ export function relayPlannedAuthoritativeParagraph(composition: ProsePromptCompo
 export function sceneOnlyRepairPreservesPlan(original: RelayPlannedIllustration, repaired: RelayPlannedIllustration): boolean {
   const fixed = (row: RelayPlannedIllustration) => {
     const { promptCore, booruTags, ...rest } = row
-    return rest
+    return { ...rest, subjectDirectives: rest.subjectDirectives.map(({ booruTags, ...directive }) => directive) }
   }
   return JSON.stringify(fixed(original)) === JSON.stringify(fixed(repaired))
     && sceneActionTagRepairPreservesFacts(original.booruTags, repaired.booruTags)
+    && original.subjectDirectives.every((row, index) =>
+      sceneActionTagRepairPreservesFacts(row.booruTags, repaired.subjectDirectives[index]?.booruTags))
 }
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : ''
+}
+
+function storyboardBlocking(illustration: RelayPlannedIllustration, context: RelayPlannedContext): string {
+  const blocking = text(illustration.composition.blocking)
+  const visible = new Set(illustration.namedSubjects.map(key))
+  const namesOfOmittedSubjects = context.subjects.filter(subject => !visible.has(key(subject.name)))
+  const namesOmittedByBlocking = namesOfOmittedSubjects.some(subject => {
+    const escapedName = subject.name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return escapedName && new RegExp(`(?<![\\p{L}\\p{N}])${escapedName}(?![\\p{L}\\p{N}])`, 'iu').test(blocking)
+  })
+  // A stale blocking field must never reintroduce a known subject that the
+  // selected frame intentionally omitted. Drop that field rather than guess a
+  // partial string edit that could leave contradictory positions behind.
+  return namesOmittedByBlocking ? '' : blocking
 }
 
 function list(value: unknown): string[] {
@@ -216,7 +338,51 @@ function normalizeDirective(value: unknown): RelayPlannedSubjectDirective {
     action: text(raw.action),
     gaze: text(raw.gaze),
     contact: text(raw.contact),
+    blocking: text(raw.blocking),
+    booruTags: list(raw.booruTags),
   }
+}
+
+/** Compile explicit owner blocks; do not guess which person owns an anonymous
+ * multi-person list. Old single-subject plans remain unambiguous and usable. */
+export function relayPlannedBooruPrompt(illustration: RelayPlannedIllustration, context: RelayPlannedContext): string {
+  const rows = illustration.namedSubjects.map(name => illustration.subjectDirectives.find(row => key(row.name) === key(name)))
+  const visible = new Set(illustration.namedSubjects.map(key))
+  const omitted = [...illustration.omittedSubjects, ...context.subjects.filter(subject => !visible.has(key(subject.name))).map(subject => subject.name)]
+  const ownedPosition = (row: RelayPlannedSubjectDirective | undefined, name: string) =>
+    [row?.blocking, row?.pose, row?.action, row?.contact, row?.gaze].filter(value => value && !omitted.some(subject => {
+      const escaped = subject.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      return escaped && new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(value)
+    })).map(value => `${name}: ${value}`)
+  const grouped = rows.length > 0 && rows.every(row => row?.booruTags?.length)
+  if (!grouped) {
+    if (rows.length > 1) throw new Error('Each visible subject needs its own Booru tags; anonymous multi-subject appearance tags require repair.')
+    const legacyTags = illustration.booruTags || []
+    if (rows.length === 1) {
+      const markers = legacyTags.filter(isBooruSubjectMarker)
+      if (markers.length !== 1) throw new Error(`Booru subject ${illustration.namedSubjects[0]} needs a singular subject marker and its own appearance, outfit and blocking; scenery-only tags require repair.`)
+      // An older single-owner list is unambiguous, but must still describe its
+      // visible subject. Preserve its established scene-action validation;
+      // appending directives here could mask contradictory legacy action tags.
+      return normalizeBooruTagPrompt(legacyTags.join(', '))
+    }
+    return normalizeBooruTagPrompt(legacyTags.join(', '))
+  }
+  const blocks = rows.map(row => {
+    const tags = row!.booruTags!
+    if (!isBooruSubjectMarker(tags[0]) || tags.slice(1).some(isBooruSubjectMarker)) {
+      throw new Error(`Booru subject ${row!.name} must start with exactly one singular subject marker, followed by only that subject's appearance, outfit and blocking.`)
+    }
+    const normalized = normalizeBooruTagPrompt(tags.join(', '))
+    return [normalized, ...ownedPosition(row, row!.name)].join(', ')
+  })
+  // Counts/appearance belong in the subject arrays. Global tags describe only
+  // the setting, props, lighting and view; remove redundant count markers.
+  const ownedTags = new Set(rows.flatMap(row => row!.booruTags!).map(tag => key(tag)))
+  const globalTags = (illustration.booruTags || []).filter(tag =>
+    !/^\d+(?:girls?|boys?|others?|animals?|people)$/.test(tag)
+    && !ownedTags.has(key(tag)))
+  return normalizeBooruTagPrompt([...blocks, ...globalTags].join(', '))
 }
 
 function normalizeIllustration(value: unknown, context: RelayPlannedContext, ordinal: number): RelayPlannedIllustration {
@@ -288,9 +454,19 @@ function storyboardVisiblePropActors(illustration: RelayPlannedIllustration, con
     .filter(tokens => tokens.length > 0)
   if (!propTokenGroups.length) return []
 
-  const nearby = context.paragraphs.filter(row => Math.abs(row.index - illustration.anchor.paragraphIndex) <= 2)
+  // Named-character shots own their selected paragraph. Shared furniture in
+  // another beat must not recruit its actor into this frame. Prop-only/result
+  // crops still inspect nearby source to preserve a supported visible handler.
+  const propOnly = illustration.namedSubjects.length === 0
+  const nearby = context.paragraphs.filter(row => propOnly
+    ? Math.abs(row.index - illustration.anchor.paragraphIndex) <= 2
+    : row.index === illustration.anchor.paragraphIndex)
   const matches: Array<{ name: string; paragraphIndex: number }> = []
-  const subjects = context.subjects.filter(subject => key(subject.role || 'character') !== 'animal')
+  // Legacy or externally assembled context must not turn capitalized pronouns
+  // into prop owners. Safe confirmed card titles remain allowed, without the
+  // inferred-name word limit. Do not rewrite saved identities here.
+  const subjects = context.subjects.filter(subject => isValidHostIdentityName(subject.name)
+    && key(subject.role || 'character') !== 'animal')
   for (const paragraph of nearby) {
     // A paragraph can contain several actors doing unrelated things. Bind the
     // verb to its nearest preceding named subject, not every name in the prose.
@@ -306,6 +482,7 @@ function storyboardVisiblePropActors(illustration: RelayPlannedIllustration, con
         return [...sentence.matchAll(pattern)].map(match => ({ name: subject.name, start: match.index!, end: match.index! + match[0].length }))
       }).sort((left, right) => left.start - right.start)
       for (const action of sentence.matchAll(new RegExp(STORYBOARD_PROP_INTERACTION_ACTION.source, 'gi'))) {
+        if (action[0] === 'press' && /^\s+(?:notice|release|conference|coverage|briefing|corps)\b/.test(sentence.slice(action.index! + action[0].length))) continue
         const actionPrefix = sentence.slice(Math.max(0, action.index! - 48), action.index)
         if (/\b(?:not|never|without|doesn't|didn't|cannot|can't|couldn't|wouldn't|won't)(?:\s+\w+){0,3}\s*$/i.test(actionPrefix)) continue
         const preceding = nameMentions.filter(mention => mention.end <= action.index!)
@@ -328,6 +505,12 @@ function storyboardVisiblePropActors(illustration: RelayPlannedIllustration, con
 }
 
 function overlapScore(left: RelayPlannedIllustration, right: RelayPlannedIllustration): number {
+  const sameAnchor = left.anchor.paragraphIndex === right.anchor.paragraphIndex
+    && key(left.anchor.anchorExcerpt) === key(right.anchor.anchorExcerpt)
+  const samePrompt = Boolean(key(left.promptCore)) && key(left.promptCore) === key(right.promptCore)
+  // A recurring cast and location are normal story continuity, not evidence
+  // that two separately anchored actions depict the same visual beat.
+  if (!sameAnchor && !samePrompt) return 0
   const subjectsA = new Set(left.namedSubjects.map(key))
   const subjectsB = new Set(right.namedSubjects.map(key))
   const intersection = [...subjectsA].filter(name => subjectsB.has(name)).length
@@ -371,6 +554,10 @@ export function validateRelayPlannedDirectorResult(rawText: string, context: Rel
     if (context.perspectiveMode === 'solo-scene' && (illustration.namedSubjects.length !== 1 || illustration.expectedPeopleCount !== 1 || illustration.composition.backgroundPeople)) {
       issues.push({ code: 'solo-scene-cast', message: 'Character Only requires exactly one visible person and no background people.', repair: 'ambiguous' })
     }
+    if (context.perspectiveMode === 'solo-scene' && context.characterOnlySubjects?.length
+      && (illustration.namedSubjects.length !== 1 || !context.characterOnlySubjects.some(name => key(name) === key(illustration.namedSubjects[0])))) {
+      issues.push({ code: 'solo-scene-subject', message: `Character Only must depict the selected character ${context.characterOnlySubjects.join(', ')}, not another subject. Preserve the supported scene; never invent an action to add them.`, repair: 'ambiguous' })
+    }
     if (context.perspectiveMode === 'storyboard') {
       const missingPropActors = storyboardVisiblePropActors(illustration, context)
         .filter(row => !illustration.namedSubjects.some(name => key(name) === key(row.name)))
@@ -411,16 +598,23 @@ export function validateRelayPlannedDirectorResult(rawText: string, context: Rel
     if (!illustration.promptCore) issues.push({ code: 'missing-prompt-core', message: 'The shot has no promptCore.', repair: 'ambiguous' })
     if (illustration.promptCore.length > context.maximumPromptCharacters) issues.push({ code: 'prompt-core-limit', message: `promptCore exceeds ${context.maximumPromptCharacters} characters.`, repair: 'ambiguous' })
     if (context.promptFormat === 'danbooru-tags') {
-      try { normalizeBooruTagPrompt((illustration.booruTags || []).join(', ')) }
-      catch (error) { issues.push({ code: 'invalid-booru-tags', message: error instanceof Error ? error.message : String(error), repair: 'ambiguous' }) }
+      try { relayPlannedBooruPrompt(illustration, context) }
+      catch (error) { issues.push({ code: /subject/i.test(String(error)) ? 'booru-subject-ownership' : 'invalid-booru-tags', message: error instanceof Error ? error.message : String(error), repair: 'ambiguous' }) }
     }
     if (context.perspectiveMode === 'storyboard' && paragraph && !issues.some(issue => issue.code === 'anchor-excerpt-mismatch')) {
       const tagMode = context.promptFormat === 'danbooru-tags'
-      const candidate = tagMode ? (illustration.booruTags || []).join(', ')
+      let tagCandidate = ''
+      if (tagMode) { try { tagCandidate = relayPlannedBooruPrompt(illustration, context) } catch {} }
+      const candidate = tagMode ? tagCandidate
         : [illustration.promptCore, ...illustration.subjectDirectives.map(row => `${row.name}: ${row.action}, ${row.contact}`)].join('. ')
       const checked = enforceIllustrationSceneContract(candidate, tagMode ? 'danbooru-tags' : 'natural-language', relayPlannedSceneContract(illustration, context))
-      if (tagMode) illustration.booruTags = checked.prompt.split(',').map(text).filter(Boolean)
+      if (tagMode && tagCandidate) {
+        const kept = new Set(checked.prompt.split(',').map(text))
+        illustration.booruTags = (illustration.booruTags || []).filter(tag => kept.has(text(tag)))
+        for (const row of illustration.subjectDirectives) row.booruTags = (row.booruTags || []).filter(tag => kept.has(text(tag)))
+      }
       issues.push(...checked.issues)
+      warnings.push(...checked.issues.filter(issue => issue.repair === 'review').map(issue => issue.message))
     }
     for (const field of ['shotType', 'framing', 'blocking', 'location'] as const) {
       if (!illustration.composition[field]) issues.push({ code: `missing-composition-${field}`, message: `Composition is missing ${field}.`, repair: 'ambiguous' })
@@ -452,7 +646,7 @@ export function validateRelayPlannedDirectorResult(rawText: string, context: Rel
   }
 
   return {
-    shouldIllustrate: parsed.shouldIllustrate === true && accepted.some(row => !row.rejected),
+    shouldIllustrate: (parsed.shouldIllustrate === true || relayPlannedFrequencyRequiresIllustration(context)) && accepted.some(row => !row.rejected),
     reason: overallReason || (accepted.length ? 'Illustration Director selected visual beats.' : 'No illustration was warranted.'),
     illustrations: accepted,
     warnings,
@@ -480,7 +674,9 @@ export function compileRelayPlannedPrompt(
   context: RelayPlannedContext,
   options: { stylePrefix?: string; qualitySuffix?: string; globalNegative?: string; tagMode?: boolean } = {},
 ): RelayPlannedCompiledPrompt {
-  const subjectMap = new Map(context.subjects.map(subject => [key(subject.name), subject]))
+  const subjectMap = new Map(context.subjects.map(subject => [key(subject.name), {
+    ...subject, identity: relayPlannedAppearanceDescriptors(subject.identity), current: relayPlannedAppearanceDescriptors(subject.current),
+  }]))
   const identity = illustration.namedSubjects.flatMap(name => subjectMap.get(key(name))?.identity || [])
   const current = illustration.namedSubjects.flatMap(name => subjectMap.get(key(name))?.current || [])
   const composition = illustration.composition
@@ -492,11 +688,12 @@ export function compileRelayPlannedPrompt(
     const subject = subjectMap.get(key(row.name))
     const details = dedupeOrdered([
       ...(subject?.identity || []),
-      ...(subject?.current || []),
+      ...relayPlannedDirectiveCurrent(subject, row),
       ...row.appearanceOverrides,
       ...row.attireOverrides,
       ...row.temporaryTraits,
       row.expression,
+      row.blocking || '',
       row.pose,
       row.action,
       row.contact,
@@ -585,6 +782,9 @@ export function compileRelayPlannedPrompt(
       storyboardCameraFields.join(', '),
       storyboardCastClause,
       text(illustration.promptCore),
+      storyboardBlocking(illustration, context) ? `Spatial blocking: ${storyboardBlocking(illustration, context)}` : '',
+      text(composition.foreground) ? `Foreground depth: ${text(composition.foreground)}` : '',
+      storyboardFigureIntegrityClause(illustration.expectedPeopleCount, illustration.namedSubjects),
       storyboardNoContactClarifier,
       storyboardToollessClarifier,
       storyboardGapClarifier,
@@ -593,7 +793,7 @@ export function compileRelayPlannedPrompt(
         const actionFallback = [row.pose, row.action, row.contact].filter(requirement =>
           !ownedSceneRequirementPresent(illustration.promptCore, row.name, requirement, illustration.namedSubjects))
         const owned = dedupeOrdered([
-          ...(subject?.identity || []), ...(subject?.current || []),
+          ...(subject?.identity || []), ...relayPlannedDirectiveCurrent(subject, row),
           ...row.appearanceOverrides, ...row.attireOverrides, ...row.temporaryTraits,
           ...actionFallback,
         ])
@@ -635,7 +835,11 @@ export function compileRelayPlannedPrompt(
     ...(context.perspectiveMode === 'solo-scene' ? ['extra person', 'background people', 'crowd', 'reflection person', 'screen person', 'duplicate person'] : []),
   ])
   const sceneContract = context.perspectiveMode === 'storyboard' ? relayPlannedSceneContract(illustration, context) : undefined
-  const viewPrompt = normalizeIllustrationViewWording(options.tagMode ? (illustration.booruTags || []).join(', ') : storyboardPrompt || ordered.join(', '), context.perspectiveMode, options.tagMode ? 'danbooru-tags' : 'natural-language')
+  const tagPrompt = options.tagMode ? [
+    relayPlannedBooruPrompt(illustration, context),
+    ...(context.perspectiveMode === 'storyboard' ? [storyboardBlocking(illustration, context)] : []),
+  ].map(text).filter(Boolean).join(', ') : ''
+  const viewPrompt = normalizeIllustrationViewWording(options.tagMode ? tagPrompt : storyboardPrompt || ordered.join(', '), context.perspectiveMode, options.tagMode ? 'danbooru-tags' : 'natural-language')
   const candidate = options.tagMode ? normalizeBooruTagPrompt(viewPrompt) : viewPrompt
   const checked = sceneContract ? enforceIllustrationSceneContract(candidate, options.tagMode ? 'danbooru-tags' : 'natural-language', sceneContract) : { prompt: candidate, issues: [] }
   if (checked.issues.some(issue => issue.repair === 'ambiguous')) throw new Error(`Storyboard scene contract: ${checked.issues.filter(issue => issue.repair === 'ambiguous').map(issue => issue.message).join(' ')}`)

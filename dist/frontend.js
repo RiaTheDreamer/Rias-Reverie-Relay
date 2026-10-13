@@ -7941,8 +7941,8 @@ function summarizeRelayHealth(checks) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.5.1";
-var BUILD_ID = "20261009-0.5.1";
+var EXTENSION_VERSION = "0.5.1.1";
+var BUILD_ID = "20261013-0.5.1.1";
 
 // src/orbIconData.ts
 var ORB_IMAGE_DESIGNS = [
@@ -261372,7 +261372,11 @@ function setup(ctx) {
     .dg-router-panel .dg-btn { min-height: 36px; border-radius: var(--dgir-radius-md); }
     .dg-router-panel .dg-btn-subtle { background-color: transparent !important; }
     .dg-router-panel .dg-help-popover { background-color: var(--dgir-surface-raised) !important; }
-    .dg-router-panel .dg-menu { background-color: var(--dgir-surface) !important; }
+    /* Menus are reading surfaces, never panel glass. Include the themed root
+       selector so Clean Panel cannot win with a translucent host fill. */
+    .dg-router-panel.dg-menu,
+    :root[data-dgir-theme="clean-panel"] .dg-router-panel.dg-menu,
+    .dg-router-panel .dg-menu { background: #211820 !important; opacity: 1 !important; }
     .dg-router-panel .dg-beat-review-controls,
     .dg-router-panel .dg-modal-footer { background-color: var(--dgir-bg) !important; }
     .dg-router-panel .dg-history-track::before,
@@ -263722,7 +263726,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
         }
         const readyToInsert = record.status === "placement-pending" && Boolean(record.pendingPlacement) && !submittingPlacement;
         let actions = card.querySelector(".rrl-actions");
-        if (!actions && readyToInsert) {
+        if (!actions && (readyToInsert || canonicalFailure || needsPlacementRepair)) {
           actions = document.createElement("div");
           actions.className = "rrl-actions";
           card.appendChild(actions);
@@ -266101,14 +266105,15 @@ ${new Date(Number(row.completedAt) || 0).toLocaleString()}`;
     }
     const chips = document.createElement("div");
     chips.className = "dg-status-chips";
-    chips.append(chip(settings.mode === "relay-planned" ? "Relay-Planned" : settings.mode === "inline-protocol" || settings.mode === "model-placed" ? "Model Planned" : "Off", settings.mode === "off" ? "" : "completed"), chip(`${settings.illustrationsPerRun || 1} per response`, ""), chip(settings.promptFormat === "danbooru-tags" ? "Booru Tags" : "Natural Language", ""), chip(settings.frequencyMode.replace(/-/g, " "), ""), chip(settings.defaultAspectRatio, ""), chip(`${recordsForChat.length} generated`, ""));
+    const illustrationCountLabel = settings.modelPlacedCountMode === "range" ? `${settings.minimumImages}–${settings.maximumImages}` : String(settings.illustrationsPerRun || 1);
+    chips.append(chip(settings.mode === "relay-planned" ? "Relay-Planned" : settings.mode === "inline-protocol" || settings.mode === "model-placed" ? "Model Planned" : "Off", settings.mode === "off" ? "" : "completed"), chip(`${illustrationCountLabel} per response`, ""), chip(settings.promptFormat === "danbooru-tags" ? "Booru Tags" : "Natural Language", ""), chip(settings.frequencyMode.replace(/-/g, " "), ""), chip(settings.defaultAspectRatio, ""), chip(`${recordsForChat.length} generated`, ""));
     const actions = document.createElement("div");
     actions.className = "dg-actions dg-primary-actions dg-illustrator-overview-actions";
     if (settings.mode === "off") {
       actions.append(button("Enable Model Planned", () => patchProseSettings({ mode: "inline-protocol", enabled: true }), false, "primary"));
     } else if (settings.mode === "relay-planned") {
       const readyPlan = plans.find((plan) => plan.status === "ready" && !proseIllustrator.records[plan.planId]);
-      actions.append(button(settings.paused ? "Resume Relay-Planned" : "Pause Relay-Planned", () => sendProseAction({ action: settings.paused ? "resume_auto" : "pause_auto" }), !activeChatId, settings.paused ? "primary" : "subtle"), button("Plan Latest Once", () => sendProseAction({ action: "plan_latest" }), !activeChatId || !settings.plannerConnectionId, "primary"), button("Relay-Planned Dry Run", () => void fetchNativeSettingsSnapshot(true).then((snapshot) => ctx.sendToBackend({
+      actions.append(button(settings.paused ? "Resume Relay-Planned" : "Pause Relay-Planned", () => sendProseAction({ action: settings.paused ? "resume_auto" : "pause_auto" }), !activeChatId, settings.paused ? "primary" : "subtle"), button("Plan Latest Once", () => sendProseAction({ action: "relay_plan_once" }), !activeChatId || !settings.plannerConnectionId, "primary"), button("Relay-Planned Dry Run", () => void fetchNativeSettingsSnapshot(true).then((snapshot) => ctx.sendToBackend({
         type: "dry_run",
         chatId: activeChatId,
         kind: "relay-planned",
@@ -266132,7 +266137,7 @@ ${new Date(Number(row.completedAt) || 0).toLocaleString()}`;
     }, false, "subtle"));
     const explanation = document.createElement("div");
     explanation.className = "dg-recovery-note";
-    explanation.textContent = settings.mode === "relay-planned" ? `Relay independently chooses up to ${settings.illustrationsPerRun || 1} distinct moments and ${settings.relayInsertionMode === "review" ? "waits for approval before insertion" : "inserts finished images automatically"}.` : settings.mode === "inline-protocol" || settings.mode === "model-placed" ? "The Story Model writes one complete request in its exact prose position. Relay parses that same canonical request and dispatches it automatically only when Auto Generate is enabled." : "The Illustrator is disabled.";
+    explanation.textContent = settings.mode === "relay-planned" ? `Relay selects ${settings.modelPlacedCountMode === "range" ? `${illustrationCountLabel} (inclusive)` : `exactly ${illustrationCountLabel}`} distinct source-grounded moments per selected response and ${settings.relayInsertionMode === "review" ? "waits for approval before insertion" : "inserts finished images automatically"}. Any validation shortfall is reported rather than filled with invented or duplicate shots.` : settings.mode === "inline-protocol" || settings.mode === "model-placed" ? "The Story Model writes one complete request in its exact prose position. Relay parses that same canonical request and dispatches it automatically only when Auto Generate is enabled." : "The Illustrator is disabled.";
     box.appendChild(panelSection("Illustrator Overview", documentFragment(chips, actions, explanation)));
     if (modelPlacedMissingRequest?.chatId === activeChatId) {
       const missing = document.createElement("div");
@@ -266603,7 +266608,9 @@ ${record.imageId || record.error || "No image yet"}`;
     } else {
       essentials.append(numberInput("Illustrations per Response", settings.illustrationsPerRun || 1, 1, 32, (value) => patchProseSettings({ illustrationsPerRun: value, maximumIllustrationsPerMessage: Math.max(value, settings.maximumIllustrationsPerMessage) })));
     }
-    essentials.append(numberInput("Maximum Characters in Image · Hard Limit", settings.maximumCharacters, 1, 8, (value) => patchProseSettings({ maximumCharacters: value })), selectField("Image Size", settings.imageSize || "medium", [["small", "Small"], ["medium", "Medium"], ["large", "Large"], ["full", "Full Width"]], (value) => patchProseSettings({ imageSize: value })), selectField("Candidate Count per Illustration", String(settings.defaultCandidateCount), [["1", "1"], ["2", "2"], ["4", "4"]], (value) => patchProseSettings({ defaultCandidateCount: Number(value) })), selectField("Frequency", settings.frequencyMode, [["key-moments", "Key Moments"], ["every-eligible", "Every Eligible Message"], ["every-n", "Every N Eligible Messages"]], (value) => patchProseSettings({ frequencyMode: value })));
+    essentials.append(numberInput(settings.mode === "inline-protocol" ? "Character Count Target · Story Model" : "Maximum Characters in Image · Hard Limit", settings.maximumCharacters, 1, 8, (value) => patchProseSettings({ maximumCharacters: value })), selectField("Image Size", settings.imageSize || "medium", [["small", "Small"], ["medium", "Medium"], ["large", "Large"], ["full", "Full Width"]], (value) => patchProseSettings({ imageSize: value })), selectField("Candidate Count per Illustration", String(settings.defaultCandidateCount), [["1", "1"], ["2", "2"], ["4", "4"]], (value) => patchProseSettings({ defaultCandidateCount: Number(value) })), selectField("Frequency", settings.frequencyMode, [["key-moments", "Key Moments"], ["every-eligible", "Every Eligible Message"], ["every-n", "Every N Eligible Messages"]], (value) => patchProseSettings({ frequencyMode: value })));
+    if (settings.mode === "inline-protocol")
+      essentials.append(storyText("Guides the Story Model when choosing a shot. If its authored request needs more people, Relay preserves that cast and records a warning instead of rejecting the image or dropping someone."));
     if (settings.frequencyMode === "every-n")
       essentials.append(numberInput("Every N Eligible Messages", settings.everyNEligibleMessages, 1, 100, (value) => patchProseSettings({ everyNEligibleMessages: value })));
     const framingModes = document.createElement("div");
@@ -266679,7 +266686,7 @@ ${record.imageId || record.error || "No image yet"}`;
     const profiles = (config?.promptProfiles || []).map((profile) => [profile.id, `${profile.name}${profile.builtIn ? " (built-in)" : ""}`]);
     if (!profiles.length)
       profiles.push(["auto", "Auto"]);
-    advancedGrid.append(numberInput("Context Messages", settings.contextMessageCount, 0, 12, (value) => patchProseSettings({ contextMessageCount: value })), selectField("Prompt Profile", settings.defaultPromptProfileId || "auto", profiles, (value) => patchProseSettings({ defaultPromptProfileId: value || "auto" })), selectField("Image Alignment", settings.imageAlignment || "center", [["left", "Left"], ["center", "Center"], ["right", "Right"]], (value) => patchProseSettings({ imageAlignment: value })), numberInput("Minimum Message Length", settings.minimumMessageLength, 0, 2000, (value) => patchProseSettings({ minimumMessageLength: value })));
+    advancedGrid.append(numberInput("Illustrations per Saved Message · Including Continues", settings.maximumIllustrationsPerMessage, Math.max(1, settings.modelPlacedCountMode === "range" ? settings.maximumImages : settings.illustrationsPerRun), 32, (value) => patchProseSettings({ maximumIllustrationsPerMessage: value })), numberInput("Context Messages", settings.contextMessageCount, 0, 12, (value) => patchProseSettings({ contextMessageCount: value })), selectField("Prompt Profile", settings.defaultPromptProfileId || "auto", profiles, (value) => patchProseSettings({ defaultPromptProfileId: value || "auto" })), selectField("Image Alignment", settings.imageAlignment || "center", [["left", "Left"], ["center", "Center"], ["right", "Right"]], (value) => patchProseSettings({ imageAlignment: value })), numberInput("Minimum Message Length", settings.minimumMessageLength, 0, 2000, (value) => patchProseSettings({ minimumMessageLength: value })));
     const advancedToggles = document.createElement("div");
     advancedToggles.className = "dg-toggle-grid";
     advancedToggles.append(toggleCard("Adaptive Framing", "Lets the configured Sidecar adapt framing guidance where supported. Relay does not deterministically rotate modes; Char only and Persona POV remain fixed constraints.", settings.adaptiveMode, (checked) => patchProseSettings({ adaptiveMode: checked }), settings.perspectiveMode === "solo-scene" || settings.perspectiveMode === "persona-pov"), toggleCard("Reuse Accepted References", "", settings.reuseAcceptedReferences, (checked) => patchProseSettings({ reuseAcceptedReferences: checked })), toggleCard("Use Location References", "", settings.reuseLocationReferences, (checked) => patchProseSettings({ reuseLocationReferences: checked })), toggleCard("Show Captions", "", settings.showCaptions, (checked) => patchProseSettings({ showCaptions: checked })), toggleCard("Reanalyze Edited Messages", "", settings.reanalyzeEditedMessages, (checked) => patchProseSettings({ reanalyzeEditedMessages: checked })), toggleCard("Skip OOC", "", settings.skipOoc, (checked) => patchProseSettings({ skipOoc: checked })), toggleCard("Skip Utility Markup", "", settings.skipUtilities, (checked) => patchProseSettings({ skipUtilities: checked })), toggleCard("Skip Short Messages", "", settings.skipShortMessages, (checked) => patchProseSettings({ skipShortMessages: checked })), toggleCard("Skip Test Fixtures", "", settings.skipTestFixtures, (checked) => patchProseSettings({ skipTestFixtures: checked })), toggleCard("High-Resolution Modifier", "", settings.highResolutionModifier, (checked) => patchProseSettings({ highResolutionModifier: checked })));

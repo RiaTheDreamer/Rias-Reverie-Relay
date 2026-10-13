@@ -196,7 +196,7 @@ for (const removed of [
 for (const token of ["<Plot_Sparks>", "<Spark>", "<Text>", "<Media>", "<reverie-illustration ", 'detonation', 'heartknife', 'wrongness', 'crash-in', 'matchstrike', 'reputation-fire', 'wildcard-collision']) {
   assert(plotSparksUtility.content.includes(token), `Plot Sparks bracket renderer/image contract changed: ${token}`)
 }
-for (const exactCount of ['Exactly ten Sparks', "Each <Media> contains exactly one complete Reverie illustration", 'exactly ten complete illustrations']) {
+for (const exactCount of ['Exactly ten Sparks', 'Each <Media> contains exactly one complete current <reverie-illustration request="generate">', 'exactly ten complete illustrations']) {
   assert(plotSparksUtility.content.includes(exactCount), `Plot Sparks must retain its ten-image structural requirement: ${exactCount}`)
 }
 for (const forbidden of ['hook ledger', 'chaos payload', 'chaos_payload', 'chaos hook', 'chaos_hook', 'hook_text', 'hook_media', '<payload>', 'two-ledger']) {

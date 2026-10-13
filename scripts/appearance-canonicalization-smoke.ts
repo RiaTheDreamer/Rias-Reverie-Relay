@@ -450,7 +450,9 @@ for (const [globalStrength, override, expected] of [
   }
 }
 const relayPolicyState = { continuityVault: refreshedState.continuityVault } as any
-assert(backend.relayPlannedSubjectStates(relayPolicyState, 'prompt-once', 'Prime Beta waits for a portrait.', policySettings('relay-planned', 'off')).length === 0, 'Relay-Planned Director input leaked Vault facts through explicit Off')
+const relayOffSubjects = backend.relayPlannedSubjectStates(relayPolicyState, 'prompt-once', 'Prime Beta waits for a portrait.', policySettings('relay-planned', 'off'))
+assert(relayOffSubjects.some(subject => subject.name === 'Prime Beta'), 'Appearance Off must retain the source-established cast, not erase the Director allowed subjects')
+assert(relayOffSubjects.every(subject => !subject.identity.length && !subject.current.length && !subject.pinned.length && !subject.wardrobe?.length && !subject.activeFactIds?.length), 'Relay-Planned Director input leaked Vault facts through explicit Off')
 const relayStrengthCounts = (['low', 'medium', 'strong'] as const).map(strength => backend.relayPlannedSubjectStates(relayPolicyState, 'prompt-once', 'Prime Beta waits for a portrait.', policySettings('relay-planned', strength))[0]?.activeFactIds.length || 0)
 assert(relayStrengthCounts[0] > 0 && relayStrengthCounts[0] <= relayStrengthCounts[1] && relayStrengthCounts[1] <= relayStrengthCounts[2], `Relay-Planned Director strength selection is not monotonic: ${relayStrengthCounts.join('/')}`)
 

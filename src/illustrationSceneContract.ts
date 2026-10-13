@@ -11,7 +11,7 @@ export type IllustrationSceneContract = {
   centralActor: string
   idleTools: string[]
 }
-export type SceneContractIssue = { code: string; message: string; repair: 'local' | 'ambiguous' }
+export type SceneContractIssue = { code: string; message: string; repair: 'local' | 'ambiguous' | 'review' }
 
 const normalize = (value: string) => value.replace(/_/g, ' ').toLocaleLowerCase().replace(/\s+/g, ' ').trim()
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -38,14 +38,43 @@ function anchoredLiftBodyPart(source: string): 'hands' | 'arms' | undefined {
   const prose=normalize(source.replace(/"[^"\n]*"|“[^”\n]*”/g,''))
   const direct=/\b(?:lift(?:s|ed|ing)?|rais(?:e|es|ed|ing))\s+(?:(?:his|her|their|the|both|my|your|right|left|own|two)\s+){0,4}(hands?|palms?|arms?)\b/.exec(prose)
   if(direct)return direct[1].startsWith('arm')?'arms':'hands'
+  const subject=/\b(hands?|palms?|arms?)\s+lift(?:s|ed|ing)?\b/.exec(prose)
+  if(subject)return subject[1].startsWith('arm')?'arms':'hands'
   if(/\bhands?\b[^.!?]{0,180}\blift(?:s|ed|ing)?\s+them\b/.test(prose))return 'hands'
 }
-function assertedLiftPosePhrases(value: string, part: 'hands' | 'arms' | undefined): string[] {
+function assertedLiftPosePhrases(value: string, part: 'hands' | 'arms' | undefined, source = ''): string[] {
   if(!part)return []
   const prose=normalize(value.replace(/"[^"\n]*"|“[^”\n]*”/g,''))
   const noun=part==='hands'?'(?:hands?|palms?)':'arms?'
   const pattern=new RegExp(`\\b${noun}\\s+(?:(?:are|is|were|was|both|open)\\s+){0,3}(?:held|cradled|supported|resting)\\s+(?:(?:up|together|gently)\\s+)?(?:in front of|before|between|against|at)\\s+(?:(?:his|her|their|the|my|your|both)\\s+)?(?:him|her|them|me|you|chests?|collarbones?|shoulders?|face|body)\\b`,'g')
-  return [...prose.matchAll(pattern)].filter(match=>!unassertedPrefix(prose,match.index!)).map(match=>match[0])
+  const result = [...prose.matchAll(pattern)].filter(match=>!unassertedPrefix(prose,match.index!)).map(match=>match[0])
+  // A hand lifted across the gap is a reaching motion, not necessarily a
+  // vertically raised-hand pose. Object lifts and unrelated poses stay distinct.
+  if (/\b(?:crossing|across)\b[^.!?]{0,85}\b(?:air|gap|space|distance|between)\b/i.test(source)) {
+    const reach = new RegExp(`\\b${noun}\\s+(?:reach(?:es|ed|ing)?|extend(?:s|ed|ing)?)\\s+(?:across|towards?)\\b[^.!?]{0,100}`, 'g')
+    result.push(...[...prose.matchAll(reach)].filter(match => !unassertedPrefix(prose, match.index!)).map(match => match[0]))
+  }
+  return result
+}
+
+/** An explicit incidental role is not automatically part of the shot's cast.
+ * Return only literal noun-phrase ownership; never resolve pronouns or names.
+ */
+function actionOutsideDepictedRole(source: string, prompt: string, family: typeof ACTIONS[number]): boolean {
+  const prose = normalize(source.replace(/"[^"\n]*"|“[^”\n]*”/g, ''))
+  const evidence = normalize(visualDescriptionEvidence(prompt))
+  const matches = [...prose.matchAll(new RegExp(family.source))]
+  if (!matches.length) return false
+  return matches.every(match => {
+    const prefix = prose.slice(Math.max(0, match.index! - 75), match.index!)
+    const owner = /(?:^|[.!?;,—]\s*|\bsees\s+)(?:the|a|an)\s+([\w'-]+(?:\s+[\w'-]+){0,2}?)(?:['’]s\s+(?:left\s+|right\s+)?(?:hand|arm)|\s+his\s+(?:hand|arm))?\s*$/.exec(prefix)
+    if (!owner) return false
+    const role = owner[1].replace(/['’]s(?:\s+(?:left\s+|right\s+)?(?:hand|arm))?$/, '')
+    // Generic "the woman", unknown names, props, and inferred pronouns do not
+    // prove an incidental third party. This narrow vocabulary is role-only.
+    const incidentalRole = /^(?:(?:old|older|elderly)\s+(?:man|woman)|grandfather|grandmother|bystander|onlooker|spectator|attendant|waiter|waitress|technician|operator)$/
+    return incidentalRole.test(role) && !evidence.includes(role)
+  })
 }
 function unassertedPrefix(prose: string, index: number): boolean {
   const prefix=prose.slice(Math.max(0,index-65),index)
@@ -105,7 +134,7 @@ function assertedActions(value: string): string[] {
     // Drawing an edge toward oneself is movement, not making a drawing.
     if (family.id === 'draw' && /\b(?:upward|towards?|closer|nearer|back|aside|breath)\b/.test(prose.slice(match.index! + match[0].length, match.index! + match[0].length + 65))) continue
     // "along the crease" names geometry, not the act of creasing.
-    if (/^(?:crease|fold)(?:s)?$/.test(match[0]) && /\b(?:the|a|its|along|of|at)(?:\s+[\w'-]+){0,2}\s*$/.test(prefix)) continue
+    if (/^(?:crease|fold)(?:s)?$/.test(match[0]) && /(?:\b(?:the|a|its)(?:\s+(?:central|new|middle|old|sharp|deep|loose))?|\b(?:along|of|at)(?:\s+[\w'-]+){0,2})\s*$/.test(prefix)) continue
     // "soft folds around her waist" describes fabric, not someone folding it.
     // Require a noun modifier too: "folds in the corners" can be a real verb.
     if (family.id === 'fold' && /^(?:fold|crease)s?$/.test(match[0])
@@ -114,6 +143,42 @@ function assertedActions(value: string): string[] {
     actions.add(family.id)
   }
   return [...actions]
+}
+
+/** A model may quote the whole image description. That wrapper is not in-scene
+ * dialogue. Unwrap only the enclosing pair for evidence checks; embedded speech
+ * stays excluded and the provider's authored text remains unchanged.
+ */
+export function visualDescriptionEvidence(value: string): string {
+  const trimmed = value.trim()
+  const pairs = [['"', '"'], ['“', '”']]
+  const pair = pairs.find(([open, close]) => trimmed.startsWith(open) && trimmed.endsWith(close))
+  return pair && trimmed.length > 2 ? trimmed.slice(1, -1) : value
+}
+
+function depictedActionEvidence(value: string, family: typeof ACTIONS[number] | undefined, foldPose: FoldPose | undefined, liftPose: 'hands' | 'arms' | undefined, source = ''): boolean {
+  if (!family) return false
+  const evidence = visualDescriptionEvidence(value)
+  return assertedActions(evidence).includes(family.id)
+    || assertedFoldPosePhrases(evidence, foldPose).length > 0
+    || assertedLiftPosePhrases(evidence, liftPose, source).length > 0
+}
+
+/** Preserve a short authored visual action when mixed with otherwise valid
+ * tags. Do not turn instruction prose or markup into provider concepts.
+ */
+export function isVisualActionFragment(value: string): boolean {
+  if (value.length > 240 || /[<>\[\]{}\r\n]/.test(value)
+    || /\b(?:must|should|include|describe|generate|prompt|instruction|depict|render|please)\b/i.test(value)
+    || /^\s*(?:draw|write|fold|lift|raise)\b/i.test(value)) return false
+  const evidence = visualDescriptionEvidence(value)
+  return assertedActions(evidence).length > 0
+    || assertedFoldPosePhrases(evidence, 'arms').length > 0
+    || assertedFoldPosePhrases(evidence, 'hands').length > 0
+    || assertedLiftPosePhrases(evidence, 'hands').length > 0
+    || assertedLiftPosePhrases(evidence, 'arms').length > 0
+    || assertedLiftPosePhrases(evidence, 'hands', evidence).length > 0
+    || assertedLiftPosePhrases(evidence, 'arms', evidence).length > 0
 }
 
 function explicitlyIdleTools(source: string): string[] {
@@ -165,6 +230,14 @@ export function enforceIllustrationSceneContract(
   const family = ACTIONS.find(row => row.id === contract.centralAction)
   const foldPose = family?.id === 'fold' ? anchoredFoldPose(contract.anchorExcerpt || contract.sourceParagraph) : undefined
   const liftPose = family?.id === 'lift' ? anchoredLiftBodyPart(contract.anchorExcerpt || contract.sourceParagraph) : undefined
+  const actionSource = contract.anchorExcerpt || contract.sourceParagraph
+  const actionScopeUnproven = !!family && actionOutsideDepictedRole(actionSource, prompt, family)
+  if (actionScopeUnproven) {
+    // Placement proximity alone cannot prove that an incidental actor belongs
+    // in the frame. Keep the actual source and surface the uncertainty; do not
+    // add that actor/action or silently relocate to a guessed paragraph.
+    issues.push({ code: 'scene-action-scope-unproven', message: `The nearby ${family.id} action belongs to an explicitly described role not identified in this shot. Its inclusion is unproven; the original anchor and authored prompt were preserved for review.`, repair: 'review' })
+  }
   if (format === 'danbooru-tags') {
     const original = prompt.split(',').map(tag => tag.trim()).filter(Boolean)
     const tools = new Set(contract.idleTools)
@@ -173,22 +246,39 @@ export function enforceIllustrationSceneContract(
     if (removed.length) issues.push({ code: 'scene-idle-tool-omitted', message: `Omitted bare tag(s) ${removed.join(', ')}: the anchor explicitly puts these tools aside. Their inactive role cannot be expressed by a bare object tag.`, repair: 'local' })
     // An action-bearing tag is not replaceable by generic standing/looking.
     // Do not synthesize a tag for a nuanced action or silently rewrite one.
-    const actionTags: readonly string[] = foldPose ? [...family!.tags, ...FOLD_POSE_TAGS[foldPose]] : liftPose ? [...family!.tags,...(liftPose==='hands'?['raised_hands','hands_up']:['raised_arms','arms_up'])] : family?.tags || []
-    if (family && !tags.some(tag => actionTags.includes(tag.toLocaleLowerCase()))) issues.push({ code: 'scene-action-missing', message: `The anchored ${family.id} action is missing from the provider tags. Repair the action tags only; keep the same actors, outfits, anchor and instant.`, repair: 'ambiguous' })
-    if (contract.centralAction === 'fold' && contract.idleTools.some(tool => /^(?:pen|pencil|marker)$/.test(tool))
-      && tags.some(tag => /^(?:writing|drawing|holding_pen|holding_pencil|holding_marker)$/.test(tag))) {
+    const reachingLift = liftPose && /\b(?:crossing|across)\b[^.!?]{0,85}\b(?:air|gap|space|distance|between)\b/i.test(actionSource)
+    const actionTags: readonly string[] = foldPose ? [...family!.tags, ...FOLD_POSE_TAGS[foldPose]] : liftPose ? [...family!.tags,...(liftPose==='hands'?['raised_hands','hands_up']:['raised_arms','arms_up']),...(reachingLift ? ['reaching', 'reaching_out'] : [])] : family?.tags || []
+    // Mixed Booru prompts are accepted by the provider. An action-bearing
+    // snippet is still scene evidence, not a reason to reject the whole request.
+    // Nouns, embedded speech, hypothetical and negated snippets remain excluded.
+    if (family && !actionScopeUnproven && !tags.some(tag => actionTags.includes(tag.toLocaleLowerCase()) || depictedActionEvidence(tag, family, foldPose, liftPose, actionSource))) issues.push({ code: 'scene-action-missing', message: `The anchored ${family.id} action is missing from the provider tags. Repair the action tags only; keep the same actors, outfits, anchor and instant.`, repair: 'ambiguous' })
+    if (family && !actionScopeUnproven && contract.centralActor) {
+      const mixed = tags.filter(tag => /\s/.test(tag) && depictedActionEvidence(tag, family, foldPose, liftPose, actionSource))
+      const owners = new Set(mixed.flatMap(tag => {
+        const evidence = visualDescriptionEvidence(tag)
+        const verbs = [...normalize(evidence).matchAll(new RegExp(family.source))].map(match => match[0])
+          .concat(assertedFoldPosePhrases(evidence, foldPose), assertedLiftPosePhrases(evidence, liftPose, actionSource))
+        const names = contract.actors.map(actor => actor.name)
+        return names.filter(name => verbs.some(verb => ownedSceneRequirementPresent(evidence, name, verb, names)))
+      }))
+      if (owners.size && !owners.has(contract.centralActor)) issues.push({ code: 'scene-action-owner', message: `The anchor explicitly assigns the ${family.id} action to ${contract.centralActor}, but the mixed prompt assigns it to another actor. Preserve the action owner.`, repair: 'ambiguous' })
+    }
+    if (!actionScopeUnproven && contract.centralAction === 'fold' && contract.idleTools.some(tool => /^(?:pen|pencil|marker)$/.test(tool))
+      && tags.some(tag => /^(?:writing|drawing|holding_pen|holding_pencil|holding_marker)$/.test(tag)
+        || assertedActions(visualDescriptionEvidence(tag)).some(action => action === 'write' || action === 'draw'))) {
       issues.push({ code: 'scene-idle-tool-used', message: 'The tags depict use of a writing tool which the paper-folding anchor explicitly puts aside. Remove the conflicting activity, not the anchored fold.', repair: 'ambiguous' })
     }
     return { prompt: tags.join(', '), issues }
   }
-  if (!family) return { prompt, issues }
-  const depictedActions = assertedActions(prompt)
-  const equivalentPosePhrases = [...assertedFoldPosePhrases(prompt, foldPose),...assertedLiftPosePhrases(prompt,liftPose)]
+  if (!family || actionScopeUnproven) return { prompt, issues }
+  const evidence = visualDescriptionEvidence(prompt)
+  const depictedActions = assertedActions(evidence)
+  const equivalentPosePhrases = [...assertedFoldPosePhrases(evidence, foldPose),...assertedLiftPosePhrases(evidence,liftPose,actionSource)]
   if (!depictedActions.includes(family.id) && !equivalentPosePhrases.length) issues.push({ code: 'scene-action-missing', message: `The anchored ${family.id} action is absent from the visual description. Preserve its actor, contact and target rather than replacing it with appearance or mood.`, repair: 'ambiguous' })
   else if (contract.centralActor) {
-    const verbs = [...normalize(prompt).matchAll(new RegExp(family.source))].map(match => match[0]).concat(equivalentPosePhrases)
+    const verbs = [...normalize(evidence).matchAll(new RegExp(family.source))].map(match => match[0]).concat(equivalentPosePhrases)
     const actorNames = contract.actors.map(actor => actor.name)
-    const explicitOwners = actorNames.filter(name => verbs.some(verb => ownedSceneRequirementPresent(prompt, name, verb, actorNames)))
+    const explicitOwners = actorNames.filter(name => verbs.some(verb => ownedSceneRequirementPresent(evidence, name, verb, actorNames)))
     // A pronoun or unnamed action is not proof of a transfer. Only flag a
     // provable mismatch; otherwise leave ownership unresolved for review.
     if (explicitOwners.length && !explicitOwners.includes(contract.centralActor)) {

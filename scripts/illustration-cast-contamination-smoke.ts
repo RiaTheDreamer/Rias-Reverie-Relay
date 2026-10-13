@@ -38,6 +38,12 @@ assert.match(manualIdentity, /red hair.*blue eyes.*lean build/)
 assert.doesNotMatch(manualIdentity, /black hair/, 'selected memory must override its own card appearance domain')
 const config = await backend.setConfig({ parserConnectionId: null, includeLorebook: false, proseIllustratorSettings: { ...backend.defaultProseIllustratorSettings(), enabled: true, mode: 'inline-protocol', perspectiveMode: 'storyboard' } }, 'cast-test')
 const base = { chatId: 'cast-chat', messageId: 'cast-message', swipeId: 0, requestId: 'cast-request', target: 'prose.illustration', slots: ['illustration'], count: 1, aspect: '4:3', cast: 'char+user', promptSource: 'visual_prompt', originalRequestXml: '', originalNegativePrompt: '', caption: '', alt: '' }
+for (const maximumCharacters of [1, 2, 8]) {
+  const runtime = backend.buildIllustratorRuntimeDirective({ ...config.proseIllustratorSettings, maximumCharacters }, [])
+  assert.match(runtime, new RegExp(`Model Planned cast guidance: aim for at most ${maximumCharacters} visible characters`))
+  assert.match(runtime, /preserve every necessary participant/, 'the actual Model Planned runtime must explain that cast guidance cannot remove actors')
+}
+assert.doesNotMatch(backend.buildIllustratorRuntimeDirective({ ...config.proseIllustratorSettings, mode: 'relay-planned' }, []), /Model Planned cast guidance/, 'Relay-Planned retains its separate bounded shot-selection contract')
 for (const format of ['natural-language', 'danbooru-tags']) {
   const viewConfig = await backend.setConfig({ proseIllustratorSettings: { ...backend.defaultProseIllustratorSettings(), enabled: true, mode: 'inline-protocol', perspectiveMode: 'storyboard', promptFormat: format } }, `view-${format}`)
   for (const planner of ['model', 'relay']) {
@@ -54,6 +60,40 @@ for (const format of ['natural-language', 'danbooru-tags']) {
   }
 }
 assert.equal(backend.normalizeProseIllustratorSettings({ promptRegistry: { 'story.framing.storyboard': 'Custom view instructions kept by the user.' } }).promptRegistry['story.framing.storyboard'], 'Custom view instructions kept by the user.', 'view guidance must not overwrite saved user overrides')
+for (const format of ['natural-language', 'danbooru-tags']) {
+  const user = `mixed-scene-${format}`
+  const settings = await backend.setConfig({ ...config, proseIllustratorSettings: { ...config.proseIllustratorSettings, promptFormat: format } }, user)
+  for (const planner of ['model', 'relay']) {
+    const imagePrompt = format === 'natural-language' ? '"Yejin sketches the floor plan at the table."' : '1girl, solo, Yejin sketches the floor plan, table, pencil'
+    const job = { ...base, cast: 'none', chatId: `${user}-${planner}`, originalSceneBrief: imagePrompt, authoritativeSourceParagraph: 'Yejin draws the floor plan at the table.', ...(planner === 'relay' ? { promptSource: 'structured', composedPositivePrompt: imagePrompt, prosePromptComposition: { namedSubjects: ['Yejin'], expectedPeopleCount: 1, perspectiveMode: 'storyboard', rawOutput: { plannerVersion: RELAY_PLANNED_V2 } } } : {}) }
+    const prepared = await backend.parseSlotPrompt(job, 'illustration', [], 0, settings, user, {})
+    assert.match(prepared.prompt, /Yejin sketches the floor plan/, `${planner}/${format}: the checked action must survive final normalization`)
+    const sent = backend.assemblePreparedProviderPrompts({ effectiveBaseTags: '', userPositivePromptPrefix: '', userNegativePromptPrefix: '' }, prepared)
+    assert.match(sent.prompt, /Yejin sketches the floor plan/, `${planner}/${format}: final provider assembly must not silently erase action evidence`)
+    assert.equal(prepared.parserUsed, false, 'equivalent visual evidence needs no extra model pass')
+  }
+}
+assert.throws(() => normalizeBooruTagPrompt('Yejin sketches paper, folding paper, lifting a cup'), /at least three/, 'visual snippets alone cannot masquerade as a useful Booru tag list')
+assert.doesNotMatch(normalizeBooruTagPrompt('1girl, solo, pencil, include a girl drawing, <draw>'), /include|<draw>/, 'instruction/markup snippets remain excluded')
+const quotedBound = await backend.parseSlotPrompt({ ...base, chatId: 'quoted-bound-scene', originalSceneBrief: '"Mira folds the paper while Cerys the Dreamer watches."', authoritativeSourceParagraph: 'Mira folds the paper while Cerys the Dreamer watches.' }, 'illustration', [], 0, config, 'cast-test', {})
+assert.match(quotedBound.prompt, /Mira folds the paper/, 'identity supplementation must not make the quoted visual action disappear from the scene check')
+for (const format of ['natural-language', 'danbooru-tags']) {
+  const user = `reported-lift-${format}`
+  const settings = await backend.setConfig({ ...config, proseIllustratorSettings: { ...config.proseIllustratorSettings, promptFormat: format } }, user)
+  for (const planner of ['model', 'relay']) {
+    const source = 'His hand lifts, crossing the three feet of sterile air between them.'
+    const imagePrompt = format === 'natural-language' ? "Exactly one visible person: Mira. Mira's left hand reaches across the small gap between them." : '1girl, solo, her hand reaches across the small gap, indoors'
+    const job = { ...base, cast: 'none', chatId: `${user}-${planner}`, originalSceneBrief: imagePrompt, authoritativeSourceParagraph: source, ...(planner === 'relay' ? { promptSource: 'structured', composedPositivePrompt: imagePrompt, prosePromptComposition: { namedSubjects: ['Mira'], expectedPeopleCount: 1, perspectiveMode: 'storyboard', rawOutput: { plannerVersion: RELAY_PLANNED_V2 } } } : {}) }
+    const prepared = await backend.parseSlotPrompt(job, 'illustration', [], 0, settings, user, {})
+    assert.match(prepared.prompt, /hand reaches across/, `${planner}/${format}: actual horizontal movement survives final shaping`)
+    assert.equal(prepared.parserUsed, false)
+  }
+}
+const roleSource = 'The old man lifts his thermos in a small salute.'
+const rolePrepared = await backend.parseSlotPrompt({ ...base, cast: 'none', chatId: 'reported-incidental-role', originalSceneBrief: 'Exactly one visible person: Mira. Mira stands mid-step, body locked rigid, holding a script binder at chest height.', authoritativeSourceParagraph: roleSource, proseAnchor: { selectedExcerpt: roleSource } }, 'illustration', [], 0, config, 'cast-test', {})
+assert.match(rolePrepared.prompt, /body locked rigid/)
+assert.doesNotMatch(rolePrepared.prompt, /thermos|old man|salute/, 'an incidental actor/action must not be invented to satisfy proximity')
+assert(rolePrepared.promptPipeline.warnings.some(warning => warning.code === 'scene-action-scope-unproven'), 'uncertain proximity must remain visible, not become a claimed semantic pass')
 const npcScene = 'Exactly two visible people: Han Yejin and Song Arin; the server remains outside the frame. Wide view inside a café. Yejin holds the stuck door open with one hand. Arin lifts her handbag clear of the walkway.'
 const prepared = await backend.parseSlotPrompt({ ...base, originalSceneBrief: npcScene }, 'illustration', [], 0, config, 'cast-test', {})
 assert.doesNotMatch(prepared.prompt, /Mira|Cerys|Identity unresolved|red hair|red_hair/, 'explicit complete NPC cast must not acquire unrelated bound identities')
@@ -100,9 +140,15 @@ const shortPreset = await backend.parseSlotPrompt({ ...base, requestId: 'short-p
 assert.deepEqual(shortPreset.promptPipeline.visualSubjectPrompts.map(subject => subject.name), ['Mira', 'Cerys the Dreamer'], 'two-person cast must not acquire an unverified short-name preset as a third actor')
 assert.doesNotMatch(shortPreset.prompt, /3people/, 'native discovery cannot exceed the declared scene capacity')
 assert.match(normalizeBooruTagPrompt('1girl, short_hair, holding, paper, a stray prose fragment'), /1girl, short_hair, holding, paper/)
-await assert.rejects(backend.parseSlotPrompt({ ...base, requestId: 'natural-over-limit', originalSceneBrief: 'Exactly three visible people: Mira, Cerys the Dreamer and Han Yejin; they examine the folder.' }, 'illustration', [], 0, config, 'cast-test', {}), /Maximum Characters in Image is 2.*3 visible people/)
+const authoredThreePeople = await backend.parseSlotPrompt({ ...base, requestId: 'natural-over-limit', originalSceneBrief: 'Exactly three visible people: Mira, Cerys the Dreamer and Han Yejin; they examine the folder.' }, 'illustration', [], 0, config, 'cast-test', {})
+assert.match(authoredThreePeople.prompt, /Mira.*Cerys the Dreamer.*Han Yejin/, 'Model Planned must preserve all three authored actors rather than delete one to meet planning guidance')
+assert.equal(authoredThreePeople.parserUsed, false, 'an over-guidance authored cast must not add a parser call')
+assert(authoredThreePeople.promptPipeline.warnings.some(warning => warning.code === 'model-placed-cast-exceeds-guidance'), 'authored cast guidance mismatch must remain visible in diagnostics without blocking generation')
 const tagConfig = await backend.setConfig({ ...config, proseIllustratorSettings: { ...config.proseIllustratorSettings, promptFormat: 'danbooru-tags', maximumCharacters: 2 } }, 'cast-test')
-await assert.rejects(backend.parseSlotPrompt({ ...base, chatId: 'fresh-tag-limit-chat', requestId: 'tag-over-limit', originalSceneBrief: 'medium_shot, 2girls, 1man, 1girl, short_hair, paper' }, 'illustration', [], 0, tagConfig, 'cast-test', {}), /Maximum Characters in Image is 2.*3 visible people/)
+const authoredThreePeopleTags = await backend.parseSlotPrompt({ ...base, chatId: 'fresh-tag-limit-chat', requestId: 'tag-over-limit', originalSceneBrief: 'medium_shot, 2girls, 1boy, standing, examining, folder' }, 'illustration', [], 0, tagConfig, 'cast-test', {})
+assert.match(authoredThreePeopleTags.prompt, /2girls/)
+assert.match(authoredThreePeopleTags.prompt, /1boy/)
+assert(authoredThreePeopleTags.promptPipeline.warnings.some(warning => warning.code === 'model-placed-cast-exceeds-guidance'), 'Booru declared three-person cast must be accepted with a diagnostic warning, not silently clamped')
 const foldingSource = 'Yejin laid the pencil down beside the ruler. She folded the paper in half.'
 const foldedTags = await backend.parseSlotPrompt({ ...base, chatId: 'tag-fold-contract', requestId: 'fold-contract', cast: 'none', originalSceneBrief: '1girl, solo, folding, paper, pencil, ruler', authoritativeSourceParagraph: foldingSource }, 'illustration', [], 0, tagConfig, 'cast-test', {})
 assert.doesNotMatch(foldedTags.prompt, /(?:^|, )pencil(?:,|$)/, 'Model Planned final shaping must remove the explicitly idle tool tag')

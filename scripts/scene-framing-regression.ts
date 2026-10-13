@@ -136,7 +136,7 @@ for (const [mode, marker, requiredBody] of [
   const partialOverride = `${marker}\nA user customization that retained the heading only.`
   const selected = { ...settings, enabled: true, mode, promptRegistry: { [promptId]: partialOverride } }
   const story = backend.resolveIllustratorStoryPrompt(selected, [])
-  const expectedGuidance = mode === 'relay-planned' ? RELAY_PLANNED_STORY_CHANNEL_GUIDANCE : ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE
+  const expectedGuidance = mode === 'relay-planned' ? backend.RELAY_PLANNED_SURFACE_MEDIA_SCOPE : ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE
   assert(story.includes(requiredBody) && story.includes(expectedGuidance), `${mode}: incomplete customized header suppressed required channel-separation guidance`)
 }
 const scene = 'Alpha sits side-on beside an open window, bracing one hand on the sill, eyes lowered toward a letter, jaw tight.'

@@ -179,15 +179,24 @@ import { buildAppearanceSidecarPayload, ingestAppearanceSidecarObservations, nor
 import {
   RELAY_PLANNED_V2,
   compileRelayPlannedPrompt,
+  relayPlannedAppearanceDescriptors,
   previousSequenceShotContext,
   sceneOnlyRepairPreservesPlan,
   relayPlannedAuthoritativeParagraph,
   validateRelayPlannedDirectorResult,
+  relayPlannedFrequencyDirective,
+  relayPlannedFrequencyRequiresIllustration,
+  relayPlannedCountDirective,
+  relayPlannedIllustrationCountBounds,
+  selectRelayPlannedDispatchOpportunities,
+  RELAY_PLANNED_BOORU_SUBJECT_SCHEMA,
+  runRelayPlannedDirectorWithFrequency,
   type RelayPlannedContext,
   type RelayPlannedIllustration,
+  type RelayPlannedValidationResult,
   type RelayPlannedSubjectState,
 } from './relayPlannedV2'
-import { buildIllustrationSceneContract, enforceIllustrationSceneContract } from './illustrationSceneContract'
+import { buildIllustrationSceneContract, enforceIllustrationSceneContract, visualDescriptionEvidence } from './illustrationSceneContract'
 import { normalizeIllustrationViewWording } from './illustrationViewWording'
 import { assertModelContextBudget, invalidateContextSnapshots, measureModelMessages, selectExcerpts, selectLorebookContext, visualSourceSnapshot, type ContextMetrics } from './contextBudget'
 import { BUILD_ID, EXTENSION_VERSION } from './build'
@@ -198,7 +207,7 @@ import { assertProviderRequestSafe } from './providerPromptSafety'
 import { imageProviderSupportsStreaming, isSwarmUiProvider, providerRequiresAbortableStream, relayStreamingAllowedForProvider } from './imageStreaming'
 import { imageProviderParameters } from './imageProviderParameters'
 import { completeSurfaceSpecs, normalizeSurfaceDocument } from './surfaceXml'
-import { declaredBooruPeopleCount, normalizeBooruTagPrompt } from './booruTags'
+import { booruSubjectOwnershipChanged, declaredBooruPeopleCount, normalizeBooruTagPrompt } from './booruTags'
 import { assistedSurfaceRepairSpec, MAX_ASSISTED_SURFACE_REPAIR_CHARS, validateAssistedSurfaceRepair } from './assistedSurfaceRepair'
 import { bracketExampleFromXml, xmlSurfacePromptModule } from './bracketSurfaceAuthoring'
 import { r45RendererScripts, r45ScriptOverrideKey, r45SurfaceAuthorityPack, r45SurfaceAuthorityScripts, type R45PresentationMode, type R45ScriptSource } from './r45SurfaceAuthority'
@@ -209,6 +218,7 @@ import { normalizeCharacterPhoneDefaultApps, type CharacterPhoneAppId } from './
 import { maskRetiredPhoneSurfaces, retirePhoneSurfaceDisplay } from './retiredPhoneSurface'
 import { renderPhoneContextDraft } from './phoneComposerDraft'
 import { createStreamingAssistantSnapshot } from './instantIllustrationStream'
+import { STORYBOARD_SPATIAL_FIDELITY_GUIDANCE, storyboardFigureIntegrityClause } from './storyboardVisualIntegrity'
 import { BOORU_TAG_MODE_PARSER_GUIDANCE, BOORU_TAG_MODE_VISUAL_PROMPT_GUIDANCE, DEFAULT_EXPLICIT_SCENE_NEGATIVE_GUIDANCE, DEFAULT_EXPLICIT_SCENE_POSITIVE_GUIDANCE, DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, DEFAULT_SURFACE_PROMPT_MODULES, ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE, RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE, RELAY_PLANNED_STORY_CHANNEL_GUIDANCE, STORYBOARD_BOORU_PARSER_GUIDANCE, STORYBOARD_DIRECTOR_GUIDANCE, STORYBOARD_PARSER_GUIDANCE, ILLUSTRATOR_FRAMING_REGISTRY_ALIASES, PROSE_ILLUSTRATOR_PERSPECTIVE_MODE_ALIASES, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ARTIFACT_MEDIA_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK, REVERIE_SURFACE_UTILITY_TEMPLATE, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_INLINE_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_PROTOCOL } from './protocols'
 import { characterProfilePortraitHasExactRelayImage, NATIVE_SURFACE_CANDIDATE_ROOT_TAGS, NATIVE_SURFACE_ROOT_TAGS, normalizeCharacterProfileContract, renderNativeSurfaceMarkup } from './nativeSurfaces'
 import { narrativeVariantForSurfaceShellMode } from './surfacePresentation'
@@ -274,6 +284,7 @@ import {
   mergeAppearancePromptFacts,
   appearanceFactDescriptor,
   isValidCanonicalCharacterName,
+  isValidHostIdentityName,
   mergeAppearanceFacts,
   mergeCharacters,
   moveAppearanceFact,
@@ -3052,6 +3063,19 @@ async function generateRawSidecar(request: Record<string, unknown> & { messages:
   return spindle.generate.raw({ ...providerRequest, messages: resolution.messages, userId } as any)
 }
 
+export const RELAY_PLANNED_SURFACE_MEDIA_SCOPE = `STORY/PROVIDER CHANNEL SEPARATION — ILLUSTRATOR SCOPE
+
+In Relay-Planned mode, write the narrative as ordinary prose. Do not emit standalone Illustrator-owned prose illustration requests, their image prompts, camera/framing instructions, or commentary about how Relay should place a narrative image. Relay's separate planner and composer build an image-only prompt from the selected story beat.
+
+This restriction applies ONLY to Illustrator-owned narrative images. Enabled Surface and Narrative Utility media remain Story Model-authored: when invoking an image-enabled Surface or Utility, include its required complete <image_request> or nested <reverie-illustration> and its image-only <scene_brief> or <visual_prompt>, exactly as that module specifies. A zero Illustrator request count does not disable Surface or Utility media. Those requests are outside the Illustrator's frequency and image-count budget. Do not invent disabled modules, additional media fields, or substitute schemas. Never turn narrative dialogue or prose into rendered captions or speech bubbles.`
+
+function scopeRelayPlannedStoryMediaPrompt(prompt: string): string {
+  // Scope only shipped channel guidance at runtime. Stored registry overrides
+  // and manually edited protocol source are not rewritten or migrated.
+  return prompt.replaceAll(RELAY_PLANNED_STORY_CHANNEL_GUIDANCE, RELAY_PLANNED_SURFACE_MEDIA_SCOPE)
+    .replace('The Story Model still writes ordinary narrative prose with no illustration markup.', 'The Story Model writes narrative prose without standalone Illustrator-owned illustration markup; enabled Surface and Narrative Utility media still follow their own authoring contracts.')
+}
+
 function activeIllustratorPrompt(settings: ProseIllustratorSettings): string {
   if (!settings.enabled || settings.mode === 'off') return ''
   const promptId = settings.mode === 'relay-planned'
@@ -3059,10 +3083,11 @@ function activeIllustratorPrompt(settings: ProseIllustratorSettings): string {
     : settings.mode === 'inline-protocol' && settings.promptFormat === 'danbooru-tags'
       ? 'story.inline-protocol.booru-tags'
       : settings.mode === 'inline-protocol' ? 'story.inline-protocol' : 'story.model-placed'
-  const base = registryPrompt(settings, promptId)
+  const registeredBase = registryPrompt(settings, promptId)
+  const base = settings.mode === 'relay-planned' ? scopeRelayPlannedStoryMediaPrompt(registeredBase) : registeredBase
   const framing = effectiveFramingPrompt(settings)
   const adult = registryPrompt(settings, 'story.adult-content-fidelity')
-  const channelGuidance = settings.mode === 'relay-planned' ? RELAY_PLANNED_STORY_CHANNEL_GUIDANCE : ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE
+  const channelGuidance = settings.mode === 'relay-planned' ? RELAY_PLANNED_SURFACE_MEDIA_SCOPE : ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE
   // A customized prompt that kept only the heading is not channel separation.
   // Require the complete stock block so Relay controls cannot be mistaken for
   // image-model prose when parser fallback is active.
@@ -3074,7 +3099,7 @@ function activeIllustratorPrompt(settings: ProseIllustratorSettings): string {
     ? BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE
     : ''
   const relayTagMode = settings.mode === 'relay-planned' && settings.promptFormat === 'danbooru-tags'
-    ? RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE
+    ? scopeRelayPlannedStoryMediaPrompt(RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE)
     : ''
   return [base, framing, adult, enforcedChannelGuidance, relayTagMode, tagOwnershipGuidance].filter(Boolean).join('\n\n')
 }
@@ -3456,6 +3481,7 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
           const device=await readReconciledPhoneDevice(chatId,context?.userId,identities,false)
           const history=await spindle.chat.getMessages(chatId) as ChatMessage[]
           const completedReplies=history.filter(message => isAssistantMessage(message) && !isOwnMessage(message)
+            && getSwipeContent(message,activeSwipeId(message)).trim().length > 0
             && String(message.id) !== String(context?.messageId || context?.message_id || '') && phoneStorySourceCommitted((message as any).extra,activeSwipeId(message))).length
           phoneProtocol = toolSession ? phoneToolProtocol(toolSession) : phoneStoryProtocol(identities,device.incoming,completedReplies)
           const selection=phoneContextForPrompt(device,identities)
@@ -3480,6 +3506,9 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
       const macroResolvedMessages = cleaned.map(message => {
         let content = cleanString((message as any)?.content)
         if (!content) return message
+        // Hosts can pre-expand a preset macro before interception. Reconcile
+        // the stock Relay guidance there too, without touching saved prompts.
+        if (settings.mode === 'relay-planned' && message.role === 'system') content = scopeRelayPlannedStoryMediaPrompt(content)
         content = content.replace(/<reverie_phone_macro\s*\/>|\{\{\s*reverie_phone\s*\}\}|<reverie_phone_protocol>[\s\S]*?<\/reverie_phone_protocol>/g, () => {
           const value = phoneMacroExpanded ? '' : phoneProtocol
           phoneMacroExpanded = true
@@ -3568,12 +3597,13 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
       const automaticIllustrator = (settings.mode === 'model-placed' || settings.mode === 'inline-protocol') && settings.automaticProtocolInjection && !illustratorMacroExpanded ? illustratorPrompt : ''
       const automaticNarrative = routerConfig.narrativeDlcEnabled && !narrativeMacroExpanded ? narrativeUtility.content : ''
       const promptAlreadyHasStoryBlock = (block: string) => Boolean(block) && dedupedMacroMessages.some(message => cleanString((message as any)?.content).includes(block))
+      const automaticIllustratorScope = settings.enabled && !settings.paused && settings.mode === 'relay-planned' && !promptAlreadyHasStoryBlock(RELAY_PLANNED_SURFACE_MEDIA_SCOPE) ? RELAY_PLANNED_SURFACE_MEDIA_SCOPE : ''
       const automaticPhoneMemory = phoneMemoryContext && !promptAlreadyHasStoryBlock(phoneMemoryContext) ? phoneMemoryContext : ''
       const automaticEventKnowledge = eventKnowledgeContext && !promptAlreadyHasStoryBlock(eventKnowledgeContext) ? eventKnowledgeContext : ''
       const automaticPlotSparksRecent = plotSparksRecentContext && !promptAlreadyHasStoryBlock(plotSparksRecentContext) ? plotSparksRecentContext : ''
       const automaticPhoneContinuity = phoneContinuity && !promptAlreadyHasStoryBlock(phoneContinuity) ? phoneContinuity : ''
       const automaticRuntime = ''
-      const combined = [automaticSurfaceProtocol, automaticUtility?.content || '', automaticNarrative, automaticPhoneMemory, automaticEventKnowledge, automaticPlotSparksRecent, automaticPhoneContinuity, phoneMacroExpanded ? '' : phoneProtocol, automaticIllustrator, automaticRuntime].filter(Boolean).join('\n\n')
+      const combined = [automaticSurfaceProtocol, automaticUtility?.content || '', automaticNarrative, automaticPhoneMemory, automaticEventKnowledge, automaticPlotSparksRecent, automaticPhoneContinuity, phoneMacroExpanded ? '' : phoneProtocol, automaticIllustrator, automaticIllustratorScope, automaticRuntime].filter(Boolean).join('\n\n')
       if (!combined) {
         if (surfaceMacroExpanded) schedulePromptInjectionRecord(chatId, 'macro', 'macro-placement', macroUtility.moduleIds, `Expanded ${macroUtility.moduleIds.length} enabled surface module${macroUtility.moduleIds.length === 1 ? '' : 's'} at the placed macro.`, context?.userId)
         return finish(dedupedMacroMessages)
@@ -3586,6 +3616,7 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
         automaticPhoneMemory ? 'Character Phone memory' : '',
         automaticEventKnowledge ? 'character knowledge context' : '',
         automaticIllustrator ? `illustrator (${settings.mode})` : '',
+        automaticIllustratorScope ? 'Relay-Planned Surface media scope' : '',
         automaticRuntime ? 'live runtime' : '',
       ].filter(Boolean).join(' + ')
       if (automaticUtility) {
@@ -4351,6 +4382,35 @@ function relayPlannedJson(raw: string, label: string): Record<string, unknown> {
   return parsed as Record<string, unknown>
 }
 
+/** Projection only: a full host-bound name established in this scene may use
+ * its unambiguous short form. Independent/learned short-name records block it.
+ * Do not persist aliases or merge Appearance records from this inference. */
+export function sceneVerifiedIdentityAliases<T extends { id?: string; name: string; aliases: string[] }>(identity: T, vault: ContinuityVaultState, source: string): T {
+  const base = identity.name.replace(/\s*\([^)]*\)\s*$/u, '').trim()
+  const words = base.split(/\s+/)
+  if (words.length < 2 || words.length > 4 || !words.every(word => /^[\p{L}'’.-]+$/u.test(word))
+    || !new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(base)}(?=$|[^\\p{L}\\p{N}])`, 'iu').test(source)) return identity
+  const own = Object.values(vault.characters).find(character => [character.canonicalCharacterId, character.lumiverseCharacterId, character.lumiversePersonaId].includes(identity.id || ''))
+  if (!own || !(own.lumiverseCharacterId || own.lumiversePersonaId)) return identity
+  const facts = allAppearanceFacts(vault)
+  const aliases = [base, words.at(-1)!].filter(alias => {
+    if ([...alias].length < 3 || !new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(alias)}(?=$|[^\\p{L}\\p{N}])`, 'iu').test(source)) return false
+    const aliasKey = normalizeIdentityOwner(alias)
+    return !Object.values(vault.characters).some(character => {
+      if (character.canonicalCharacterId === own.canonicalCharacterId) return false
+      const otherBase = character.canonicalCharacterName.replace(/\s*\([^)]*\)\s*$/u, '').trim()
+      const matches = [otherBase, otherBase.split(/\s+/).at(-1), ...character.aliases].some(name => normalizeIdentityOwner(name) === aliasKey)
+      if (!matches) return false
+      const emptyGeneratedPlaceholder = normalizeIdentityOwner(character.canonicalCharacterName) === aliasKey
+        && !character.lumiverseCharacterId && !character.lumiversePersonaId
+        && ['native-visual-preset', 'user-confirmed-analysis'].includes(character.sourceType)
+        && !facts.some(fact => fact.canonicalCharacterId === character.canonicalCharacterId)
+      return !emptyGeneratedPlaceholder
+    })
+  })
+  return aliases.length ? { ...identity, aliases: [...new Set([...identity.aliases, ...aliases])] } : identity
+}
+
 export function relayPlannedSubjectStates(
   state: StateFile,
   chatId: string,
@@ -4358,7 +4418,6 @@ export function relayPlannedSubjectStates(
   settings: ProseIllustratorSettings,
 ): RelayPlannedSubjectState[] {
   const strength = effectiveIllustratorAppearanceStrength(settings, state.continuityVault.strength)
-  if (strength === 'off') return []
   const facts = allAppearanceFacts(state.continuityVault)
   const candidates = new Set(extractCharacterCandidates(content).map(name => name.toLocaleLowerCase()))
   for (const fact of facts) {
@@ -4369,18 +4428,50 @@ export function relayPlannedSubjectStates(
   const names = [...new Set(facts
     .filter(fact => candidates.has(fact.canonicalCharacterName.toLocaleLowerCase()))
     .map(fact => fact.canonicalCharacterName))]
+  if (settings.perspectiveMode === 'solo-scene') {
+    for (const selected of selectedCharacterOnlySubjects(settings)) {
+      const canonical = resolveCanonicalCharacter(state.continuityVault, selected)
+      const name = canonical?.canonicalCharacterName || selected
+      if (!names.some(existing => normalizeIdentityOwner(existing) === normalizeIdentityOwner(name))) names.push(name)
+    }
+  }
   for (const candidate of extractCharacterCandidates(content)) if (!names.some(name => name.toLocaleLowerCase() === candidate.toLocaleLowerCase())) names.push(candidate)
-  return names.slice(0, 24).map(name => {
-    const active = selectContinuityForSubjects(state.continuityVault, { subjectNames: [name], chatId, sceneBrief: content, strength }).included
-    const identity = active.filter(fact => fact.layer === 'visual-identity').map(appearanceFactDescriptor).filter(Boolean)
-    const current = active.filter(fact => fact.layer !== 'visual-identity').map(appearanceFactDescriptor).filter(Boolean)
-    const pinned = active.filter(fact => fact.pinned).map(appearanceFactDescriptor).filter(Boolean)
-    const animal = [...identity, ...current].some(value => /\b(?:dog|cat|horse|animal|canine|feline|retriever|wolf|fox)\b/i.test(value))
-    return { name, role: animal ? 'animal' : 'character', identity, current, pinned, superseded: [], activeFactIds: active.map(fact => fact.factId) }
+  const verifiedSubjects = Object.values(state.continuityVault.characters)
+    .filter(character => character.lumiverseCharacterId || character.lumiversePersonaId)
+    .map(character => sceneVerifiedIdentityAliases({ id: character.canonicalCharacterId, name: character.canonicalCharacterName, aliases: character.aliases }, state.continuityVault, content))
+  const selectedNames = new Set(settings.perspectiveMode === 'solo-scene'
+    ? selectedCharacterOnlySubjects(settings).map(name => normalizeIdentityOwner(resolveCanonicalCharacter(state.continuityVault, name)?.canonicalCharacterName || name))
+    : [])
+  const seen = new Set<string>()
+  // Keep the selected label before owner-ID deduplication. Otherwise a short
+  // scene alias wins by length, erasing the exact name required by Char only.
+  return names.sort((a, b) => Number(selectedNames.has(normalizeIdentityOwner(b))) - Number(selectedNames.has(normalizeIdentityOwner(a))) || a.length - b.length).slice(0, 24).flatMap(name => {
+    const verified = verifiedSubjects.filter(subject => [subject.name, ...subject.aliases].some(alias => normalizeIdentityOwner(alias) === normalizeIdentityOwner(name)))
+    const owner = verified.length === 1 ? verified[0].id : name
+    const ownerKey = normalizeIdentityOwner(owner)
+    if (seen.has(ownerKey)) return []
+    seen.add(ownerKey)
+    // The Director needs the confirmed Appearance snapshot. Accumulated prose
+    // contains previous outfits as well as the current one; treating every
+    // clothing mention as an override erases the context it must compare.
+    // Selected, subject-owned shot overrides are applied by the compiler.
+    // Off suppresses Appearance facts, not the source-approved cast. Erasing
+    // all names makes the Director's real actors fail unknown-subject checks.
+    const active = strength === 'off' ? [] : selectContinuityForSubjects(state.continuityVault, { subjectNames: [owner], chatId, sceneBrief: 'full-body', strength }).included
+    const identity = relayPlannedAppearanceDescriptors(active.filter(fact => fact.layer === 'visual-identity').map(appearanceFactDescriptor))
+    const current = relayPlannedAppearanceDescriptors(active.filter(fact => fact.layer !== 'visual-identity').map(appearanceFactDescriptor))
+    const wardrobe = relayPlannedAppearanceDescriptors(active.filter(fact => fact.layer === 'wardrobe').map(appearanceFactDescriptor))
+    const pinned = relayPlannedAppearanceDescriptors(active.filter(fact => fact.pinned).map(appearanceFactDescriptor))
+    // Only a complete species descriptor proves an animal. Eye analogies,
+    // wolf-cut hair and animal-print clothing must not subtract human actors.
+    const animal = identity.some(value => value.split(/[,;]+/).some(fragment =>
+      /^(?:(?:species|animal)\s*:\s*)?(?:(?:a|an|large|small|young|adult|old|domestic)\s+)*(?:dog|cat|horse|animal|canine|feline|(?:golden|labrador)\s+retriever|retriever|wolf|fox)$/i
+        .test(fragment.replace(/_/g, ' ').trim())))
+    return [{ name, role: animal ? 'animal' : 'character', identity, current, wardrobe, pinned, superseded: [], activeFactIds: active.map(fact => fact.factId) }]
   })
 }
 
-function relayPlannedContextForResponse(input: {
+export function relayPlannedContextForResponse(input: {
   chatId: string
   messageId: string
   swipeId: number
@@ -4389,6 +4480,7 @@ function relayPlannedContextForResponse(input: {
   settings: ProseIllustratorSettings
   config: RouterConfig
   latestUserVisualContext?: string
+  userId?: string
 }): RelayPlannedContext {
   const references = selectProseReferenceAssets(input.state, input.chatId, input.settings, false)
   const locationReferences = selectProseReferenceAssets(input.state, input.chatId, input.settings, true)
@@ -4401,17 +4493,18 @@ function relayPlannedContextForResponse(input: {
     .map(plan => ({ scope: 'current-response', planId: plan.planId, title: plan.title, subjects: plan.namedSubjects, paragraphIndex: plan.anchor.paragraphIndex, status: plan.status })),
   ]
   const native = nativeSnapshotFromConfig(input.config)?.settings || {}
+  const countBounds = relayPlannedIllustrationCountBounds(input.settings,
+    input.settings.maximumIllustrationsPerMessage
+      - countCommittedProseIllustrationsForMessage(input.state, input.chatId, input.messageId, input.swipeId)
+      - countActiveProsePlansForMessage(input.state, input.chatId, input.messageId, input.swipeId))
   return {
     version: RELAY_PLANNED_V2,
     chatId: input.chatId,
     messageId: input.messageId,
     swipeId: input.swipeId,
-    maximumIllustrations: Math.max(0, Math.min(
-      Math.max(0, input.settings.maximumIllustrationsPerMessage - countCommittedProseIllustrationsForMessage(input.state, input.chatId, input.messageId, input.swipeId) - countActiveProsePlansForMessage(input.state, input.chatId, input.messageId, input.swipeId)),
-      input.settings.maximumImages,
-      input.settings.maximumOpportunitiesPerMessage,
-    )),
+    ...countBounds,
     maximumCharacters: input.settings.maximumCharacters,
+    frequencyMode: input.settings.frequencyMode,
     maximumPromptCharacters: 6000,
     perspectiveMode: input.settings.perspectiveMode,
     defaultAspectRatio: input.settings.defaultAspectRatio,
@@ -4424,6 +4517,9 @@ function relayPlannedContextForResponse(input: {
     }).filter(row => Boolean(row.text)),
     latestUserVisualContext: input.latestUserVisualContext || '',
     subjects: relayPlannedSubjectStates(input.state, input.chatId, input.content, input.settings),
+    characterOnlySubjects: input.settings.perspectiveMode === 'solo-scene'
+      ? selectedCharacterOnlySubjects(input.settings).map(name => resolveCanonicalCharacter(input.state.continuityVault, name)?.canonicalCharacterName || name)
+      : undefined,
     referenceAssetIds: references.map(asset => asset.assetId),
     locationReferenceAssetIds: locationReferences.map(asset => asset.assetId),
     priorIllustrations,
@@ -4436,11 +4532,13 @@ function relayPlannedDirectorMessages(settings: ProseIllustratorSettings, contex
   return [
     { role: 'system', content: [
       registryPrompt(settings, 'relay-planned.director.system'),
+      relayPlannedFrequencyDirective(context),
+      relayPlannedCountDirective(context),
       settings.promptFormat === 'danbooru-tags' ? RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE : '',
       settings.promptFormat === 'danbooru-tags' ? BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE : '',
       context.perspectiveMode === 'storyboard' ? STORYBOARD_DIRECTOR_GUIDANCE : '',
       context.perspectiveMode === 'storyboard' && settings.promptFormat === 'danbooru-tags' ? STORYBOARD_BOORU_PARSER_GUIDANCE : '',
-      context.perspectiveMode === 'solo-scene' ? 'CHAR ONLY CAST CONTRACT: Select a still in which exactly one established character is actually visible. An object-only crop is not a Char only illustration, even when the object is visually interesting. If one paragraph centers an object but another paragraph of this same response visibly shows the character with that object, anchor the character-visible paragraph instead. Set namedSubjects to that one character, expectedPeopleCount to 1, backgroundPeople to an empty string, and omit every other person from the frame. Never invent a visible character or change the source event to satisfy this rule; return no illustration if no character-visible beat exists.' : '',
+      context.perspectiveMode === 'solo-scene' ? `CHAR ONLY CAST CONTRACT: The only allowed visible character is ${JSON.stringify(context.characterOnlySubjects || [])}. Select a still in which that exact established character is actually visible. An object-only crop is not a Char only illustration, even when the object is visually interesting. If one paragraph centers an object but another paragraph of this same response visibly shows the selected character with that object, anchor the character-visible paragraph instead. Set namedSubjects to that exact selected name, expectedPeopleCount to 1, backgroundPeople to an empty string, and omit every other person from the frame. Never substitute another character, invent a visible character or change the source event to satisfy this rule; return no illustration if no selected-character-visible beat exists.` : '',
     ].filter(Boolean).join('\n\n') },
     { role: 'user', content: [expandModelPromptTemplate(registryPrompt(settings, 'relay-planned.director.request'), {
       maximumIllustrations: context.maximumIllustrations,
@@ -4456,7 +4554,7 @@ function relayPlannedDirectorMessages(settings: ProseIllustratorSettings, contex
       globalNegativeRequirementsJson: JSON.stringify(context.globalNegativeRequirements, null, 2),
       paragraphsJson: JSON.stringify(context.paragraphs.map(({ index, text }) => ({ index, text })), null, 2),
       latestUserVisualContext: context.latestUserVisualContext || '',
-    }), settings.promptFormat === 'danbooru-tags' ? 'TAG MODE SCHEMA ADDITION: Every illustration object must also include "booruTags": ["1girl", "solo", "short_hair", "black_hair", "holding", "card", "workshop"]. Fill this array with distinct visual tags for that illustration\'s actual subjects, complete current outfits, action, props, and setting. Keep promptCore and subjectDirectives as normal planning prose; only booruTags becomes the positive provider prompt.' : ''].filter(Boolean).join('\n\n') },
+    }), settings.promptFormat === 'danbooru-tags' ? RELAY_PLANNED_BOORU_SUBJECT_SCHEMA : ''].filter(Boolean).join('\n\n') },
   ]
 }
 
@@ -4470,12 +4568,13 @@ function relayPlannedRepairMessages(
     { role: 'system', content: [
       registryPrompt(settings, 'relay-planned.repair-parser.system'),
       validationErrors.length && validationErrors.every(error => error.startsWith('scene-'))
-        ? 'TARGETED SCENE CONTRACT REPAIR: Change only promptCore and the reported action tags in booruTags. Preserve every other illustration field exactly, including anchor, cast, subject directives, outfits, composition, references and negatives. Keep all existing non-action tags unchanged. Do not pick an easier moment, add a tool or actor, or rewrite appearance. If that bounded change cannot resolve the reported fault, return repairable false.' : '',
+        ? 'TARGETED SCENE CONTRACT REPAIR: Change only promptCore and the reported action tags in booruTags, including the affected subject\'s own booruTags array. Preserve every other illustration field exactly, including anchor, cast, subject directive prose, outfits, composition, references and negatives. Keep all existing non-action tags unchanged inside their original owner blocks. Do not pick an easier moment, add a tool or actor, or rewrite appearance. If that bounded change cannot resolve the reported fault, return repairable false.' : '',
       settings.promptFormat === 'danbooru-tags' ? 'DANBOORU TAG MODE REPAIR: Return the normal repairable/illustration JSON object. The complete repaired illustration must contain a booruTags array of separate visual tags covering the authoritative visible subjects, stable traits, full current outfits, action, props, and setting. Repair only missing or prose-shaped tags; do not convert a sentence into one underscore-joined pseudo-tag. Keep all valid story and composition fields intact.' : '',
       settings.promptFormat === 'danbooru-tags' ? BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE : '',
+      settings.promptFormat === 'danbooru-tags' ? RELAY_PLANNED_BOORU_SUBJECT_SCHEMA : '',
       context.perspectiveMode === 'storyboard' ? STORYBOARD_DIRECTOR_GUIDANCE : '',
       context.perspectiveMode === 'storyboard' && settings.promptFormat === 'danbooru-tags' ? STORYBOARD_BOORU_PARSER_GUIDANCE : '',
-      context.perspectiveMode === 'solo-scene' ? 'CHAR ONLY REPAIR: An object-only shot cannot pass by merely changing expectedPeopleCount. If an authoritative source paragraph visibly shows exactly one established character, re-anchor that paragraph and rebuild the same moment around that character, with exactly one named subject, expectedPeopleCount 1, and backgroundPeople empty. If no such paragraph exists, return repairable false. Do not invent a person or insert an off-frame subject into the image.' : '',
+      context.perspectiveMode === 'solo-scene' ? `CHAR ONLY REPAIR: The only allowed visible character is ${JSON.stringify(context.characterOnlySubjects || [])}. An object-only shot cannot pass by merely changing expectedPeopleCount. If an authoritative source paragraph visibly shows that selected character, re-anchor that paragraph and rebuild the same moment around that character, with exactly that named subject, expectedPeopleCount 1, and backgroundPeople empty. If no such paragraph exists, return repairable false. Do not substitute another character, invent a person or insert an off-frame subject into the image.` : '',
     ].filter(Boolean).join('\n\n') },
     { role: 'user', content: expandModelPromptTemplate(registryPrompt(settings, 'relay-planned.repair-parser.request'), {
       validationErrorsJson: JSON.stringify(validationErrors, null, 2),
@@ -4591,6 +4690,12 @@ async function analyzeRelayPlannedResponse(input: {
   userId?: string
   dryRun?: boolean
 }): Promise<RelayPlannedAnalysis> {
+  const operationKey = `prose:${input.chatId}`
+  const operationSerial = captureAbortableOperation(operationKey)
+  input = { ...input, settings: await resolveCharacterOnlySettingsForPrompt(input.settings, input.chatId, input.userId) }
+  if (input.settings.perspectiveMode === 'solo-scene' && !selectedCharacterOnlySubjects(input.settings).length) {
+    throw new Error('Character Only could not resolve the active chat character. Choose a Character Override or restore the host character binding. No image was dispatched.')
+  }
   if (!input.settings.plannerConnectionId) throw new Error('Illustration Director unavailable. Configure a Relay-Planned connection.')
   const connection = await spindle.connections.get(input.settings.plannerConnectionId, input.userId)
   if (!connection) throw new Error('Relay-Planned Illustration Director connection not found.')
@@ -4603,42 +4708,69 @@ async function analyzeRelayPlannedResponse(input: {
     : ''
   const context = relayPlannedContextForResponse({ ...input, latestUserVisualContext })
   const directorMessages = relayPlannedDirectorMessages(input.settings, context)
-  const telemetry: RelayPlannedStageTelemetry[] = [{ ...measureModelMessages('relay-planned-director', directorMessages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 }]
+  const telemetry: RelayPlannedStageTelemetry[] = []
   const modelConfig = { ...input.config, debugLogging: input.dryRun ? false : input.config.debugLogging, parserModel: input.settings.plannerModel || connection.model, parserParameters: input.settings.plannerParameters }
-  const rawDirectorOutput = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, directorMessages, input.userId, input.chatId, undefined, 'relay-planned-director')
-  let validated = validateRelayPlannedDirectorResult(rawDirectorOutput, context)
   let repairCalls = 0
   const validationIssues: string[] = []
-  const finalIllustrations: Array<{ illustration: RelayPlannedIllustration; warnings: string[] }> = []
-  for (const row of validated.shouldIllustrate ? validated.illustrations : []) {
-    validationIssues.push(...row.issues.map(issue => issue.code))
-    if (row.rejected) continue
-    if (!row.requiresRepair) {
-      finalIllustrations.push({ illustration: row.illustration, warnings: row.issues.map(issue => issue.message) })
-      continue
+  const repairDiagnostics: Array<Record<string, unknown>> = []
+  const prepareDirectorResult = async (validated: RelayPlannedValidationResult): Promise<RelayPlannedValidationResult> => {
+    const finalIllustrations: Array<{ illustration: RelayPlannedIllustration; warnings: string[] }> = []
+    for (const row of validated.shouldIllustrate ? validated.illustrations : []) {
+      validationIssues.push(...row.issues.map(issue => issue.code))
+      if (row.rejected) continue
+      if (!row.requiresRepair) {
+        finalIllustrations.push({ illustration: row.illustration, warnings: row.issues.map(issue => issue.message) })
+        continue
+      }
+      const repairMessages = relayPlannedRepairMessages(input.settings, context, row.illustration, row.issues.filter(issue => issue.repair === 'ambiguous').map(issue => `${issue.code}: ${issue.message}`))
+      assertAbortableOperationCurrent(operationKey, operationSerial)
+      telemetry.push({ ...measureModelMessages('relay-planned-repair-parser', repairMessages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 })
+      repairCalls += 1
+      const repairedRaw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, repairMessages, input.userId, input.chatId, undefined, 'relay-planned-repair-parser')
+      assertAbortableOperationCurrent(operationKey, operationSerial)
+      const repair = relayPlannedJson(repairedRaw, 'Illustration Plan Repair Parser')
+      if (repair.repairable !== true || !repair.illustration) {
+        repairDiagnostics.push({ title: row.illustration.title, result: repair, issues: ['repair-declined'] })
+        validationIssues.push('repair-declined')
+        continue
+      }
+      const repairedEnvelope = JSON.stringify({ shouldIllustrate: true, reason: validated.reason, illustrations: [repair.illustration] })
+      const repaired = validateRelayPlannedDirectorResult(repairedEnvelope, context).illustrations[0]
+      repairDiagnostics.push({ title: row.illustration.title, result: repair, issues: repaired?.issues || ['repair:missing-illustration'] })
+      if (!repaired || repaired.rejected || repaired.requiresRepair) {
+        validationIssues.push(...(repaired?.issues.map(issue => `repair:${issue.code}`) || ['repair:missing-illustration']))
+        continue
+      }
+      const actionOnlyRepair = row.issues.filter(issue => issue.repair === 'ambiguous').every(issue => issue.code.startsWith('scene-'))
+      if (actionOnlyRepair && !sceneOnlyRepairPreservesPlan(row.illustration, repaired.illustration)) {
+        validationIssues.push('repair:scene-contract-drift')
+        continue
+      }
+      finalIllustrations.push({ illustration: repaired.illustration, warnings: [...row.issues.map(issue => issue.message), ...repaired.issues.map(issue => issue.message), 'Repair Parser resolved structural ambiguity.'] })
     }
-    const repairMessages = relayPlannedRepairMessages(input.settings, context, row.illustration, row.issues.filter(issue => issue.repair === 'ambiguous').map(issue => `${issue.code}: ${issue.message}`))
-    telemetry.push({ ...measureModelMessages('relay-planned-repair-parser', repairMessages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 })
-    repairCalls += 1
-    const repairedRaw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, repairMessages, input.userId, input.chatId, undefined, 'relay-planned-repair-parser')
-    const repair = relayPlannedJson(repairedRaw, 'Illustration Plan Repair Parser')
-    if (repair.repairable !== true || !repair.illustration) {
-      validationIssues.push('repair-declined')
-      continue
+    // A structural repair may re-anchor a shot to another accepted shot.
+    // Recheck the complete batch before using its count or dispatching it.
+    const checked = validateRelayPlannedDirectorResult(JSON.stringify({ shouldIllustrate: true, reason: validated.reason,
+      illustrations: finalIllustrations.map(row => row.illustration) }), context)
+    validationIssues.push(...checked.illustrations.flatMap(row => row.issues.map(issue => issue.code)))
+    const usable = checked.illustrations.filter(row => !row.rejected && !row.requiresRepair)
+    return {
+      ...validated,
+      shouldIllustrate: usable.length > 0,
+      warnings: [...validated.warnings, ...checked.warnings],
+      illustrations: usable.map(row => ({ ...row, issues: [...row.issues,
+        ...(finalIllustrations.find(original => original.illustration === row.illustration || original.illustration.rank === row.illustration.rank)?.warnings || [])
+          .map(message => ({ code: 'validated-shot-note', message, repair: 'review' as const }))] })),
     }
-    const repairedEnvelope = JSON.stringify({ shouldIllustrate: true, reason: validated.reason, illustrations: [repair.illustration] })
-    const repaired = validateRelayPlannedDirectorResult(repairedEnvelope, context).illustrations[0]
-    if (!repaired || repaired.rejected || repaired.requiresRepair) {
-      validationIssues.push(...(repaired?.issues.map(issue => `repair:${issue.code}`) || ['repair:missing-illustration']))
-      continue
-    }
-    const actionOnlyRepair = row.issues.filter(issue => issue.repair === 'ambiguous').every(issue => issue.code.startsWith('scene-'))
-    if (actionOnlyRepair && !sceneOnlyRepairPreservesPlan(row.illustration, repaired.illustration)) {
-      validationIssues.push('repair:scene-contract-drift')
-      continue
-    }
-    finalIllustrations.push({ illustration: repaired.illustration, warnings: [...row.issues.map(issue => issue.message), ...repaired.issues.map(issue => issue.message), 'Repair Parser resolved structural ambiguity.'] })
   }
+  const { raw: rawDirectorOutput, validated } = await runRelayPlannedDirectorWithFrequency(directorMessages, context, async messages => {
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    telemetry.push({ ...measureModelMessages('relay-planned-director', messages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 })
+    const raw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, messages, input.userId, input.chatId, undefined, 'relay-planned-director')
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    return raw
+  }, prepareDirectorResult)
+  const finalIllustrations = validated.illustrations.filter(row => !row.rejected && !row.requiresRepair)
   const parsedDirector = relayPlannedJson(rawDirectorOutput, 'Illustration Director')
   const sourceFingerprint = contentFingerprint(input.content)
   const settingsFingerprint = proseOpportunitySettingsFingerprint(input.settings)
@@ -4648,8 +4780,17 @@ async function analyzeRelayPlannedResponse(input: {
     settingsFingerprint,
     sourceFingerprint,
     raw: parsedDirector,
-    warnings: row.warnings,
+    warnings: [...validated.warnings, ...row.issues.map(issue => issue.message)],
   }))
+  if (!opportunities.length && relayPlannedFrequencyRequiresIllustration(context)) {
+    const failure = new Error(`Required illustration planning failed validation: ${[...new Set(validationIssues)].join(', ') || 'no usable source-grounded shot'}. The selected frequency requires an illustration; the Director's scene summary is not a decline reason. No image was dispatched. Check Director output or retry planning.`) as Error & { relayPlannedDiagnostics: Record<string, unknown> }
+    failure.relayPlannedDiagnostics = {
+      director: parsedDirector, validation: validated.illustrations, repairs: repairDiagnostics,
+      paragraphs: context.paragraphs.filter(paragraph => validated.illustrations.some(row => Math.abs(row.illustration.anchor.paragraphIndex - paragraph.index) <= 2)),
+      telemetry,
+    }
+    throw failure
+  }
   return { context, opportunities, directorReason: validated.reason, telemetry, rawDirectorOutput, repairCalls, validationIssues }
 }
 
@@ -4704,7 +4845,7 @@ async function discoverProseOpportunities(input: {
   }
   if (!isEligibleProseContent(input.content, settings)) return []
   const existingCount = countCommittedProseIllustrationsForMessage(state, input.chatId, input.messageId, input.swipeId) + countActiveProsePlansForMessage(state, input.chatId, input.messageId, input.swipeId)
-  if (existingCount >= settings.maximumIllustrationsPerMessage) {
+  if (proseMessageLimitBlocker(state, input.chatId, input.messageId, input.swipeId, settings)) {
     await mutateState(input.chatId, input.userId, next => appendStateLog(next, {
       severity: 'info', stage: 'prose-opportunity-discovery', eventType: 'prose_opportunity_limit_reached',
       chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
@@ -5128,6 +5269,12 @@ function countActiveProsePlansForMessage(state: StateFile, chatId: string, messa
   ).length
 }
 
+export function proseMessageLimitBlocker(state: StateFile, chatId: string, messageId: string, swipeId: number, settings: ProseIllustratorSettings): GenerationBlocker | null {
+  const count = countCommittedProseIllustrationsForMessage(state, chatId, messageId, swipeId) + countActiveProsePlansForMessage(state, chatId, messageId, swipeId)
+  if (count < settings.maximumIllustrationsPerMessage) return null
+  return { code: 'illustration-limit', title: 'Saved-message illustration limit reached', detail: `${count} illustrations or accepted plans already use this message's limit of ${settings.maximumIllustrationsPerMessage}. Continue appends to the same saved message. Raise Illustrations per Saved Message in Advanced Illustrator Controls, or start a new story reply. Existing images are preserved.`, severity: 'warning', action: 'Adjust saved-message limit' }
+}
+
 function countProposedOpportunitiesForMessage(state: StateFile, chatId: string, messageId: string, swipeId: number, sourceFingerprint: string): number {
   return Object.values(state.proseIllustrator.opportunities || {}).filter(opportunity =>
     opportunity.chatId === chatId && opportunity.messageId === messageId && opportunity.swipeId === swipeId &&
@@ -5155,7 +5302,7 @@ async function evaluateAndPersistProseFrequencyGate(input: { chatId: string; mes
   return result
 }
 
-function proseOpportunitySettingsFingerprint(settings: ProseIllustratorSettings): string {
+export function proseOpportunitySettingsFingerprint(settings: ProseIllustratorSettings): string {
   return contentFingerprint(JSON.stringify({
     mode: settings.mode,
     plannerConnectionId: settings.plannerConnectionId,
@@ -5166,6 +5313,11 @@ function proseOpportunitySettingsFingerprint(settings: ProseIllustratorSettings)
     frequencyMode: settings.frequencyMode,
     everyNEligibleMessages: settings.everyNEligibleMessages,
     maximumIllustrationsPerMessage: settings.maximumIllustrationsPerMessage,
+    modelPlacedCountMode: settings.modelPlacedCountMode,
+    illustrationsPerRun: settings.illustrationsPerRun,
+    minimumImages: settings.minimumImages,
+    maximumImages: settings.maximumImages,
+    promptFormat: settings.promptFormat,
     defaultPromptProfileId: settings.defaultPromptProfileId,
     defaultAspectRatio: settings.defaultAspectRatio,
     continuityStrength: settings.continuityStrength,
@@ -6999,8 +7151,13 @@ async function handleExplainNoGeneration(payload: Extract<FrontendMessage, { typ
     if (!settings.enabled || settings.mode === 'off') blockers.push({ code: 'illustrator-off', title: 'Illustrator is off', detail: 'Choose Suggest, Manual, or Auto mode.', severity: 'warning', action: 'Change mode' })
     if (settings.paused) blockers.push({ code: 'illustrator-paused', title: 'Auto Illustrator is paused', detail: 'Resume Auto Illustrator for this chat.', severity: 'warning', action: 'Resume' })
     if (settings.frequencyMode === 'every-n') blockers.push({ code: 'frequency-gate', title: `Every ${settings.everyNEligibleMessages} eligible messages`, detail: 'Messages that are too short, utility-only, stale, or otherwise ineligible do not advance the counter.', severity: 'info' })
+    const latestAssistant = (await spindle.chat.getMessages(chatId) as ChatMessage[]).filter(message => isAssistantMessage(message) && !isOwnMessage(message)).at(-1)
+    if (latestAssistant) {
+      const limit = proseMessageLimitBlocker(state, chatId, latestAssistant.id, activeSwipeId(latestAssistant), settings)
+      if (limit) blockers.push(limit)
+    }
     const opportunities = Object.values(state.proseIllustrator.opportunities).filter(row => row.chatId === chatId && row.status !== 'dismissed')
-    if (!opportunities.length) blockers.push({ code: 'no-eligible-beat', title: 'No eligible illustration beat', detail: 'Relay did not find an eligible visual moment in the available prose.', severity: 'info', action: 'Check Illustrator settings and planner connection' })
+    if (!opportunities.length && !blockers.some(row => row.code === 'illustration-limit')) blockers.push({ code: 'no-eligible-beat', title: 'No eligible illustration beat', detail: 'No eligible visual moment is currently recorded. Open Logs for the latest discovery decision, or review the Illustrator settings and planner connection.', severity: 'info', action: 'Check Illustrator settings and planner connection' })
   }
   if (!blockers.length) blockers.push({ code: 'ready', title: 'Settings allow generation', detail: 'No settings blocker was found, but this does not confirm that the Director selected a valid image. Check the Background Queue for a job, or open Logs for the latest Director decision and validation result.', severity: 'info' })
   const stateId = chatId || UTILITY_STATE_ID
@@ -11626,15 +11783,19 @@ export async function composePromptForOpportunity(
   const sexualEscalationRejected = hasUnrequestedExplicitEscalation(authoritativeScene, rawPositivePrompt)
   if (sexualEscalationRejected) throw new Error('Sidecar prompt composer added explicit content absent from the selected scene; Relay stopped before provider dispatch instead of substituting narrative prose for an image prompt.')
   const cleanedPositivePrompt = settings.stripGenericStyleBoilerplate ? stripGenericIllustratorStyleBoilerplate(rawPositivePrompt) : rawPositivePrompt
+  const expectedPeopleCount = settings.perspectiveMode === 'solo-scene' ? limited.kept.length : settings.maximumCharacters > 0 ? Math.min(rawExpectedPeopleCount, settings.maximumCharacters) : rawExpectedPeopleCount
+  const storyboardIntegrity = settings.perspectiveMode === 'storyboard' && settings.promptFormat !== 'danbooru-tags'
+    ? storyboardFigureIntegrityClause(expectedPeopleCount, limited.kept)
+    : ''
   const positivePrompt = [
     settings.customPromptPrefix,
     cleanedPositivePrompt,
+    storyboardIntegrity,
     settings.perspectiveMode === 'solo-scene' ? `character-only composition, only ${limited.kept.join(', ') || 'the selected subject'} visible, no unrelated people` : '',
     settings.highResolutionModifier ? 'high-resolution polished rendering, cleaner anatomy, stronger identity consistency, refined detail while preserving the selected prose framing' : '',
   ].filter(Boolean).join(', ')
   const baseNegativePrompt = [settings.customNegativePrefix, cleanString(parsed.negativePrompt), settings.perspectiveMode === 'solo-scene' ? 'extra person, background people, crowd, unrelated character, duplicate person, additional face, silhouette person, reflected person' : ''].filter(Boolean).join(', ')
   const contextualSexual = applyContextualSexualGuidance(positivePrompt, baseNegativePrompt, authoritativeScene)
-  const expectedPeopleCount = settings.perspectiveMode === 'solo-scene' ? limited.kept.length : settings.maximumCharacters > 0 ? Math.min(clampInt(parsed.expectedPeopleCount, 0, 64, opportunity.expectedPeopleCount), settings.maximumCharacters) : clampInt(parsed.expectedPeopleCount, 0, 64, opportunity.expectedPeopleCount)
   const backgroundPeople = settings.perspectiveMode === 'solo-scene' ? '' : cleanString(parsed.backgroundPeople) || opportunity.backgroundPeople
   validateIllustratorPeopleConstraints(settings, limited.kept, expectedPeopleCount, backgroundPeople)
   return {
@@ -11703,8 +11864,10 @@ export async function buildProsePromptComposerMessages(
   const channelGuard = settings.promptFormat === 'danbooru-tags'
     ? [BOORU_TAG_MODE_PARSER_GUIDANCE, BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE].join('\n\n')
     : 'PROVIDER PROMPT CHANNEL GUARD: The positivePrompt field is sent directly to the image model. Return only an image-ready description of visible content from the selected story beat. Never copy the narrative paragraph/dialogue, Relay placement or wrapper rules, story framing contract, caption intent, or instructions to the Story Model. Do not invent text bubbles, subtitles, or captions.'
-  if (messages[0]?.role === 'system') messages[0].content = `${messages[0].content}\n\n${channelGuard}`
-  else messages.unshift({ role: 'system', content: channelGuard })
+  const storyboardSpatialGuard = settings.perspectiveMode === 'storyboard' ? STORYBOARD_SPATIAL_FIDELITY_GUIDANCE : ''
+  const finalGuard = [channelGuard, storyboardSpatialGuard].filter(Boolean).join('\n\n')
+  if (messages[0]?.role === 'system') messages[0].content = `${messages[0].content}\n\n${finalGuard}`
+  else messages.unshift({ role: 'system', content: finalGuard })
   return messages
 }
 
@@ -11803,19 +11966,15 @@ async function handleAutoOpportunityDispatch(chatId: string, opportunities: Pros
   assertAbortableOperationCurrent(operationKey, operationSerial)
   const settings = proseSettingsForChat(state, chatId)
   if ((!isHandsOffProseMode(settings) && !options.forceHandsOff) || !opportunities.length) return
-  const requested = Math.max(1, Math.min(settings.illustrationsPerRun || 1, settings.maximumIllustrationsPerMessage))
-  const seenBeats = new Set<string>()
-  const selected = [...opportunities]
-    .filter(item => item.status === 'proposed')
-    .sort((a, b) => b.confidence - a.confidence)
-    .filter(item => {
-      const beat = `${item.messageId}:${item.swipeId}:${item.paragraphIndex}:${item.insertionSide}`
-      if (seenBeats.has(beat)) return false
-      seenBeats.add(beat)
-      return true
-    })
-    .slice(0, requested)
+  const first = opportunities[0]
+  const countBounds = relayPlannedIllustrationCountBounds(settings, settings.maximumIllustrationsPerMessage
+    - countCommittedProseIllustrationsForMessage(state, chatId, first.messageId, first.swipeId)
+    - countActiveProsePlansForMessage(state, chatId, first.messageId, first.swipeId))
+  const requested = countBounds.maximumIllustrations
+  const selected = selectRelayPlannedDispatchOpportunities(opportunities, requested)
   if (!selected.length) return
+  if (selected.length < countBounds.minimumIllustrations) spindle.sendToFrontend({ type: 'relay_notice', level: 'warning',
+    message: `Illustration count shortfall: ${selected.length} of ${countBounds.minimumIllustrations}${countBounds.countMode === 'range' ? `–${countBounds.maximumIllustrations}` : ''} requested illustrations passed planning. Generating only the validated shots.` }, userId)
   await mutateState(chatId, userId, next => {
     appendStateLog(next, {
       severity: 'info', stage: 'prose-illustrator-auto', eventType: 'prose_hands_off_dispatch_started',
@@ -13395,7 +13554,9 @@ export function buildIllustratorRuntimeDirective(
   // Keep these parameters for callers that share the runtime-directive API.
   void profileCatalog
   void inheritedProfileId
-  return runtime
+  return mode === 'model-placed' || mode === 'inline-protocol'
+    ? `${runtime}\nModel Planned cast guidance: aim for at most ${settings.maximumCharacters} visible characters when choosing the illustrated moment. If the exact anchored action requires more people, preserve every necessary participant in the authored request; do not remove an actor or skip the illustration solely to meet this target.`
+    : runtime
 }
 
 function escapeXmlText(value: unknown): string {
@@ -13652,7 +13813,8 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
   for (const [legacyId, canonicalId] of Object.entries(ILLUSTRATOR_FRAMING_REGISTRY_ALIASES)) {
     if (Object.prototype.hasOwnProperty.call(rawRegistry, canonicalId) || !Object.prototype.hasOwnProperty.call(rawRegistry, legacyId)) continue
     const stored = String(rawRegistry[legacyId] ?? '')
-    if (!isStockRetired(legacyId, stored)) promptRegistry[canonicalId] = stored
+    if (isStockRetired(legacyId, stored) || stored.replace(/\r\n/g, '\n').trim() === DEFAULT_PROMPT_REGISTRY[canonicalId]?.replace(/\r\n/g, '\n').trim()) migratedPromptRegistryIds.add(canonicalId)
+    else promptRegistry[canonicalId] = stored
   }
   const legacyRegistryInputs: Array<{ canonicalId: string; legacyId: string; value: unknown }> = [
     { canonicalId: 'story.model-placed', legacyId: 'story.model-placed', value: raw.modelPlacedProtocolOverride },
@@ -13665,7 +13827,9 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
   for (const { canonicalId, legacyId, value: legacy } of legacyRegistryInputs) {
     if (Object.prototype.hasOwnProperty.call(rawRegistry, canonicalId) || Object.prototype.hasOwnProperty.call(rawRegistry, legacyId) || !cleanString(legacy)) continue
     const stored = cleanString(legacy)
-    if (isStockRetired(legacyId, stored)) migratedPromptRegistryIds.add(canonicalId)
+    // Derived compatibility fields must not reseed exact shipped defaults as
+    // user overrides on every other normalization/save cycle.
+    if (isStockRetired(legacyId, stored) || stored.replace(/\r\n/g, '\n').trim() === DEFAULT_PROMPT_REGISTRY[canonicalId]?.replace(/\r\n/g, '\n').trim()) migratedPromptRegistryIds.add(canonicalId)
     else promptRegistry[canonicalId] = stored
   }
   const mode = cleanString(raw.mode)
@@ -13678,8 +13842,10 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
   const perspectiveMode = normalizeProsePerspectiveMode(raw.perspectiveMode)
   const imageAlignment = cleanString(raw.imageAlignment)
   const imageSize = cleanString(raw.imageSize)
+  const modelPlacedCountMode = cleanString(raw.modelPlacedCountMode) === 'range' ? 'range' : 'fixed'
   const illustrationsPerRun = clampInt(raw.illustrationsPerRun, 1, 32, defaults.illustrationsPerRun)
-  const maximumImages = Math.max(illustrationsPerRun, clampInt(raw.maximumImages, 1, 32, clampInt(raw.maximumOpportunitiesPerMessage, 1, 32, defaults.maximumImages)))
+  const selectedMaximumImages = clampInt(raw.maximumImages, 1, 32, clampInt(raw.maximumOpportunitiesPerMessage, 1, 32, defaults.maximumImages))
+  const maximumImages = modelPlacedCountMode === 'range' ? selectedMaximumImages : Math.max(illustrationsPerRun, selectedMaximumImages)
   const minimumImages = Math.min(maximumImages, clampInt(raw.minimumImages, 1, 32, defaults.minimumImages))
   const maximumIllustrationsPerMessageInput = raw.maximumIllustrationsPerMessage === undefined ? maximumImages : raw.maximumIllustrationsPerMessage
   return {
@@ -13699,11 +13865,11 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
     frequencyMode: ['key-moments', 'every-eligible', 'every-n'].includes(frequencyMode) ? frequencyMode as ProseIllustratorSettings['frequencyMode'] : defaults.frequencyMode,
     everyNEligibleMessages: clampInt(raw.everyNEligibleMessages, 1, 100, defaults.everyNEligibleMessages),
     maximumOpportunitiesPerMessage: maximumImages,
-    maximumIllustrationsPerMessage: Math.max(illustrationsPerRun, clampInt(maximumIllustrationsPerMessageInput, 1, 32, Math.max(defaults.maximumIllustrationsPerMessage, maximumImages))),
+    maximumIllustrationsPerMessage: Math.max(modelPlacedCountMode === 'range' ? maximumImages : illustrationsPerRun, clampInt(maximumIllustrationsPerMessageInput, 1, 32, Math.max(defaults.maximumIllustrationsPerMessage, maximumImages))),
     illustrationsPerRun,
     minimumImages,
     maximumImages,
-    modelPlacedCountMode: cleanString(raw.modelPlacedCountMode) === 'range' ? 'range' : 'fixed',
+    modelPlacedCountMode,
     perspectiveMode,
     imageAlignment: ['left', 'center', 'right'].includes(imageAlignment) ? imageAlignment as ProseIllustratorSettings['imageAlignment'] : defaults.imageAlignment,
     imageSize: ['small', 'medium', 'large', 'full'].includes(imageSize) ? imageSize as ProseIllustratorSettings['imageSize'] : defaults.imageSize,
@@ -14599,6 +14765,13 @@ function shapeSceneLedIdentityPrompt(
  * image spend. Ordinary valid Model Planned requests remain one-pass.
  */
 function enforceStoryboardPrompt(prompt: string, job: RouterJob, context: ParserContextResult, format: ProseIllustratorSettings['promptFormat']): string {
+  if (job.target === 'prose.illustration') {
+    // Profiles/identity may have appended facts after a quoted visual_prompt.
+    // Only unwrap the exact authored description, never arbitrary story speech.
+    const authored = (job.composedPositivePrompt || job.originalSceneBrief).trim()
+    const unwrapped = visualDescriptionEvidence(authored)
+    if (authored !== unwrapped && prompt.includes(authored)) prompt = prompt.replace(authored, unwrapped)
+  }
   if (job.target === 'prose.illustration') prompt = normalizeIllustrationViewWording(prompt, context.perspectiveMode, format)
   if (job.target !== 'prose.illustration' || context.perspectiveMode !== 'storyboard' || !job.authoritativeSourceParagraph) return prompt
   const anchor = job.prosePromptComposition?.rawOutput?.illustration as RelayPlannedIllustration | undefined
@@ -15080,15 +15253,12 @@ export async function parseSlotPrompt(
     if (!job.originalSceneBrief.trim()) {
       throw new Error('Model Planned request is missing its authored <visual_prompt>; Relay will not ask a Parser to invent one. Reparse the Story Model request or restore its prompt.')
     }
-    if (job.target === 'prose.illustration') {
-      const explicitCount = Math.max(completeIllustrationSubjectNames(job).length,
+    const explicitCount = job.target === 'prose.illustration'
+      ? Math.max(completeIllustrationSubjectNames(job).length,
         promptFormat === 'danbooru-tags' ? declaredBooruPeopleCount(job.originalSceneBrief) : 0)
-      if (explicitCount > parserSettings.maximumCharacters) {
-        throw new Error(`Maximum Characters in Image is ${parserSettings.maximumCharacters}; the Model Planned request explicitly contains ${explicitCount} visible people. No image was dispatched. Reparse or edit the request to keep only the intended subjects.`)
-      }
-    }
+      : 0
     const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings)
-    return buildAuthoritativeVisualPrompt(
+    const prepared = await buildAuthoritativeVisualPrompt(
       job,
       slot,
       config,
@@ -15099,6 +15269,14 @@ export async function parseSlotPrompt(
         : 'Skipped — Story Model visual_prompt passed through; use Reparse for Parser rewriting',
       promptFormat,
     )
+    if (explicitCount > parserSettings.maximumCharacters) {
+      prepared.promptPipeline.warnings.push({
+        code: 'model-placed-cast-exceeds-guidance',
+        message: `The Story Model authored ${explicitCount} visible people against a character-count target of ${parserSettings.maximumCharacters}. Preserved the authored cast; this planning guidance does not block Model Planned images.`,
+        sources: ['Story Model authored cast'],
+      })
+    }
+    return prepared
   }
   if (job.composedPositivePrompt?.trim() && !forceSemanticRewrite) {
     const locallyCompiledRelayPlan = job.prosePromptComposition?.rawOutput?.plannerVersion === RELAY_PLANNED_V2
@@ -15247,6 +15425,11 @@ export async function parseSlotPrompt(
       let parserOutput = raw
       let parsed = parsePromptJson(raw)
       parsed.prompt = imageContentWithoutSurfaceDestination(parsed.prompt)
+      if (!directionRewrite && promptFormat === 'danbooru-tags' && job.synthetic && job.prosePromptComposition?.positivePrompt
+        && booruSubjectOwnershipChanged(job.prosePromptComposition.positivePrompt, parsed.prompt)) {
+        return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw,
+          'Parser merged subject blocks or moved established appearance/outfit tags between subjects. Preserved the saved subject-owned image prompt.', promptFormat)
+      }
       const authoritativeScene = authoritativeSceneText(job)
       if (job.target === 'custom.artifact-media' && context.classification === 'character portrait' && portraitReplacedBySurfaceUi(parsed.prompt)) {
         return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw, 'Parser replaced the requested portrait with its hosting UI card. Preserved the authoritative portrait description instead.', promptFormat)
@@ -15260,13 +15443,16 @@ export async function parseSlotPrompt(
           ...(job.prosePromptComposition?.namedSubjects || []),
           ...context.visualSubjects.map(subject => subject.name),
         ]
+        // Booru underscores join words inside a tag. Compare its semantic
+        // evidence as words, without changing the provider-bound tag spelling.
+        const semanticText = (value: string) => promptFormat === 'danbooru-tags' ? value.replace(/_/g, ' ') : value
         const missingSemantics = modelPlacedSemanticViolations(
-          authoritativeScene,
-          parsed.prompt,
+          semanticText(authoritativeScene),
+          semanticText(parsed.prompt),
           protectedSubjects,
-          job.originalSceneBrief,
+          semanticText(job.originalSceneBrief),
           Math.max(Number(job.prosePromptComposition?.expectedPeopleCount || 0), context.visualSubjects.length),
-          context.context,
+          semanticText(context.context),
           directionRewrite ? job.regenerationIntent : undefined,
         )
         if (missingSemantics.length) {
@@ -16711,10 +16897,13 @@ async function buildParserContext(
   const continuityFramingMode = job.prosePromptComposition?.perspectiveMode
     || (job.target === 'prose.illustration' ? proseSettingsForChat(state, job.chatId).perspectiveMode : '')
   const personaPovMode = continuityFramingMode === 'persona-pov'
-  const [activeCharacter, activePersona] = await Promise.all([
+  const [hostCharacter, hostPersona] = await Promise.all([
     visibleIdentityRequest || castRequirements.character ? readChatCharacterIdentity(job.chatId, _userId).catch(() => null) : Promise.resolve(null),
     visibleIdentityRequest || castRequirements.persona || personaPovMode ? readCurrentHostPersona(_userId, job.chatId) : Promise.resolve(null),
   ])
+  const sourceForIdentity = messages.slice(0, targetIndex + 1).map(message => getAuthoritativeSwipeContent(message, message.swipe_id || 0)).join('\n')
+  const activeCharacter = hostCharacter ? sceneVerifiedIdentityAliases(hostCharacter, state.continuityVault, sourceForIdentity) : null
+  const activePersona = hostPersona ? sceneVerifiedIdentityAliases({ ...hostPersona, aliases: hostPersona.aliases || [] }, state.continuityVault, sourceForIdentity) : null
   const characterNamed = requestReferencesActiveIdentity(job, activeCharacter)
   const personaNamed = requestReferencesActiveIdentity(job, activePersona)
   const declaredSubjects = completeIllustrationSubjectNames(job)
@@ -16850,7 +17039,7 @@ async function buildParserContext(
   const visualSubjects = filterPersonaPovVisualSubjects(
     restrictRelayPlannedVisualSubjects(
       restrictSoloSceneVisualSubjects(castScopedVisualSubjects, continuityFramingMode, castSubjects.length),
-      job,
+      job, [activeCharacter, activePersona].filter((identity): identity is NonNullable<typeof identity> => Boolean(identity)),
     ),
     continuityFramingMode, activePersona, job.originalSceneBrief,
   )
@@ -17169,6 +17358,14 @@ export function parsePromptJson(raw: string): ParsedPromptJson {
 }
 
 
+export function proseImageOnlyFallbackPrompt(job: RouterJob): string {
+  if (job.target !== 'prose.illustration') return job.originalSceneBrief
+  if (job.promptSource === 'visual_prompt') return job.originalSceneBrief.trim()
+  // Synthetic Relay plans own a saved provider composition, not Story Model
+  // XML. Its positive prompt is image-only; sceneBrief/sourceContent are not.
+  return job.synthetic ? cleanString(job.prosePromptComposition?.positivePrompt) : ''
+}
+
 function buildParserFallbackPrompt(
   job: RouterJob,
   slot: string,
@@ -17180,14 +17377,15 @@ function buildParserFallbackPrompt(
   parserError: string,
   promptFormat: ProseIllustratorSettings['promptFormat'] = 'natural-language',
 ): PreparedPrompt {
-  if (job.target === 'prose.illustration' && (job.promptSource !== 'visual_prompt' || !job.originalSceneBrief.trim())) {
+  const imageOnlyFallback = proseImageOnlyFallbackPrompt(job)
+  if (job.target === 'prose.illustration' && !imageOnlyFallback) {
     throw new Error('Relay stopped prose illustration fallback because no image-only <visual_prompt> was available; it will not substitute the surrounding story paragraph.')
   }
   const classification = context.classification
   const humanPolicy = targetHumanPolicy(job, classification)
   const profileBase = resolveProviderPromptProfileDecision(job, config)
   const visibleBase = job.target === 'prose.illustration'
-    ? job.originalSceneBrief
+    ? imageOnlyFallback
     : [
       job.originalSceneBrief,
       job.caption ? `Context: ${job.caption}` : '',
@@ -17213,7 +17411,7 @@ function buildParserFallbackPrompt(
     native: nativeNegative,
     request: job.originalNegativePrompt,
     subject: humanPolicy.allowHumanPrompt ? context.subjectNegativePrompt : '',
-    parser: contextualSexual.negativePrompt,
+    parser: [job.synthetic ? job.prosePromptComposition?.negativePrompt : '', contextualSexual.negativePrompt].filter(Boolean).join(', '),
     router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : '', context.perspectiveMode === 'persona-pov' ? context.personaPovNegativePrompt : '', config.additionalNegativePrompt].filter(Boolean).join(', '),
   })
   const humanConflict = humanPolicy.allowHumanPrompt
@@ -21638,11 +21836,14 @@ export function restrictSoloSceneVisualSubjects(
 export function restrictRelayPlannedVisualSubjects(
   subjects: VisualSubjectPrompt[],
   job: Pick<RouterJob, 'target' | 'originalSceneBrief' | 'prosePromptComposition'>,
+  verifiedIdentities: Array<{ id?: string; name: string; aliases?: string[] }> = [],
 ): VisualSubjectPrompt[] {
   if (job.target === 'prose.illustration' && job.prosePromptComposition?.rawOutput?.plannerVersion === RELAY_PLANNED_V2) {
     const visibleNames = (job.prosePromptComposition.namedSubjects || []).map(name => cleanString(name).toLocaleLowerCase()).filter(Boolean)
     return subjects.filter(subject => {
       const name = cleanString(subject.name).toLocaleLowerCase()
+      const identity = verifiedIdentities.find(identity => identity.id && identity.id === subject.id)
+      if (identity && [identity.name, ...(identity.aliases || [])].some(alias => visibleNames.some(visible => normalizeIdentityOwner(alias) === normalizeIdentityOwner(visible)))) return true
       return visibleNames.some(visible => name === visible || name.startsWith(`${visible} `) || visible.startsWith(`${name} `))
     })
   }

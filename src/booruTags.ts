@@ -1,5 +1,8 @@
+import { visualDescriptionEvidence } from './illustrationSceneContract'
+
 /** Normalize Danbooru-style visual tags without laundering prose into tags.
- * Mixed output may shed malformed prose fragments, but needs three useful tags
+ * Mixed output retains short descriptions rather than silently losing scene
+ * facts. These fragments stay verbatim, not invented underscore tags. Three useful tags
  * to pass; a sentence alone still requires the model to choose real concepts.
  */
 const KNOWN_DANBOORU_CORRECTIONS: Record<string, string> = {
@@ -7,6 +10,39 @@ const KNOWN_DANBOORU_CORRECTIONS: Record<string, string> = {
   cybernetic_eye: 'single_mechanical_eye',
   mechanical_eye: 'single_mechanical_eye',
   wolfcut: 'wolf_cut',
+}
+
+/** A singular marker opens a subject-owned block. Equal markers and traits in
+ * another block are intentional, not global duplicates. Never infer gender. */
+export function isBooruSubjectMarker(value: string): boolean {
+  return /^1(?:girl|boy|woman|man|other|animal)$/i.test(value.trim())
+}
+
+/** A Parser may improve action tags, but cannot merge/reorder owner blocks or
+ * move established appearance/outfit tags to a different subject. */
+export function booruSubjectOwnershipChanged(original: string, candidate: string): boolean {
+  const blocks = (prompt: string) => {
+    const result: string[][] = []
+    for (const tag of normalizeBooruTagPrompt(prompt).split(',').map(tag => tag.trim())) {
+      if (isBooruSubjectMarker(tag)) result.push([tag])
+      else result.at(-1)?.push(tag)
+    }
+    return result
+  }
+  const source = blocks(original)
+  if (source.length < 2) return false
+  const rewritten = blocks(candidate)
+  if (source.length !== rewritten.length) return true
+  const appearance = /(?:^|_)(?:hair|eyes?|skin|fur|ears?|tail|horns?|breasts?|jacket|coat|cardigan|blazer|shirt|blouse|dress|skirt|pants|trousers|shorts|suit|uniform|vest|tie|scarf|gloves?|shoes?|boots?|sneakers|socks?|stockings|hat|cap|glasses|earrings?|necklace|collar|sleeves?)(?:_|$)/
+  return source.some((block, index) => block[0] !== rewritten[index][0]
+    || block.some(tag => appearance.test(tag) && !rewritten[index].includes(tag)))
+}
+
+function isBoundedDescriptionFragment(value: string): boolean {
+  return value.length <= 240 && /\s/.test(value)
+    && !/[<>\[\]{}\r\n]/.test(value)
+    && !/\b(?:must|should|include|describe|generate|prompt|instruction|depict|render|please)\b/i.test(value)
+    && !/^\s*(?:draw|write|fold|lift|raise)\b/i.test(value)
 }
 
 /** Read only explicit count tags. Repeated per-subject 1girl/1boy tags must not
@@ -28,16 +64,21 @@ export function declaredBooruPeopleCount(value: string): number {
 }
 
 export function normalizeBooruTagPrompt(value: unknown): string {
-  const input = typeof value === 'string' ? value.trim() : ''
+  const input = typeof value === 'string' ? visualDescriptionEvidence(value).trim() : ''
   if (!input) throw new Error('Booru Tag Mode needs a non-empty list of visual tags.')
   const tags = input.split(',').map(tag => tag.trim()).filter(Boolean)
   const seen = new Set<string>()
+  const validConcepts = new Set<string>()
   const output: string[] = []
   for (const tag of tags) {
+    if (isBooruSubjectMarker(tag)) seen.clear()
     if (!/^[a-z0-9][a-z0-9_()+\-]*$/i.test(tag) || /__|_$/.test(tag)) {
-      // Models occasionally append a prose clause to an otherwise valid tag
-      // list. Ignore that fragment; the minimum usable-tag check below still
-      // rejects prompts that are mostly prose or malformed content.
+      // Spaces do not make clothing, positions, expressions or setting invalid
+      // provider content. Preserve bounded descriptions, including action verbs
+      // outside the scene gate's small vocabulary. They do not count as tags.
+      if (isBoundedDescriptionFragment(tag) && !seen.has(tag.toLocaleLowerCase())) {
+        seen.add(tag.toLocaleLowerCase()); output.push(tag)
+      }
       continue
     }
     const words = tag.toLocaleLowerCase().split(/[_()+\-]+/).filter(Boolean)
@@ -54,10 +95,10 @@ export function normalizeBooruTagPrompt(value: unknown): string {
         ? ['yellow_eyes', normalized]
         : [KNOWN_DANBOORU_CORRECTIONS[normalized] || normalized]
     for (const concept of concepts) {
-      if (!seen.has(concept)) { seen.add(concept); output.push(concept) }
+      if (!seen.has(concept)) { seen.add(concept); output.push(concept); validConcepts.add(concept) }
     }
   }
-  if (output.length < 3) {
+  if (validConcepts.size < 3) {
     throw new Error('Booru Tag Mode needs at least three separate valid visual tags; prose-shaped or invalid fragments were ignored.')
   }
   return output.join(', ')

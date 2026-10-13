@@ -23,6 +23,7 @@ for (const [input, expected] of [
   assert.equal(normalizeIllustrationViewWording(input, 'persona-pov'), input, 'other modes are untouched')
 }
 assert.equal(normalizeIllustrationViewWording('1girl, Camera angle: from_above, camera, paper', 'storyboard', 'danbooru-tags'), '1girl,from_above, camera, paper', 'already-canonical viewpoint tags survive; a camera object tag remains')
+assert.equal(normalizeIllustrationViewWording('Light from an off-camera floor lamp; an actual camera rests on the table.', 'storyboard'), 'Light from an out-of-frame floor lamp; an actual camera rests on the table.', 'crop-relative wording changes, actual equipment remains')
 for (const guidance of [DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS.storyboard, STORYBOARD_DIRECTOR_GUIDANCE, STORYBOARD_PARSER_GUIDANCE, STORYBOARD_BOORU_PARSER_GUIDANCE]) assert.match(guidance, /Use "View:" rather than "Camera:"/, 'all Storyboard authoring paths need view wording')
 for (const guidance of [DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS.storyboard, STORYBOARD_DIRECTOR_GUIDANCE, STORYBOARD_PARSER_GUIDANCE, STORYBOARD_BOORU_PARSER_GUIDANCE]) {
   assert.match(guidance, /facial expression and gaze target/, 'expressions belong to the individual subject')
@@ -47,6 +48,7 @@ assert.equal(enforceIllustrationSceneContract(locallyFixed.prompt, 'danbooru-tag
 const wrongTags = enforceIllustrationSceneContract('1girl, writing, paper, holding_pencil, blazer', 'danbooru-tags', contract)
 assert.deepEqual(wrongTags.issues.map(issue => issue.code), ['scene-action-missing', 'scene-idle-tool-used'])
 assert.equal(wrongTags.prompt, '1girl, writing, paper, holding_pencil, blazer', 'ambiguous action must not be silently reauthored')
+assert(enforceIllustrationSceneContract('1girl, folding paper, she writes on the sheet, paper', 'danbooru-tags', contract).issues.some(issue => issue.code === 'scene-idle-tool-used'), 'mixed snippets must retain the idle-tool conflict check')
 assert.equal(enforceIllustrationSceneContract('Yejin creases the paper with the side of her right hand. She is not writing.', 'natural-language', contract).issues.length, 0)
 assert(enforceIllustrationSceneContract('Yejin writes on the paper, not folding it.', 'natural-language', contract).issues.some(issue => issue.code === 'scene-action-missing'))
 assert(enforceIllustrationSceneContract('Yejin folding the paper while writing on it.', 'natural-language', contract).issues.some(issue => issue.code === 'scene-idle-tool-used'))
@@ -59,6 +61,19 @@ const drawContract = buildIllustrationSceneContract({
 assert.equal(drawContract.centralAction, 'draw')
 assert.equal(enforceIllustrationSceneContract('Yejin sketches the floor plan beside the studio entrance.', 'natural-language', drawContract).issues.length, 0, 'a clear sketching paraphrase preserves the anchored draw action')
 assert.equal(enforceIllustrationSceneContract('Yejin is sketching the floor plan beside the studio entrance.', 'natural-language', drawContract).issues.length, 0, 'progressive sketching preserves the anchored draw action')
+for (const [opening, closing] of [['"', '"'], ['“', '”']]) {
+  const quoted = `${opening}Yejin sketches the floor plan beside the studio entrance.${closing}`
+  const checked = enforceIllustrationSceneContract(quoted, 'natural-language', drawContract)
+  assert.equal(checked.issues.length, 0, 'a quoted visual description is not story dialogue and must retain its action evidence')
+  assert.equal(checked.prompt, quoted, 'checking quote wrappers must not rewrite authored prompt text')
+  assert(enforceIllustrationSceneContract(`${opening}Yejin waits beside the studio entrance.${closing}`, 'natural-language', drawContract).issues.some(issue => issue.code === 'scene-action-missing'), 'quote wrappers must not excuse an actually missing action')
+}
+assert(enforceIllustrationSceneContract('Yejin says "I sketch the floor plan" while she waits.', 'natural-language', drawContract).issues.some(issue => issue.code === 'scene-action-missing'), 'embedded speech remains unproven visual action')
+for (const mixed of ['1girl, solo, Yejin sketches the floor plan, pencil', '1girl, solo, sketching the floor plan, pencil', '1girl, solo, sketching_floor_plan, pencil']) {
+  assert.equal(enforceIllustrationSceneContract(mixed, 'danbooru-tags', drawContract).issues.length, 0, 'an action-bearing mixed Booru item must not fail merely because it is not an exact bare tag')
+}
+assert(enforceIllustrationSceneContract('1girl, solo, not sketching the floor plan, pencil', 'danbooru-tags', drawContract).issues.some(issue => issue.code === 'scene-action-missing'), 'negated mixed snippets are not action evidence')
+assert(enforceIllustrationSceneContract('1girl, solo, a drawing of a floor plan, pencil', 'danbooru-tags', drawContract).issues.some(issue => issue.code === 'scene-action-missing'), 'a depicted drawing object does not prove someone drawing')
 assert.equal(enforceIllustrationSceneContract('1girl, solo, sketching, floor_plan, pencil', 'danbooru-tags', drawContract).issues.length, 0, 'the Booru action vocabulary also accepts sketching')
 assert.equal(enforceIllustrationSceneContract('Yejin waits beside the studio entrance.', 'natural-language', drawContract).issues[0]?.code, 'scene-action-missing', 'appearance or location alone still cannot pass the action gate')
 
@@ -74,6 +89,32 @@ const claspLift=buildIllustrationSceneContract({sourceParagraph:'Ria took both o
 assert.equal(enforceIllustrationSceneContract('Ria holds both of his hands. His palms are cradled against her chest.', 'natural-language',claspLift).issues.length,0)
 const liftedCup=buildIllustrationSceneContract({sourceParagraph:'Ria lifted the cup off the table.'})
 assert(enforceIllustrationSceneContract('Ria has her hands held in front of her.', 'natural-language',liftedCup).issues.some(issue=>issue.code==='scene-action-missing'),'hand poses cannot satisfy a lifted object')
+const reachingHand = buildIllustrationSceneContract({sourceParagraph:'His hand lifts, crossing the three feet of sterile air between them.'})
+assert.equal(enforceIllustrationSceneContract("Joo Won's left hand reaches across the small gap between them, fingers slightly curled, moving toward Arin's arm.", 'natural-language', reachingHand).issues.length, 0, 'the reported horizontal hand lift is accurately depicted by reaching across the gap')
+assert(enforceIllustrationSceneContract('Joo Won stands with his hand resting at his side.', 'natural-language', reachingHand).issues.some(issue => issue.code === 'scene-action-missing'))
+assert(enforceIllustrationSceneContract('His hand does not reach across the gap.', 'natural-language', reachingHand).issues.some(issue => issue.code === 'scene-action-missing'))
+assert.equal(enforceIllustrationSceneContract('1boy, 1girl, reaching_out, indoors', 'danbooru-tags', reachingHand).issues.length, 0)
+assert.equal(enforceIllustrationSceneContract('1boy, 1girl, his hand reaches across the gap, indoors', 'danbooru-tags', reachingHand).issues.length, 0)
+assert(enforceIllustrationSceneContract('Ria reaches across the gap with her hand.', 'natural-language', liftedCup).issues.some(issue => issue.code === 'scene-action-missing'), 'reaching cannot satisfy an object lift')
+for (const [sourceParagraph, prompt] of [
+  ['The old man lifts his thermos in a small salute, the gesture of someone who knows precisely what he has done and is entirely unbothered by it.', 'Single subject: Lee Joo Won. He stands mid-step, body locked rigid, holding a script binder at chest height.'],
+  ["He walks toward the partition wall with water running off his fringe, past his grandfather's chair without slowing—though Arin sees the old man's hand lift in a small wave, and sees Joo Won see it, and sees his stride not change.", 'Joo Won walks toward the partition wall in falling rain. Behind him, Arin stands under the black umbrella.'],
+]) {
+  const roleContract = buildIllustrationSceneContract({sourceParagraph})
+  const checked = enforceIllustrationSceneContract(prompt, 'natural-language', roleContract)
+  assert.deepEqual(checked.issues.map(issue => issue.repair), ['review'], 'an incidental role cannot be forced into a cropped shot by proximity alone')
+  assert.equal(checked.prompt, prompt, 'unproven scope must not synthesize an actor/action or relocate the anchor')
+  assert.equal(roleContract.sourceParagraph, sourceParagraph)
+}
+const grandfatherLift = buildIllustrationSceneContract({sourceParagraph:'The old man lifts his thermos in a small salute.'})
+const incidentalIdle = buildIllustrationSceneContract({sourceParagraph:'The old man lifts his thermos. The pencil rests unused on the table.'})
+const scopedTags = enforceIllustrationSceneContract('1boy, black_hair, standing, pencil', 'danbooru-tags', incidentalIdle)
+assert(scopedTags.issues.some(issue => issue.repair === 'review'))
+assert(scopedTags.issues.some(issue => issue.code === 'scene-idle-tool-omitted'), 'unproven action scope must not bypass the independent idle-tool filter')
+assert(!scopedTags.prompt.split(',').map(tag => tag.trim()).includes('pencil'))
+assert(enforceIllustrationSceneContract('The old man sits with his thermos on his knee.', 'natural-language', grandfatherLift).issues.some(issue => issue.code === 'scene-action-missing'), 'the same depicted role still must preserve its own lift')
+assert(enforceIllustrationSceneContract('The woman waits beside the paper.', 'natural-language', buildIllustrationSceneContract({sourceParagraph:'The woman folds the paper.'})).issues.some(issue => issue.code === 'scene-action-missing'), 'generic unnamed actors cannot bypass an actual missing action')
+assert(enforceIllustrationSceneContract('A crate rests on the floor.', 'natural-language', buildIllustrationSceneContract({sourceParagraph:'The crate lifts from the floor.'})).issues.some(issue => issue.code === 'scene-action-missing'), 'object subjects cannot masquerade as incidental actors')
 for(const paragraph of [
  'Ria lifted Cody against her chest, stood from the sofa, and carried him through the doorway.',
  'Ria lifted his right hand off his knee and pressed her lips to the scar.',
@@ -135,6 +176,7 @@ for (const [bodyPart, natural, tags] of [
 }
 const ownedFold = buildIllustrationSceneContract({ sourceParagraph: 'Ria folds the paper. Cody watches.', actors: twoActors })
 assert.equal(ownedFold.centralActor, 'Ria')
+assert(enforceIllustrationSceneContract('2people, Ria watches, Cody folds the paper', 'danbooru-tags', ownedFold).issues.some(issue => issue.code === 'scene-action-owner'), 'explicitly wrong ownership in mixed tag prose cannot be accepted')
 assert(enforceIllustrationSceneContract('Ria watches. Cody folds the paper.', 'natural-language', ownedFold).issues.some(issue => issue.code === 'scene-action-owner'))
 assert.equal(enforceIllustrationSceneContract('Ria: black coat, folding the paper. Cody watches.', 'natural-language', ownedFold).issues.length, 0)
 assert.equal(enforceIllustrationSceneContract('Ria stands at the table. She folds the paper.', 'natural-language', ownedFold).issues.length, 0, 'unresolved pronouns are not proof of swapped action ownership')

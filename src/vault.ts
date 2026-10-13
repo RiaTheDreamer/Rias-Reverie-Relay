@@ -691,6 +691,16 @@ export function isValidCanonicalCharacterName(value: string): boolean {
   return /[\p{L}]/u.test(name) && !/^\d+$/.test(name)
 }
 
+/** Confirmed host card titles are not inferred scene labels. A stable host ID
+ * is required at callers; keep placeholders/markup out without imposing the
+ * guessed-name word count or treating words in a library title as style tags. */
+export function isValidHostIdentityName(value: string): boolean {
+  if (/[\x00-\x1f\x7f<>]|\{\{|\}\}/.test(value)) return false
+  const name = clean(value)
+  return Boolean(name) && name.length <= 512 && /[\p{L}]/u.test(name)
+    && !isUnresolvedAppearanceRole(name) && !INVALID_SUBJECTS.has(normalizeAlias(name))
+}
+
 export function resolveCanonicalCharacter(vault: ContinuityVaultState, candidate: string): CanonicalVisualCharacter | null {
   // Verified host bindings may select by stable ID instead of an ambiguous
   // story alias. Names remain useful for genuinely unbound scene subjects.

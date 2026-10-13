@@ -174,6 +174,7 @@ try {
   assert(!sent.some(item => ['scan_message', 'queue_action', 'regenerate', 'reparse', 'retry_placement'].includes(item.type)), 'watchdog must not spend/restart/repair provider jobs')
   const css = styles.join('\n')
   assert.match(css, /\.dg-router-panel\.dg-menu \{[^}]*background: #211820 !important/)
+  assert.match(css, /:root\[data-dgir-theme="clean-panel"\] \.dg-router-panel\.dg-menu,[\s\S]*?background: #211820 !important; opacity: 1 !important/, 'the final themed rule must protect solid menu opacity from the later compositor/panel override')
   assert.match(css, /\.dg-router-panel\.dg-menu button:focus-visible/)
   assert.match(css, /@media \(pointer: coarse\).*min-height: 44px/)
   cleanup()

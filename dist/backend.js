@@ -259338,6 +259338,12 @@ function isValidCanonicalCharacterName(value) {
     return false;
   return /[\p{L}]/u.test(name) && !/^\d+$/.test(name);
 }
+function isValidHostIdentityName(value) {
+  if (/[\x00-\x1f\x7f<>]|\{\{|\}\}/.test(value))
+    return false;
+  const name = clean2(value);
+  return Boolean(name) && name.length <= 512 && /[\p{L}]/u.test(name) && !isUnresolvedAppearanceRole(name) && !INVALID_SUBJECTS.has(normalizeAlias(name));
+}
 function resolveCanonicalCharacter(vault, candidate) {
   if (vault.characters[candidate])
     return vault.characters[candidate];
@@ -261669,70 +261675,6 @@ function ingestAppearanceSidecarObservations(vault, observations, input) {
   return { changed: before !== JSON.stringify([vault.characters, vault.visualIdentity, vault.wardrobe, vault.currentAppearance]), acceptedFacts, acceptedCharacters };
 }
 
-// src/booruTags.ts
-var KNOWN_DANBOORU_CORRECTIONS = {
-  amber_eyes: "yellow_eyes",
-  cybernetic_eye: "single_mechanical_eye",
-  mechanical_eye: "single_mechanical_eye",
-  wolfcut: "wolf_cut"
-};
-function declaredBooruPeopleCount(value) {
-  let female = 0, male = 0, other = 0, total = 0;
-  for (const tag of value.split(",").map((tag) => tag.trim().toLocaleLowerCase())) {
-    const match = /^(\d{1,2})(girls?|women|woman|boys?|men|man|others?|people|persons?)$/.exec(tag);
-    if (!match)
-      continue;
-    const count = Number(match[1]);
-    if (/^(?:girl|woman|women)/.test(match[2]))
-      female = Math.max(female, count);
-    else if (/^(?:boy|man|men)/.test(match[2]))
-      male = Math.max(male, count);
-    else if (/^other/.test(match[2]))
-      other = Math.max(other, count);
-    else
-      total = Math.max(total, count);
-  }
-  return Math.max(total, female + male + other);
-}
-function normalizeBooruTagPrompt(value) {
-  const input = typeof value === "string" ? value.trim() : "";
-  if (!input)
-    throw new Error("Booru Tag Mode needs a non-empty list of visual tags.");
-  const tags = input.split(",").map((tag) => tag.trim()).filter(Boolean);
-  const seen = new Set;
-  const output = [];
-  for (const tag of tags) {
-    if (!/^[a-z0-9][a-z0-9_()+\-]*$/i.test(tag) || /__|_$/.test(tag)) {
-      continue;
-    }
-    const words = tag.toLocaleLowerCase().split(/[_()+\-]+/).filter(Boolean);
-    if (tag.length > 64 || words.length > 4 || words.some((word) => /^(?:a|an|the|is|are|was|were|because|while|then|there|which|whose|should|would|could|must|include|describe|image|prompt|scene|illustration)$/.test(word))) {
-      continue;
-    }
-    const normalized = tag.toLocaleLowerCase();
-    const concepts = /^(?:cybernetic|mechanical)_(?:left|right)_eye$/.test(normalized) ? ["single_mechanical_eye", normalized] : /^amber_(?:left|right)_eye$/.test(normalized) ? ["yellow_eyes", normalized] : [KNOWN_DANBOORU_CORRECTIONS[normalized] || normalized];
-    for (const concept of concepts) {
-      if (!seen.has(concept)) {
-        seen.add(concept);
-        output.push(concept);
-      }
-    }
-  }
-  if (output.length < 3) {
-    throw new Error("Booru Tag Mode needs at least three separate valid visual tags; prose-shaped or invalid fragments were ignored.");
-  }
-  return output.join(", ");
-}
-
-// src/illustrationViewWording.ts
-function normalizeIllustrationViewWording(prompt, perspectiveMode, format = "natural-language") {
-  if (perspectiveMode !== "storyboard")
-    return prompt;
-  const framing = "(?:low[- _]angle|high[- _]angle|eye[- _]level|overhead|top[- _]down|bird['\u2019]s[- _]eye|worm['\u2019]s[- _]eye|dutch[- _]angle|wide|medium|close[- _]up|full[- _]body|upper[- _]body|rear|side|front|from[- _](?:above|below|behind|side))";
-  const viewPrompt = prompt.replace(new RegExp(`(^|[\\n,;.!]\\s*)camera(?:[ _-]+(?:angle|position|perspective|distance|framing))?\\s*:\\s*(?=${framing}\\b)`, "giu"), "$1View: ").replace(new RegExp(`\\bcamera[ -]+(?:angle|perspective|distance|position)\\s+(?=(?:is\\s+)?${framing}\\b)`, "giu"), "view ").replace(new RegExp(`\\b(${framing})([ -]+)camera(?=\\s*(?:view|angle|perspective|shot|[,;.!]|$))`, "giu"), (match, angle, separator, offset, text) => /\b(?:a|an|the|holding|holds|mounted|placed)\s*$/iu.test(text.slice(Math.max(0, offset - 30), offset)) ? match : `${angle}${separator}view`).replace(/\bview\s+view\b/giu, "view");
-  return format === "danbooru-tags" ? viewPrompt.split(",").map((fragment) => fragment.replace(/^\s*View:\s*(from_above|from_below|from_side|from_behind|dutch_angle|full_body|upper_body|close-up)\s*$/iu, "$1")).join(",") : viewPrompt;
-}
-
 // src/illustrationSceneContract.ts
 var normalize = (value) => value.replace(/_/g, " ").toLocaleLowerCase().replace(/\s+/g, " ").trim();
 var escape2 = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -261753,16 +261695,40 @@ function anchoredLiftBodyPart(source) {
   const direct = /\b(?:lift(?:s|ed|ing)?|rais(?:e|es|ed|ing))\s+(?:(?:his|her|their|the|both|my|your|right|left|own|two)\s+){0,4}(hands?|palms?|arms?)\b/.exec(prose);
   if (direct)
     return direct[1].startsWith("arm") ? "arms" : "hands";
+  const subject = /\b(hands?|palms?|arms?)\s+lift(?:s|ed|ing)?\b/.exec(prose);
+  if (subject)
+    return subject[1].startsWith("arm") ? "arms" : "hands";
   if (/\bhands?\b[^.!?]{0,180}\blift(?:s|ed|ing)?\s+them\b/.test(prose))
     return "hands";
 }
-function assertedLiftPosePhrases(value, part) {
+function assertedLiftPosePhrases(value, part, source = "") {
   if (!part)
     return [];
   const prose = normalize(value.replace(/"[^"\n]*"|\u201C[^\u201D\n]*\u201D/g, ""));
   const noun = part === "hands" ? "(?:hands?|palms?)" : "arms?";
   const pattern = new RegExp(`\\b${noun}\\s+(?:(?:are|is|were|was|both|open)\\s+){0,3}(?:held|cradled|supported|resting)\\s+(?:(?:up|together|gently)\\s+)?(?:in front of|before|between|against|at)\\s+(?:(?:his|her|their|the|my|your|both)\\s+)?(?:him|her|them|me|you|chests?|collarbones?|shoulders?|face|body)\\b`, "g");
-  return [...prose.matchAll(pattern)].filter((match) => !unassertedPrefix(prose, match.index)).map((match) => match[0]);
+  const result = [...prose.matchAll(pattern)].filter((match) => !unassertedPrefix(prose, match.index)).map((match) => match[0]);
+  if (/\b(?:crossing|across)\b[^.!?]{0,85}\b(?:air|gap|space|distance|between)\b/i.test(source)) {
+    const reach = new RegExp(`\\b${noun}\\s+(?:reach(?:es|ed|ing)?|extend(?:s|ed|ing)?)\\s+(?:across|towards?)\\b[^.!?]{0,100}`, "g");
+    result.push(...[...prose.matchAll(reach)].filter((match) => !unassertedPrefix(prose, match.index)).map((match) => match[0]));
+  }
+  return result;
+}
+function actionOutsideDepictedRole(source, prompt, family) {
+  const prose = normalize(source.replace(/"[^"\n]*"|\u201C[^\u201D\n]*\u201D/g, ""));
+  const evidence = normalize(visualDescriptionEvidence(prompt));
+  const matches = [...prose.matchAll(new RegExp(family.source))];
+  if (!matches.length)
+    return false;
+  return matches.every((match) => {
+    const prefix = prose.slice(Math.max(0, match.index - 75), match.index);
+    const owner = /(?:^|[.!?;,\u2014]\s*|\bsees\s+)(?:the|a|an)\s+([\w'-]+(?:\s+[\w'-]+){0,2}?)(?:['\u2019]s\s+(?:left\s+|right\s+)?(?:hand|arm)|\s+his\s+(?:hand|arm))?\s*$/.exec(prefix);
+    if (!owner)
+      return false;
+    const role = owner[1].replace(/['\u2019]s(?:\s+(?:left\s+|right\s+)?(?:hand|arm))?$/, "");
+    const incidentalRole = /^(?:(?:old|older|elderly)\s+(?:man|woman)|grandfather|grandmother|bystander|onlooker|spectator|attendant|waiter|waitress|technician|operator)$/;
+    return incidentalRole.test(role) && !evidence.includes(role);
+  });
 }
 function unassertedPrefix(prose, index) {
   const prefix = prose.slice(Math.max(0, index - 65), index);
@@ -261809,13 +261775,25 @@ function assertedActions(value) {
         continue;
       if (family.id === "draw" && /\b(?:upward|towards?|closer|nearer|back|aside|breath)\b/.test(prose.slice(match.index + match[0].length, match.index + match[0].length + 65)))
         continue;
-      if (/^(?:crease|fold)(?:s)?$/.test(match[0]) && /\b(?:the|a|its|along|of|at)(?:\s+[\w'-]+){0,2}\s*$/.test(prefix))
+      if (/^(?:crease|fold)(?:s)?$/.test(match[0]) && /(?:\b(?:the|a|its)(?:\s+(?:central|new|middle|old|sharp|deep|loose))?|\b(?:along|of|at)(?:\s+[\w'-]+){0,2})\s*$/.test(prefix))
         continue;
       if (family.id === "fold" && /^(?:fold|crease)s?$/.test(match[0]) && /\b(?:in|into|with|soft|deep|sharp|loose|gentle|natural|silken|fabric|cloth|silk|[\w]+['\u2019]s)\s*$/.test(prefix) && /^\s+(?:of|in|around|at|along|on|under|beneath|between|across|down|over)\b/.test(prose.slice(match.index + match[0].length)))
         continue;
       actions.add(family.id);
     }
   return [...actions];
+}
+function visualDescriptionEvidence(value) {
+  const trimmed = value.trim();
+  const pairs = [['"', '"'], ["\u201C", "\u201D"]];
+  const pair = pairs.find(([open, close]) => trimmed.startsWith(open) && trimmed.endsWith(close));
+  return pair && trimmed.length > 2 ? trimmed.slice(1, -1) : value;
+}
+function depictedActionEvidence(value, family, foldPose, liftPose, source = "") {
+  if (!family)
+    return false;
+  const evidence = visualDescriptionEvidence(value);
+  return assertedActions(evidence).includes(family.id) || assertedFoldPosePhrases(evidence, foldPose).length > 0 || assertedLiftPosePhrases(evidence, liftPose, source).length > 0;
 }
 function explicitlyIdleTools(source) {
   const prose = normalize(source.replace(/"[^"\n]*"|\u201C[^\u201D\n]*\u201D/g, ""));
@@ -261851,6 +261829,11 @@ function enforceIllustrationSceneContract(prompt, format, contract) {
   const family = ACTIONS.find((row) => row.id === contract.centralAction);
   const foldPose = family?.id === "fold" ? anchoredFoldPose(contract.anchorExcerpt || contract.sourceParagraph) : undefined;
   const liftPose = family?.id === "lift" ? anchoredLiftBodyPart(contract.anchorExcerpt || contract.sourceParagraph) : undefined;
+  const actionSource = contract.anchorExcerpt || contract.sourceParagraph;
+  const actionScopeUnproven = !!family && actionOutsideDepictedRole(actionSource, prompt, family);
+  if (actionScopeUnproven) {
+    issues.push({ code: "scene-action-scope-unproven", message: `The nearby ${family.id} action belongs to an explicitly described role not identified in this shot. Its inclusion is unproven; the original anchor and authored prompt were preserved for review.`, repair: "review" });
+  }
   if (format === "danbooru-tags") {
     const original = prompt.split(",").map((tag) => tag.trim()).filter(Boolean);
     const tools = new Set(contract.idleTools);
@@ -261858,24 +261841,37 @@ function enforceIllustrationSceneContract(prompt, format, contract) {
     const removed = original.filter((tag) => !tags.includes(tag));
     if (removed.length)
       issues.push({ code: "scene-idle-tool-omitted", message: `Omitted bare tag(s) ${removed.join(", ")}: the anchor explicitly puts these tools aside. Their inactive role cannot be expressed by a bare object tag.`, repair: "local" });
-    const actionTags = foldPose ? [...family.tags, ...FOLD_POSE_TAGS[foldPose]] : liftPose ? [...family.tags, ...liftPose === "hands" ? ["raised_hands", "hands_up"] : ["raised_arms", "arms_up"]] : family?.tags || [];
-    if (family && !tags.some((tag) => actionTags.includes(tag.toLocaleLowerCase())))
+    const reachingLift = liftPose && /\b(?:crossing|across)\b[^.!?]{0,85}\b(?:air|gap|space|distance|between)\b/i.test(actionSource);
+    const actionTags = foldPose ? [...family.tags, ...FOLD_POSE_TAGS[foldPose]] : liftPose ? [...family.tags, ...liftPose === "hands" ? ["raised_hands", "hands_up"] : ["raised_arms", "arms_up"], ...reachingLift ? ["reaching", "reaching_out"] : []] : family?.tags || [];
+    if (family && !actionScopeUnproven && !tags.some((tag) => actionTags.includes(tag.toLocaleLowerCase()) || depictedActionEvidence(tag, family, foldPose, liftPose, actionSource)))
       issues.push({ code: "scene-action-missing", message: `The anchored ${family.id} action is missing from the provider tags. Repair the action tags only; keep the same actors, outfits, anchor and instant.`, repair: "ambiguous" });
-    if (contract.centralAction === "fold" && contract.idleTools.some((tool) => /^(?:pen|pencil|marker)$/.test(tool)) && tags.some((tag) => /^(?:writing|drawing|holding_pen|holding_pencil|holding_marker)$/.test(tag))) {
+    if (family && !actionScopeUnproven && contract.centralActor) {
+      const mixed = tags.filter((tag) => /\s/.test(tag) && depictedActionEvidence(tag, family, foldPose, liftPose, actionSource));
+      const owners = new Set(mixed.flatMap((tag) => {
+        const evidence = visualDescriptionEvidence(tag);
+        const verbs = [...normalize(evidence).matchAll(new RegExp(family.source))].map((match) => match[0]).concat(assertedFoldPosePhrases(evidence, foldPose), assertedLiftPosePhrases(evidence, liftPose, actionSource));
+        const names = contract.actors.map((actor) => actor.name);
+        return names.filter((name) => verbs.some((verb) => ownedSceneRequirementPresent(evidence, name, verb, names)));
+      }));
+      if (owners.size && !owners.has(contract.centralActor))
+        issues.push({ code: "scene-action-owner", message: `The anchor explicitly assigns the ${family.id} action to ${contract.centralActor}, but the mixed prompt assigns it to another actor. Preserve the action owner.`, repair: "ambiguous" });
+    }
+    if (!actionScopeUnproven && contract.centralAction === "fold" && contract.idleTools.some((tool) => /^(?:pen|pencil|marker)$/.test(tool)) && tags.some((tag) => /^(?:writing|drawing|holding_pen|holding_pencil|holding_marker)$/.test(tag) || assertedActions(visualDescriptionEvidence(tag)).some((action) => action === "write" || action === "draw"))) {
       issues.push({ code: "scene-idle-tool-used", message: "The tags depict use of a writing tool which the paper-folding anchor explicitly puts aside. Remove the conflicting activity, not the anchored fold.", repair: "ambiguous" });
     }
     return { prompt: tags.join(", "), issues };
   }
-  if (!family)
+  if (!family || actionScopeUnproven)
     return { prompt, issues };
-  const depictedActions = assertedActions(prompt);
-  const equivalentPosePhrases = [...assertedFoldPosePhrases(prompt, foldPose), ...assertedLiftPosePhrases(prompt, liftPose)];
+  const evidence = visualDescriptionEvidence(prompt);
+  const depictedActions = assertedActions(evidence);
+  const equivalentPosePhrases = [...assertedFoldPosePhrases(evidence, foldPose), ...assertedLiftPosePhrases(evidence, liftPose, actionSource)];
   if (!depictedActions.includes(family.id) && !equivalentPosePhrases.length)
     issues.push({ code: "scene-action-missing", message: `The anchored ${family.id} action is absent from the visual description. Preserve its actor, contact and target rather than replacing it with appearance or mood.`, repair: "ambiguous" });
   else if (contract.centralActor) {
-    const verbs = [...normalize(prompt).matchAll(new RegExp(family.source))].map((match) => match[0]).concat(equivalentPosePhrases);
+    const verbs = [...normalize(evidence).matchAll(new RegExp(family.source))].map((match) => match[0]).concat(equivalentPosePhrases);
     const actorNames = contract.actors.map((actor) => actor.name);
-    const explicitOwners = actorNames.filter((name) => verbs.some((verb) => ownedSceneRequirementPresent(prompt, name, verb, actorNames)));
+    const explicitOwners = actorNames.filter((name) => verbs.some((verb) => ownedSceneRequirementPresent(evidence, name, verb, actorNames)));
     if (explicitOwners.length && !explicitOwners.includes(contract.centralActor)) {
       issues.push({ code: "scene-action-owner", message: `The anchor explicitly assigns the ${family.id} action to ${contract.centralActor}, but that actor's clause does not preserve it. Keep the same action owner; do not transfer it to another actor.`, repair: "ambiguous" });
     }
@@ -261905,9 +261901,125 @@ function ownedSceneRequirementPresent(prompt, owner, requirement, actorNames) {
   return false;
 }
 
+// src/booruTags.ts
+var KNOWN_DANBOORU_CORRECTIONS = {
+  amber_eyes: "yellow_eyes",
+  cybernetic_eye: "single_mechanical_eye",
+  mechanical_eye: "single_mechanical_eye",
+  wolfcut: "wolf_cut"
+};
+function isBooruSubjectMarker(value) {
+  return /^1(?:girl|boy|woman|man|other|animal)$/i.test(value.trim());
+}
+function booruSubjectOwnershipChanged(original, candidate) {
+  const blocks = (prompt) => {
+    const result = [];
+    for (const tag of normalizeBooruTagPrompt(prompt).split(",").map((tag) => tag.trim())) {
+      if (isBooruSubjectMarker(tag))
+        result.push([tag]);
+      else
+        result.at(-1)?.push(tag);
+    }
+    return result;
+  };
+  const source = blocks(original);
+  if (source.length < 2)
+    return false;
+  const rewritten = blocks(candidate);
+  if (source.length !== rewritten.length)
+    return true;
+  const appearance = /(?:^|_)(?:hair|eyes?|skin|fur|ears?|tail|horns?|breasts?|jacket|coat|cardigan|blazer|shirt|blouse|dress|skirt|pants|trousers|shorts|suit|uniform|vest|tie|scarf|gloves?|shoes?|boots?|sneakers|socks?|stockings|hat|cap|glasses|earrings?|necklace|collar|sleeves?)(?:_|$)/;
+  return source.some((block, index) => block[0] !== rewritten[index][0] || block.some((tag) => appearance.test(tag) && !rewritten[index].includes(tag)));
+}
+function isBoundedDescriptionFragment(value) {
+  return value.length <= 240 && /\s/.test(value) && !/[<>\[\]{}\r\n]/.test(value) && !/\b(?:must|should|include|describe|generate|prompt|instruction|depict|render|please)\b/i.test(value) && !/^\s*(?:draw|write|fold|lift|raise)\b/i.test(value);
+}
+function declaredBooruPeopleCount(value) {
+  let female = 0, male = 0, other = 0, total = 0;
+  for (const tag of value.split(",").map((tag) => tag.trim().toLocaleLowerCase())) {
+    const match = /^(\d{1,2})(girls?|women|woman|boys?|men|man|others?|people|persons?)$/.exec(tag);
+    if (!match)
+      continue;
+    const count = Number(match[1]);
+    if (/^(?:girl|woman|women)/.test(match[2]))
+      female = Math.max(female, count);
+    else if (/^(?:boy|man|men)/.test(match[2]))
+      male = Math.max(male, count);
+    else if (/^other/.test(match[2]))
+      other = Math.max(other, count);
+    else
+      total = Math.max(total, count);
+  }
+  return Math.max(total, female + male + other);
+}
+function normalizeBooruTagPrompt(value) {
+  const input = typeof value === "string" ? visualDescriptionEvidence(value).trim() : "";
+  if (!input)
+    throw new Error("Booru Tag Mode needs a non-empty list of visual tags.");
+  const tags = input.split(",").map((tag) => tag.trim()).filter(Boolean);
+  const seen = new Set;
+  const validConcepts = new Set;
+  const output = [];
+  for (const tag of tags) {
+    if (isBooruSubjectMarker(tag))
+      seen.clear();
+    if (!/^[a-z0-9][a-z0-9_()+\-]*$/i.test(tag) || /__|_$/.test(tag)) {
+      if (isBoundedDescriptionFragment(tag) && !seen.has(tag.toLocaleLowerCase())) {
+        seen.add(tag.toLocaleLowerCase());
+        output.push(tag);
+      }
+      continue;
+    }
+    const words = tag.toLocaleLowerCase().split(/[_()+\-]+/).filter(Boolean);
+    if (tag.length > 64 || words.length > 4 || words.some((word) => /^(?:a|an|the|is|are|was|were|because|while|then|there|which|whose|should|would|could|must|include|describe|image|prompt|scene|illustration)$/.test(word))) {
+      continue;
+    }
+    const normalized = tag.toLocaleLowerCase();
+    const concepts = /^(?:cybernetic|mechanical)_(?:left|right)_eye$/.test(normalized) ? ["single_mechanical_eye", normalized] : /^amber_(?:left|right)_eye$/.test(normalized) ? ["yellow_eyes", normalized] : [KNOWN_DANBOORU_CORRECTIONS[normalized] || normalized];
+    for (const concept of concepts) {
+      if (!seen.has(concept)) {
+        seen.add(concept);
+        output.push(concept);
+        validConcepts.add(concept);
+      }
+    }
+  }
+  if (validConcepts.size < 3) {
+    throw new Error("Booru Tag Mode needs at least three separate valid visual tags; prose-shaped or invalid fragments were ignored.");
+  }
+  return output.join(", ");
+}
+
+// src/illustrationViewWording.ts
+function normalizeIllustrationViewWording(prompt, perspectiveMode, format = "natural-language") {
+  if (perspectiveMode !== "storyboard")
+    return prompt;
+  const framing = "(?:low[- _]angle|high[- _]angle|eye[- _]level|overhead|top[- _]down|bird['\u2019]s[- _]eye|worm['\u2019]s[- _]eye|dutch[- _]angle|wide|medium|close[- _]up|full[- _]body|upper[- _]body|rear|side|front|from[- _](?:above|below|behind|side))";
+  const viewPrompt = prompt.replace(/\boff[- ]camera\b/giu, "out-of-frame").replace(new RegExp(`(^|[\\n,;.!]\\s*)camera(?:[ _-]+(?:angle|position|perspective|distance|framing))?\\s*:\\s*(?=${framing}\\b)`, "giu"), "$1View: ").replace(new RegExp(`\\bcamera[ -]+(?:angle|perspective|distance|position)\\s+(?=(?:is\\s+)?${framing}\\b)`, "giu"), "view ").replace(new RegExp(`\\b(${framing})([ -]+)camera(?=\\s*(?:view|angle|perspective|shot|[,;.!]|$))`, "giu"), (match, angle, separator, offset, text) => /\b(?:a|an|the|holding|holds|mounted|placed)\s*$/iu.test(text.slice(Math.max(0, offset - 30), offset)) ? match : `${angle}${separator}view`).replace(/\bview\s+view\b/giu, "view");
+  return format === "danbooru-tags" ? viewPrompt.split(",").map((fragment) => fragment.replace(/^\s*View:\s*(from_above|from_below|from_side|from_behind|dutch_angle|full_body|upper_body|close-up)\s*$/iu, "$1")).join(",") : viewPrompt;
+}
+
+// src/storyboardVisualIntegrity.ts
+var STORYBOARD_SPATIAL_FIDELITY_GUIDANCE = `STORYBOARD SPATIAL FIDELITY: Treat the selected story excerpt as the authority for physical blocking. For every named visible actor, preserve their frame position, body orientation, distance, posture, gaze, and hand-to-target contact as the source establishes them. Keep each figure visually distinct and assign every visible hand and limb to its correct body. Frame the complete interacting gesture where the chosen shot permits. For Danbooru output, express these facts with separate person-specific pose/action/contact tags and recognized frame-placement tags; do not flatten several actors into one shared pose.`;
+function storyboardFigureIntegrityClause(expectedPeopleCount, namedSubjects = []) {
+  const count = Number.isFinite(expectedPeopleCount) ? Math.max(0, Math.floor(expectedPeopleCount)) : 0;
+  if (count < 2)
+    return "";
+  const names = [...new Set(namedSubjects.map((name) => name.trim()).filter(Boolean))];
+  const cast = names.length ? `, including ${names.join(" and ")}` : "";
+  return `Show exactly ${count} visible people${cast}, each with a distinct, readable silhouette and visible limbs clearly connected to the correct body. Preserve every source-stated position, orientation, distance, and contact point.`;
+}
+
 // src/relayPlannedV2.ts
 var RELAY_PLANNED_V2 = "relay-planned-2";
-var RELAY_PLANNED_ASPECT_RATIOS = ["1:1", "4:3", "3:4", "16:9", "9:16", "4:5"];
+var RELAY_PLANNED_BOORU_SUBJECT_SCHEMA = `BOORU SUBJECT OWNERSHIP: Every subjectDirectives entry must include its own "booruTags" array. Start it with exactly one supported singular marker (1boy, 1girl, 1other, or 1animal), then immediately that subject's authoritative appearance, complete current outfit, expression, pose, action and spatial position/orientation. Never infer gender from a name. Keep each character's traits and clothing entirely inside their own array; repeated markers and shared traits across different subjects are intentional. Also include a "blocking" string in each subject directive specifying that subject's source-grounded frame position, facing direction, distance and relation to the other subjects/props. Preserve actor/contact/target and prop ownership. Use canonical visual tags where known and short explicit spatial descriptions where tags cannot express the relationship; never invent underscore-joined sentences. The illustration-level booruTags array contains only shared setting, lighting, view and props. Do not put counts, hair, eyes, bodies, outfits or a character's pose in that global list. Keep normal planning prose and names in the remaining fields. Relay compiles the subject blocks first, in namedSubjects order, then the shared scene tags.`;
+var RELAY_PLANNED_ASPECT_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9"];
+function relayPlannedAppearanceDescriptors(values) {
+  return values.flatMap((value) => value.split(/[,;]+/)).map((value) => value.trim()).filter((value) => {
+    const readable = value.replace(/_/g, " ");
+    return value && !/\b(?:touching|touches|gripping|grasping|clasping|hugging|embracing|kissing|kneeling|crouching|reaching|leaning|holding hands|holding (?:his|her|their|another)|standing (?:beside|behind|opposite|next to)|sitting (?:beside|behind|on|next to)|arms? (?:wrapped )?around)\b/i.test(readable);
+  });
+}
 function previousSequenceShotContext(plans, chatId, messageId, perspectiveMode) {
   if (perspectiveMode !== "sequence")
     return null;
@@ -261926,6 +262038,74 @@ function previousSequenceShotContext(plans, chatId, messageId, perspectiveMode) 
     importantProps: (composition?.importantProps || previous.importantProps).slice(0, 12)
   };
 }
+function relayPlannedFrequencyRequiresIllustration(context) {
+  return (context.frequencyMode === "every-eligible" || context.frequencyMode === "every-n") && context.maximumIllustrations > 0 && context.paragraphs.length > 0;
+}
+function relayPlannedFrequencyDirective(context) {
+  if (!relayPlannedFrequencyRequiresIllustration(context))
+    return "";
+  return "REQUIRED ILLUSTRATION FREQUENCY: This saved story response has passed the user-selected frequency and eligibility gates. Select at least one grounded illustration, up to maximumIllustrations. Return shouldIllustrate true and a nonempty illustrations array. Several visual beats are candidates to choose from, not a reason to decline the response. Quiet scenes can be illustrated too. Preserve the source, actor limits and all validation requirements; never invent an event, actor or contact.";
+}
+function relayPlannedIllustrationCountBounds(settings, remainingCapacity) {
+  const countMode = settings.modelPlacedCountMode === "range" ? "range" : "fixed";
+  const bounded = (value, fallback) => Number.isFinite(value) ? Math.max(1, Math.min(32, Math.round(value))) : fallback;
+  const requestedMaximum = countMode === "range" ? bounded(settings.maximumImages, 1) : bounded(settings.illustrationsPerRun, 1);
+  const capacity = Number.isFinite(remainingCapacity) ? Math.max(0, Math.min(32, Math.floor(remainingCapacity))) : 0;
+  const maximumIllustrations = Math.min(requestedMaximum, capacity);
+  const minimumIllustrations = countMode === "fixed" ? maximumIllustrations : Math.min(bounded(settings.minimumImages, 1), maximumIllustrations);
+  return { countMode, minimumIllustrations, maximumIllustrations };
+}
+function relayPlannedCountDirective(context) {
+  if (!context.maximumIllustrations || context.minimumIllustrations === undefined)
+    return "";
+  const count = context.countMode === "range" ? `from ${context.minimumIllustrations} through ${context.maximumIllustrations} illustrations, inclusive` : `exactly ${context.maximumIllustrations} illustration${context.maximumIllustrations === 1 ? "" : "s"}`;
+  return `ILLUSTRATION COUNT CONTRACT: When this eligible response is selected for illustration, return ${count}. This is the user-selected batch count, not merely permission to return one shot. Select distinct source-grounded stills; different supported instants in the same paragraph are allowed. Do not duplicate a shot, invent an event or relax cast, scene, identity or contact validation to fill the count. A key-moment policy may decline an unselected response; a frequency-required response may not.`;
+}
+async function runRelayPlannedDirectorWithFrequency(messages, context, generate, prepare) {
+  const count = (validated) => validated.shouldIllustrate ? validated.illustrations.filter((row) => !row.rejected).length : 0;
+  const required = relayPlannedFrequencyRequiresIllustration(context);
+  const minimum = context.minimumIllustrations ?? (required ? 1 : 0);
+  const read = async (request) => {
+    const raw = await generate(request);
+    const selected = parseJsonObject(raw).shouldIllustrate === true;
+    let validated = validateRelayPlannedDirectorResult(raw, context);
+    if (prepare && validated.shouldIllustrate)
+      validated = await prepare(validated);
+    return { raw, validated, selected };
+  };
+  let result = await read(messages);
+  if (!required && !result.selected || count(result.validated) >= Math.max(1, minimum))
+    return result;
+  const previous = result;
+  const failure = count(result.validated) ? "count-contract failure" : "frequency-contract failure";
+  result = await read([...messages, { role: "user", content: [
+    relayPlannedFrequencyDirective(context),
+    relayPlannedCountDirective(context),
+    `The previous result selected ${count(previous.validated)} usable illustration(s). Correct that ${failure} using the same authoritative paragraphs and JSON schema. Return the complete batch, preserving the valid shots below and adding distinct supported shots as needed. Do not repeat a general summary as a decline reason.`,
+    JSON.stringify({ validatedIllustrations: previous.validated.illustrations.filter((row) => !row.rejected).map((row) => row.illustration) })
+  ].filter(Boolean).join(`
+`) }]);
+  if (count(previous.validated) > count(result.validated))
+    result = previous;
+  const actual = count(result.validated);
+  if (!actual && required)
+    throw new Error("Required illustration planning failed after one bounded retry: the Director supplied no usable source-grounded shot. The selected frequency was not optional; no image was dispatched. Check Director output or retry planning.");
+  if (!actual && previous.selected)
+    throw new Error("Selected illustration planning failed after one bounded retry: no source-grounded shot passed validation. This was a count shortfall, not a key-moment decline. No image was dispatched. Check Director output or retry planning.");
+  if (actual < minimum)
+    result.validated.warnings.push(`Illustration count shortfall after one bounded retry: requested ${minimum}${minimum === context.maximumIllustrations ? "" : `\u2013${context.maximumIllustrations}`}, but only ${actual} source-grounded illustration(s) passed validation. Preserved usable shots; no invented or duplicate shots were dispatched.`);
+  return result;
+}
+function selectRelayPlannedDispatchOpportunities(opportunities, maximum) {
+  const seen = new Set;
+  return [...opportunities].filter((item) => item.status === "proposed").sort((a, b) => b.confidence - a.confidence).filter((item) => {
+    const key = item.plannerVersion === RELAY_PLANNED_V2 ? item.opportunityId : `${item.messageId}:${item.swipeId}:${item.paragraphIndex}:${item.insertionSide}`;
+    if (seen.has(key))
+      return false;
+    seen.add(key);
+    return true;
+  }).slice(0, Math.max(0, maximum));
+}
 function relayPlannedSceneContract(illustration, context) {
   const paragraph = context.paragraphs.find((row) => row.index === illustration.anchor.paragraphIndex);
   return buildIllustrationSceneContract({
@@ -261933,9 +262113,13 @@ function relayPlannedSceneContract(illustration, context) {
     anchorExcerpt: illustration.anchor.anchorExcerpt,
     actors: illustration.subjectDirectives.map((row) => {
       const subject = context.subjects.find((subject) => key(subject.name) === key(row.name));
-      return { name: row.name, identity: subject?.identity || [], current: subject?.current || [], action: row.action, contact: row.contact };
+      return { name: row.name, identity: subject?.identity || [], current: relayPlannedDirectiveCurrent(subject, row), action: row.action, contact: row.contact };
     })
   });
+}
+function relayPlannedDirectiveCurrent(subject, row) {
+  const replaced = row.attireOverrides.length ? new Set(relayPlannedAppearanceDescriptors(subject?.wardrobe || []).map(key)) : new Set;
+  return relayPlannedAppearanceDescriptors(subject?.current || []).filter((value) => !replaced.has(key(value)));
 }
 function relayPlannedAuthoritativeParagraph(composition, selectedExcerpt) {
   const raw = composition?.rawOutput;
@@ -261948,12 +262132,22 @@ function relayPlannedAuthoritativeParagraph(composition, selectedExcerpt) {
 function sceneOnlyRepairPreservesPlan(original, repaired) {
   const fixed = (row) => {
     const { promptCore, booruTags, ...rest } = row;
-    return rest;
+    return { ...rest, subjectDirectives: rest.subjectDirectives.map(({ booruTags, ...directive }) => directive) };
   };
-  return JSON.stringify(fixed(original)) === JSON.stringify(fixed(repaired)) && sceneActionTagRepairPreservesFacts(original.booruTags, repaired.booruTags);
+  return JSON.stringify(fixed(original)) === JSON.stringify(fixed(repaired)) && sceneActionTagRepairPreservesFacts(original.booruTags, repaired.booruTags) && original.subjectDirectives.every((row, index) => sceneActionTagRepairPreservesFacts(row.booruTags, repaired.subjectDirectives[index]?.booruTags));
 }
 function text3(value) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+function storyboardBlocking(illustration, context) {
+  const blocking = text3(illustration.composition.blocking);
+  const visible = new Set(illustration.namedSubjects.map(key));
+  const namesOfOmittedSubjects = context.subjects.filter((subject) => !visible.has(key(subject.name)));
+  const namesOmittedByBlocking = namesOfOmittedSubjects.some((subject) => {
+    const escapedName = subject.name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return escapedName && new RegExp(`(?<![\\p{L}\\p{N}])${escapedName}(?![\\p{L}\\p{N}])`, "iu").test(blocking);
+  });
+  return namesOmittedByBlocking ? "" : blocking;
 }
 function list(value) {
   if (!Array.isArray(value))
@@ -261990,8 +262184,43 @@ function normalizeDirective(value) {
     pose: text3(raw.pose),
     action: text3(raw.action),
     gaze: text3(raw.gaze),
-    contact: text3(raw.contact)
+    contact: text3(raw.contact),
+    blocking: text3(raw.blocking),
+    booruTags: list(raw.booruTags)
   };
+}
+function relayPlannedBooruPrompt(illustration, context) {
+  const rows = illustration.namedSubjects.map((name) => illustration.subjectDirectives.find((row) => key(row.name) === key(name)));
+  const visible = new Set(illustration.namedSubjects.map(key));
+  const omitted = [...illustration.omittedSubjects, ...context.subjects.filter((subject) => !visible.has(key(subject.name))).map((subject) => subject.name)];
+  const ownedPosition = (row, name) => [row?.blocking, row?.pose, row?.action, row?.contact, row?.gaze].filter((value) => value && !omitted.some((subject) => {
+    const escaped = subject.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return escaped && new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(value);
+  })).map((value) => `${name}: ${value}`);
+  const grouped = rows.length > 0 && rows.every((row) => row?.booruTags?.length);
+  if (!grouped) {
+    if (rows.length > 1)
+      throw new Error("Each visible subject needs its own Booru tags; anonymous multi-subject appearance tags require repair.");
+    const legacyTags = illustration.booruTags || [];
+    if (rows.length === 1) {
+      const markers = legacyTags.filter(isBooruSubjectMarker);
+      if (markers.length !== 1)
+        throw new Error(`Booru subject ${illustration.namedSubjects[0]} needs a singular subject marker and its own appearance, outfit and blocking; scenery-only tags require repair.`);
+      return normalizeBooruTagPrompt(legacyTags.join(", "));
+    }
+    return normalizeBooruTagPrompt(legacyTags.join(", "));
+  }
+  const blocks = rows.map((row) => {
+    const tags = row.booruTags;
+    if (!isBooruSubjectMarker(tags[0]) || tags.slice(1).some(isBooruSubjectMarker)) {
+      throw new Error(`Booru subject ${row.name} must start with exactly one singular subject marker, followed by only that subject's appearance, outfit and blocking.`);
+    }
+    const normalized = normalizeBooruTagPrompt(tags.join(", "));
+    return [normalized, ...ownedPosition(row, row.name)].join(", ");
+  });
+  const ownedTags = new Set(rows.flatMap((row) => row.booruTags).map((tag) => key(tag)));
+  const globalTags = (illustration.booruTags || []).filter((tag) => !/^\d+(?:girls?|boys?|others?|animals?|people)$/.test(tag) && !ownedTags.has(key(tag)));
+  return normalizeBooruTagPrompt([...blocks, ...globalTags].join(", "));
 }
 function normalizeIllustration(value, context, ordinal) {
   const raw = record5(value);
@@ -262120,9 +262349,10 @@ function storyboardVisiblePropActors(illustration, context) {
   const propTokenGroups = illustration.composition.importantProps.map((prop) => key(prop).match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) || []).map((tokens) => tokens.filter((token) => token.length > 3 && !STORYBOARD_PROP_STOP_WORDS.has(token))).filter((tokens) => tokens.length > 0);
   if (!propTokenGroups.length)
     return [];
-  const nearby = context.paragraphs.filter((row) => Math.abs(row.index - illustration.anchor.paragraphIndex) <= 2);
+  const propOnly = illustration.namedSubjects.length === 0;
+  const nearby = context.paragraphs.filter((row) => propOnly ? Math.abs(row.index - illustration.anchor.paragraphIndex) <= 2 : row.index === illustration.anchor.paragraphIndex);
   const matches = [];
-  const subjects = context.subjects.filter((subject) => key(subject.role || "character") !== "animal");
+  const subjects = context.subjects.filter((subject) => isValidHostIdentityName(subject.name) && key(subject.role || "character") !== "animal");
   for (const paragraph of nearby) {
     for (const sentence of key(paragraph.text).split(/[.!?](?:\s+|$)|[;\n]+/)) {
       const sentenceTokens = new Set(sentence.match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) || []);
@@ -262136,6 +262366,8 @@ function storyboardVisiblePropActors(illustration, context) {
         return [...sentence.matchAll(pattern)].map((match) => ({ name: subject.name, start: match.index, end: match.index + match[0].length }));
       }).sort((left, right) => left.start - right.start);
       for (const action of sentence.matchAll(new RegExp(STORYBOARD_PROP_INTERACTION_ACTION.source, "gi"))) {
+        if (action[0] === "press" && /^\s+(?:notice|release|conference|coverage|briefing|corps)\b/.test(sentence.slice(action.index + action[0].length)))
+          continue;
         const actionPrefix = sentence.slice(Math.max(0, action.index - 48), action.index);
         if (/\b(?:not|never|without|doesn't|didn't|cannot|can't|couldn't|wouldn't|won't)(?:\s+\w+){0,3}\s*$/i.test(actionPrefix))
           continue;
@@ -262163,6 +262395,10 @@ function storyboardVisiblePropActors(illustration, context) {
   return matches.filter((row, index, rows) => rows.findIndex((other) => key(other.name) === key(row.name)) === index);
 }
 function overlapScore(left, right) {
+  const sameAnchor = left.anchor.paragraphIndex === right.anchor.paragraphIndex && key(left.anchor.anchorExcerpt) === key(right.anchor.anchorExcerpt);
+  const samePrompt = Boolean(key(left.promptCore)) && key(left.promptCore) === key(right.promptCore);
+  if (!sameAnchor && !samePrompt)
+    return 0;
   const subjectsA = new Set(left.namedSubjects.map(key));
   const subjectsB = new Set(right.namedSubjects.map(key));
   const intersection = [...subjectsA].filter((name) => subjectsB.has(name)).length;
@@ -262206,6 +262442,9 @@ function validateRelayPlannedDirectorResult(rawText, context) {
     }
     if (context.perspectiveMode === "solo-scene" && (illustration.namedSubjects.length !== 1 || illustration.expectedPeopleCount !== 1 || illustration.composition.backgroundPeople)) {
       issues.push({ code: "solo-scene-cast", message: "Character Only requires exactly one visible person and no background people.", repair: "ambiguous" });
+    }
+    if (context.perspectiveMode === "solo-scene" && context.characterOnlySubjects?.length && (illustration.namedSubjects.length !== 1 || !context.characterOnlySubjects.some((name) => key(name) === key(illustration.namedSubjects[0])))) {
+      issues.push({ code: "solo-scene-subject", message: `Character Only must depict the selected character ${context.characterOnlySubjects.join(", ")}, not another subject. Preserve the supported scene; never invent an action to add them.`, repair: "ambiguous" });
     }
     if (context.perspectiveMode === "storyboard") {
       const missingPropActors = storyboardVisiblePropActors(illustration, context).filter((row) => !illustration.namedSubjects.some((name) => key(name) === key(row.name)));
@@ -262251,18 +262490,29 @@ function validateRelayPlannedDirectorResult(rawText, context) {
       issues.push({ code: "prompt-core-limit", message: `promptCore exceeds ${context.maximumPromptCharacters} characters.`, repair: "ambiguous" });
     if (context.promptFormat === "danbooru-tags") {
       try {
-        normalizeBooruTagPrompt((illustration.booruTags || []).join(", "));
+        relayPlannedBooruPrompt(illustration, context);
       } catch (error) {
-        issues.push({ code: "invalid-booru-tags", message: error instanceof Error ? error.message : String(error), repair: "ambiguous" });
+        issues.push({ code: /subject/i.test(String(error)) ? "booru-subject-ownership" : "invalid-booru-tags", message: error instanceof Error ? error.message : String(error), repair: "ambiguous" });
       }
     }
     if (context.perspectiveMode === "storyboard" && paragraph && !issues.some((issue) => issue.code === "anchor-excerpt-mismatch")) {
       const tagMode = context.promptFormat === "danbooru-tags";
-      const candidate = tagMode ? (illustration.booruTags || []).join(", ") : [illustration.promptCore, ...illustration.subjectDirectives.map((row) => `${row.name}: ${row.action}, ${row.contact}`)].join(". ");
+      let tagCandidate = "";
+      if (tagMode) {
+        try {
+          tagCandidate = relayPlannedBooruPrompt(illustration, context);
+        } catch {}
+      }
+      const candidate = tagMode ? tagCandidate : [illustration.promptCore, ...illustration.subjectDirectives.map((row) => `${row.name}: ${row.action}, ${row.contact}`)].join(". ");
       const checked = enforceIllustrationSceneContract(candidate, tagMode ? "danbooru-tags" : "natural-language", relayPlannedSceneContract(illustration, context));
-      if (tagMode)
-        illustration.booruTags = checked.prompt.split(",").map(text3).filter(Boolean);
+      if (tagMode && tagCandidate) {
+        const kept = new Set(checked.prompt.split(",").map(text3));
+        illustration.booruTags = (illustration.booruTags || []).filter((tag) => kept.has(text3(tag)));
+        for (const row of illustration.subjectDirectives)
+          row.booruTags = (row.booruTags || []).filter((tag) => kept.has(text3(tag)));
+      }
       issues.push(...checked.issues);
+      warnings.push(...checked.issues.filter((issue) => issue.repair === "review").map((issue) => issue.message));
     }
     for (const field of ["shotType", "framing", "blocking", "location"]) {
       if (!illustration.composition[field])
@@ -262292,7 +262542,7 @@ function validateRelayPlannedDirectorResult(rawText, context) {
     accepted.push({ illustration, issues, requiresRepair, rejected });
   }
   return {
-    shouldIllustrate: parsed.shouldIllustrate === true && accepted.some((row) => !row.rejected),
+    shouldIllustrate: (parsed.shouldIllustrate === true || relayPlannedFrequencyRequiresIllustration(context)) && accepted.some((row) => !row.rejected),
     reason: overallReason || (accepted.length ? "Illustration Director selected visual beats." : "No illustration was warranted."),
     illustrations: accepted,
     warnings
@@ -262314,7 +262564,11 @@ function dedupeOrdered(values) {
   return output;
 }
 function compileRelayPlannedPrompt(illustration, context, options = {}) {
-  const subjectMap = new Map(context.subjects.map((subject) => [key(subject.name), subject]));
+  const subjectMap = new Map(context.subjects.map((subject) => [key(subject.name), {
+    ...subject,
+    identity: relayPlannedAppearanceDescriptors(subject.identity),
+    current: relayPlannedAppearanceDescriptors(subject.current)
+  }]));
   const identity = illustration.namedSubjects.flatMap((name) => subjectMap.get(key(name))?.identity || []);
   const current = illustration.namedSubjects.flatMap((name) => subjectMap.get(key(name))?.current || []);
   const composition = illustration.composition;
@@ -262322,11 +262576,12 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
     const subject = subjectMap.get(key(row.name));
     const details = dedupeOrdered([
       ...subject?.identity || [],
-      ...subject?.current || [],
+      ...relayPlannedDirectiveCurrent(subject, row),
       ...row.appearanceOverrides,
       ...row.attireOverrides,
       ...row.temporaryTraits,
       row.expression,
+      row.blocking || "",
       row.pose,
       row.action,
       row.contact,
@@ -262373,6 +262628,9 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
     storyboardCameraFields.join(", "),
     storyboardCastClause,
     text3(illustration.promptCore),
+    storyboardBlocking(illustration, context) ? `Spatial blocking: ${storyboardBlocking(illustration, context)}` : "",
+    text3(composition.foreground) ? `Foreground depth: ${text3(composition.foreground)}` : "",
+    storyboardFigureIntegrityClause(illustration.expectedPeopleCount, illustration.namedSubjects),
     storyboardNoContactClarifier,
     storyboardToollessClarifier,
     storyboardGapClarifier,
@@ -262381,7 +262639,7 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
       const actionFallback = [row.pose, row.action, row.contact].filter((requirement) => !ownedSceneRequirementPresent(illustration.promptCore, row.name, requirement, illustration.namedSubjects));
       const owned = dedupeOrdered([
         ...subject?.identity || [],
-        ...subject?.current || [],
+        ...relayPlannedDirectiveCurrent(subject, row),
         ...row.appearanceOverrides,
         ...row.attireOverrides,
         ...row.temporaryTraits,
@@ -262424,7 +262682,11 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
     ...context.perspectiveMode === "solo-scene" ? ["extra person", "background people", "crowd", "reflection person", "screen person", "duplicate person"] : []
   ]);
   const sceneContract = context.perspectiveMode === "storyboard" ? relayPlannedSceneContract(illustration, context) : undefined;
-  const viewPrompt = normalizeIllustrationViewWording(options.tagMode ? (illustration.booruTags || []).join(", ") : storyboardPrompt || ordered.join(", "), context.perspectiveMode, options.tagMode ? "danbooru-tags" : "natural-language");
+  const tagPrompt = options.tagMode ? [
+    relayPlannedBooruPrompt(illustration, context),
+    ...context.perspectiveMode === "storyboard" ? [storyboardBlocking(illustration, context)] : []
+  ].map(text3).filter(Boolean).join(", ") : "";
+  const viewPrompt = normalizeIllustrationViewWording(options.tagMode ? tagPrompt : storyboardPrompt || ordered.join(", "), context.perspectiveMode, options.tagMode ? "danbooru-tags" : "natural-language");
   const candidate = options.tagMode ? normalizeBooruTagPrompt(viewPrompt) : viewPrompt;
   const checked = sceneContract ? enforceIllustrationSceneContract(candidate, options.tagMode ? "danbooru-tags" : "natural-language", sceneContract) : { prompt: candidate, issues: [] };
   if (checked.issues.some((issue) => issue.repair === "ambiguous"))
@@ -262440,8 +262702,8 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.5.1";
-var BUILD_ID = "20261009-0.5.1";
+var EXTENSION_VERSION = "0.5.1.1";
+var BUILD_ID = "20261013-0.5.1.1";
 
 // src/providerPromptSafety.ts
 class ProviderPromptSafetyError extends Error {
@@ -292803,20 +293065,29 @@ async function generateRawSidecar(request, chatId, userId) {
     await mutateState(chatId, userId, (state) => appendStateLog(state, { severity: "debug", stage: "model-context", eventType: "model_context_budget", chatId, message: `${workflow}: ${measurement.estimatedInputTokens} estimated input tokens (${measurement.tier}).`, details: measurement }));
   return spindle.generate.raw({ ...providerRequest, messages: resolution.messages, userId });
 }
+var RELAY_PLANNED_SURFACE_MEDIA_SCOPE = `STORY/PROVIDER CHANNEL SEPARATION \u2014 ILLUSTRATOR SCOPE
+
+In Relay-Planned mode, write the narrative as ordinary prose. Do not emit standalone Illustrator-owned prose illustration requests, their image prompts, camera/framing instructions, or commentary about how Relay should place a narrative image. Relay's separate planner and composer build an image-only prompt from the selected story beat.
+
+This restriction applies ONLY to Illustrator-owned narrative images. Enabled Surface and Narrative Utility media remain Story Model-authored: when invoking an image-enabled Surface or Utility, include its required complete <image_request> or nested <reverie-illustration> and its image-only <scene_brief> or <visual_prompt>, exactly as that module specifies. A zero Illustrator request count does not disable Surface or Utility media. Those requests are outside the Illustrator's frequency and image-count budget. Do not invent disabled modules, additional media fields, or substitute schemas. Never turn narrative dialogue or prose into rendered captions or speech bubbles.`;
+function scopeRelayPlannedStoryMediaPrompt(prompt) {
+  return prompt.replaceAll(RELAY_PLANNED_STORY_CHANNEL_GUIDANCE, RELAY_PLANNED_SURFACE_MEDIA_SCOPE).replace("The Story Model still writes ordinary narrative prose with no illustration markup.", "The Story Model writes narrative prose without standalone Illustrator-owned illustration markup; enabled Surface and Narrative Utility media still follow their own authoring contracts.");
+}
 function activeIllustratorPrompt(settings) {
   if (!settings.enabled || settings.mode === "off")
     return "";
   const promptId = settings.mode === "relay-planned" ? "story.relay-planned" : settings.mode === "inline-protocol" && settings.promptFormat === "danbooru-tags" ? "story.inline-protocol.booru-tags" : settings.mode === "inline-protocol" ? "story.inline-protocol" : "story.model-placed";
-  const base = registryPrompt(settings, promptId);
+  const registeredBase = registryPrompt(settings, promptId);
+  const base = settings.mode === "relay-planned" ? scopeRelayPlannedStoryMediaPrompt(registeredBase) : registeredBase;
   const framing = effectiveFramingPrompt(settings);
   const adult = registryPrompt(settings, "story.adult-content-fidelity");
-  const channelGuidance = settings.mode === "relay-planned" ? RELAY_PLANNED_STORY_CHANNEL_GUIDANCE : ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE;
+  const channelGuidance = settings.mode === "relay-planned" ? RELAY_PLANNED_SURFACE_MEDIA_SCOPE : ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE;
   const requiredChannelGuidance = settings.mode === "inline-protocol" && settings.promptFormat === "danbooru-tags" ? `${BOORU_TAG_MODE_VISUAL_PROMPT_GUIDANCE}
 
 ${BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE}` : channelGuidance;
   const enforcedChannelGuidance = base.includes(requiredChannelGuidance) ? "" : requiredChannelGuidance;
   const tagOwnershipGuidance = settings.promptFormat === "danbooru-tags" && !base.includes(BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE) ? BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE : "";
-  const relayTagMode = settings.mode === "relay-planned" && settings.promptFormat === "danbooru-tags" ? RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE : "";
+  const relayTagMode = settings.mode === "relay-planned" && settings.promptFormat === "danbooru-tags" ? scopeRelayPlannedStoryMediaPrompt(RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE) : "";
   return [base, framing, adult, enforcedChannelGuidance, relayTagMode, tagOwnershipGuidance].filter(Boolean).join(`
 
 `);
@@ -293146,7 +293417,7 @@ var relayPromptInterceptor = async (messages, context) => {
         const toolSession = phoneTransport.native() ? phoneToolBridge.open(context, identities) : undefined;
         const device = await readReconciledPhoneDevice(chatId, context?.userId, identities, false);
         const history = await spindle.chat.getMessages(chatId);
-        const completedReplies = history.filter((message) => isAssistantMessage(message) && !isOwnMessage(message) && String(message.id) !== String(context?.messageId || context?.message_id || "") && phoneStorySourceCommitted(message.extra, activeSwipeId(message))).length;
+        const completedReplies = history.filter((message) => isAssistantMessage(message) && !isOwnMessage(message) && getSwipeContent(message, activeSwipeId(message)).trim().length > 0 && String(message.id) !== String(context?.messageId || context?.message_id || "") && phoneStorySourceCommitted(message.extra, activeSwipeId(message))).length;
         phoneProtocol = toolSession ? phoneToolProtocol(toolSession) : phoneStoryProtocol(identities, device.incoming, completedReplies);
         const selection = phoneContextForPrompt(device, identities);
         const claim = selection.requestId ? `${context?.userId || "__default__"}:${chatId}:${selection.requestId}` : "";
@@ -293178,6 +293449,8 @@ var relayPromptInterceptor = async (messages, context) => {
       let content = cleanString(message?.content);
       if (!content)
         return message;
+      if (settings.mode === "relay-planned" && message.role === "system")
+        content = scopeRelayPlannedStoryMediaPrompt(content);
       content = content.replace(/<reverie_phone_macro\s*\/>|\{\{\s*reverie_phone\s*\}\}|<reverie_phone_protocol>[\s\S]*?<\/reverie_phone_protocol>/g, () => {
         const value = phoneMacroExpanded ? "" : phoneProtocol;
         phoneMacroExpanded = true;
@@ -293262,12 +293535,13 @@ var relayPromptInterceptor = async (messages, context) => {
     const automaticIllustrator = (settings.mode === "model-placed" || settings.mode === "inline-protocol") && settings.automaticProtocolInjection && !illustratorMacroExpanded ? illustratorPrompt : "";
     const automaticNarrative = routerConfig.narrativeDlcEnabled && !narrativeMacroExpanded ? narrativeUtility.content : "";
     const promptAlreadyHasStoryBlock = (block) => Boolean(block) && dedupedMacroMessages.some((message) => cleanString(message?.content).includes(block));
+    const automaticIllustratorScope = settings.enabled && !settings.paused && settings.mode === "relay-planned" && !promptAlreadyHasStoryBlock(RELAY_PLANNED_SURFACE_MEDIA_SCOPE) ? RELAY_PLANNED_SURFACE_MEDIA_SCOPE : "";
     const automaticPhoneMemory = phoneMemoryContext && !promptAlreadyHasStoryBlock(phoneMemoryContext) ? phoneMemoryContext : "";
     const automaticEventKnowledge = eventKnowledgeContext && !promptAlreadyHasStoryBlock(eventKnowledgeContext) ? eventKnowledgeContext : "";
     const automaticPlotSparksRecent = plotSparksRecentContext && !promptAlreadyHasStoryBlock(plotSparksRecentContext) ? plotSparksRecentContext : "";
     const automaticPhoneContinuity = phoneContinuity && !promptAlreadyHasStoryBlock(phoneContinuity) ? phoneContinuity : "";
     const automaticRuntime = "";
-    const combined = [automaticSurfaceProtocol, automaticUtility?.content || "", automaticNarrative, automaticPhoneMemory, automaticEventKnowledge, automaticPlotSparksRecent, automaticPhoneContinuity, phoneMacroExpanded ? "" : phoneProtocol, automaticIllustrator, automaticRuntime].filter(Boolean).join(`
+    const combined = [automaticSurfaceProtocol, automaticUtility?.content || "", automaticNarrative, automaticPhoneMemory, automaticEventKnowledge, automaticPlotSparksRecent, automaticPhoneContinuity, phoneMacroExpanded ? "" : phoneProtocol, automaticIllustrator, automaticIllustratorScope, automaticRuntime].filter(Boolean).join(`
 
 `);
     if (!combined) {
@@ -293283,6 +293557,7 @@ var relayPromptInterceptor = async (messages, context) => {
       automaticPhoneMemory ? "Character Phone memory" : "",
       automaticEventKnowledge ? "character knowledge context" : "",
       automaticIllustrator ? `illustrator (${settings.mode})` : "",
+      automaticIllustratorScope ? "Relay-Planned Surface media scope" : "",
       automaticRuntime ? "live runtime" : ""
     ].filter(Boolean).join(" + ");
     if (automaticUtility) {
@@ -294059,10 +294334,34 @@ function relayPlannedJson(raw, label) {
     throw new Error(`${label} result must be a JSON object.`);
   return parsed;
 }
+function sceneVerifiedIdentityAliases(identity, vault, source) {
+  const base = identity.name.replace(/\s*\([^)]*\)\s*$/u, "").trim();
+  const words = base.split(/\s+/);
+  if (words.length < 2 || words.length > 4 || !words.every((word) => /^[\p{L}'\u2019.-]+$/u.test(word)) || !new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp3(base)}(?=$|[^\\p{L}\\p{N}])`, "iu").test(source))
+    return identity;
+  const own = Object.values(vault.characters).find((character) => [character.canonicalCharacterId, character.lumiverseCharacterId, character.lumiversePersonaId].includes(identity.id || ""));
+  if (!own || !(own.lumiverseCharacterId || own.lumiversePersonaId))
+    return identity;
+  const facts = allAppearanceFacts(vault);
+  const aliases = [base, words.at(-1)].filter((alias) => {
+    if ([...alias].length < 3 || !new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp3(alias)}(?=$|[^\\p{L}\\p{N}])`, "iu").test(source))
+      return false;
+    const aliasKey = normalizeIdentityOwner(alias);
+    return !Object.values(vault.characters).some((character) => {
+      if (character.canonicalCharacterId === own.canonicalCharacterId)
+        return false;
+      const otherBase = character.canonicalCharacterName.replace(/\s*\([^)]*\)\s*$/u, "").trim();
+      const matches = [otherBase, otherBase.split(/\s+/).at(-1), ...character.aliases].some((name) => normalizeIdentityOwner(name) === aliasKey);
+      if (!matches)
+        return false;
+      const emptyGeneratedPlaceholder = normalizeIdentityOwner(character.canonicalCharacterName) === aliasKey && !character.lumiverseCharacterId && !character.lumiversePersonaId && ["native-visual-preset", "user-confirmed-analysis"].includes(character.sourceType) && !facts.some((fact) => fact.canonicalCharacterId === character.canonicalCharacterId);
+      return !emptyGeneratedPlaceholder;
+    });
+  });
+  return aliases.length ? { ...identity, aliases: [...new Set([...identity.aliases, ...aliases])] } : identity;
+}
 function relayPlannedSubjectStates(state, chatId, content, settings) {
   const strength = effectiveIllustratorAppearanceStrength(settings, state.continuityVault.strength);
-  if (strength === "off")
-    return [];
   const facts = allAppearanceFacts(state.continuityVault);
   const candidates = new Set(extractCharacterCandidates(content).map((name) => name.toLocaleLowerCase()));
   for (const fact of facts) {
@@ -294075,16 +294374,34 @@ function relayPlannedSubjectStates(state, chatId, content, settings) {
     for (const name of selectedCharacterOnlySubjects(settings))
       candidates.add(name.toLocaleLowerCase());
   const names = [...new Set(facts.filter((fact) => candidates.has(fact.canonicalCharacterName.toLocaleLowerCase())).map((fact) => fact.canonicalCharacterName))];
+  if (settings.perspectiveMode === "solo-scene") {
+    for (const selected of selectedCharacterOnlySubjects(settings)) {
+      const canonical = resolveCanonicalCharacter(state.continuityVault, selected);
+      const name = canonical?.canonicalCharacterName || selected;
+      if (!names.some((existing) => normalizeIdentityOwner(existing) === normalizeIdentityOwner(name)))
+        names.push(name);
+    }
+  }
   for (const candidate of extractCharacterCandidates(content))
     if (!names.some((name) => name.toLocaleLowerCase() === candidate.toLocaleLowerCase()))
       names.push(candidate);
-  return names.slice(0, 24).map((name) => {
-    const active = selectContinuityForSubjects(state.continuityVault, { subjectNames: [name], chatId, sceneBrief: content, strength }).included;
-    const identity = active.filter((fact) => fact.layer === "visual-identity").map(appearanceFactDescriptor).filter(Boolean);
-    const current = active.filter((fact) => fact.layer !== "visual-identity").map(appearanceFactDescriptor).filter(Boolean);
-    const pinned = active.filter((fact) => fact.pinned).map(appearanceFactDescriptor).filter(Boolean);
-    const animal = [...identity, ...current].some((value) => /\b(?:dog|cat|horse|animal|canine|feline|retriever|wolf|fox)\b/i.test(value));
-    return { name, role: animal ? "animal" : "character", identity, current, pinned, superseded: [], activeFactIds: active.map((fact) => fact.factId) };
+  const verifiedSubjects = Object.values(state.continuityVault.characters).filter((character) => character.lumiverseCharacterId || character.lumiversePersonaId).map((character) => sceneVerifiedIdentityAliases({ id: character.canonicalCharacterId, name: character.canonicalCharacterName, aliases: character.aliases }, state.continuityVault, content));
+  const selectedNames = new Set(settings.perspectiveMode === "solo-scene" ? selectedCharacterOnlySubjects(settings).map((name) => normalizeIdentityOwner(resolveCanonicalCharacter(state.continuityVault, name)?.canonicalCharacterName || name)) : []);
+  const seen = new Set;
+  return names.sort((a, b) => Number(selectedNames.has(normalizeIdentityOwner(b))) - Number(selectedNames.has(normalizeIdentityOwner(a))) || a.length - b.length).slice(0, 24).flatMap((name) => {
+    const verified = verifiedSubjects.filter((subject) => [subject.name, ...subject.aliases].some((alias) => normalizeIdentityOwner(alias) === normalizeIdentityOwner(name)));
+    const owner = verified.length === 1 ? verified[0].id : name;
+    const ownerKey = normalizeIdentityOwner(owner);
+    if (seen.has(ownerKey))
+      return [];
+    seen.add(ownerKey);
+    const active = strength === "off" ? [] : selectContinuityForSubjects(state.continuityVault, { subjectNames: [owner], chatId, sceneBrief: "full-body", strength }).included;
+    const identity = relayPlannedAppearanceDescriptors(active.filter((fact) => fact.layer === "visual-identity").map(appearanceFactDescriptor));
+    const current = relayPlannedAppearanceDescriptors(active.filter((fact) => fact.layer !== "visual-identity").map(appearanceFactDescriptor));
+    const wardrobe = relayPlannedAppearanceDescriptors(active.filter((fact) => fact.layer === "wardrobe").map(appearanceFactDescriptor));
+    const pinned = relayPlannedAppearanceDescriptors(active.filter((fact) => fact.pinned).map(appearanceFactDescriptor));
+    const animal = identity.some((value) => value.split(/[,;]+/).some((fragment) => /^(?:(?:species|animal)\s*:\s*)?(?:(?:a|an|large|small|young|adult|old|domestic)\s+)*(?:dog|cat|horse|animal|canine|feline|(?:golden|labrador)\s+retriever|retriever|wolf|fox)$/i.test(fragment.replace(/_/g, " ").trim())));
+    return [{ name, role: animal ? "animal" : "character", identity, current, wardrobe, pinned, superseded: [], activeFactIds: active.map((fact) => fact.factId) }];
   });
 }
 function relayPlannedContextForResponse(input) {
@@ -294097,13 +294414,15 @@ function relayPlannedContextForResponse(input) {
     ...plans.filter((plan) => plan.chatId === input.chatId && plan.messageId === input.messageId && plan.swipeId === input.swipeId).map((plan) => ({ scope: "current-response", planId: plan.planId, title: plan.title, subjects: plan.namedSubjects, paragraphIndex: plan.anchor.paragraphIndex, status: plan.status }))
   ];
   const native = nativeSnapshotFromConfig(input.config)?.settings || {};
+  const countBounds = relayPlannedIllustrationCountBounds(input.settings, input.settings.maximumIllustrationsPerMessage - countCommittedProseIllustrationsForMessage(input.state, input.chatId, input.messageId, input.swipeId) - countActiveProsePlansForMessage(input.state, input.chatId, input.messageId, input.swipeId));
   return {
     version: RELAY_PLANNED_V2,
     chatId: input.chatId,
     messageId: input.messageId,
     swipeId: input.swipeId,
-    maximumIllustrations: Math.max(0, Math.min(Math.max(0, input.settings.maximumIllustrationsPerMessage - countCommittedProseIllustrationsForMessage(input.state, input.chatId, input.messageId, input.swipeId) - countActiveProsePlansForMessage(input.state, input.chatId, input.messageId, input.swipeId)), input.settings.maximumImages, input.settings.maximumOpportunitiesPerMessage)),
+    ...countBounds,
     maximumCharacters: input.settings.maximumCharacters,
+    frequencyMode: input.settings.frequencyMode,
     maximumPromptCharacters: 6000,
     perspectiveMode: input.settings.perspectiveMode,
     defaultAspectRatio: input.settings.defaultAspectRatio,
@@ -294116,6 +294435,7 @@ function relayPlannedContextForResponse(input) {
     }).filter((row) => Boolean(row.text)),
     latestUserVisualContext: input.latestUserVisualContext || "",
     subjects: relayPlannedSubjectStates(input.state, input.chatId, input.content, input.settings),
+    characterOnlySubjects: input.settings.perspectiveMode === "solo-scene" ? selectedCharacterOnlySubjects(input.settings).map((name) => resolveCanonicalCharacter(input.state.continuityVault, name)?.canonicalCharacterName || name) : undefined,
     referenceAssetIds: references.map((asset) => asset.assetId),
     locationReferenceAssetIds: locationReferences.map((asset) => asset.assetId),
     priorIllustrations,
@@ -294127,11 +294447,13 @@ function relayPlannedDirectorMessages(settings, context) {
   return [
     { role: "system", content: [
       registryPrompt(settings, "relay-planned.director.system"),
+      relayPlannedFrequencyDirective(context),
+      relayPlannedCountDirective(context),
       settings.promptFormat === "danbooru-tags" ? RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE : "",
       settings.promptFormat === "danbooru-tags" ? BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE : "",
       context.perspectiveMode === "storyboard" ? STORYBOARD_DIRECTOR_GUIDANCE : "",
       context.perspectiveMode === "storyboard" && settings.promptFormat === "danbooru-tags" ? STORYBOARD_BOORU_PARSER_GUIDANCE : "",
-      context.perspectiveMode === "solo-scene" ? "CHAR ONLY CAST CONTRACT: Select a still in which exactly one established character is actually visible. An object-only crop is not a Char only illustration, even when the object is visually interesting. If one paragraph centers an object but another paragraph of this same response visibly shows the character with that object, anchor the character-visible paragraph instead. Set namedSubjects to that one character, expectedPeopleCount to 1, backgroundPeople to an empty string, and omit every other person from the frame. Never invent a visible character or change the source event to satisfy this rule; return no illustration if no character-visible beat exists." : ""
+      context.perspectiveMode === "solo-scene" ? `CHAR ONLY CAST CONTRACT: The only allowed visible character is ${JSON.stringify(context.characterOnlySubjects || [])}. Select a still in which that exact established character is actually visible. An object-only crop is not a Char only illustration, even when the object is visually interesting. If one paragraph centers an object but another paragraph of this same response visibly shows the selected character with that object, anchor the character-visible paragraph instead. Set namedSubjects to that exact selected name, expectedPeopleCount to 1, backgroundPeople to an empty string, and omit every other person from the frame. Never substitute another character, invent a visible character or change the source event to satisfy this rule; return no illustration if no selected-character-visible beat exists.` : ""
     ].filter(Boolean).join(`
 
 `) },
@@ -294149,7 +294471,7 @@ function relayPlannedDirectorMessages(settings, context) {
       globalNegativeRequirementsJson: JSON.stringify(context.globalNegativeRequirements, null, 2),
       paragraphsJson: JSON.stringify(context.paragraphs.map(({ index, text }) => ({ index, text })), null, 2),
       latestUserVisualContext: context.latestUserVisualContext || ""
-    }), settings.promptFormat === "danbooru-tags" ? `TAG MODE SCHEMA ADDITION: Every illustration object must also include "booruTags": ["1girl", "solo", "short_hair", "black_hair", "holding", "card", "workshop"]. Fill this array with distinct visual tags for that illustration's actual subjects, complete current outfits, action, props, and setting. Keep promptCore and subjectDirectives as normal planning prose; only booruTags becomes the positive provider prompt.` : ""].filter(Boolean).join(`
+    }), settings.promptFormat === "danbooru-tags" ? RELAY_PLANNED_BOORU_SUBJECT_SCHEMA : ""].filter(Boolean).join(`
 
 `) }
   ];
@@ -294158,12 +294480,13 @@ function relayPlannedRepairMessages(settings, context, illustration, validationE
   return [
     { role: "system", content: [
       registryPrompt(settings, "relay-planned.repair-parser.system"),
-      validationErrors.length && validationErrors.every((error) => error.startsWith("scene-")) ? "TARGETED SCENE CONTRACT REPAIR: Change only promptCore and the reported action tags in booruTags. Preserve every other illustration field exactly, including anchor, cast, subject directives, outfits, composition, references and negatives. Keep all existing non-action tags unchanged. Do not pick an easier moment, add a tool or actor, or rewrite appearance. If that bounded change cannot resolve the reported fault, return repairable false." : "",
+      validationErrors.length && validationErrors.every((error) => error.startsWith("scene-")) ? "TARGETED SCENE CONTRACT REPAIR: Change only promptCore and the reported action tags in booruTags, including the affected subject's own booruTags array. Preserve every other illustration field exactly, including anchor, cast, subject directive prose, outfits, composition, references and negatives. Keep all existing non-action tags unchanged inside their original owner blocks. Do not pick an easier moment, add a tool or actor, or rewrite appearance. If that bounded change cannot resolve the reported fault, return repairable false." : "",
       settings.promptFormat === "danbooru-tags" ? "DANBOORU TAG MODE REPAIR: Return the normal repairable/illustration JSON object. The complete repaired illustration must contain a booruTags array of separate visual tags covering the authoritative visible subjects, stable traits, full current outfits, action, props, and setting. Repair only missing or prose-shaped tags; do not convert a sentence into one underscore-joined pseudo-tag. Keep all valid story and composition fields intact." : "",
       settings.promptFormat === "danbooru-tags" ? BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE : "",
+      settings.promptFormat === "danbooru-tags" ? RELAY_PLANNED_BOORU_SUBJECT_SCHEMA : "",
       context.perspectiveMode === "storyboard" ? STORYBOARD_DIRECTOR_GUIDANCE : "",
       context.perspectiveMode === "storyboard" && settings.promptFormat === "danbooru-tags" ? STORYBOARD_BOORU_PARSER_GUIDANCE : "",
-      context.perspectiveMode === "solo-scene" ? "CHAR ONLY REPAIR: An object-only shot cannot pass by merely changing expectedPeopleCount. If an authoritative source paragraph visibly shows exactly one established character, re-anchor that paragraph and rebuild the same moment around that character, with exactly one named subject, expectedPeopleCount 1, and backgroundPeople empty. If no such paragraph exists, return repairable false. Do not invent a person or insert an off-frame subject into the image." : ""
+      context.perspectiveMode === "solo-scene" ? `CHAR ONLY REPAIR: The only allowed visible character is ${JSON.stringify(context.characterOnlySubjects || [])}. An object-only shot cannot pass by merely changing expectedPeopleCount. If an authoritative source paragraph visibly shows that selected character, re-anchor that paragraph and rebuild the same moment around that character, with exactly that named subject, expectedPeopleCount 1, and backgroundPeople empty. If no such paragraph exists, return repairable false. Do not substitute another character, invent a person or insert an off-frame subject into the image.` : ""
     ].filter(Boolean).join(`
 
 `) },
@@ -294261,6 +294584,12 @@ function relayPlannedOpportunity(input, settings, context, illustration, meta) {
   };
 }
 async function analyzeRelayPlannedResponse(input) {
+  const operationKey = `prose:${input.chatId}`;
+  const operationSerial = captureAbortableOperation(operationKey);
+  input = { ...input, settings: await resolveCharacterOnlySettingsForPrompt(input.settings, input.chatId, input.userId) };
+  if (input.settings.perspectiveMode === "solo-scene" && !selectedCharacterOnlySubjects(input.settings).length) {
+    throw new Error("Character Only could not resolve the active chat character. Choose a Character Override or restore the host character binding. No image was dispatched.");
+  }
   if (!input.settings.plannerConnectionId)
     throw new Error("Illustration Director unavailable. Configure a Relay-Planned connection.");
   const connection = await spindle.connections.get(input.settings.plannerConnectionId, input.userId);
@@ -294273,43 +294602,72 @@ async function analyzeRelayPlannedResponse(input) {
   const latestUserVisualContext = latestUserMessage ? compact(sanitizeRecentVisualContext(getSwipeContent(latestUserMessage, activeSwipeId(latestUserMessage))), 1200) : "";
   const context = relayPlannedContextForResponse({ ...input, latestUserVisualContext });
   const directorMessages = relayPlannedDirectorMessages(input.settings, context);
-  const telemetry = [{ ...measureModelMessages("relay-planned-director", directorMessages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 }];
+  const telemetry = [];
   const modelConfig = { ...input.config, debugLogging: input.dryRun ? false : input.config.debugLogging, parserModel: input.settings.plannerModel || connection.model, parserParameters: input.settings.plannerParameters };
-  const rawDirectorOutput = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, directorMessages, input.userId, input.chatId, undefined, "relay-planned-director");
-  let validated = validateRelayPlannedDirectorResult(rawDirectorOutput, context);
   let repairCalls = 0;
   const validationIssues = [];
-  const finalIllustrations = [];
-  for (const row of validated.shouldIllustrate ? validated.illustrations : []) {
-    validationIssues.push(...row.issues.map((issue) => issue.code));
-    if (row.rejected)
-      continue;
-    if (!row.requiresRepair) {
-      finalIllustrations.push({ illustration: row.illustration, warnings: row.issues.map((issue) => issue.message) });
-      continue;
+  const repairDiagnostics = [];
+  const prepareDirectorResult = async (validated) => {
+    const finalIllustrations = [];
+    for (const row of validated.shouldIllustrate ? validated.illustrations : []) {
+      validationIssues.push(...row.issues.map((issue) => issue.code));
+      if (row.rejected)
+        continue;
+      if (!row.requiresRepair) {
+        finalIllustrations.push({ illustration: row.illustration, warnings: row.issues.map((issue) => issue.message) });
+        continue;
+      }
+      const repairMessages = relayPlannedRepairMessages(input.settings, context, row.illustration, row.issues.filter((issue) => issue.repair === "ambiguous").map((issue) => `${issue.code}: ${issue.message}`));
+      assertAbortableOperationCurrent(operationKey, operationSerial);
+      telemetry.push({ ...measureModelMessages("relay-planned-repair-parser", repairMessages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 });
+      repairCalls += 1;
+      const repairedRaw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, repairMessages, input.userId, input.chatId, undefined, "relay-planned-repair-parser");
+      assertAbortableOperationCurrent(operationKey, operationSerial);
+      const repair = relayPlannedJson(repairedRaw, "Illustration Plan Repair Parser");
+      if (repair.repairable !== true || !repair.illustration) {
+        repairDiagnostics.push({ title: row.illustration.title, result: repair, issues: ["repair-declined"] });
+        validationIssues.push("repair-declined");
+        continue;
+      }
+      const repairedEnvelope = JSON.stringify({ shouldIllustrate: true, reason: validated.reason, illustrations: [repair.illustration] });
+      const repaired = validateRelayPlannedDirectorResult(repairedEnvelope, context).illustrations[0];
+      repairDiagnostics.push({ title: row.illustration.title, result: repair, issues: repaired?.issues || ["repair:missing-illustration"] });
+      if (!repaired || repaired.rejected || repaired.requiresRepair) {
+        validationIssues.push(...repaired?.issues.map((issue) => `repair:${issue.code}`) || ["repair:missing-illustration"]);
+        continue;
+      }
+      const actionOnlyRepair = row.issues.filter((issue) => issue.repair === "ambiguous").every((issue) => issue.code.startsWith("scene-"));
+      if (actionOnlyRepair && !sceneOnlyRepairPreservesPlan(row.illustration, repaired.illustration)) {
+        validationIssues.push("repair:scene-contract-drift");
+        continue;
+      }
+      finalIllustrations.push({ illustration: repaired.illustration, warnings: [...row.issues.map((issue) => issue.message), ...repaired.issues.map((issue) => issue.message), "Repair Parser resolved structural ambiguity."] });
     }
-    const repairMessages = relayPlannedRepairMessages(input.settings, context, row.illustration, row.issues.filter((issue) => issue.repair === "ambiguous").map((issue) => `${issue.code}: ${issue.message}`));
-    telemetry.push({ ...measureModelMessages("relay-planned-repair-parser", repairMessages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 });
-    repairCalls += 1;
-    const repairedRaw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, repairMessages, input.userId, input.chatId, undefined, "relay-planned-repair-parser");
-    const repair = relayPlannedJson(repairedRaw, "Illustration Plan Repair Parser");
-    if (repair.repairable !== true || !repair.illustration) {
-      validationIssues.push("repair-declined");
-      continue;
-    }
-    const repairedEnvelope = JSON.stringify({ shouldIllustrate: true, reason: validated.reason, illustrations: [repair.illustration] });
-    const repaired = validateRelayPlannedDirectorResult(repairedEnvelope, context).illustrations[0];
-    if (!repaired || repaired.rejected || repaired.requiresRepair) {
-      validationIssues.push(...repaired?.issues.map((issue) => `repair:${issue.code}`) || ["repair:missing-illustration"]);
-      continue;
-    }
-    const actionOnlyRepair = row.issues.filter((issue) => issue.repair === "ambiguous").every((issue) => issue.code.startsWith("scene-"));
-    if (actionOnlyRepair && !sceneOnlyRepairPreservesPlan(row.illustration, repaired.illustration)) {
-      validationIssues.push("repair:scene-contract-drift");
-      continue;
-    }
-    finalIllustrations.push({ illustration: repaired.illustration, warnings: [...row.issues.map((issue) => issue.message), ...repaired.issues.map((issue) => issue.message), "Repair Parser resolved structural ambiguity."] });
-  }
+    const checked = validateRelayPlannedDirectorResult(JSON.stringify({
+      shouldIllustrate: true,
+      reason: validated.reason,
+      illustrations: finalIllustrations.map((row) => row.illustration)
+    }), context);
+    validationIssues.push(...checked.illustrations.flatMap((row) => row.issues.map((issue) => issue.code)));
+    const usable = checked.illustrations.filter((row) => !row.rejected && !row.requiresRepair);
+    return {
+      ...validated,
+      shouldIllustrate: usable.length > 0,
+      warnings: [...validated.warnings, ...checked.warnings],
+      illustrations: usable.map((row) => ({ ...row, issues: [
+        ...row.issues,
+        ...(finalIllustrations.find((original) => original.illustration === row.illustration || original.illustration.rank === row.illustration.rank)?.warnings || []).map((message) => ({ code: "validated-shot-note", message, repair: "review" }))
+      ] }))
+    };
+  };
+  const { raw: rawDirectorOutput, validated } = await runRelayPlannedDirectorWithFrequency(directorMessages, context, async (messages) => {
+    assertAbortableOperationCurrent(operationKey, operationSerial);
+    telemetry.push({ ...measureModelMessages("relay-planned-director", messages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 });
+    const raw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, messages, input.userId, input.chatId, undefined, "relay-planned-director");
+    assertAbortableOperationCurrent(operationKey, operationSerial);
+    return raw;
+  }, prepareDirectorResult);
+  const finalIllustrations = validated.illustrations.filter((row) => !row.rejected && !row.requiresRepair);
   const parsedDirector = relayPlannedJson(rawDirectorOutput, "Illustration Director");
   const sourceFingerprint = contentFingerprint(input.content);
   const settingsFingerprint = proseOpportunitySettingsFingerprint(input.settings);
@@ -294319,8 +294677,19 @@ async function analyzeRelayPlannedResponse(input) {
     settingsFingerprint,
     sourceFingerprint,
     raw: parsedDirector,
-    warnings: row.warnings
+    warnings: [...validated.warnings, ...row.issues.map((issue) => issue.message)]
   }));
+  if (!opportunities.length && relayPlannedFrequencyRequiresIllustration(context)) {
+    const failure = new Error(`Required illustration planning failed validation: ${[...new Set(validationIssues)].join(", ") || "no usable source-grounded shot"}. The selected frequency requires an illustration; the Director's scene summary is not a decline reason. No image was dispatched. Check Director output or retry planning.`);
+    failure.relayPlannedDiagnostics = {
+      director: parsedDirector,
+      validation: validated.illustrations,
+      repairs: repairDiagnostics,
+      paragraphs: context.paragraphs.filter((paragraph) => validated.illustrations.some((row) => Math.abs(row.illustration.anchor.paragraphIndex - paragraph.index) <= 2)),
+      telemetry
+    };
+    throw failure;
+  }
   return { context, opportunities, directorReason: validated.reason, telemetry, rawDirectorOutput, repairCalls, validationIssues };
 }
 async function discoverProseOpportunities(input) {
@@ -294377,7 +294746,7 @@ async function discoverProseOpportunities(input) {
   if (!isEligibleProseContent(input.content, settings))
     return [];
   const existingCount = countCommittedProseIllustrationsForMessage(state, input.chatId, input.messageId, input.swipeId) + countActiveProsePlansForMessage(state, input.chatId, input.messageId, input.swipeId);
-  if (existingCount >= settings.maximumIllustrationsPerMessage) {
+  if (proseMessageLimitBlocker(state, input.chatId, input.messageId, input.swipeId, settings)) {
     await mutateState(input.chatId, input.userId, (next) => appendStateLog(next, {
       severity: "info",
       stage: "prose-opportunity-discovery",
@@ -294730,6 +295099,12 @@ function countCommittedProseIllustrationsForMessage(state, chatId, messageId, sw
 function countActiveProsePlansForMessage(state, chatId, messageId, swipeId) {
   return Object.values(state.proseIllustrator.plans || {}).filter((plan) => plan.chatId === chatId && plan.messageId === messageId && plan.swipeId === swipeId && ["awaiting-approval", "ready", "candidate-review", "generated"].includes(plan.status) && !Object.values(state.proseIllustrator.records || {}).some((record) => record.planId === plan.planId && record.status === "completed")).length;
 }
+function proseMessageLimitBlocker(state, chatId, messageId, swipeId, settings) {
+  const count = countCommittedProseIllustrationsForMessage(state, chatId, messageId, swipeId) + countActiveProsePlansForMessage(state, chatId, messageId, swipeId);
+  if (count < settings.maximumIllustrationsPerMessage)
+    return null;
+  return { code: "illustration-limit", title: "Saved-message illustration limit reached", detail: `${count} illustrations or accepted plans already use this message's limit of ${settings.maximumIllustrationsPerMessage}. Continue appends to the same saved message. Raise Illustrations per Saved Message in Advanced Illustrator Controls, or start a new story reply. Existing images are preserved.`, severity: "warning", action: "Adjust saved-message limit" };
+}
 async function evaluateAndPersistProseFrequencyGate(input, settings, userId) {
   const key = `${input.chatId}:${input.messageId}:${input.swipeId}:${input.sourceContentFingerprint}:${input.settingsFingerprint}`;
   let result = { eligibleOrdinal: 0, frequencyMode: settings.frequencyMode, everyN: Math.max(1, settings.everyNEligibleMessages), passes: true, alreadyCounted: false };
@@ -294760,6 +295135,11 @@ function proseOpportunitySettingsFingerprint(settings) {
     frequencyMode: settings.frequencyMode,
     everyNEligibleMessages: settings.everyNEligibleMessages,
     maximumIllustrationsPerMessage: settings.maximumIllustrationsPerMessage,
+    modelPlacedCountMode: settings.modelPlacedCountMode,
+    illustrationsPerRun: settings.illustrationsPerRun,
+    minimumImages: settings.minimumImages,
+    maximumImages: settings.maximumImages,
+    promptFormat: settings.promptFormat,
     defaultPromptProfileId: settings.defaultPromptProfileId,
     defaultAspectRatio: settings.defaultAspectRatio,
     continuityStrength: settings.continuityStrength,
@@ -296746,9 +297126,15 @@ async function handleExplainNoGeneration(payload, userId) {
       blockers.push({ code: "illustrator-paused", title: "Auto Illustrator is paused", detail: "Resume Auto Illustrator for this chat.", severity: "warning", action: "Resume" });
     if (settings.frequencyMode === "every-n")
       blockers.push({ code: "frequency-gate", title: `Every ${settings.everyNEligibleMessages} eligible messages`, detail: "Messages that are too short, utility-only, stale, or otherwise ineligible do not advance the counter.", severity: "info" });
+    const latestAssistant = (await spindle.chat.getMessages(chatId)).filter((message) => isAssistantMessage(message) && !isOwnMessage(message)).at(-1);
+    if (latestAssistant) {
+      const limit = proseMessageLimitBlocker(state, chatId, latestAssistant.id, activeSwipeId(latestAssistant), settings);
+      if (limit)
+        blockers.push(limit);
+    }
     const opportunities = Object.values(state.proseIllustrator.opportunities).filter((row) => row.chatId === chatId && row.status !== "dismissed");
-    if (!opportunities.length)
-      blockers.push({ code: "no-eligible-beat", title: "No eligible illustration beat", detail: "Relay did not find an eligible visual moment in the available prose.", severity: "info", action: "Check Illustrator settings and planner connection" });
+    if (!opportunities.length && !blockers.some((row) => row.code === "illustration-limit"))
+      blockers.push({ code: "no-eligible-beat", title: "No eligible illustration beat", detail: "No eligible visual moment is currently recorded. Open Logs for the latest discovery decision, or review the Illustrator settings and planner connection.", severity: "info", action: "Check Illustrator settings and planner connection" });
   }
   if (!blockers.length)
     blockers.push({ code: "ready", title: "Settings allow generation", detail: "No settings blocker was found, but this does not confirm that the Director selected a valid image. Check the Background Queue for a job, or open Logs for the latest Director decision and validation result.", severity: "info" });
@@ -301716,15 +302102,17 @@ async function composePromptForOpportunity(chatId, opportunity, content, setting
   if (sexualEscalationRejected)
     throw new Error("Sidecar prompt composer added explicit content absent from the selected scene; Relay stopped before provider dispatch instead of substituting narrative prose for an image prompt.");
   const cleanedPositivePrompt = settings.stripGenericStyleBoilerplate ? stripGenericIllustratorStyleBoilerplate(rawPositivePrompt) : rawPositivePrompt;
+  const expectedPeopleCount = settings.perspectiveMode === "solo-scene" ? limited.kept.length : settings.maximumCharacters > 0 ? Math.min(rawExpectedPeopleCount, settings.maximumCharacters) : rawExpectedPeopleCount;
+  const storyboardIntegrity = settings.perspectiveMode === "storyboard" && settings.promptFormat !== "danbooru-tags" ? storyboardFigureIntegrityClause(expectedPeopleCount, limited.kept) : "";
   const positivePrompt = [
     settings.customPromptPrefix,
     cleanedPositivePrompt,
+    storyboardIntegrity,
     settings.perspectiveMode === "solo-scene" ? `character-only composition, only ${limited.kept.join(", ") || "the selected subject"} visible, no unrelated people` : "",
     settings.highResolutionModifier ? "high-resolution polished rendering, cleaner anatomy, stronger identity consistency, refined detail while preserving the selected prose framing" : ""
   ].filter(Boolean).join(", ");
   const baseNegativePrompt = [settings.customNegativePrefix, cleanString(parsed.negativePrompt), settings.perspectiveMode === "solo-scene" ? "extra person, background people, crowd, unrelated character, duplicate person, additional face, silhouette person, reflected person" : ""].filter(Boolean).join(", ");
   const contextualSexual = applyContextualSexualGuidance(positivePrompt, baseNegativePrompt, authoritativeScene);
-  const expectedPeopleCount = settings.perspectiveMode === "solo-scene" ? limited.kept.length : settings.maximumCharacters > 0 ? Math.min(clampInt2(parsed.expectedPeopleCount, 0, 64, opportunity.expectedPeopleCount), settings.maximumCharacters) : clampInt2(parsed.expectedPeopleCount, 0, 64, opportunity.expectedPeopleCount);
   const backgroundPeople = settings.perspectiveMode === "solo-scene" ? "" : cleanString(parsed.backgroundPeople) || opportunity.backgroundPeople;
   validateIllustratorPeopleConstraints(settings, limited.kept, expectedPeopleCount, backgroundPeople);
   return {
@@ -301789,12 +302177,16 @@ async function buildProsePromptComposerMessages(chatId, opportunity, content, se
   const channelGuard = settings.promptFormat === "danbooru-tags" ? [BOORU_TAG_MODE_PARSER_GUIDANCE, BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE].join(`
 
 `) : "PROVIDER PROMPT CHANNEL GUARD: The positivePrompt field is sent directly to the image model. Return only an image-ready description of visible content from the selected story beat. Never copy the narrative paragraph/dialogue, Relay placement or wrapper rules, story framing contract, caption intent, or instructions to the Story Model. Do not invent text bubbles, subtitles, or captions.";
+  const storyboardSpatialGuard = settings.perspectiveMode === "storyboard" ? STORYBOARD_SPATIAL_FIDELITY_GUIDANCE : "";
+  const finalGuard = [channelGuard, storyboardSpatialGuard].filter(Boolean).join(`
+
+`);
   if (messages[0]?.role === "system")
     messages[0].content = `${messages[0].content}
 
-${channelGuard}`;
+${finalGuard}`;
   else
-    messages.unshift({ role: "system", content: channelGuard });
+    messages.unshift({ role: "system", content: finalGuard });
   return messages;
 }
 function parseProsePromptCompositionJson(raw) {
@@ -301885,17 +302277,18 @@ async function handleAutoOpportunityDispatch(chatId, opportunities, userId, opti
   const settings = proseSettingsForChat(state, chatId);
   if (!isHandsOffProseMode(settings) && !options.forceHandsOff || !opportunities.length)
     return;
-  const requested = Math.max(1, Math.min(settings.illustrationsPerRun || 1, settings.maximumIllustrationsPerMessage));
-  const seenBeats = new Set;
-  const selected = [...opportunities].filter((item) => item.status === "proposed").sort((a, b) => b.confidence - a.confidence).filter((item) => {
-    const beat = `${item.messageId}:${item.swipeId}:${item.paragraphIndex}:${item.insertionSide}`;
-    if (seenBeats.has(beat))
-      return false;
-    seenBeats.add(beat);
-    return true;
-  }).slice(0, requested);
+  const first = opportunities[0];
+  const countBounds = relayPlannedIllustrationCountBounds(settings, settings.maximumIllustrationsPerMessage - countCommittedProseIllustrationsForMessage(state, chatId, first.messageId, first.swipeId) - countActiveProsePlansForMessage(state, chatId, first.messageId, first.swipeId));
+  const requested = countBounds.maximumIllustrations;
+  const selected = selectRelayPlannedDispatchOpportunities(opportunities, requested);
   if (!selected.length)
     return;
+  if (selected.length < countBounds.minimumIllustrations)
+    spindle.sendToFrontend({
+      type: "relay_notice",
+      level: "warning",
+      message: `Illustration count shortfall: ${selected.length} of ${countBounds.minimumIllustrations}${countBounds.countMode === "range" ? `\u2013${countBounds.maximumIllustrations}` : ""} requested illustrations passed planning. Generating only the validated shots.`
+    }, userId);
   await mutateState(chatId, userId, (next) => {
     appendStateLog(next, {
       severity: "info",
@@ -303620,7 +304013,8 @@ function buildIllustratorRuntimeDirective(settings, messages, personaPovContext,
     prompt_profile: "Relay resolves and applies the selected profile after authorship; do not add profile-specific style, framing, or negative terms.",
     continuity_strength: settings.appearanceMemoryEnabled ? settings.continuityStrength : "off"
   });
-  return runtime;
+  return mode === "model-placed" || mode === "inline-protocol" ? `${runtime}
+Model Planned cast guidance: aim for at most ${settings.maximumCharacters} visible characters when choosing the illustrated moment. If the exact anchored action requires more people, preserve every necessary participant in the authored request; do not remove an actor or skip the illustration solely to meet this target.` : runtime;
 }
 function escapeXmlText(value) {
   return cleanString(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -303866,7 +304260,11 @@ function normalizeProseIllustratorSettings(value) {
     if (Object.prototype.hasOwnProperty.call(rawRegistry, canonicalId) || !Object.prototype.hasOwnProperty.call(rawRegistry, legacyId))
       continue;
     const stored = String(rawRegistry[legacyId] ?? "");
-    if (!isStockRetired(legacyId, stored))
+    if (isStockRetired(legacyId, stored) || stored.replace(/\r\n/g, `
+`).trim() === DEFAULT_PROMPT_REGISTRY[canonicalId]?.replace(/\r\n/g, `
+`).trim())
+      migratedPromptRegistryIds.add(canonicalId);
+    else
       promptRegistry[canonicalId] = stored;
   }
   const legacyRegistryInputs = [
@@ -303881,7 +304279,9 @@ function normalizeProseIllustratorSettings(value) {
     if (Object.prototype.hasOwnProperty.call(rawRegistry, canonicalId) || Object.prototype.hasOwnProperty.call(rawRegistry, legacyId) || !cleanString(legacy))
       continue;
     const stored = cleanString(legacy);
-    if (isStockRetired(legacyId, stored))
+    if (isStockRetired(legacyId, stored) || stored.replace(/\r\n/g, `
+`).trim() === DEFAULT_PROMPT_REGISTRY[canonicalId]?.replace(/\r\n/g, `
+`).trim())
       migratedPromptRegistryIds.add(canonicalId);
     else
       promptRegistry[canonicalId] = stored;
@@ -303894,8 +304294,10 @@ function normalizeProseIllustratorSettings(value) {
   const perspectiveMode = normalizeProsePerspectiveMode(raw.perspectiveMode);
   const imageAlignment = cleanString(raw.imageAlignment);
   const imageSize = cleanString(raw.imageSize);
+  const modelPlacedCountMode = cleanString(raw.modelPlacedCountMode) === "range" ? "range" : "fixed";
   const illustrationsPerRun = clampInt2(raw.illustrationsPerRun, 1, 32, defaults.illustrationsPerRun);
-  const maximumImages = Math.max(illustrationsPerRun, clampInt2(raw.maximumImages, 1, 32, clampInt2(raw.maximumOpportunitiesPerMessage, 1, 32, defaults.maximumImages)));
+  const selectedMaximumImages = clampInt2(raw.maximumImages, 1, 32, clampInt2(raw.maximumOpportunitiesPerMessage, 1, 32, defaults.maximumImages));
+  const maximumImages = modelPlacedCountMode === "range" ? selectedMaximumImages : Math.max(illustrationsPerRun, selectedMaximumImages);
   const minimumImages = Math.min(maximumImages, clampInt2(raw.minimumImages, 1, 32, defaults.minimumImages));
   const maximumIllustrationsPerMessageInput = raw.maximumIllustrationsPerMessage === undefined ? maximumImages : raw.maximumIllustrationsPerMessage;
   return {
@@ -303913,11 +304315,11 @@ function normalizeProseIllustratorSettings(value) {
     frequencyMode: ["key-moments", "every-eligible", "every-n"].includes(frequencyMode) ? frequencyMode : defaults.frequencyMode,
     everyNEligibleMessages: clampInt2(raw.everyNEligibleMessages, 1, 100, defaults.everyNEligibleMessages),
     maximumOpportunitiesPerMessage: maximumImages,
-    maximumIllustrationsPerMessage: Math.max(illustrationsPerRun, clampInt2(maximumIllustrationsPerMessageInput, 1, 32, Math.max(defaults.maximumIllustrationsPerMessage, maximumImages))),
+    maximumIllustrationsPerMessage: Math.max(modelPlacedCountMode === "range" ? maximumImages : illustrationsPerRun, clampInt2(maximumIllustrationsPerMessageInput, 1, 32, Math.max(defaults.maximumIllustrationsPerMessage, maximumImages))),
     illustrationsPerRun,
     minimumImages,
     maximumImages,
-    modelPlacedCountMode: cleanString(raw.modelPlacedCountMode) === "range" ? "range" : "fixed",
+    modelPlacedCountMode,
     perspectiveMode,
     imageAlignment: ["left", "center", "right"].includes(imageAlignment) ? imageAlignment : defaults.imageAlignment,
     imageSize: ["small", "medium", "large", "full"].includes(imageSize) ? imageSize : defaults.imageSize,
@@ -304856,6 +305258,12 @@ function shapeSceneLedIdentityPrompt(prompt, job, context, allowHumanPrompt) {
   return { prompt: enforceStoryboardPrompt(withContinuity, job, context, "natural-language"), identityCorrection };
 }
 function enforceStoryboardPrompt(prompt, job, context, format) {
+  if (job.target === "prose.illustration") {
+    const authored = (job.composedPositivePrompt || job.originalSceneBrief).trim();
+    const unwrapped = visualDescriptionEvidence(authored);
+    if (authored !== unwrapped && prompt.includes(authored))
+      prompt = prompt.replace(authored, unwrapped);
+  }
   if (job.target === "prose.illustration")
     prompt = normalizeIllustrationViewWording(prompt, context.perspectiveMode, format);
   if (job.target !== "prose.illustration" || context.perspectiveMode !== "storyboard" || !job.authoritativeSourceParagraph)
@@ -305297,14 +305705,17 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
     if (!job.originalSceneBrief.trim()) {
       throw new Error("Model Planned request is missing its authored <visual_prompt>; Relay will not ask a Parser to invent one. Reparse the Story Model request or restore its prompt.");
     }
-    if (job.target === "prose.illustration") {
-      const explicitCount = Math.max(completeIllustrationSubjectNames(job).length, promptFormat === "danbooru-tags" ? declaredBooruPeopleCount(job.originalSceneBrief) : 0);
-      if (explicitCount > parserSettings.maximumCharacters) {
-        throw new Error(`Maximum Characters in Image is ${parserSettings.maximumCharacters}; the Model Planned request explicitly contains ${explicitCount} visible people. No image was dispatched. Reparse or edit the request to keep only the intended subjects.`);
-      }
-    }
+    const explicitCount = job.target === "prose.illustration" ? Math.max(completeIllustrationSubjectNames(job).length, promptFormat === "danbooru-tags" ? declaredBooruPeopleCount(job.originalSceneBrief) : 0) : 0;
     const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings);
-    return buildAuthoritativeVisualPrompt(job, slot, config, context, nativeSettings, promptFormat === "danbooru-tags" ? "Skipped \u2014 Story Model tags validated and known tag spellings normalized; use Reparse for Parser rewriting" : "Skipped \u2014 Story Model visual_prompt passed through; use Reparse for Parser rewriting", promptFormat);
+    const prepared = await buildAuthoritativeVisualPrompt(job, slot, config, context, nativeSettings, promptFormat === "danbooru-tags" ? "Skipped \u2014 Story Model tags validated and known tag spellings normalized; use Reparse for Parser rewriting" : "Skipped \u2014 Story Model visual_prompt passed through; use Reparse for Parser rewriting", promptFormat);
+    if (explicitCount > parserSettings.maximumCharacters) {
+      prepared.promptPipeline.warnings.push({
+        code: "model-placed-cast-exceeds-guidance",
+        message: `The Story Model authored ${explicitCount} visible people against a character-count target of ${parserSettings.maximumCharacters}. Preserved the authored cast; this planning guidance does not block Model Planned images.`,
+        sources: ["Story Model authored cast"]
+      });
+    }
+    return prepared;
   }
   if (job.composedPositivePrompt?.trim() && !forceSemanticRewrite) {
     const locallyCompiledRelayPlan = job.prosePromptComposition?.rawOutput?.plannerVersion === RELAY_PLANNED_V2;
@@ -305445,6 +305856,9 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
       let parserOutput = raw;
       let parsed = parsePromptJson(raw);
       parsed.prompt = imageContentWithoutSurfaceDestination(parsed.prompt);
+      if (!directionRewrite && promptFormat === "danbooru-tags" && job.synthetic && job.prosePromptComposition?.positivePrompt && booruSubjectOwnershipChanged(job.prosePromptComposition.positivePrompt, parsed.prompt)) {
+        return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw, "Parser merged subject blocks or moved established appearance/outfit tags between subjects. Preserved the saved subject-owned image prompt.", promptFormat);
+      }
       const authoritativeScene = authoritativeSceneText(job);
       if (job.target === "custom.artifact-media" && context.classification === "character portrait" && portraitReplacedBySurfaceUi(parsed.prompt)) {
         return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw, "Parser replaced the requested portrait with its hosting UI card. Preserved the authoritative portrait description instead.", promptFormat);
@@ -305459,7 +305873,8 @@ async function parseSlotPrompt(job, slot, messages, targetIndex, config, userId,
           ...job.prosePromptComposition?.namedSubjects || [],
           ...context.visualSubjects.map((subject) => subject.name)
         ];
-        const missingSemantics = modelPlacedSemanticViolations(authoritativeScene, parsed.prompt, protectedSubjects, job.originalSceneBrief, Math.max(Number(job.prosePromptComposition?.expectedPeopleCount || 0), context.visualSubjects.length), context.context, directionRewrite ? job.regenerationIntent : undefined);
+        const semanticText = (value) => promptFormat === "danbooru-tags" ? value.replace(/_/g, " ") : value;
+        const missingSemantics = modelPlacedSemanticViolations(semanticText(authoritativeScene), semanticText(parsed.prompt), protectedSubjects, semanticText(job.originalSceneBrief), Math.max(Number(job.prosePromptComposition?.expectedPeopleCount || 0), context.visualSubjects.length), semanticText(context.context), directionRewrite ? job.regenerationIntent : undefined);
         if (missingSemantics.length) {
           if (requiresParserModel || directionRewrite)
             throw new Error(`Parser changed protected illustration semantics: ${missingSemantics.join(", ")}.`);
@@ -306780,10 +307195,14 @@ async function buildParserContext(job, messages, targetIndex, config, _userId, n
   const state = await getState(job.chatId, _userId);
   const continuityFramingMode = job.prosePromptComposition?.perspectiveMode || (job.target === "prose.illustration" ? proseSettingsForChat(state, job.chatId).perspectiveMode : "");
   const personaPovMode = continuityFramingMode === "persona-pov";
-  const [activeCharacter, activePersona] = await Promise.all([
+  const [hostCharacter, hostPersona] = await Promise.all([
     visibleIdentityRequest || castRequirements.character ? readChatCharacterIdentity(job.chatId, _userId).catch(() => null) : Promise.resolve(null),
     visibleIdentityRequest || castRequirements.persona || personaPovMode ? readCurrentHostPersona(_userId, job.chatId) : Promise.resolve(null)
   ]);
+  const sourceForIdentity = messages.slice(0, targetIndex + 1).map((message) => getAuthoritativeSwipeContent(message, message.swipe_id || 0)).join(`
+`);
+  const activeCharacter = hostCharacter ? sceneVerifiedIdentityAliases(hostCharacter, state.continuityVault, sourceForIdentity) : null;
+  const activePersona = hostPersona ? sceneVerifiedIdentityAliases({ ...hostPersona, aliases: hostPersona.aliases || [] }, state.continuityVault, sourceForIdentity) : null;
   const characterNamed = requestReferencesActiveIdentity(job, activeCharacter);
   const personaNamed = requestReferencesActiveIdentity(job, activePersona);
   const declaredSubjects = completeIllustrationSubjectNames(job);
@@ -306892,7 +307311,7 @@ async function buildParserContext(job, messages, targetIndex, config, _userId, n
     ...activePersona?.aliases || [],
     ...castScopedVisualSubjects.filter((subject) => isSceneNamedPersonaPovCameraHolder(subject.name, job.originalSceneBrief)).map((subject) => subject.name)
   ].map(cleanString).filter(Boolean))] : [];
-  const visualSubjects = filterPersonaPovVisualSubjects(restrictRelayPlannedVisualSubjects(restrictSoloSceneVisualSubjects(castScopedVisualSubjects, continuityFramingMode, castSubjects.length), job), continuityFramingMode, activePersona, job.originalSceneBrief);
+  const visualSubjects = filterPersonaPovVisualSubjects(restrictRelayPlannedVisualSubjects(restrictSoloSceneVisualSubjects(castScopedVisualSubjects, continuityFramingMode, castSubjects.length), job, [activeCharacter, activePersona].filter((identity) => Boolean(identity))), continuityFramingMode, activePersona, job.originalSceneBrief);
   const appliedIdentityBindingIds = identityBindings.filter((binding) => visualSubjects.some((subject) => {
     if (subject.kind !== binding.kind)
       return false;
@@ -307208,14 +307627,22 @@ function parsePromptJson(raw) {
   }
   throw new Error("Parser response did not contain a usable image prompt.");
 }
+function proseImageOnlyFallbackPrompt(job) {
+  if (job.target !== "prose.illustration")
+    return job.originalSceneBrief;
+  if (job.promptSource === "visual_prompt")
+    return job.originalSceneBrief.trim();
+  return job.synthetic ? cleanString(job.prosePromptComposition?.positivePrompt) : "";
+}
 function buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, parserOutput, parserError, promptFormat = "natural-language") {
-  if (job.target === "prose.illustration" && (job.promptSource !== "visual_prompt" || !job.originalSceneBrief.trim())) {
+  const imageOnlyFallback = proseImageOnlyFallbackPrompt(job);
+  if (job.target === "prose.illustration" && !imageOnlyFallback) {
     throw new Error("Relay stopped prose illustration fallback because no image-only <visual_prompt> was available; it will not substitute the surrounding story paragraph.");
   }
   const classification = context.classification;
   const humanPolicy = targetHumanPolicy(job, classification);
   const profileBase = resolveProviderPromptProfileDecision(job, config);
-  const visibleBase = job.target === "prose.illustration" ? job.originalSceneBrief : [
+  const visibleBase = job.target === "prose.illustration" ? imageOnlyFallback : [
     job.originalSceneBrief,
     job.caption ? `Context: ${job.caption}` : "",
     targetFramingInstruction(job.target, classification),
@@ -307236,7 +307663,7 @@ function buildParserFallbackPrompt(job, slot, config, context, nativeSettings, c
     native: nativeNegative,
     request: job.originalNegativePrompt,
     subject: humanPolicy.allowHumanPrompt ? context.subjectNegativePrompt : "",
-    parser: contextualSexual.negativePrompt,
+    parser: [job.synthetic ? job.prosePromptComposition?.negativePrompt : "", contextualSexual.negativePrompt].filter(Boolean).join(", "),
     router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : "", context.perspectiveMode === "persona-pov" ? context.personaPovNegativePrompt : "", config.additionalNegativePrompt].filter(Boolean).join(", ")
   });
   const humanConflict = humanPolicy.allowHumanPrompt ? removeConflictingHumanNegatives(normalized.negative) : { negative: normalized.negative, removed: [] };
@@ -311353,11 +311780,14 @@ function restrictSoloSceneVisualSubjects(subjects, perspectiveMode, castSubjectC
     return subjects.slice(0, 1);
   return subjects;
 }
-function restrictRelayPlannedVisualSubjects(subjects, job) {
+function restrictRelayPlannedVisualSubjects(subjects, job, verifiedIdentities = []) {
   if (job.target === "prose.illustration" && job.prosePromptComposition?.rawOutput?.plannerVersion === RELAY_PLANNED_V2) {
     const visibleNames = (job.prosePromptComposition.namedSubjects || []).map((name) => cleanString(name).toLocaleLowerCase()).filter(Boolean);
     return subjects.filter((subject) => {
       const name = cleanString(subject.name).toLocaleLowerCase();
+      const identity = verifiedIdentities.find((identity) => identity.id && identity.id === subject.id);
+      if (identity && [identity.name, ...identity.aliases || []].some((alias) => visibleNames.some((visible) => normalizeIdentityOwner(alias) === normalizeIdentityOwner(visible))))
+        return true;
       return visibleNames.some((visible) => name === visible || name.startsWith(`${visible} `) || visible.startsWith(`${name} `));
     });
   }
@@ -311976,6 +312406,7 @@ export {
   ImageGenerationLaneWaitTimeoutError,
   ImageGenerationWorkerResetError,
   REGENERATION_INTENTS,
+  RELAY_PLANNED_SURFACE_MEDIA_SCOPE,
   SWARM_ACCEPTED_STALL_THRESHOLD_MS,
   SWARM_IMAGE_WORKER_STUCK_THRESHOLD_MS,
   abortImageStream,
@@ -312080,9 +312511,13 @@ export {
   placementBatchKey,
   placementIsPresent,
   proseAnalysisText,
+  proseImageOnlyFallbackPrompt,
+  proseMessageLimitBlocker,
+  proseOpportunitySettingsFingerprint,
   proseParagraphBeforeImageRequest,
   registerDirectHostAppearanceSources,
   relayMediaPersistencePatch,
+  relayPlannedContextForResponse,
   relayPlannedSubjectStates,
   removeConflictingHumanNegatives,
   removePersonaPovCameraHolderNames,
@@ -312116,6 +312551,7 @@ export {
   sanitizeRecentVisualContext,
   sanitizeSubjectIdentityPrompt,
   sanitizeVisualPreset,
+  sceneVerifiedIdentityAliases,
   selectCompletedRequestContent,
   setConfig,
   settleGalleryLinkOperation,

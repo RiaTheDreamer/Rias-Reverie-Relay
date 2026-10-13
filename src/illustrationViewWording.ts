@@ -6,6 +6,8 @@ export function normalizeIllustrationViewWording(prompt: string, perspectiveMode
   if (perspectiveMode !== 'storyboard') return prompt
   const framing = '(?:low[- _]angle|high[- _]angle|eye[- _]level|overhead|top[- _]down|bird[\'’]s[- _]eye|worm[\'’]s[- _]eye|dutch[- _]angle|wide|medium|close[- _]up|full[- _]body|upper[- _]body|rear|side|front|from[- _](?:above|below|behind|side))'
   const viewPrompt = prompt
+    // This is a location outside the crop, not physical imaging equipment.
+    .replace(/\boff[- ]camera\b/giu, 'out-of-frame')
     // Require a framing value after the label. "Camera: black DSLR" stays.
     .replace(new RegExp(`(^|[\\n,;.!]\\s*)camera(?:[ _-]+(?:angle|position|perspective|distance|framing))?\\s*:\\s*(?=${framing}\\b)`, 'giu'), '$1View: ')
     .replace(new RegExp(`\\bcamera[ -]+(?:angle|perspective|distance|position)\\s+(?=(?:is\\s+)?${framing}\\b)`, 'giu'), 'view ')
