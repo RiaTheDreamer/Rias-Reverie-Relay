@@ -470,6 +470,10 @@ function currentAppearanceDomain(fact: Pick<AppearanceVaultFact, 'category' | 'v
 function isSceneActionOnlyAppearanceValue(value: string, category?: AppearanceFactCategory): boolean {
   const text = clean(value).replace(/_/g, ' ').toLocaleLowerCase()
   if (!text) return false
+  // A removed garment placed on furniture is a scene prop, not a persistent
+  // trait of its former wearer. Do not confuse worn folds or shoulder draping
+  // with this bounded off-body placement shape.
+  if (/\b(?:coat|jacket|shirt|blouse|cardigan|dress|skirt|trousers|pants|shoes|boots|clothes|clothing)\b.{0,60}\b(?:folded|flattened|draped|hung|hanging|laid|left|resting)\b.{0,40}\b(?:on|over|against|beside)\b.{0,25}\b(?:table|chair|bench|bed|floor|hook|rack)\b/.test(text)) return true
   const visualState = /\b(?:wet|drying|dry|damp|loose|curled?|wavy|makeup|eyeliner|liner|mascara|washed away|smudged|bandage|bruise|blood|injur|swollen|scratch|torn|damaged|muddy|barefoot|hair|eyes?|scar|mole|tattoo|birthmark|freckles|skin)\b/.test(text)
   const staging = /\b(?:standing|sitting|running|walking|fled|holding|watching|leaning|lying|kneeling|emitting|projecting|shining|casting|by the door|floor cushion|center room|tea in hand|folder|stage|van bench|shoulder|room)\b/.test(text)
   if (staging && !visualState) return true

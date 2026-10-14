@@ -7941,8 +7941,8 @@ function summarizeRelayHealth(checks) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.5.1.1";
-var BUILD_ID = "20261013-0.5.1.1";
+var EXTENSION_VERSION = "0.5.1.2";
+var BUILD_ID = "20261014-0.5.1.2";
 
 // src/orbIconData.ts
 var ORB_IMAGE_DESIGNS = [
@@ -260145,6 +260145,7 @@ function setup(ctx) {
   const optimisticSlotActions = new Map;
   const replacementStatusProjections = new Map;
   const activeSwipeByMessage = new Map;
+  const streamingProseMessages = new Map;
   const openedSlotPreviewKeys = new Set;
   let activeSlotPreviewKey = null;
   let parserConnections = [];
@@ -260516,6 +260517,19 @@ function setup(ctx) {
       return;
     cancelPendingLifecycleScans();
     lifecycleStreamingSignatures.clear();
+    const messageId = String(payload.targetMessageId || "").trim();
+    const swipeId = Number(payload.targetSwipeId);
+    if (messageId && Number.isFinite(swipeId)) {
+      rememberBoundedMap(activeSwipeByMessage, messageId, swipeId, C5B_CACHE_LIMITS.activeSwipes);
+    }
+    if (messageId && currentProseSettings().mode === "relay-planned") {
+      streamingProseMessages.set(messageId, String(payload.generationId || ""));
+      const root = ctx.dom.findMessageElement(messageId);
+      if (root && payload.generationType !== "continue") {
+        for (const projection of deepQueryAll(root, ".dgir-prose-lifecycle-projection"))
+          projection.remove();
+      }
+    }
     bracketIllustrationStream.start(String(payload.generationId || ""), String(payload.chatId || ""), String(payload.targetMessageId || ""), Number(payload.targetSwipeId) || 0);
   }), "subscription");
   lifecycle.track(ctx.events.on("STREAM_TOKEN_RECEIVED", (payload) => {
@@ -260535,6 +260549,12 @@ function setup(ctx) {
       if (payload?.chatId !== activeChatId)
         return;
       bracketIllustrationStream.clear();
+      const generationId = String(payload.generationId || "");
+      const messageId = String(payload.targetMessageId || payload.messageId || "").trim();
+      for (const [target, generation] of streamingProseMessages) {
+        if (generationId ? generation === generationId : target === messageId)
+          streamingProseMessages.delete(target);
+      }
     }), "subscription");
   const removeStyle = ctx.dom.addStyle(`
     ${phoneHostLayerCss}
@@ -261977,6 +261997,7 @@ ${message.prompt}`;
     recordByKey.clear();
     pendingFinalRevealByRecord.clear();
     clearProseRevealGuards();
+    streamingProseMessages.clear();
     lastStatus = "";
     stateRevision = -1;
     lastDisplayContractSignature = "";
@@ -263453,6 +263474,8 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
   function ensureSyntheticProseProjection(record, root) {
     if (record.target !== "prose.illustration" || record.proseSynthetic !== true)
       return;
+    if (streamingProseMessages.has(record.messageId))
+      return;
     const projectionSelector = `[data-dgir-prose-projection="${cssEscape(record.key)}"]`;
     if (!record.proseAnchor || record.orphaned || record.status === "superseded") {
       for (const projection of deepQueryAll(root, projectionSelector))
@@ -263534,6 +263557,8 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     const now = Date.now();
     for (const record of records) {
       if (messageId && record.messageId !== messageId)
+        continue;
+      if (record.proseSynthetic && streamingProseMessages.has(record.messageId))
         continue;
       const visibleSwipe = activeSwipeByMessage.get(record.messageId);
       if (visibleSwipe !== undefined && record.swipeId !== visibleSwipe)
@@ -263777,7 +263802,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
         }
       }
     }
-    const completed = records.filter((record) => (!messageId || record.messageId === messageId) && currentLifecycleImageUrl(record));
+    const completed = records.filter((record) => (!messageId || record.messageId === messageId) && currentLifecycleImageUrl(record) && !(record.proseSynthetic && streamingProseMessages.has(record.messageId)));
     for (const record of completed) {
       const visualImageUrl = currentLifecycleImageUrl(record);
       const visualImageId = record.pendingPlacement?.imageId || record.imageId || "";
@@ -263863,7 +263888,8 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     const hadMountedContent = root.childNodes.length > 0;
     ensureMountedLifecycleStyle(root);
     bindInlineImages(messageId);
-    const expected = records.filter((record) => record.messageId === messageId && currentLifecycleImageUrl(record));
+    const visibleSwipe = activeSwipeByMessage.get(messageId);
+    const expected = records.filter((record) => record.messageId === messageId && currentLifecycleImageUrl(record) && (visibleSwipe === undefined || record.swipeId === visibleSwipe) && !(record.proseSynthetic && streamingProseMessages.has(record.messageId)));
     const images = deepQueryAll(root, "img");
     const missing = expected.filter((record) => {
       const expectedUrl = currentLifecycleImageUrl(record);

@@ -502,7 +502,7 @@ assert.equal(PROMPT_REGISTRY_DEFINITIONS.find(definition => definition.id === 's
 assert.match(backend, /'story\.model-placed': \['4125:05d30e81', '8722:29aa7ccd'\]/, 'Legacy stock Model-Placed prompts migrate to the bracket paragraph-locked default')
 assert.match(backend, /'story\.inline-protocol': \['751:58ec8abc', '9481:878d0951', '12351:8f280e39', '12370:7d37ba18', '13138:8404697d', '15872:e257a1a3', '10293:71eea49d'\]/, 'Legacy stock Inline prompts migrate to the bracket Model Planned default')
 assert.match(backend, /'story\.relay-planned': \['800:b83ca877', '1867:08747a40'\]/, 'Legacy stock Relay-Planned prompts migrate to the continuity-focused default')
-assert.match(backend, /void ensureAppearanceReadyForTurn\([\s\S]*?appearance-nonblocking/, 'Appearance refresh is nonblocking')
+assert.match(backend, /if \(!input\.dryRun && input\.settings\.appearanceMemoryEnabled\) await ensureAppearanceReadyForTurn\([\s\S]*?state: await getState\(input\.chatId, input\.userId\)/, 'Completed-turn Appearance refresh must settle before the Director reads its snapshot; previews must not refresh')
 assert.match(RELAY_PLANNED_DIRECTOR_REQUEST_TEMPLATE, /\{\{latestUserVisualContext\}\}/, 'Director request includes the latest user visual facts when continuity state is incomplete')
 assert.match(RELAY_PLANNED_DIRECTOR_SYSTEM_PROMPT, /blank current-state array is not evidence that the outfit disappeared/i, 'Director must retain a confirmed outfit when Appearance state has a gap')
 assert.match(backend, /latestUserMessage[\s\S]*?sanitizeRecentVisualContext\(getSwipeContent\(latestUserMessage/, 'Director uses the immediately preceding user message as bounded visual evidence')

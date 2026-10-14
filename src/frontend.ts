@@ -622,6 +622,7 @@ export function setup(ctx: SpindleFrontendContext) {
   type ReplacementStatusProjection = { marker: Comment; previousOwner: HTMLElement; previousImage?: HTMLImageElement; previousImages: Array<{ image: HTMLImageElement; visibility: string; hidden: boolean }>; projection: HTMLElement; previousImageUrl: string; previousImageId?: string; previousImageVisibility: string; previousImageHidden: boolean }
   const replacementStatusProjections = new Map<string, ReplacementStatusProjection>()
   const activeSwipeByMessage = new Map<string, number>()
+  const streamingProseMessages = new Map<string, string>()
   const openedSlotPreviewKeys = new Set<string>()
   let activeSlotPreviewKey: string | null = null
   let parserConnections: ParserConnection[] = []
@@ -1016,6 +1017,18 @@ export function setup(ctx: SpindleFrontendContext) {
     if (payload?.chatId !== activeChatId) return
     cancelPendingLifecycleScans()
     lifecycleStreamingSignatures.clear()
+    const messageId = String(payload.targetMessageId || '').trim()
+    const swipeId = Number(payload.targetSwipeId)
+    if (messageId && Number.isFinite(swipeId)) {
+      rememberBoundedMap(activeSwipeByMessage, messageId, swipeId, C5B_CACHE_LIMITS.activeSwipes)
+    }
+    if (messageId && currentProseSettings().mode === 'relay-planned') {
+      streamingProseMessages.set(messageId, String(payload.generationId || ''))
+      const root = ctx.dom.findMessageElement(messageId)
+      if (root && payload.generationType !== 'continue') {
+        for (const projection of deepQueryAll<HTMLElement>(root as ParentNode, '.dgir-prose-lifecycle-projection')) projection.remove()
+      }
+    }
     bracketIllustrationStream.start(String(payload.generationId || ''), String(payload.chatId || ''), String(payload.targetMessageId || ''), Number(payload.targetSwipeId) || 0)
   }), 'subscription')
   lifecycle.track(ctx.events.on('STREAM_TOKEN_RECEIVED', (payload: any) => {
@@ -1028,6 +1041,11 @@ export function setup(ctx: SpindleFrontendContext) {
   for (const event of ['GENERATION_ENDED', 'GENERATION_STOPPED']) lifecycle.track(ctx.events.on(event, (payload: any) => {
     if (payload?.chatId !== activeChatId) return
     bracketIllustrationStream.clear()
+    const generationId = String(payload.generationId || '')
+    const messageId = String(payload.targetMessageId || payload.messageId || '').trim()
+    for (const [target, generation] of streamingProseMessages) {
+      if (generationId ? generation === generationId : target === messageId) streamingProseMessages.delete(target)
+    }
     // Completed-response discovery owns the final reconciliation.
   }), 'subscription')
 
@@ -2465,6 +2483,7 @@ export function setup(ctx: SpindleFrontendContext) {
     recordByKey.clear()
     pendingFinalRevealByRecord.clear()
     clearProseRevealGuards()
+    streamingProseMessages.clear()
     lastStatus = ''
     stateRevision = -1
     lastDisplayContractSignature = ''
@@ -3907,6 +3926,7 @@ export function setup(ctx: SpindleFrontendContext) {
 
   function ensureSyntheticProseProjection(record: SlotRecord, root: Element): void {
     if (record.target !== 'prose.illustration' || record.proseSynthetic !== true) return
+    if (streamingProseMessages.has(record.messageId)) return
     const projectionSelector = `[data-dgir-prose-projection="${cssEscape(record.key)}"]`
     if (!record.proseAnchor || record.orphaned || record.status === 'superseded') {
       for (const projection of deepQueryAll<HTMLElement>(root as ParentNode, projectionSelector)) projection.remove()
@@ -3992,6 +4012,7 @@ export function setup(ctx: SpindleFrontendContext) {
     const now = Date.now()
     for (const record of records) {
       if (messageId && record.messageId !== messageId) continue
+      if (record.proseSynthetic && streamingProseMessages.has(record.messageId)) continue
       const visibleSwipe = activeSwipeByMessage.get(record.messageId)
       if (visibleSwipe !== undefined && record.swipeId !== visibleSwipe) continue
       const root = ctx.dom.findMessageElement(record.messageId)
@@ -4248,7 +4269,8 @@ export function setup(ctx: SpindleFrontendContext) {
         }
       }
     }
-    const completed = records.filter(record => (!messageId || record.messageId === messageId) && currentLifecycleImageUrl(record))
+    const completed = records.filter(record => (!messageId || record.messageId === messageId) && currentLifecycleImageUrl(record)
+      && !(record.proseSynthetic && streamingProseMessages.has(record.messageId)))
     for (const record of completed) {
       const visualImageUrl = currentLifecycleImageUrl(record)
       const visualImageId = record.pendingPlacement?.imageId || record.imageId || ''
@@ -4332,7 +4354,10 @@ export function setup(ctx: SpindleFrontendContext) {
     const hadMountedContent = root.childNodes.length > 0
     ensureMountedLifecycleStyle(root)
     bindInlineImages(messageId)
-    const expected = records.filter(record => record.messageId === messageId && currentLifecycleImageUrl(record))
+    const visibleSwipe = activeSwipeByMessage.get(messageId)
+    const expected = records.filter(record => record.messageId === messageId && currentLifecycleImageUrl(record)
+      && (visibleSwipe === undefined || record.swipeId === visibleSwipe)
+      && !(record.proseSynthetic && streamingProseMessages.has(record.messageId)))
     const images = deepQueryAll<HTMLImageElement>(root as ParentNode, 'img')
     const missing = expected.filter(record => {
       const expectedUrl = currentLifecycleImageUrl(record)

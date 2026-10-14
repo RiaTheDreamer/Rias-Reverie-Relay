@@ -186,11 +186,17 @@ const subject = registerCanonicalCharacter(vault, { name: 'Yejin', sourceType: '
 const current = addAppearanceFact(vault, { characterId: subject.canonicalCharacterId, layer: 'current-appearance', category: 'other', value: 'eyes emitting a blue glow', sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar' })
 // Previously persisted malformed Sidecar facts must also be filtered on load.
 vault.currentAppearance['legacy-prop'] = { ...current, factId: 'legacy-prop', value: 'penlight emitting a narrow', category: 'other' }
+vault.currentAppearance['legacy-garment-prop'] = { ...current, factId: 'legacy-garment-prop', value: 'grey wool coat flattened against the table', category: 'other' }
 const normalized = normalizeContinuityVault(vault, vault.chatId)
 const projection = projectContinuityForGeneration(normalized, { chatId: vault.chatId, subjectNames: ['Yejin'], sceneBrief: 'Yejin holds a café door open with one hand.', strength: 'strong' })
 assert(!projection.included.some(fact => /penlight/.test(fact.value)), 'stale prop activity must not become persistent Appearance')
+assert(!projection.included.some(fact => /coat flattened/.test(fact.value)), 'a discarded garment must not return as its former wearer\'s current Appearance')
 assert(projection.included.some(fact => /eyes emitting a blue glow/.test(fact.value)), 'actual visual body traits must remain eligible')
 assert.throws(() => addAppearanceFact(normalized, { characterId: subject.canonicalCharacterId, layer: 'current-appearance', category: 'other', value: 'lantern casting a beam', sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar' }), /could not be normalized/, 'new object activity must not enter Appearance state')
+assert.throws(() => addAppearanceFact(normalized, { characterId: subject.canonicalCharacterId, layer: 'current-appearance', category: 'other', value: 'wet shirt folded on the chair', sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar' }), /could not be normalized/, 'even wet discarded clothing is a scene prop, not a worn temporary state')
+for (const value of ['coat draped over her shoulders', 'shirt flattened against her chest']) {
+  assert(addAppearanceFact(normalized, { characterId: subject.canonicalCharacterId, layer: 'current-appearance', category: 'temporary-clothing-state', value, sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar' }), 'on-body clothing must remain eligible')
+}
 const arin = registerCanonicalCharacter(normalized, { name: 'Arin', sourceType: 'manual', userConfirmed: true })
 const other = registerCanonicalCharacter(normalized, { name: 'Clerk', sourceType: 'manual', userConfirmed: true })
 for (const character of [arin, other]) addAppearanceFact(normalized, { characterId: character.canonicalCharacterId, layer: 'current-appearance', category: 'other', value: 'cardigan cuffs pulled over her hands', sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar' })

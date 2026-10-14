@@ -145,7 +145,20 @@ export function normalizeAppearanceSidecarOutput(raw: string): AppearanceSidecar
       })
     }
   }
-  return observations
+  return observations.map(observation => ({ ...observation, facts: observation.facts.flatMap(fact => {
+    if (fact.layer !== 'current-appearance' || fact.category !== 'temporary-clothing-state') return [fact]
+    const parts = fact.value.split(/[,;\n]+/).map(clean).filter(Boolean)
+    const fullUndress = (value: string) => /^(?:nude|naked|unclothed|(?:fully|completely) (?:nude|naked|undressed)|no clothes|without clothing)$/i.test(value.replace(/_/g, ' '))
+    if (!parts.some(fullUndress)) return [fact]
+    // Full undress is a replacement outfit, not an additive trait that can
+    // coexist with yesterday's shirt and trousers. Keep partial exposure and
+    // unrelated temporary state in their original domain, attached to its owner.
+    const remaining = parts.filter(value => !fullUndress(value))
+    return [
+      { ...fact, layer: 'wardrobe' as const, category: 'current-outfit' as const, value: 'nude', conflictDomain: undefined },
+      ...(remaining.length ? [{ ...fact, value: remaining.join(', ') }] : []),
+    ]
+  }) }))
 }
 
 export function normalizeAppearanceFieldRefreshOutput(raw: string, expectedField: AppearanceMemoryRefreshField): AppearanceFieldRefreshResult {

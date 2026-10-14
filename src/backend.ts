@@ -4699,6 +4699,16 @@ async function analyzeRelayPlannedResponse(input: {
   if (!input.settings.plannerConnectionId) throw new Error('Illustration Director unavailable. Configure a Relay-Planned connection.')
   const connection = await spindle.connections.get(input.settings.plannerConnectionId, input.userId)
   if (!connection) throw new Error('Relay-Planned Illustration Director connection not found.')
+  assertAbortableOperationCurrent(operationKey, operationSerial)
+  // The Director's local compiler consumes this snapshot too. Refresh the
+  // completed turn before reading it, not in a competing background task.
+  // Diagnostic previews must not mutate Appearance or start a second model.
+  if (!input.dryRun && input.settings.appearanceMemoryEnabled) await ensureAppearanceReadyForTurn({
+    chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
+    content: input.content, userId: input.userId, reason: 'relay-planned-before-director',
+  })
+  assertAbortableOperationCurrent(operationKey, operationSerial)
+  input = { ...input, state: await getState(input.chatId, input.userId) }
   const chatMessages = await spindle.chat.getMessages(input.chatId) as ChatMessage[]
   const targetIndex = chatMessages.findIndex(message => message.id === input.messageId)
   const precedingMessages = targetIndex >= 0 ? chatMessages.slice(0, targetIndex) : []
@@ -4820,12 +4830,6 @@ async function discoverProseOpportunities(input: {
       return []
     }
   }
-  // Appearance refresh is opportunistic. Relay-Planned compiles from the latest
-  // persisted snapshot and must never make image planning wait on Sidecar I/O.
-  void ensureAppearanceReadyForTurn({
-    chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
-    content: input.content, userId: input.userId, reason: `prose-opportunity:${input.source}`,
-  }).catch(error => spindle.log.warn(`[Reverie Relay:appearance-nonblocking] ${error instanceof Error ? error.message : String(error)}`))
   const operationKey = `prose:${input.chatId}`
   const queueTaskId = `analysis:${input.chatId}:${input.messageId}:${input.swipeId}`
   const operationSerial = captureAbortableOperation(operationKey)
@@ -7685,6 +7689,7 @@ async function ensureAppearanceReadyForTurn(input: AppearanceReadyInput): Promis
     try {
       await runAppearanceSidecar({ ...input, mode })
     } catch (error) {
+      if (error instanceof Error && error.name === 'OperationCancelledError') throw error
       const message = error instanceof Error ? error.message : String(error)
       if (mode === 'normal') appearanceFailureCooldownByTurn.set(`${input.chatId}:${input.messageId}:${input.swipeId}`, Date.now())
       await mutateState(input.chatId, input.userId, state => {
@@ -7720,6 +7725,17 @@ async function ensureAppearanceReadyForTurn(input: AppearanceReadyInput): Promis
 }
 
 export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise<boolean | AppearanceFieldRefreshResult> {
+  const operationKey = `prose:${input.chatId}`
+  const operationSerial = captureAbortableOperation(operationKey)
+  const abortEpoch = currentUserAbortEpoch(input.userId)
+  const assertCurrent = () => {
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    if (!automaticDispatchIsAuthorized(abortEpoch, input.userId)) {
+      const error = new Error('Appearance refresh cancelled by user.')
+      error.name = 'OperationCancelledError'
+      throw error
+    }
+  }
   const mode = input.mode || 'normal'
   const contextTier = mode === 'normal' ? 'routine' : mode === 'reconcile' ? 'diagnostic' : 'expanded'
   if (mode !== 'normal') invalidateContextSnapshots()
@@ -7822,6 +7838,7 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
       tagVocabularyJson: JSON.stringify({ mode: 'backend-validated', unknownVocabulary: 'visual-phrase', aliasesNormalizedBy: 'Reverie Relay' }, null, 2),
       sourceResponse: input.content,
     })
+  assertCurrent()
   const raw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, {
     ...config,
     parserModel: sidecarModel || connection.model,
@@ -7830,6 +7847,7 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
     { role: 'system', content: registryPrompt(settings, systemPromptId) },
     { role: 'user', content: requestContent },
   ], input.userId, input.chatId, payload.contextMetrics as ContextMetrics, 'appearance-sidecar')
+  assertCurrent()
   if (input.refreshField) {
     if (!input.focusCharacter) throw new Error('A character is required for a manual Appearance Sidecar field refresh.')
     const result = normalizeAppearanceFieldRefreshOutput(raw, input.refreshField)
@@ -7838,6 +7856,7 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
     const acceptedNames = new Set([focused.canonicalCharacterName, ...focused.aliases].map(value => value.trim().toLocaleLowerCase()).filter(Boolean))
     if (!acceptedNames.has(result.subject.trim().toLocaleLowerCase())) throw new Error(`Appearance Sidecar returned ${result.subject} instead of ${focused.canonicalCharacterName}.`)
     await mutateState(input.chatId, input.userId, next => {
+      assertCurrent()
       replaceAppearanceMemoryFieldFromSidecar(next.continuityVault, {
         characterId: focused.canonicalCharacterId,
         field: result.field,
@@ -7861,6 +7880,7 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
   }
   const observations = normalizeAppearanceSidecarOutput(raw)
   await mutateState(input.chatId, input.userId, next => {
+    assertCurrent()
     const vault = next.continuityVault
     if (mode === 'normal' && vault.appearanceSidecar.processedTurnKeys[turnKey]) return
     const ingestion = ingestAppearanceSidecarObservations(vault, observations, {
@@ -11760,6 +11780,10 @@ export async function composePromptForOpportunity(
   if (!settings.plannerConnectionId) throw new Error('Scene analyzer unavailable. Select a Prose Illustrator planner connection before composing a prompt.')
   const connection = await spindle.connections.get(settings.plannerConnectionId, userId)
   if (!connection) throw new Error('Prose Illustrator Sidecar connection not found.')
+  assertAbortableOperationCurrent(operationKey, operationSerial)
+  if (settings.appearanceMemoryEnabled) await ensureAppearanceReadyForTurn({ chatId, messageId: opportunity.messageId, swipeId: opportunity.swipeId,
+    content, userId, reason: 'prose-before-composer' })
+  assertAbortableOperationCurrent(operationKey, operationSerial)
   const messages = await buildProsePromptComposerMessages(chatId, opportunity, content, settings, userId)
   const config = await getConfig(userId)
   assertAbortableOperationCurrent(operationKey, operationSerial)

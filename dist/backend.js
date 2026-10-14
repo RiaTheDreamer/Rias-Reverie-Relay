@@ -259186,6 +259186,8 @@ function isSceneActionOnlyAppearanceValue(value, category) {
   const text = clean2(value).replace(/_/g, " ").toLocaleLowerCase();
   if (!text)
     return false;
+  if (/\b(?:coat|jacket|shirt|blouse|cardigan|dress|skirt|trousers|pants|shoes|boots|clothes|clothing)\b.{0,60}\b(?:folded|flattened|draped|hung|hanging|laid|left|resting)\b.{0,40}\b(?:on|over|against|beside)\b.{0,25}\b(?:table|chair|bench|bed|floor|hook|rack)\b/.test(text))
+    return true;
   const visualState = /\b(?:wet|drying|dry|damp|loose|curled?|wavy|makeup|eyeliner|liner|mascara|washed away|smudged|bandage|bruise|blood|injur|swollen|scratch|torn|damaged|muddy|barefoot|hair|eyes?|scar|mole|tattoo|birthmark|freckles|skin)\b/.test(text);
   const staging = /\b(?:standing|sitting|running|walking|fled|holding|watching|leaning|lying|kneeling|emitting|projecting|shining|casting|by the door|floor cushion|center room|tea in hand|folder|stage|van bench|shoulder|room)\b/.test(text);
   if (staging && !visualState)
@@ -261534,7 +261536,19 @@ function normalizeAppearanceSidecarOutput(raw) {
       });
     }
   }
-  return observations;
+  return observations.map((observation) => ({ ...observation, facts: observation.facts.flatMap((fact) => {
+    if (fact.layer !== "current-appearance" || fact.category !== "temporary-clothing-state")
+      return [fact];
+    const parts = fact.value.split(/[,;\n]+/).map(clean3).filter(Boolean);
+    const fullUndress = (value) => /^(?:nude|naked|unclothed|(?:fully|completely) (?:nude|naked|undressed)|no clothes|without clothing)$/i.test(value.replace(/_/g, " "));
+    if (!parts.some(fullUndress))
+      return [fact];
+    const remaining = parts.filter((value) => !fullUndress(value));
+    return [
+      { ...fact, layer: "wardrobe", category: "current-outfit", value: "nude", conflictDomain: undefined },
+      ...remaining.length ? [{ ...fact, value: remaining.join(", ") }] : []
+    ];
+  }) }));
 }
 function normalizeAppearanceFieldRefreshOutput(raw, expectedField) {
   const parsed = parseSidecarJsonObject(raw);
@@ -262702,8 +262716,8 @@ function compileRelayPlannedPrompt(illustration, context, options = {}) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.5.1.1";
-var BUILD_ID = "20261013-0.5.1.1";
+var EXTENSION_VERSION = "0.5.1.2";
+var BUILD_ID = "20261014-0.5.1.2";
 
 // src/providerPromptSafety.ts
 class ProviderPromptSafetyError extends Error {
@@ -294595,6 +294609,18 @@ async function analyzeRelayPlannedResponse(input) {
   const connection = await spindle.connections.get(input.settings.plannerConnectionId, input.userId);
   if (!connection)
     throw new Error("Relay-Planned Illustration Director connection not found.");
+  assertAbortableOperationCurrent(operationKey, operationSerial);
+  if (!input.dryRun && input.settings.appearanceMemoryEnabled)
+    await ensureAppearanceReadyForTurn({
+      chatId: input.chatId,
+      messageId: input.messageId,
+      swipeId: input.swipeId,
+      content: input.content,
+      userId: input.userId,
+      reason: "relay-planned-before-director"
+    });
+  assertAbortableOperationCurrent(operationKey, operationSerial);
+  input = { ...input, state: await getState(input.chatId, input.userId) };
   const chatMessages = await spindle.chat.getMessages(input.chatId);
   const targetIndex = chatMessages.findIndex((message) => message.id === input.messageId);
   const precedingMessages = targetIndex >= 0 ? chatMessages.slice(0, targetIndex) : [];
@@ -294713,14 +294739,6 @@ async function discoverProseOpportunities(input) {
       return [];
     }
   }
-  ensureAppearanceReadyForTurn({
-    chatId: input.chatId,
-    messageId: input.messageId,
-    swipeId: input.swipeId,
-    content: input.content,
-    userId: input.userId,
-    reason: `prose-opportunity:${input.source}`
-  }).catch((error) => spindle.log.warn(`[Reverie Relay:appearance-nonblocking] ${error instanceof Error ? error.message : String(error)}`));
   const operationKey = `prose:${input.chatId}`;
   const queueTaskId = `analysis:${input.chatId}:${input.messageId}:${input.swipeId}`;
   const operationSerial = captureAbortableOperation(operationKey);
@@ -297662,6 +297680,8 @@ async function ensureAppearanceReadyForTurn(input) {
     try {
       await runAppearanceSidecar({ ...input, mode });
     } catch (error) {
+      if (error instanceof Error && error.name === "OperationCancelledError")
+        throw error;
       const message = error instanceof Error ? error.message : String(error);
       if (mode === "normal")
         appearanceFailureCooldownByTurn.set(`${input.chatId}:${input.messageId}:${input.swipeId}`, Date.now());
@@ -297697,6 +297717,17 @@ async function ensureAppearanceReadyForTurn(input) {
   }
 }
 async function runAppearanceSidecar(input) {
+  const operationKey = `prose:${input.chatId}`;
+  const operationSerial = captureAbortableOperation(operationKey);
+  const abortEpoch = currentUserAbortEpoch(input.userId);
+  const assertCurrent = () => {
+    assertAbortableOperationCurrent(operationKey, operationSerial);
+    if (!automaticDispatchIsAuthorized(abortEpoch, input.userId)) {
+      const error = new Error("Appearance refresh cancelled by user.");
+      error.name = "OperationCancelledError";
+      throw error;
+    }
+  };
   const mode = input.mode || "normal";
   const contextTier = mode === "normal" ? "routine" : mode === "reconcile" ? "diagnostic" : "expanded";
   if (mode !== "normal")
@@ -297801,6 +297832,7 @@ async function runAppearanceSidecar(input) {
     tagVocabularyJson: JSON.stringify({ mode: "backend-validated", unknownVocabulary: "visual-phrase", aliasesNormalizedBy: "Reverie Relay" }, null, 2),
     sourceResponse: input.content
   });
+  assertCurrent();
   const raw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, {
     ...config,
     parserModel: sidecarModel || connection.model,
@@ -297809,6 +297841,7 @@ async function runAppearanceSidecar(input) {
     { role: "system", content: registryPrompt(settings, systemPromptId) },
     { role: "user", content: requestContent }
   ], input.userId, input.chatId, payload.contextMetrics, "appearance-sidecar");
+  assertCurrent();
   if (input.refreshField) {
     if (!input.focusCharacter)
       throw new Error("A character is required for a manual Appearance Sidecar field refresh.");
@@ -297820,6 +297853,7 @@ async function runAppearanceSidecar(input) {
     if (!acceptedNames.has(result.subject.trim().toLocaleLowerCase()))
       throw new Error(`Appearance Sidecar returned ${result.subject} instead of ${focused.canonicalCharacterName}.`);
     await mutateState(input.chatId, input.userId, (next) => {
+      assertCurrent();
       replaceAppearanceMemoryFieldFromSidecar(next.continuityVault, {
         characterId: focused.canonicalCharacterId,
         field: result.field,
@@ -297844,6 +297878,7 @@ async function runAppearanceSidecar(input) {
   }
   const observations = normalizeAppearanceSidecarOutput(raw);
   await mutateState(input.chatId, input.userId, (next) => {
+    assertCurrent();
     const vault = next.continuityVault;
     if (mode === "normal" && vault.appearanceSidecar.processedTurnKeys[turnKey])
       return;
@@ -302077,6 +302112,17 @@ async function composePromptForOpportunity(chatId, opportunity, content, setting
   const connection = await spindle.connections.get(settings.plannerConnectionId, userId);
   if (!connection)
     throw new Error("Prose Illustrator Sidecar connection not found.");
+  assertAbortableOperationCurrent(operationKey, operationSerial);
+  if (settings.appearanceMemoryEnabled)
+    await ensureAppearanceReadyForTurn({
+      chatId,
+      messageId: opportunity.messageId,
+      swipeId: opportunity.swipeId,
+      content,
+      userId,
+      reason: "prose-before-composer"
+    });
+  assertAbortableOperationCurrent(operationKey, operationSerial);
   const messages = await buildProsePromptComposerMessages(chatId, opportunity, content, settings, userId);
   const config = await getConfig(userId);
   assertAbortableOperationCurrent(operationKey, operationSerial);
