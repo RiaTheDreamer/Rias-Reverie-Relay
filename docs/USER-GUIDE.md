@@ -14,7 +14,7 @@ When Narrative Utilities and Character Phone are enabled, **Character Phone Apps
 
 ## Reverie Phone
 
-Open **Reverie Relay → Phone** for phone settings and saved records. All 48 Core app Surfaces sync from saved story messages to their matching phone apps, preserving authored content, media and app interactions. Narrative Surfaces remain outside the phone. The experimental Story workspace is excluded from this public distribution; legacy phone records remain readable.
+Open **Reverie Relay → Phone** for phone settings and saved records. All 48 Core app Surfaces sync from saved story messages to their matching phone apps, preserving authored content, media and app interactions. Narrative Surfaces remain outside the phone. Previously saved phone records remain readable.
 
 ## Illustrations and media
 

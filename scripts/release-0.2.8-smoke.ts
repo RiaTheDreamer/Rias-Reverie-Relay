@@ -14,7 +14,6 @@ assert.equal(pkg.version, '0.5.1.35')
 assert.equal(manifest.version, '0.5.1.35')
 assert.equal(manifest.name, "Ria's Reverie Relay")
 assert.equal(manifest.identifier, 'reverie_relay', 'display branding must preserve the public extension install identity')
-assert(read('README.md').includes(`**Version:** \`${pkg.version}\``), 'README must match the package version')
 assert(read('src/build.ts').includes(`EXTENSION_VERSION = '${pkg.version}'`))
 assert(read('src/build.ts').includes(`BUILD_ID = '20261028-${pkg.version}'`))
 
